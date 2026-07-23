@@ -8,18 +8,25 @@ AGPL-3.0 sections 4 and 5. Keep it accurate as further code is migrated.
 
 ## apps/zotero-addon
 
-Derived from **Zoference** (https://github.com/Leavvind/Zoference),
-Copyright (C) 2024–2026 Leavvind.
+Derived from **Zoference** (https://github.com/Leavvind/Zoference), which is a fork of
+**zotero-reference** (https://github.com/MuiseDestiny/zotero-reference), licensed under
+AGPL-3.0-or-later.
 
-Zoference is itself a modified version of **zotero-reference**
-(https://github.com/MuiseDestiny/zotero-reference), Copyright (C) 2022–2024 Polygon
-(MuiseDestiny), licensed under AGPL-3.0-or-later.
+Copyright is held jointly by everyone who has contributed to that line of work. Per the
+git history of the migrated tree:
 
-UniZero therefore inherits the AGPL-3.0-or-later obligations of both projects. This
-license cannot be changed unilaterally: the upstream copyright holders' terms carry
-forward into every derivative, including this one.
+- Copyright (C) 2022–2024 Polygon / MuiseDestiny — original author of zotero-reference
+- Copyright (C) 2023 ezellohar — bootstrap contributions
+- Copyright (C) 2023 windingwind — plugin template and toolkit contributions
+- Copyright (C) 2026 Thehone1 — Zoference modifications, and the UniZero migration
 
-Modified for UniZero by Leavvind, 2026.
+Roughly 43% of the lines in `apps/zotero-addon/src` and `apps/zotero-addon/addon` still
+trace to the upstream authors by `git blame`, concentrated in the lifecycle hooks,
+provider HTTP layer, tip UI, preferences UI, and about half of the item-pane view.
+
+UniZero therefore inherits AGPL-3.0-or-later. This license cannot be changed
+unilaterally — doing so would require the agreement of every copyright holder listed
+above, not only the most recent one.
 
 ### Bundled and referenced components
 
@@ -39,11 +46,15 @@ redistributed with this program and remains under the terms of each provider.
 ## services/paper-runtime
 
 Not yet migrated. The source is ZoMiner's `paper_service`
-(https://github.com/Leavvind/ZoMiner), Copyright (C) 2025–2026 Leavvind.
+(https://github.com/Leavvind/ZoMiner), Copyright (C) 2025–2026 Thehone1.
 
 `paper_service` is original work distributed as a separate process that communicates
-with the add-on over a versioned localhost HTTP contract. Its license has not yet been
-declared. See [docs/MIGRATION.md](docs/MIGRATION.md).
+with the add-on over a versioned localhost HTTP contract, so it is not a derivative of
+the AGPL-licensed add-on and its author is free to license it independently.
+
+It is nevertheless released under AGPL-3.0-or-later along with the rest of this
+repository, so that UniZero ships under a single, unambiguous license. Because this code
+has one copyright holder, that choice can be revisited at any time — unlike the add-on's.
 
 ## Source distribution obligation
 

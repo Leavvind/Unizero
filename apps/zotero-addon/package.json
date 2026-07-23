@@ -9,8 +9,8 @@
     "addonInstance": "UniZero",
     "legacyAddonRefs": ["zoference", "zoteroreference"],
     "contactEmail": "j45rbnr8p4@privaterelay.appleid.com",
-    "releasepage": "https://github.com/Leavvind/UniZero/releases/latest/download/unizero.xpi",
-    "updaterdf": "https://raw.githubusercontent.com/Leavvind/UniZero/main/update.json"
+    "releasepage": "https://github.com/Leavvind/Unizero/releases/latest/download/unizero.xpi",
+    "updaterdf": "https://raw.githubusercontent.com/Leavvind/Unizero/main/update.json"
   },
   "main": "src/index.ts",
   "scripts": {
@@ -32,14 +32,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Leavvind/UniZero.git"
+    "url": "git+https://github.com/Leavvind/Unizero.git"
   },
   "author": "Leavvind",
   "license": "AGPL-3.0-or-later",
   "bugs": {
-    "url": "https://github.com/Leavvind/UniZero/issues"
+    "url": "https://github.com/Leavvind/Unizero/issues"
   },
-  "homepage": "https://github.com/Leavvind/UniZero#readme",
+  "homepage": "https://github.com/Leavvind/Unizero#readme",
   "dependencies": {
     "zotero-plugin-toolkit": "5.1.4"
   },

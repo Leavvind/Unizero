@@ -4,7 +4,7 @@
       "updates": [
         {
           "version": "0.1.0",
-          "update_link": "https://github.com/Leavvind/UniZero/releases/latest/download/unizero.xpi",
+          "update_link": "https://github.com/Leavvind/Unizero/releases/latest/download/unizero.xpi",
           "applications": {
             "gecko": {
               "strict_min_version": "60.0"
@@ -13,7 +13,7 @@
         },
         {
           "version": "0.1.0",
-          "update_link": "https://github.com/Leavvind/UniZero/releases/latest/download/unizero.xpi",
+          "update_link": "https://github.com/Leavvind/Unizero/releases/latest/download/unizero.xpi",
           "applications": {
             "zotero": {
               "strict_min_version": "6.999"
