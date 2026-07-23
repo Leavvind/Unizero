@@ -1,6 +1,5 @@
 /**
- * The UniZero panel: service status, job list, server directories, and the
- * template editor.
+ * The UniZero panel: job list, server directories, and the template editor.
  *
  * Ported from the panel half of ZoMiner's `modules/plugin.js`.
  *
@@ -21,9 +20,14 @@
 
 import { config } from "../../package.json";
 import { runtimeClient } from "../runtime-client/client";
-import { serviceURL } from "../runtime-client/settings";
-import { ensure, isStartedByPlugin, stop } from "../runtime-client/process";
-import { showError } from "./progress";
+import { ensure } from "../runtime-client/process";
+import {
+  dismissNotice,
+  listNotices,
+  pushNotice,
+  reportServiceFailure,
+  type NoticeInput,
+} from "./notices";
 
 const PANEL_URL = `chrome://${config.addonRef}/content/panel.xhtml`;
 const PANEL_WINDOW_NAME = `${config.addonRef}-panel`;
@@ -31,15 +35,21 @@ const PANEL_WINDOW_NAME = `${config.addonRef}-panel`;
 let panelWindow: Window | null = null;
 let panelOwner: Window | null = null;
 
-/** Everything the panel receives through window.arguments[0].api. */
+/**
+ * Everything the panel receives through window.arguments[0].api.
+ *
+ * There is no start/stop pair here any more: the service comes up with Zotero and
+ * goes down with it. What remains is the one recovery the user can still usefully
+ * perform — retrying a start that failed — reached from the failure notice itself.
+ */
 function panelApi() {
   return {
     Zotero,
-    serviceURL: () => serviceURL(),
     client: runtimeClient,
-    ensureService: () => ensure({ reportError: showError }),
-    stopService: () => stop(),
-    isStartedByPlugin: () => isStartedByPlugin(),
+    ensureService: () => ensure({ reportError: reportServiceFailure }),
+    notices: () => listNotices(),
+    notify: (notice: NoticeInput) => pushNotice(notice),
+    dismissNotice: (id: string) => dismissNotice(id),
   };
 }
 

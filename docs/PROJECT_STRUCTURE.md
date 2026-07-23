@@ -12,7 +12,7 @@ UniZero/
 │       │   ├── features/          Conversion and annotation commands
 │       │   ├── modules/           Relations, metadata, providers, cache, item pane
 │       │   ├── runtime-client/    Runtime HTTP client and process management
-│       │   ├── ui/                Menus, panel bridge, progress
+│       │   ├── ui/                Menus, panel bridge, progress, service notices
 │       │   ├── utils/             Shared add-on utilities
 │       │   └── zotero/            Zotero adapters and artifact identity
 │       ├── scripts/               Build and local Zotero development tools

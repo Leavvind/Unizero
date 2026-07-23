@@ -2,7 +2,8 @@ import { config } from "../../package.json";
 import MetadataEnrichment from "../modules/metadataEnrichment";
 import { registerPrefs } from "../modules/prefs";
 import Views from "../modules/views";
-import { stopOnShutdown } from "../runtime-client/process";
+import { startInBackground, stopOnShutdown } from "../runtime-client/process";
+import { noteServiceFailure } from "../ui/notices";
 import {
   registerAnnotationMenu,
   registerConversionMenus,
@@ -52,6 +53,11 @@ const conversion: FeatureModule = {
   id: "document.convert",
   onWindowLoad(win) {
     registerConversionMenus(win, openPanel);
+    // Not awaited: the service takes up to a minute to answer its first health
+    // check, and window load must not wait on an optional local process. Failures
+    // surface in the panel's Jobs list through noteServiceFailure.
+    void startInBackground({ reportError: noteServiceFailure })
+      .catch((error) => Zotero.logError(error as Error));
   },
   onWindowUnload(win) {
     unregisterConversionMenus(win);

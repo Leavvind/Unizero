@@ -13,6 +13,7 @@ import { runtimeClient } from "../../runtime-client/client";
 import { ensure } from "../../runtime-client/process";
 import { annotationPayload, regularParents } from "../../zotero/annotationAdapter";
 import { showError, startBatch } from "../../ui/progress";
+import { reportServiceFailure } from "../../ui/notices";
 
 /** Put the runtime's injection counts into plain words. */
 function describeResult(result: {
@@ -37,7 +38,7 @@ export async function annotateSelected(mainWindow: Window): Promise<void> {
     return;
   }
 
-  if (!(await ensure({ reportError: showError }))) { return; }
+  if (!(await ensure({ reportError: reportServiceFailure }))) { return; }
 
   const batch = startBatch("UniZero — Annotation injection");
   for (const parent of parents) {

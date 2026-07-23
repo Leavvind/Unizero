@@ -16,6 +16,7 @@ import { annotateSelected } from "../features/annotations/commands";
 import { ensure } from "../runtime-client/process";
 import { runtimeClient } from "../runtime-client/client";
 import { showError } from "./progress";
+import { reportServiceFailure } from "./notices";
 
 const MENU_CONVERT = `${config.addonRef}-convert-menu`;
 const MENU_ANNOTATE = `${config.addonRef}-annotate-menuitem`;
@@ -34,9 +35,8 @@ type OpenPanel = (mainWindow: Window) => void;
  * Build the "Generate Markdown from template" submenu.
  *
  * The template list is fetched when the menu opens rather than prefetched at
- * startup: prefetching would make Zotero's startup contact a local service that is
- * usually not running, and users need to see an up-to-date list after editing
- * their templates.
+ * startup: a list captured at startup would be stale for anyone who has since edited
+ * their templates, and the service may still be coming up at that point anyway.
  */
 function buildConvertMenu(mainWindow: Window, document: Document): Element {
   const convert = (document as any).createXULElement("menu");
@@ -54,7 +54,7 @@ function buildConvertMenu(mainWindow: Window, document: Document): Element {
     if (event.target !== templatePopup) { return; }
     templatePopup.textContent = "";
     try {
-      if (!(await ensure({ reportError: showError }))) {
+      if (!(await ensure({ reportError: reportServiceFailure }))) {
         throw new Error("The local service is not running");
       }
       const response = await runtimeClient.templates();

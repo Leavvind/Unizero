@@ -11,7 +11,7 @@ paper runtime.
 - importing and relating discovered works;
 - PDF conversion commands and generated-artifact registration;
 - annotation export and Markdown injection;
-- runtime status, jobs, templates, launch, and shutdown.
+- runtime lifecycle, jobs, service notices, and templates.
 
 Document conversion and annotation injection require
 `services/paper-runtime`. Other features run without it.
@@ -25,7 +25,7 @@ Document conversion and annotation injection require
 | `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
 | `src/runtime-client/` | HTTP contracts, client, launch resolution, process state |
 | `src/zotero/` | Zotero adapters, library scope, artifact identity |
-| `src/ui/` | Menus, progress, and the panel bridge |
+| `src/ui/` | Menus, progress, service notices, and the panel bridge |
 | `addon/` | Manifest, locales, preferences, icons, dialog markup |
 
 New Zotero mutations belong in `src/zotero`; new command orchestration belongs in
@@ -45,8 +45,16 @@ The add-on uses `/api/v1` on `127.0.0.1`. Launch resolution is implemented in
 3. a `PATH` interpreter that can import `unizero_runtime`;
 4. the `unizero-runtime` console command.
 
-The selected port is passed to the child process. Add-on preferences live under
-*Settings → UniZero*; runtime-backed job and template controls live in the UniZero panel.
+The selected port is passed to the child process.
+
+The runtime's lifetime follows Zotero's. A main window load starts it in the background
+after a short delay, and quitting Zotero stops it again; both steps are silent, and both
+are governed by the automatic start and stop preferences. The panel therefore has no
+service controls. A start that fails, or a service that stops answering mid-session,
+appears as a notice in the panel's Jobs list, carrying a button to try the start again.
+
+Add-on preferences live under *Settings → UniZero*; runtime-backed job and template
+controls live in the UniZero panel.
 
 ## Build
 

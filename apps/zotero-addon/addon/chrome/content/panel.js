@@ -1,4 +1,11 @@
-/** UniZero panel: service status, jobs, and YAML-backed template editor. */
+/**
+ * UniZero panel: jobs, service notices, and the YAML-backed template editor.
+ *
+ * The service is not something the user drives from here — it starts with Zotero and
+ * stops with it. What the panel still owes them is a place to find out when that goes
+ * wrong, which is why service notices are rendered into the Jobs table rather than
+ * into a status card of their own.
+ */
 
 "use strict";
 
@@ -18,9 +25,6 @@ var Panel = {
   removedSettings: {},
 
   init() {
-    document.getElementById("btn-start").addEventListener("click", () => this.onStart());
-    document.getElementById("btn-stop").addEventListener("click", () => this.onStop());
-    document.getElementById("btn-refresh").addEventListener("click", () => this.refresh());
     document.getElementById("btn-settings").addEventListener("click", () => this.openSettings());
     document.getElementById("btn-settings-close").addEventListener("click", () => this.closeSettings());
     document.getElementById("settings-overlay").addEventListener("click", (event) => {
@@ -77,13 +81,22 @@ var Panel = {
     try {
       let health = null;
       try { health = await api.client.health(); } catch (error) {}
-      this.online = !!(health && health.ok);
-      this.renderStatus(health);
-      document.getElementById("server-offline").style.display = this.online ? "none" : "block";
-      document.getElementById("templates-offline").style.display = this.online ? "none" : "block";
+      let online = !!(health && health.ok);
+      // The service is meant to stay up for the whole Zotero session, so losing it is
+      // news. Reported on the transition only: repeating it every two seconds would
+      // say nothing new and push the jobs out of sight.
+      if (this.online && !online) {
+        api.notify({
+          detail: "The service stopped responding. Conversions cannot run until it is back.",
+        });
+      }
+      this.online = online;
+      document.getElementById("server-offline").style.display = online ? "none" : "block";
+      document.getElementById("templates-offline").style.display = online ? "none" : "block";
 
-      if (this.online) {
-        try { this.renderJobs(await api.client.jobs()); } catch (error) {}
+      let jobs = [];
+      if (online) {
+        try { jobs = await api.client.jobs(); } catch (error) {}
         if (!this.serverCfgLoaded) {
           try {
             let response = await api.client.config();
@@ -97,36 +110,23 @@ var Panel = {
           }
         }
       }
+      // Rendered even while offline: that is precisely when the notices explaining
+      // why there are no jobs matter most.
+      this.renderJobs(jobs);
     } finally {
       this.busy = false;
     }
-  },
-
-  renderStatus(health) {
-    let dot = document.getElementById("status-dot");
-    let text = document.getElementById("status-text");
-    let detail = document.getElementById("status-detail");
-    if (this.online) {
-      dot.className = "dot ok";
-      let ver = health.mineru_version ? "MinerU " + health.mineru_version : "MinerU version unknown";
-      text.textContent = "Running (" + ver + (health.queued ? ", queued " + health.queued : "") + ")";
-      detail.textContent = health.vault_configured === false
-        ? "No default output base directory set; not required when Publish uses absolute paths  |  " + api.serviceURL()
-        : "Default output base directory: " + health.vault + "  |  " + api.serviceURL();
-    } else {
-      dot.className = "dot bad";
-      text.textContent = "Not running";
-      detail.textContent = api.serviceURL() + " — click to start, or let a conversion start it";
-    }
-    document.getElementById("btn-start").disabled = this.online;
-    document.getElementById("btn-stop").disabled = !this.online;
   },
 
   renderJobs(jobs) {
     let empty = document.getElementById("jobs-empty");
     let table = document.getElementById("jobs-table");
     let body = document.getElementById("jobs-body");
-    if (!jobs || !jobs.length) {
+    // Service notices and runtime jobs share one list, newest first. A notice is
+    // distinguishable by its `detail` field, which no job carries.
+    let rows = api.notices().concat(jobs || []);
+    rows.sort((first, second) => (second.created || 0) - (first.created || 0));
+    if (!rows.length) {
       empty.style.display = "block";
       table.style.display = "none";
       return;
@@ -135,45 +135,51 @@ var Panel = {
     table.style.display = "table";
     body.textContent = "";
     const labels = { queued: "Queued", running: "Converting", done: "Done", failed: "Failed" };
-    for (let job of jobs) {
+    for (let entry of rows) {
       let row = document.createElement("tr");
       let time = document.createElement("td");
-      time.textContent = new Date(job.created * 1000).toLocaleTimeString("zh-CN", { hour12: false });
+      time.textContent = new Date(entry.created * 1000).toLocaleTimeString("zh-CN", { hour12: false });
       row.appendChild(time);
       let title = document.createElement("td");
-      title.textContent = job.title || "(untitled)";
+      title.textContent = entry.title || "(untitled)";
       row.appendChild(title);
       let status = document.createElement("td");
-      status.className = "status " + job.status;
-      status.textContent = labels[job.status] || job.status;
+      status.className = "status " + entry.status;
+      status.textContent = labels[entry.status] || entry.status;
       row.appendChild(status);
       let info = document.createElement("td");
-      info.textContent = job.error || job.last_log || (job.md_path ? job.md_path.split(/[\\/]/).pop() : "");
+      let text = document.createElement("span");
+      text.textContent = entry.detail !== undefined
+        ? entry.detail
+        : entry.error || entry.last_log || (entry.md_path ? entry.md_path.split(/[\\/]/).pop() : "");
+      info.appendChild(text);
+      if (entry.retryable) {
+        let retry = document.createElement("button");
+        retry.className = "row-action";
+        retry.textContent = "Start service";
+        retry.addEventListener("click", () => this.retryService(entry.id));
+        info.appendChild(retry);
+      }
       row.appendChild(info);
       body.appendChild(row);
     }
   },
 
-  async onStart() {
-    document.getElementById("btn-start").disabled = true;
+  /**
+   * The one service action left to the user: try a start that failed once more.
+   *
+   * The notice is dropped before the attempt rather than after it, so the row cannot
+   * outlive the problem it describes — the add-on posts a fresh notice if this start
+   * fails too, and shows its own progress window meanwhile.
+   */
+  async retryService(noticeId) {
+    api.dismissNotice(noticeId);
+    this.refresh();
     try { await api.ensureService(); } finally {
       this.serverCfgLoaded = false;
       this.templatesLoaded = false;
       this.refresh();
     }
-  },
-
-  async onStop() {
-    let active = false;
-    try {
-      let jobs = await api.client.jobs();
-      active = jobs.some((job) => job.status === "running" || job.status === "queued");
-    } catch (error) {}
-    if (active && !window.confirm("Jobs are still converting or queued. Stop the service anyway?")) return;
-    await api.stopService();
-    this.serverCfgLoaded = false;
-    this.templatesLoaded = false;
-    this.refresh();
   },
 
   loadServerForm(config, path) {

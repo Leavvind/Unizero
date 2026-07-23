@@ -41,29 +41,20 @@
       border-radius: 9px;
       background: var(--card);
     }
-    .row, .actions, .toolbar {
+    .page-head, .actions, .toolbar {
       display: flex;
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
     }
     .spacer { flex: 1; }
-    .dot {
-      display: inline-block;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: var(--muted);
-    }
-    .dot.ok { background: var(--ok); }
-    .dot.bad { background: var(--bad); }
-    #status-text { font-weight: 650; }
-    #status-detail, .hint {
+    .page-head { margin-bottom: 4px; }
+    .page-title { font-size: 15px; font-weight: 700; }
+    .hint {
       color: var(--muted);
       font-size: 12px;
       overflow-wrap: anywhere;
     }
-    #status-detail { margin-top: 4px; }
     button, input, textarea {
       color: var(--fg) !important;
       -moz-text-fill-color: var(--fg);
@@ -121,6 +112,7 @@
       vertical-align: top;
     }
     th { color: var(--muted); font-weight: 650; }
+    td .row-action { min-height: 26px; margin-left: 8px; padding: 1px 9px; font-size: 12px; }
     td.status { white-space: nowrap; font-weight: 650; }
     td.status.queued { color: var(--warn); }
     td.status.running { color: var(--accent); }
@@ -328,23 +320,20 @@
   <script src="panel.js"></script>
 </head>
 <body>
-  <h2 style="margin-top:0">Service status</h2>
-  <div class="card">
-    <div class="row">
-      <span class="dot" id="status-dot"></span>
-      <span id="status-text">Checking…</span>
-      <span class="spacer"></span>
-      <button id="btn-settings">Service directories…</button>
-      <button id="btn-start" class="primary">Start service</button>
-      <button id="btn-stop">Stop service</button>
-      <button id="btn-refresh">Refresh</button>
-    </div>
-    <div id="status-detail"></div>
+  <!--
+    There is no Service status card: the local service starts with Zotero and stops
+    with it, so there is nothing here to switch on or off. Anything that goes wrong
+    with it appears as a notice in Jobs below, next to the conversions it affects.
+  -->
+  <div class="page-head">
+    <span class="page-title">UniZero</span>
+    <span class="spacer"></span>
+    <button id="btn-settings">Service directories…</button>
   </div>
 
-  <h2>Jobs</h2>
+  <h2 style="margin-top:12px">Jobs</h2>
   <div class="card">
-    <div id="jobs-empty" class="hint">No jobs yet (this service session)</div>
+    <div id="jobs-empty" class="hint">Nothing yet — conversions and service messages appear here.</div>
     <table id="jobs-table" style="display:none">
       <thead><tr><th style="width:64px">Time</th><th>Title</th><th style="width:70px">Status</th><th>Details</th></tr></thead>
       <tbody id="jobs-body"></tbody>
@@ -353,7 +342,7 @@
 
   <h2>Conversion templates</h2>
   <div class="card">
-    <div id="templates-offline" class="offline">The service is not running — start it to read and edit templates.</div>
+    <div id="templates-offline" class="offline">The local service is not up yet — templates load once it answers. It starts with Zotero; see Jobs if it does not.</div>
     <div class="toolbar template-toolbar">
       <div id="template-tabs" class="template-tabs" role="tablist"></div>
       <button id="btn-template-duplicate">Duplicate template</button>
@@ -417,7 +406,7 @@
           auto start/stop — have moved to Settings → UniZero.
         -->
         <div class="setting-section-content">
-          <div id="server-offline" class="offline">The service is not running — start it to read and save service directories.</div>
+          <div id="server-offline" class="offline">The local service is not up yet — these directories can only be read and saved while it is running.</div>
           <div class="form">
             <label for="s-output-root">Default output base directory</label><input type="text" id="s-output-root" placeholder="e.g. ~/Academic or D:\Academic"/>
             <div class="hint path-help">Used only to resolve relative Publish destinations; leave empty when Publish uses absolute paths.</div>

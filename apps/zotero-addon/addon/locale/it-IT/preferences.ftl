@@ -69,7 +69,7 @@ runtime-serverScript-input =
 runtime-port = Porta
 runtime-port-note = Ha effetto al prossimo avvio del servizio
 runtime-autoStart =
-  .label = Avvia il servizio automaticamente quando serve
+  .label = Avvia il servizio in background all'avvio di Zotero
 runtime-autoStopOnQuit =
   .label = Ferma il servizio all'uscita di Zotero (solo quello avviato da questo componente)
 

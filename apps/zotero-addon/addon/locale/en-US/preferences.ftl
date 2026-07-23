@@ -69,9 +69,9 @@ runtime-serverScript-input =
 runtime-port = Port
 runtime-port-note = Takes effect the next time the service starts
 runtime-autoStart =
-  .label = Start the service automatically when needed
+  .label = Start the service in the background when Zotero starts
 runtime-autoStopOnQuit =
-  .label = Stop the service when Zotero quits (only one this add-on started)
+  .label = Stop the service when Zotero quits (only the one this add-on started)
 
 caption-conversion = Conversion
 conversion-mdSnapshot =

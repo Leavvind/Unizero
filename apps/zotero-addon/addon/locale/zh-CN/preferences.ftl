@@ -73,7 +73,7 @@ runtime-serverScript-input =
 runtime-port = 端口
 runtime-port-note = 下次启动服务时生效
 runtime-autoStart =
-  .label = 需要时自动启动服务
+  .label = 启动 Zotero 时在后台启动服务
 runtime-autoStopOnQuit =
   .label = 退出 Zotero 时停止服务（只停插件自己启动的）
 

@@ -14,6 +14,8 @@ READMEs and `docs/ARCHITECTURE.md`.
   attachments are untouched.
 - Exercise preferences through close/reopen and confirm runtime port changes reach a
   manually started service.
+- Verify the automatic service start and stop: silent startup, shutdown on quit, a
+  failed start appearing as a notice in the panel's Jobs list, and its retry action.
 - Run a real MinerU conversion and inspect Markdown, tables, references, links, and
   annotation output.
 

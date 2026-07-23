@@ -49,7 +49,7 @@ The process boundary is recorded in
 | `apps/zotero-addon/src/features` | User commands and feature orchestration |
 | `apps/zotero-addon/src/runtime-client` | HTTP contract client, settings, and process launch |
 | `apps/zotero-addon/src/zotero` | Zotero item, attachment, annotation, and identity adapters |
-| `apps/zotero-addon/src/ui` | Menus, panel bridge, and progress UI |
+| `apps/zotero-addon/src/ui` | Menus, panel bridge, progress, and service notices |
 | `apps/zotero-addon/src/modules` | Established relations, metadata, cache, and item-pane code |
 | `services/paper-runtime/src/unizero_runtime/api` | FastAPI transport |
 | `services/paper-runtime/src/unizero_runtime/application` | Jobs, configuration, and use cases |

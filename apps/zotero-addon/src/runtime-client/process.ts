@@ -4,6 +4,11 @@
  * Ported from ZoMiner's `modules/service.js`. Choosing the launch command now
  * lives in launch.ts — ZoMiner had only the `<python> <server.py>` shape, and
  * there are three today.
+ *
+ * The service's lifetime follows Zotero's: startInBackground() brings it up shortly
+ * after a main window loads, stopOnShutdown() takes it down on quit. Nothing here
+ * shows the user a service to operate — that was the panel's Service status card, and
+ * a service that manages itself does not need one.
  */
 
 import { runtimeClient } from "./client";
@@ -17,9 +22,22 @@ import type { HealthResponse } from "./contracts";
  */
 const STARTUP_TIMEOUT_S = 60;
 
+/**
+ * Delay before the automatic start that follows Zotero's own startup.
+ *
+ * Resolving the launch plan runs synchronous interpreter probes (see launch.ts) that
+ * block the UI thread for as long as the probed Python takes to boot. Paying that
+ * during Zotero's first paint would be felt as a freeze; nothing needs the service
+ * earlier, because the soonest anything can ask for it is a click away.
+ */
+const AUTO_START_DELAY_MS = 4000;
+
 let process: any = null;
 let startedByPlugin = false;
 let lastPlan: LaunchPlan | null = null;
+
+/** A start attempt in flight. Concurrent callers join it rather than spawning twice. */
+let pendingStart: Promise<StartOutcome> | null = null;
 
 function startProcess(): void {
   // Pass the port to the child explicitly instead of letting it read config.json:
@@ -88,6 +106,86 @@ export interface EnsureOptions {
   /** Show a failure message. Injected by the caller: process management should
    *  not decide the UI. */
   reportError(message: string): void;
+  /**
+   * Show the "Starting…" progress window while waiting. On by default, because a
+   * start the user triggered has to look like it is happening; off for the automatic
+   * background start, which nobody asked for and must not interrupt anything.
+   */
+  showProgress?: boolean;
+}
+
+interface StartOutcome {
+  ok: boolean;
+  /** Set only on failure; already phrased for the user. */
+  message?: string;
+}
+
+/**
+ * Spawn the process and wait for it to answer a health check.
+ *
+ * Deliberately free of UI so it can be shared: whoever asked for the start reports
+ * the outcome in whatever way suits them, and a second caller arriving mid-start
+ * joins this promise instead of launching a rival process.
+ */
+async function startAndWait(): Promise<StartOutcome> {
+  try {
+    startProcess();
+  } catch (error) {
+    return {
+      ok: false,
+      message: `Could not start the local conversion service: ${(error as Error).message || error}`,
+    };
+  }
+
+  try {
+    for (let attempt = 0; attempt < STARTUP_TIMEOUT_S; attempt++) {
+      await Zotero.Promise.delay(1000);
+      if (await health()) { return { ok: true }; }
+      // If the process is already dead, do not wait out the full 60s — the failure
+      // can be reported now.
+      if (process && !process.isRunning) {
+        const tail = await readLogTail();
+        let message = "The conversion service exited immediately after starting.\n";
+        message += `Launch mode [${lastPlan?.mode}]: ${lastPlan?.description}\n`;
+        message += tail
+          ? `\nEnd of server.log:\n${tail}`
+          : "\nCheck that this Python has unizero-runtime and its dependencies " +
+            "(including mineru) installed.";
+        process = null;
+        startedByPlugin = false;
+        return { ok: false, message };
+      }
+    }
+  } catch (error) {
+    return { ok: false, message: `Waiting for the conversion service failed: ${error}` };
+  }
+
+  return {
+    ok: false,
+    message:
+      `The conversion service timed out on startup (${STARTUP_TIMEOUT_S}s).\n` +
+      `Launch mode [${lastPlan?.mode}]: ${lastPlan?.description}\n` +
+      `Check server.log under ${runtimeHome()}.`,
+  };
+}
+
+/** The "Starting…" window, as the two states ensure() actually needs from it. */
+function startingProgress() {
+  const progress = new Zotero.ProgressWindow({ closeOnClick: false });
+  progress.changeHeadline("UniZero");
+  const line = new progress.ItemProgress("", "Starting the local conversion service…");
+  line.setProgress(30);
+  progress.show();
+  return {
+    started(): void {
+      line.setProgress(100);
+      line.setText("Service started");
+      progress.startCloseTimer(1500);
+    },
+    close(): void {
+      progress.close();
+    },
+  };
 }
 
 /**
@@ -99,85 +197,60 @@ export interface EnsureOptions {
  * quietly. The user has already been told through reportError, and throwing again
  * would only duplicate the message.
  */
-export async function ensure({ reportError }: EnsureOptions): Promise<boolean> {
+export async function ensure({
+  reportError,
+  showProgress = true,
+}: EnsureOptions): Promise<boolean> {
   if (await health()) { return true; }
 
   if (!getRuntimePref("autoStart")) {
     reportError(
       "The local conversion service is not running.\nRun: unizero-runtime\n" +
-      "(or enable automatic start under Settings → UniZero → Local service)",
+      "(or turn automatic start back on under Settings → UniZero → Local service)",
     );
     return false;
   }
 
-  const progress = new Zotero.ProgressWindow({ closeOnClick: false });
-  progress.changeHeadline("UniZero");
-  const line = new progress.ItemProgress("", "Starting the local conversion service…");
-  line.setProgress(30);
-  progress.show();
-
-  try {
-    startProcess();
-  } catch (error) {
-    progress.close();
-    reportError(`Could not start the local conversion service: ${(error as Error).message || error}`);
-    return false;
+  const progress = showProgress ? startingProgress() : null;
+  if (!pendingStart) {
+    const attempt = startAndWait();
+    pendingStart = attempt;
+    // Cleared on completion, not before: until then every caller has to join this
+    // attempt. The identity check keeps a late completion from clearing a newer one.
+    void attempt.then(() => {
+      if (pendingStart === attempt) { pendingStart = null; }
+    });
   }
 
-  for (let attempt = 0; attempt < STARTUP_TIMEOUT_S; attempt++) {
-    await Zotero.Promise.delay(1000);
-    if (await health()) {
-      line.setProgress(100);
-      line.setText("Service started");
-      progress.startCloseTimer(1500);
-      return true;
-    }
-    // If the process is already dead, do not wait out the full 60s — the failure
-    // can be reported now.
-    if (process && !process.isRunning) {
-      progress.close();
-      const tail = await readLogTail();
-      let message = "The conversion service exited immediately after starting.\n";
-      message += `Launch mode [${lastPlan?.mode}]: ${lastPlan?.description}\n`;
-      message += tail
-        ? `\nEnd of server.log:\n${tail}`
-        : "\nCheck that this Python has unizero-runtime and its dependencies " +
-          "(including mineru) installed.";
-      reportError(message);
-      process = null;
-      startedByPlugin = false;
-      return false;
-    }
+  const outcome = await pendingStart;
+  if (outcome.ok) {
+    progress?.started();
+    return true;
   }
-
-  progress.close();
-  reportError(
-    `The conversion service timed out on startup (${STARTUP_TIMEOUT_S}s).\n` +
-    `Launch mode [${lastPlan?.mode}]: ${lastPlan?.description}\n` +
-    `Check server.log under ${runtimeHome()}.`,
-  );
+  progress?.close();
+  reportError(outcome.message || "The local conversion service could not be started.");
   return false;
 }
 
-/** Stop deliberately: ask for a graceful shutdown first, then kill as a fallback. */
-export async function stop(): Promise<void> {
-  try {
-    await runtimeClient.shutdown();
-  } catch (error) {
-    // The service may already be gone, or was never started by us.
-  }
-  await Zotero.Promise.delay(700);
-  try {
-    if (process && process.isRunning) { process.kill(); }
-  } catch (error) {
-    // The process has already exited.
-  }
-  process = null;
-  startedByPlugin = false;
+/**
+ * Start the service in the background, as Zotero comes up.
+ *
+ * Silent throughout: no progress window, and a failure goes wherever the caller's
+ * reportError puts it — the panel's Jobs list — rather than into a dialog over a
+ * session that may have nothing to do with conversion. Doing nothing when automatic
+ * start is off is the whole meaning of that preference.
+ */
+export async function startInBackground(options: EnsureOptions): Promise<void> {
+  if (!getRuntimePref("autoStart")) { return; }
+  await Zotero.Promise.delay(AUTO_START_DELAY_MS);
+  // A second main window opening must not start a second service: ensure() joins an
+  // attempt already in flight, and its health check covers a service already up.
+  await ensure({ ...options, showProgress: false });
 }
 
 /**
- * Cleanup when the add-on is unloaded or Zotero shuts down.
+ * Cleanup when the add-on is unloaded or Zotero shuts down. The only way the service
+ * is ever stopped, now that the panel has no Stop button.
  *
  * Only kills processes we started ourselves: a service the user launched by hand
  * should not disappear because Zotero closed. Nothing here may await — the
@@ -193,8 +266,4 @@ export function stopOnShutdown(): void {
   }
   process = null;
   startedByPlugin = false;
-}
-
-export function isStartedByPlugin(): boolean {
-  return startedByPlugin;
 }

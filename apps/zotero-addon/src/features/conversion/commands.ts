@@ -15,6 +15,7 @@ import {
   markConverted,
 } from "../../zotero/conversionAdapter";
 import { showError, startBatch, type ProgressLine } from "../../ui/progress";
+import { reportServiceFailure } from "../../ui/notices";
 import { getConversionPref } from "./settings";
 
 /**
@@ -87,7 +88,7 @@ export async function convertSelected(
     return;
   }
 
-  if (!(await ensure({ reportError: showError }))) { return; }
+  if (!(await ensure({ reportError: reportServiceFailure }))) { return; }
 
   const batch = startBatch(`UniZero — ${templateName || templateId || "Conversion template"}`);
   for (const target of targets) {
