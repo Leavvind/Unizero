@@ -16,11 +16,15 @@ import { annotateSelected } from "../features/annotations/commands";
 import { ensure } from "../runtime-client/process";
 import { runtimeClient } from "../runtime-client/client";
 import { showError } from "./progress";
-import { reportServiceFailure } from "./notices";
+import { noteConversionFailure, noteServiceFailure } from "./notices";
 
 const MENU_CONVERT = `${config.addonRef}-convert-menu`;
 const MENU_ANNOTATE = `${config.addonRef}-annotate-menuitem`;
 const MENU_PANEL = `${config.addonRef}-panel-menuitem`;
+const MENU_SEPARATOR = `${config.addonRef}-itemmenu-separator`;
+
+/** The add-on's item-menu commands, in the order they appear at the bottom. */
+const ITEM_MENU_COMMANDS = [MENU_CONVERT, MENU_ANNOTATE];
 
 /**
  * Fallback template used when the service is unavailable or the template list
@@ -30,6 +34,70 @@ const FALLBACK_TEMPLATE_ID = "paper-to-markdown";
 const FALLBACK_TEMPLATE_NAME = "Generate paper Markdown";
 
 type OpenPanel = (mainWindow: Window) => void;
+
+/**
+ * Item-menu ordering listeners, one per main window, so unregistration can remove
+ * exactly what registration added (AGENTS.md invariant 8).
+ */
+const orderListeners = new WeakMap<Window, EventListener>();
+
+/**
+ * Put this add-on's entries, behind a separator, at the bottom of the item menu.
+ *
+ * Position cannot be settled once at registration time: every plugin appends to the
+ * same popup as it loads, so the entries at the bottom are simply whoever registered
+ * last, and load order is not ours to choose. Re-appending whenever the menu opens
+ * settles it at display time instead, which is the only moment the order is visible.
+ */
+function moveEntriesToBottom(document: Document): void {
+  const itemMenu = document.getElementById("zotero-itemmenu");
+  if (!itemMenu) { return; }
+  const commands = ITEM_MENU_COMMANDS
+    .map((id) => document.getElementById(id))
+    .filter((element): element is HTMLElement => !!element);
+  const separator = document.getElementById(MENU_SEPARATOR);
+  // A separator with nothing after it is a stray line across someone else's menu.
+  if (!commands.length) {
+    separator?.remove();
+    return;
+  }
+  if (separator) { itemMenu.appendChild(separator); }
+  for (const command of commands) { itemMenu.appendChild(command); }
+}
+
+/** Add the separator and the ordering listener. Idempotent; safe to call per feature. */
+function ensureItemMenuOrdering(mainWindow: Window): void {
+  const document = mainWindow.document;
+  const itemMenu = document.getElementById("zotero-itemmenu");
+  if (!itemMenu) { return; }
+  if (!document.getElementById(MENU_SEPARATOR)) {
+    const separator = (document as any).createXULElement("menuseparator");
+    separator.id = MENU_SEPARATOR;
+    itemMenu.appendChild(separator);
+  }
+  if (!orderListeners.has(mainWindow)) {
+    const listener = (event: Event) => {
+      // A submenu's popupshowing bubbles up to the item menu; handle only this level.
+      if (event.target !== itemMenu) { return; }
+      moveEntriesToBottom(document);
+    };
+    itemMenu.addEventListener("popupshowing", listener);
+    orderListeners.set(mainWindow, listener);
+  }
+  moveEntriesToBottom(document);
+}
+
+/** Drop the separator and the listener once the last of our entries is gone. */
+function releaseItemMenuOrdering(mainWindow: Window): void {
+  const document = mainWindow.document;
+  if (ITEM_MENU_COMMANDS.some((id) => document.getElementById(id))) { return; }
+  document.getElementById(MENU_SEPARATOR)?.remove();
+  const listener = orderListeners.get(mainWindow);
+  if (listener) {
+    document.getElementById("zotero-itemmenu")?.removeEventListener("popupshowing", listener);
+    orderListeners.delete(mainWindow);
+  }
+}
 
 /**
  * Build the "Generate Markdown from template" submenu.
@@ -54,7 +122,9 @@ function buildConvertMenu(mainWindow: Window, document: Document): Element {
     if (event.target !== templatePopup) { return; }
     templatePopup.textContent = "";
     try {
-      if (!(await ensure({ reportError: reportServiceFailure }))) {
+      // Reported as a notice rather than a popup: the user is only browsing a menu,
+      // and the fallback entry below still lets them convert.
+      if (!(await ensure({ reportError: noteServiceFailure }))) {
         throw new Error("The local service is not running");
       }
       const response = await runtimeClient.templates();
@@ -67,10 +137,7 @@ function buildConvertMenu(mainWindow: Window, document: Document): Element {
         entry.setAttribute("tooltiptext", template.description || template.id);
         entry.addEventListener("command", () => {
           convertSelected(mainWindow, template.id, template.name)
-            .catch((error) => {
-              ztoolkit.log(`convertSelected error: ${error}`);
-              showError(String(error));
-            });
+            .catch((error) => noteConversionFailure(String(error)));
         });
         templatePopup.appendChild(entry);
       }
@@ -81,9 +148,7 @@ function buildConvertMenu(mainWindow: Window, document: Document): Element {
       fallback.setAttribute("label", `${FALLBACK_TEMPLATE_NAME} (default template)`);
       fallback.addEventListener("command", () => {
         convertSelected(mainWindow, FALLBACK_TEMPLATE_ID, FALLBACK_TEMPLATE_NAME)
-          .catch((convertError) => {
-            showError(String(convertError));
-          });
+          .catch((convertError) => noteConversionFailure(String(convertError)));
       });
       templatePopup.appendChild(fallback);
     }
@@ -111,6 +176,7 @@ export function registerConversionMenus(
     panel.addEventListener("command", () => openPanel(mainWindow));
     toolsMenu.appendChild(panel);
   }
+  ensureItemMenuOrdering(mainWindow);
 }
 
 /** Annotation command contribution. Idempotent per main window. */
@@ -129,6 +195,7 @@ export function registerAnnotationMenu(mainWindow: Window): void {
     });
   });
   itemMenu.appendChild(annotate);
+  ensureItemMenuOrdering(mainWindow);
 }
 
 export function unregisterConversionMenus(mainWindow: Window): void {
@@ -136,8 +203,10 @@ export function unregisterConversionMenus(mainWindow: Window): void {
     const element = mainWindow.document.getElementById(id);
     if (element) { element.remove(); }
   }
+  releaseItemMenuOrdering(mainWindow);
 }
 
 export function unregisterAnnotationMenu(mainWindow: Window): void {
   mainWindow.document.getElementById(MENU_ANNOTATE)?.remove();
+  releaseItemMenuOrdering(mainWindow);
 }

@@ -243,17 +243,65 @@
     .property-table { display: flex; flex-direction: column; gap: 6px; }
     .property-row {
       display: grid;
-      grid-template-columns: minmax(90px, 150px) 92px minmax(0, 1fr) auto auto auto auto;
+      grid-template-columns: minmax(90px, 150px) 108px minmax(0, 1fr) auto auto auto auto;
       gap: 6px;
       align-items: center;
     }
-    .property-row input[type="text"], .property-row select { min-width: 0; }
+    .property-row input[type="text"], .property-row .dropdown { min-width: 0; }
     .property-row button {
       min-width: 30px;
       padding: 4px 6px;
     }
     .property-row button[disabled] { opacity: 0.4; }
     .property-add { align-self: flex-start; margin-top: 3px; }
+    /* Stands in for the HTML select element, whose list never opens in a chrome
+       dialog; see createDropdown() in panel.js. This file is XHTML, so a literal
+       angle bracket here — even inside a comment — is parsed as markup. */
+    .dropdown { position: relative; }
+    .dropdown-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      text-align: left;
+    }
+    .dropdown-label {
+      flex: 1 1 auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .dropdown-caret { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
+    .dropdown-toggle[aria-expanded="true"] {
+      border-color: var(--accent);
+      background: var(--soft);
+    }
+    .dropdown-menu {
+      position: fixed;
+      z-index: 900;
+      display: flex;
+      flex-direction: column;
+      padding: 4px;
+      border: 1px solid #bfc3ca;
+      border-radius: 7px;
+      background: #fff;
+      box-shadow: 0 10px 26px rgba(0, 0, 0, .18);
+    }
+    .dropdown-option {
+      min-height: 28px;
+      border: none;
+      border-radius: 5px;
+      background: transparent;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .dropdown-option:hover, .dropdown-option:focus { background: var(--soft); }
+    .dropdown-option.chosen {
+      background: var(--soft);
+      color: var(--accent-dark) !important;
+      -moz-text-fill-color: var(--accent-dark);
+      font-weight: 650;
+    }
     .choice {
       display: inline-flex;
       align-items: center;

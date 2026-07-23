@@ -21,6 +21,9 @@ const MAX_NOTICES = 20;
 /** Default title. Shared by every local-service notice so repeats collapse onto one row. */
 const SERVICE_TITLE = "Local conversion service";
 
+/** Default title for conversion failures that never became a runtime job. */
+const CONVERSION_TITLE = "Markdown conversion";
+
 export interface ServiceNotice {
   id: string;
   /** Unix seconds, like the runtime's job `created`, so the panel can sort one merged list. */
@@ -96,4 +99,17 @@ export function noteServiceFailure(message: string): void {
 export function reportServiceFailure(message: string): void {
   showError(message);
   noteServiceFailure(message);
+}
+
+/**
+ * Report a conversion problem the runtime's own job list cannot show — a request it
+ * never accepted, or the Zotero-side bookkeeping that follows a finished job.
+ *
+ * `title` is the affected item, so one row per item survives; the default covers the
+ * failures that belong to the batch rather than to any one item. Never retryable:
+ * starting the service again is not what fixes a missing PDF or a rejected request.
+ */
+export function noteConversionFailure(detail: string, title?: string): void {
+  ztoolkit.log(`conversion notice: ${detail}`);
+  pushNotice({ title: title || CONVERSION_TITLE, detail, retryable: false });
 }

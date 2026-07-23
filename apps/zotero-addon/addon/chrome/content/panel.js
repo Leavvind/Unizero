@@ -565,21 +565,17 @@ var Panel = {
         key.value = entry.key === undefined ? "" : entry.key;
         key.addEventListener("input", () => { entry.key = key.value; });
 
-        let type = document.createElement("select");
-        type.className = "property-type";
-        typeNames.forEach((name, position) => {
-          let option = document.createElement("option");
-          option.value = name;
-          option.textContent = typeLabels[position] || name;
-          type.appendChild(option);
-        });
-        type.value = entry.type || "text";
-        type.addEventListener("change", () => {
-          entry.type = type.value;
-          // A list written as one line of comma-separated literals only becomes
-          // a real list once the row says so; re-read the text under the new type.
-          entry.value = this.propertyValueFromText(value.value, entry.type);
-        });
+        let type = this.createDropdown(
+          typeNames,
+          typeLabels,
+          entry.type || "text",
+          (chosen) => {
+            entry.type = chosen;
+            // A list written as one line of comma-separated literals only becomes
+            // a real list once the row says so; re-read the text under the new type.
+            entry.value = this.propertyValueFromText(value.value, chosen);
+          },
+        );
 
         let value = document.createElement("input");
         value.type = "text";
@@ -636,6 +632,120 @@ var Panel = {
       table.appendChild(add);
     };
     redraw();
+  },
+
+  /**
+   * A drop-down built out of ordinary elements, standing in for `<select>`.
+   *
+   * An HTML `<select>` renders in this window but never opens its list: the popup a
+   * select needs is not available to a chrome dialog like this one, which left the
+   * frontmatter type column visible, focusable, and impossible to change. Everything
+   * below is drawn by this document, so it behaves the same way the rest of the panel
+   * does.
+   *
+   * The list is positioned in viewport coordinates because the settings pane it lives
+   * in clips its own overflow; anchored inside the row, the list would be cut off at
+   * the pane edge.
+   *
+   * Returns the element to place in the layout.
+   */
+  createDropdown(values, labels, selected, onChange) {
+    let current = values.includes(selected) ? selected : values[0];
+    let root = document.createElement("div");
+    root.className = "dropdown";
+
+    let toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "dropdown-toggle";
+    toggle.setAttribute("aria-haspopup", "listbox");
+    toggle.setAttribute("aria-expanded", "false");
+    let label = document.createElement("span");
+    label.className = "dropdown-label";
+    let caret = document.createElement("span");
+    caret.className = "dropdown-caret";
+    caret.textContent = "▾";
+    toggle.appendChild(label);
+    toggle.appendChild(caret);
+    root.appendChild(toggle);
+
+    let menu = document.createElement("div");
+    menu.className = "dropdown-menu";
+    menu.setAttribute("role", "listbox");
+    menu.hidden = true;
+    root.appendChild(menu);
+
+    let options = values.map((value, index) => {
+      let option = document.createElement("button");
+      option.type = "button";
+      option.className = "dropdown-option";
+      option.setAttribute("role", "option");
+      option.textContent = labels[index] || value;
+      option.addEventListener("click", () => {
+        current = value;
+        paint();
+        close();
+        toggle.focus();
+        onChange(value);
+      });
+      menu.appendChild(option);
+      return option;
+    });
+
+    let paint = () => {
+      let index = values.indexOf(current);
+      label.textContent = labels[index] || current;
+      options.forEach((option, position) => {
+        let chosen = values[position] === current;
+        option.classList.toggle("chosen", chosen);
+        option.setAttribute("aria-selected", chosen ? "true" : "false");
+      });
+    };
+
+    // Capture, so a click anywhere closes the list before that click does its own
+    // work. A redraw that detaches the row also lands here: `contains` is false for a
+    // detached root, so the listener takes itself off the document.
+    let onDocumentClick = (event) => {
+      if (!root.contains(event.target)) close();
+    };
+
+    let close = () => {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      document.removeEventListener("click", onDocumentClick, true);
+    };
+
+    let open = () => {
+      if (!menu.hidden) return;
+      menu.hidden = false;
+      toggle.setAttribute("aria-expanded", "true");
+      let anchor = toggle.getBoundingClientRect();
+      menu.style.minWidth = anchor.width + "px";
+      menu.style.left = Math.max(4, Math.min(anchor.left, window.innerWidth - menu.offsetWidth - 4)) + "px";
+      let below = window.innerHeight - anchor.bottom;
+      menu.style.top = (menu.offsetHeight + 6 > below && anchor.top > below
+        ? Math.max(4, anchor.top - menu.offsetHeight - 2)
+        : anchor.bottom + 2) + "px";
+      document.addEventListener("click", onDocumentClick, true);
+    };
+
+    toggle.addEventListener("click", () => { menu.hidden ? open() : close(); });
+    // Escape belongs to the list while it is open; the document-level handler would
+    // otherwise close the settings overlay instead.
+    root.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !menu.hidden) {
+        event.stopPropagation();
+        close();
+        toggle.focus();
+      } else if ((event.key === "ArrowDown" || event.key === "ArrowUp") && menu.hidden) {
+        event.preventDefault();
+        open();
+        (options[Math.max(0, values.indexOf(current))] || options[0]).focus();
+      }
+    });
+
+    paint();
+    return root;
   },
 
   propertyValueToText(value) {
