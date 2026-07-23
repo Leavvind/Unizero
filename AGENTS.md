@@ -7,16 +7,19 @@ be treated as implemented behavior.
 
 ## Current phase
 
-Both source projects have been migrated (**Phases 1–3**). `apps/zotero-addon` carries
-all Zotero-facing code; `services/paper-runtime` is an installable Python package
-serving the unchanged `/api/v1` contract.
+Both source projects have been migrated (**Phases 1–3**) and manually checked in Zotero
+by the maintainer on 2026-07-23. `apps/zotero-addon` carries all Zotero-facing code;
+`services/paper-runtime` is an installable Python package serving the unchanged
+`/api/v1` contract.
 
-**Nothing has passed a manual check yet.** The runtime has 43 automated tests, but no
-phase has been exercised against a running Zotero, and no end-to-end conversion has been
-run. Do not describe any migrated capability as verified.
+**Phase 4 is in progress.** Explicit artifact identity has landed
+(`src/zotero/artifactIdentity.ts`); the versioned cross-runtime contract has not.
+`packages/contracts` and `tests/contract` are still empty ownership directories.
 
-`packages/contracts` and `tests/contract` are still empty ownership directories. Phase 4
-— explicit artifact identity and a versioned cross-runtime contract — is the next work.
+What the manual check did *not* establish: that artifacts produced by this runtime match
+what ZoMiner produced for the same PDF. That gate is a comparison against old output and
+is still open — see `docs/MIGRATION.md`. Adoption of pre-migration artifacts is likewise
+unverified, since it needs an item converted before the migration.
 
 Two source layouts coexist inside `src/` on purpose: Zoference's original flat
 `src/modules/`, and the target layout from `docs/PROJECT_STRUCTURE.md`
@@ -61,9 +64,10 @@ Never migrate generated or machine-local content, including:
    steps use separate interfaces and registries.
 6. **UI is an adapter.** Business rules, network orchestration, cache policy, and
    Zotero mutations must not accumulate in a monolithic view class.
-7. **Artifact identity is explicit.** Use `libraryID`, item key, attachment key,
-   artifact kind, schema version, and producer. Do not identify artifacts only by
-   attachment title.
+7. **Artifact identity is explicit.** Ownership comes from the `unizero:<kind>` tag
+   applied by `src/zotero/artifactIdentity.ts`; never erase or overwrite an attachment
+   without it. Do not identify artifacts by attachment title — titles are display names,
+   and are consulted only when adopting a pre-migration artifact.
 8. **Lifecycle is symmetric.** Every menu, pane, listener, observer, and window hook
    registered by the add-on must be unregistered on unload or shutdown.
 
@@ -111,6 +115,11 @@ These constraints originate in Zoference and continue to apply after migration.
 - Establish behavior parity before redesigning a migrated capability.
 - Keep legacy preference, cache, artifact-title, and schema readers until the relevant
   migration is verified.
+- `src/runtime-client/contracts.ts` and
+  `services/paper-runtime/src/unizero_runtime/contracts.py` are hand-written mirrors of
+  one contract. Change one, change the other in the same commit. Both sides type-check
+  green while disagreeing, so drift only surfaces as a 4xx at the moment a user acts.
+  Until `packages/contracts` exists, this rule is the only thing holding them together.
 - The `zominer.references/1` artifact must remain readable during the transition.
 - Do not rename public IDs, add-on IDs, preferences, artifacts, or release files without
   a documented migration.

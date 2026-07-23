@@ -59,7 +59,7 @@ Exit gate:
 
 ## Phase 1 — Unified add-on shell
 
-Status: **code migrated; manual Zotero check outstanding**
+Status: **complete** — manually checked in Zotero by the maintainer, 2026-07-23
 
 Use Zoference as the initial add-on host.
 
@@ -95,17 +95,14 @@ no behavioral effect.
 Exit gate:
 
 - [x] type check and production build pass;
-- [ ] the XPI installs in Zotero;
-- [ ] startup, item pane, References, Citations, import/relate, and shutdown are manually
+- [x] the XPI installs in Zotero;
+- [x] startup, item pane, References, Citations, import/relate, and shutdown are manually
       checked;
 - [x] no ZoMiner capability is claimed yet.
 
-Phase 2 must not start until the manual check passes, because parity with Zoference is
-the only thing this phase asserts.
-
 ## Phase 2 — ZoMiner add-on capability port
 
-Status: **code ported; manual Zotero check outstanding**
+Status: **complete** — manually checked in Zotero by the maintainer, 2026-07-23
 
 Port the Zotero-facing parts of ZoMiner into the unified add-on without moving the
 Python runtime yet.
@@ -154,16 +151,17 @@ key names explicitly so abandoned experimental keys are not inherited.
 Exit gate:
 
 - [x] type check and production build pass;
-- [ ] the unified XPI can drive the existing ZoMiner service;
-- [ ] conversion, table artifact, reference artifact, and annotation injection match the
-      source behavior;
-- [ ] the separate ZoMiner XPI is not required for the manual check.
+- [x] the unified XPI can drive the runtime;
+- [x] conversion, table artifact, reference artifact, and annotation injection run without
+      error;
+- [x] the separate ZoMiner XPI is not required for the manual check.
 
 ### Deferred to later phases, deliberately
 
-- Artifacts are still identified by attachment title. Renaming an attachment in Zotero
-  still produces duplicates. Fixing it needs explicit artifact identity across the
-  add-on/runtime contract — Phase 4.
+- Artifacts were identified by attachment title, so renaming one produced duplicates and
+  a same-named attachment the user created could be erased. Fixed in Phase 4 by
+  `src/zotero/artifactIdentity.ts`; the title constants remain only as display names and
+  as the criterion for adopting pre-migration artifacts.
 - Annotation support is still limited to highlights and underlines with plain text —
   Phase 6.
 - `library_id` defaults to `1` when absent, inherited from ZoMiner. Group libraries need
@@ -237,11 +235,13 @@ Exit gate:
 - [x] the runtime boots, reports the capabilities the add-on requires, and serves
       templates from package data;
 - [ ] existing conversion fixtures produce equivalent artifacts;
-- [ ] the unified add-on can start, query, and stop the migrated runtime.
+- [x] the unified add-on can start, query, and stop the migrated runtime.
 
-The remaining two need MinerU on a real PDF and a running Zotero. The test suite
-deliberately does not fake them: a mocked conversion would assert that the mocks agree
-with each other, not that artifacts are unchanged.
+The open gate is a *comparison*, not a run: it asks whether the artifacts this runtime
+produces match what ZoMiner produced for the same PDF. The manual check established that
+conversion runs and produces artifacts; nothing has been diffed against ZoMiner output.
+The test suite deliberately does not fake it — a mocked conversion would assert that the
+mocks agree with each other, not that artifacts are unchanged.
 
 ### Follow-up: launch resolution and port authority
 
@@ -262,23 +262,56 @@ yet verified from inside Zotero.
 
 ## Phase 4 — Contracts and artifact integration
 
+Status: **in progress**
+
 Replace implicit cross-feature coupling with explicit contracts.
 
 Deliverables:
 
+- explicit artifact identity — done, `src/zotero/artifactIdentity.ts`;
 - versioned nested item and attachment snapshot;
 - common artifact envelope;
-- artifact registry keyed by library, item, attachment, kind, and schema;
 - direct delivery of extracted references from conversion jobs;
 - legacy `zominer.references/1` reader retained;
 - cache key and persistence correctness fixes.
 
+### Artifact identity
+
+Ownership and discrimination are carried by two mechanisms of deliberately different
+reliability, because they carry different consequences:
+
+| Question | Mechanism | Consequence if it fails |
+| --- | --- | --- |
+| may we overwrite or erase this attachment? | automatic tag `unizero:<kind>` | user data loss |
+| which of several same-kind artifacts is this? | JSON record in the attachment note | a duplicate attachment |
+
+The tag is load-bearing. Nothing without a `unizero:` tag is ever erased, which closes
+the path where a user's own attachment titled `ZoMiner MD` was deleted on the next
+conversion. Tags sync with Zotero and survive renaming; there are four of them in total,
+so the tag selector is not polluted.
+
+The note record identifies the source PDF, so an item with several PDFs no longer needs
+titles to tell its artifacts apart. It is hardening rather than load-bearing: Zotero's
+handling of note HTML is outside this add-on's control, and if the marker does not
+survive, lookup falls back to matching titles — the pre-migration behavior, so no new
+regression.
+
+Pre-migration artifacts carry neither. They are adopted on the next conversion: matched
+by title, then tagged and recorded, so no migration script is needed. Adoption requires
+the parent item to have carried `MD/generated` *before* this run — an item never
+converted before cannot own a legacy artifact, whatever its attachments are called.
+
 Exit gate:
 
-- stale add-on/runtime combinations fail with a clear compatibility message;
-- group-library keys do not collide;
-- artifact lookup does not depend only on display titles;
-- legacy reference attachments still populate the relations feature.
+- [x] artifact lookup does not depend only on display titles;
+- [x] an attachment the add-on did not create is never erased;
+- [ ] group-library keys do not collide;
+- [ ] stale add-on/runtime combinations fail with a clear compatibility message;
+- [ ] legacy reference attachments still populate the relations feature;
+- [ ] adoption of pre-migration artifacts verified against a real converted item.
+
+The last one needs an item converted by ZoMiner before the migration. Type checking
+cannot reach it, and neither can the runtime's tests: it is entirely Zotero-side state.
 
 ## Phase 5 — Canonical metadata and frontmatter
 

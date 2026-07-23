@@ -15,22 +15,23 @@ runtime, not one large process containing every concern.
 
 ## Project status
 
-**Phase 3 — both source projects have been migrated.**
+**Phases 1–3 complete; Phase 4 in progress.**
 
 `apps/zotero-addon` contains the Zoference features (references, citations, metadata
 enrichment) and the ported ZoMiner capabilities (PDF conversion, annotation injection,
 runtime process management, template panel), under one add-on ID with compatibility
-readers for both projects' preferences and caches. It type-checks, builds, and packages
-an XPI.
+readers for both projects' preferences and caches.
 
 `services/paper-runtime` is an installable Python package serving the same `/api/v1`
 contract as before, with 43 tests and its runtime state moved out of the source tree.
 
+Phases 1–3 were manually checked in Zotero on 2026-07-23. Phase 4 has landed explicit
+artifact identity, so generated attachments are no longer found — or erased — by title.
 `packages/contracts` and `tests/contract` are still empty ownership directories.
 
-**No phase has passed a manual check yet** — nothing has been exercised against a running
-Zotero, and no end-to-end conversion has been run. See
-[Migration Plan](docs/MIGRATION.md) for what remains on each gate.
+Two gates remain open: artifacts have not been diffed against ZoMiner's output for the
+same PDF, and adoption of pre-migration artifacts has not been exercised. See
+[Migration Plan](docs/MIGRATION.md).
 
 ## Architecture at a glance
 

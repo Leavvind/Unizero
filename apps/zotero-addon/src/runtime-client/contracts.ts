@@ -5,8 +5,13 @@
  * ZoMiner `paper_service/api.py` 当前实现的 `/api/v1`。它们是**契约**，不是内部模型：
  * 字段名保持服务端的 snake_case，不做“顺手美化”——改一个名字就等于换一个协议版本。
  *
- * 长期归属是 packages/contracts（见 docs/PROJECT_STRUCTURE.md）。在 Phase 4 把 schema
- * 抽成语言中立定义之前，这里是 TypeScript 侧的唯一事实来源。
+ * 长期归属是 packages/contracts（见 docs/PROJECT_STRUCTURE.md）。在把 schema 抽成语言
+ * 中立定义之前，这里是 TypeScript 侧的唯一事实来源。
+ *
+ * ⚠ **本文件是 `services/paper-runtime/src/unizero_runtime/contracts.py` 的手工镜像。**
+ * 改任一侧必须同改另一侧。两边各自类型检查都是绿的——因为它们各自自洽——所以漂移只会
+ * 在用户点下按钮的那一刻以 4xx 的形式暴露。Python 侧至少有 `tests/test_api_contract.py`
+ * 把形状钉住，TS 侧没有等价物，这条注释就是它的替代品。
  */
 
 /** 契约主版本。与服务端 `/health` 的 `api_version` 必须精确相等。 */

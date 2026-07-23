@@ -6,13 +6,16 @@
  * 按 AGENTS.md 的约定，adapter 是 add-on 里唯一直接改动 Zotero 条目的地方；功能模块
  * 只描述"要转换什么"，由这里决定怎么落到附件和标签上。
  *
- * 已知债务（Phase 4 处理，现在**刻意不动**）：产物依赖附件标题来识别和覆盖。标题被用户
- * 改过就会退化成重复附件。修它需要 libraryID + itemKey + kind + schema 的显式产物标识，
- * 属于跨 add-on/runtime 的契约变更，不能在行为对齐阶段顺手改。
+ * 产物的识别与覆盖已经不再依赖附件标题，见 artifactIdentity.ts。这里的标题常量只剩两个
+ * 用途：新建产物时的显示名，以及认领迁移前旧产物时的判据。
  */
 
 import type { ConvertRequest, ExtractedReference, JobResult } from "../runtime-client/contracts";
 import { getConversionPref } from "../features/conversion/settings";
+import {
+  adoptArtifact, findArtifacts, isArtifact, markArtifact,
+  type ArtifactKind,
+} from "./artifactIdentity";
 
 const GENERATED_TAG = "MD/generated";
 const MD_ATTACHMENT_TITLE = "ZoMiner MD";
@@ -153,63 +156,123 @@ export function conversionPayload(
 }
 
 /**
+ * 一次产物登记所需的上下文。
+ *
+ * `source` 和 `wasConverted` 都是为了产物标识：前者区分同一条目下由不同 PDF 生成的
+ * 同类产物，后者是认领旧产物时唯一的额外证据。
+ */
+interface ArtifactContext {
+  parent: Zotero.Item;
+  /** 源 PDF 附件的 key。 */
+  source: string;
+  /** 本次转换**之前**这个条目就带着 GENERATED_TAG。 */
+  wasConverted: boolean;
+  /** 多 PDF 时加在产物标题后的来源后缀。 */
+  suffix: string;
+}
+
+/**
+ * 找出迁移前生成、尚未打标签的旧产物。
+ *
+ * 只在条目此前就被转换过时才认——否则一个恰好叫 "ZoMiner MD" 的附件就是用户自己的
+ * 文件，绝不能碰。这是"同名即删除"那条数据丢失路径被堵住的地方。
+ */
+function legacyArtifacts(
+  context: ArtifactContext,
+  titles: string[],
+  shape: (attachment: Zotero.Item) => boolean,
+): Zotero.Item[] {
+  if (!context.wasConverted) { return []; }
+  const found: Zotero.Item[] = [];
+  for (const id of context.parent.getAttachments()) {
+    const attachment = Zotero.Items.get(id);
+    if (!attachment || isArtifact(attachment) || !shape(attachment)) { continue; }
+    if (titles.includes(attachment.getField("title"))) { found.push(attachment); }
+  }
+  return found;
+}
+
+/**
  * 链接式附件：Zotero 里只存路径，正文留在用户的 Markdown 库里。
  *
- * 这是"活文档"——用户会继续编辑它，所以绝不能覆盖内容，只维护链接。路径已经指向
- * 同一个文件就直接返回；同标题的旧链接先删再建，避免堆积。
+ * 这是"活文档"——用户会继续编辑它，所以绝不能覆盖内容，只维护链接。链接已经指向同一个
+ * 文件就什么都不做；指向别处的同一份产物是上一次输出路径的残留，删掉重建。
  */
 async function attachMarkdown(
-  parent: Zotero.Item,
+  context: ArtifactContext,
   path: string,
-  title: string,
 ): Promise<void> {
-  const legacyTitle = title.replace(MD_ATTACHMENT_TITLE, LEGACY_ATTACHMENT_TITLE);
+  const title = MD_ATTACHMENT_TITLE + context.suffix;
+  const legacyTitle = LEGACY_ATTACHMENT_TITLE + context.suffix;
   // Windows 上同一路径可能以 / 或 \ 出现，比较前统一。
   const normalize = (value: string) => String(value || "").replace(/\//g, "\\");
 
-  for (const id of parent.getAttachments()) {
-    const attachment = Zotero.Items.get(id);
-    if (!attachment?.isLinkedFileAttachment?.()) { continue; }
+  const candidates = [
+    ...findArtifacts(context.parent, "markdown", context.source, title),
+    ...legacyArtifacts(context, [title, legacyTitle],
+      (attachment) => !!attachment.isLinkedFileAttachment?.()),
+  ];
+
+  let current: Zotero.Item | null = null;
+  const stale: Zotero.Item[] = [];
+  for (const attachment of candidates) {
     const existingPath = await attachment.getFilePathAsync();
-    if (existingPath && normalize(existingPath) === normalize(path)) { return; }
-    const existingTitle = attachment.getField("title");
-    if (existingTitle === title || existingTitle === legacyTitle) {
-      await attachment.eraseTx();
+    if (!current && existingPath && normalize(existingPath) === normalize(path)) {
+      current = attachment;
+      continue;
     }
+    stale.push(attachment);
   }
 
-  await Zotero.Attachments.linkFromFile({
+  // 指向旧路径的同类产物一律清掉。旧实现只删到第一个路径命中为止，会在输出目录变过的
+  // 条目上留下永远清不掉的残链。
+  for (const attachment of stale) { await attachment.eraseTx(); }
+
+  if (current) {
+    // 可能是刚认出来的旧产物，补上标签和记录，下次就不必再靠标题。
+    if (!isArtifact(current)) {
+      await adoptArtifact(current, "markdown", context.source);
+    }
+    return;
+  }
+
+  const created = await Zotero.Attachments.linkFromFile({
     file: path,
-    parentItemID: parent.id,
+    parentItemID: context.parent.id,
     title,
     contentType: "text/markdown",
   });
+  await markArtifact(created, "markdown", context.source);
   ztoolkit.log(`linked MD attachment: ${path}`);
 }
 
 /**
- * 单向快照：把文件复制进 Zotero storage（随 Zotero 同步），同名旧副本先删。
+ * 单向快照：把文件复制进 Zotero storage（随 Zotero 同步）。
  * Zotero 里的这份视为只读 —— 每次重新转换都会覆盖刷新。
  */
 async function attachImportedCopy(
-  parent: Zotero.Item,
+  context: ArtifactContext,
+  kind: ArtifactKind,
   path: string,
   title: string,
   contentType: string,
 ): Promise<void> {
-  for (const id of parent.getAttachments()) {
-    const attachment = Zotero.Items.get(id);
-    if (attachment?.isImportedAttachment?.() &&
-        attachment.getField("title") === title) {
-      await attachment.eraseTx();
-    }
-  }
-  await Zotero.Attachments.importFromFile({
+  const imported = (attachment: Zotero.Item) =>
+    !!attachment.isImportedAttachment?.();
+
+  const candidates = [
+    ...findArtifacts(context.parent, kind, context.source, title),
+    ...legacyArtifacts(context, [title], imported),
+  ];
+  for (const attachment of candidates) { await attachment.eraseTx(); }
+
+  const created = await Zotero.Attachments.importFromFile({
     file: path,
-    parentItemID: parent.id,
+    parentItemID: context.parent.id,
     title,
     contentType,
   });
+  await markArtifact(created, kind, context.source);
   ztoolkit.log(`imported attachment '${title}': ${path}`);
 }
 
@@ -222,7 +285,7 @@ async function attachImportedCopy(
  * Phase 4 会让转换 job 直接投递这些数据，届时这个附件降级为兼容产物。
  */
 async function attachReferences(
-  parent: Zotero.Item,
+  context: ArtifactContext,
   references: ExtractedReference[],
   title: string,
 ): Promise<void> {
@@ -234,12 +297,15 @@ async function attachReferences(
   }, null, 2);
 
   const temp = Zotero.getTempDirectory();
-  temp.append(`unizero-references-${parent.key}.json`);
+  // 文件名带上源附件 key：同一条目的多个 PDF 并发转换时不能互相踩临时文件。
+  temp.append(`unizero-references-${context.parent.key}-${context.source}.json`);
   const path = temp.path;
 
   await Zotero.File.putContentsAsync(path, payload);
   try {
-    await attachImportedCopy(parent, path, title, "application/json");
+    await attachImportedCopy(
+      context, "references", path, title, "application/json",
+    );
   } finally {
     // 临时文件必须清掉，哪怕导入失败——它带着完整的参考文献内容。
     try {
@@ -262,21 +328,29 @@ export async function markConverted(
   const parent = target.parent;
   if (!parent) { return; }
 
+  // 必须在 addTag 之前读：加完标签再问就永远是 true，这条证据也就没了。认领旧产物时
+  // 它是"这份同名附件确实是我们生成的"的唯一佐证。
+  const wasConverted = parent.hasTag(GENERATED_TAG);
   parent.addTag(GENERATED_TAG);
   await parent.saveTx();
 
   const outcome = result || {};
-  const suffix = target.isSupplement
-    ? ` — ${target.attachment.getField("title") || target.attachment.key}`
-    : "";
+  const context: ArtifactContext = {
+    parent,
+    source: target.attachment.key,
+    wasConverted,
+    suffix: target.isSupplement
+      ? ` — ${target.attachment.getField("title") || target.attachment.key}`
+      : "",
+  };
 
   if (outcome.md_path) {
-    await attachMarkdown(parent, outcome.md_path, MD_ATTACHMENT_TITLE + suffix);
+    await attachMarkdown(context, outcome.md_path);
     if (getConversionPref("mdSnapshot")) {
       try {
         await attachImportedCopy(
-          parent, outcome.md_path,
-          MD_COPY_ATTACHMENT_TITLE + suffix, "text/markdown",
+          context, "markdown-copy", outcome.md_path,
+          MD_COPY_ATTACHMENT_TITLE + context.suffix, "text/markdown",
         );
       } catch (error) {
         ztoolkit.log(`md snapshot attach failed: ${error}`);
@@ -287,8 +361,8 @@ export async function markConverted(
   if (outcome.tables_html_path) {
     try {
       await attachImportedCopy(
-        parent, outcome.tables_html_path,
-        TABLES_ATTACHMENT_TITLE + suffix, "text/html",
+        context, "tables", outcome.tables_html_path,
+        TABLES_ATTACHMENT_TITLE + context.suffix, "text/html",
       );
     } catch (error) {
       ztoolkit.log(`tables attach failed: ${error}`);
@@ -298,7 +372,7 @@ export async function markConverted(
   if (Array.isArray(outcome.references) && outcome.references.length) {
     try {
       await attachReferences(
-        parent, outcome.references, REFS_ATTACHMENT_TITLE + suffix,
+        context, outcome.references, REFS_ATTACHMENT_TITLE + context.suffix,
       );
     } catch (error) {
       ztoolkit.log(`references attach failed: ${error}`);
