@@ -240,6 +240,20 @@
     }
     .setting-group-title { margin-bottom: 11px; color: #454a51; font-weight: 650; }
     .choice-group { display: flex; gap: 7px; flex-wrap: wrap; }
+    .property-table { display: flex; flex-direction: column; gap: 6px; }
+    .property-row {
+      display: grid;
+      grid-template-columns: minmax(90px, 150px) 92px minmax(0, 1fr) auto auto auto auto;
+      gap: 6px;
+      align-items: center;
+    }
+    .property-row input[type="text"], .property-row select { min-width: 0; }
+    .property-row button {
+      min-width: 30px;
+      padding: 4px 6px;
+    }
+    .property-row button[disabled] { opacity: 0.4; }
+    .property-add { align-self: flex-start; margin-top: 3px; }
     .choice {
       display: inline-flex;
       align-items: center;

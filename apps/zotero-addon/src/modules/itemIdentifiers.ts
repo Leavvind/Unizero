@@ -18,9 +18,23 @@ export const S2_ID_ALIASES = [
   "S2 ID",
 ];
 
+/**
+ * The Semantic Scholar citation count, as of the last Complete Metadata run.
+ *
+ * A snapshot rather than a property of the work, so it is refreshed on every
+ * run and read back out only to project it into a converted document.
+ */
+export const CITATION_COUNT_FIELD = "Citation Count";
+export const CITATION_COUNT_ALIASES = [
+  CITATION_COUNT_FIELD,
+  "Citations",
+  "citationCount",
+];
+
 export interface ItemPaperIdentifiers {
   doi?: string;
   semanticScholarPaperId?: string;
+  citations?: number;
 }
 
 export function getExtraValue(extra: string, aliases: readonly string[]): string | undefined {
@@ -47,10 +61,12 @@ export function readItemPaperIdentifiers(item: Zotero.Item): ItemPaperIdentifier
     try { doi = String(item.getExtraField("DOI") || ""); } catch { /* unknown Extra field */ }
   }
   doi ||= getExtraValue(extra, ["DOI"]) || "";
+  const citations = Number(getExtraValue(extra, CITATION_COUNT_ALIASES));
   return {
     doi: doi ? bareDOI(doi) : undefined,
     semanticScholarPaperId: normalizeSemanticScholarPaperId(
       getExtraValue(extra, S2_ID_ALIASES),
     ),
+    citations: Number.isFinite(citations) && citations >= 0 ? citations : undefined,
   };
 }

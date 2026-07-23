@@ -446,7 +446,9 @@ var Panel = {
       let control = document.createElement("div");
       row.appendChild(control);
       let input;
-      if (field.enum) {
+      if (field["x-editor"] === "frontmatter-properties") {
+        this.appendPropertyTable(control, field, settings, path);
+      } else if (field.enum) {
         control.className = "choice-group";
         let groupName = "setting-" + this.selectedStep + "-" + path.join("-");
         field.enum.forEach((choice, index) => {
@@ -527,6 +529,126 @@ var Panel = {
       }
       host.appendChild(row);
     }
+  },
+
+  /**
+   * The frontmatter mapping table: one row per Obsidian property.
+   *
+   * Rendered by hand rather than through appendSchemaFields because the rows
+   * are reorderable and removable, and because the value column has to accept
+   * both a template string and a literal list.
+   */
+  appendPropertyTable(host, field, settings, path) {
+    let rows = this.getPath(settings, path);
+    if (!Array.isArray(rows)) {
+      rows = [];
+      this.setPath(settings, path, rows);
+    }
+    let types = (field.items && field.items.properties && field.items.properties.type) || {};
+    let typeNames = types.enum || ["text", "list", "number", "date", "checkbox"];
+    let typeLabels = types.enumNames || typeNames;
+
+    let table = document.createElement("div");
+    table.className = "property-table";
+    host.appendChild(table);
+
+    let redraw = () => {
+      table.textContent = "";
+      rows.forEach((entry, index) => {
+        let line = document.createElement("div");
+        line.className = "property-row";
+
+        let key = document.createElement("input");
+        key.type = "text";
+        key.className = "property-key";
+        key.placeholder = "property";
+        key.value = entry.key === undefined ? "" : entry.key;
+        key.addEventListener("input", () => { entry.key = key.value; });
+
+        let type = document.createElement("select");
+        type.className = "property-type";
+        typeNames.forEach((name, position) => {
+          let option = document.createElement("option");
+          option.value = name;
+          option.textContent = typeLabels[position] || name;
+          type.appendChild(option);
+        });
+        type.value = entry.type || "text";
+        type.addEventListener("change", () => {
+          entry.type = type.value;
+          // A list written as one line of comma-separated literals only becomes
+          // a real list once the row says so; re-read the text under the new type.
+          entry.value = this.propertyValueFromText(value.value, entry.type);
+        });
+
+        let value = document.createElement("input");
+        value.type = "text";
+        value.className = "property-value";
+        value.placeholder = "{{ title }}";
+        value.value = this.propertyValueToText(entry.value);
+        value.addEventListener("input", () => {
+          entry.value = this.propertyValueFromText(value.value, entry.type || "text");
+        });
+
+        let omit = document.createElement("input");
+        omit.type = "checkbox";
+        omit.checked = entry.omit_if_empty !== false;
+        omit.title = "Omit this property when the value is empty";
+        omit.addEventListener("change", () => { entry.omit_if_empty = omit.checked; });
+
+        let up = document.createElement("button");
+        up.textContent = "↑";
+        up.title = "Move up";
+        up.disabled = index === 0;
+        up.addEventListener("click", () => {
+          rows.splice(index - 1, 0, rows.splice(index, 1)[0]);
+          redraw();
+        });
+
+        let down = document.createElement("button");
+        down.textContent = "↓";
+        down.title = "Move down";
+        down.disabled = index === rows.length - 1;
+        down.addEventListener("click", () => {
+          rows.splice(index + 1, 0, rows.splice(index, 1)[0]);
+          redraw();
+        });
+
+        let remove = document.createElement("button");
+        remove.textContent = "✕";
+        remove.title = "Remove this property";
+        remove.addEventListener("click", () => {
+          rows.splice(index, 1);
+          redraw();
+        });
+
+        for (let element of [key, type, value, omit, up, down, remove]) line.appendChild(element);
+        table.appendChild(line);
+      });
+
+      let add = document.createElement("button");
+      add.className = "property-add";
+      add.textContent = "+ Add property";
+      add.addEventListener("click", () => {
+        rows.push({ key: "", value: "", type: "text", omit_if_empty: true });
+        redraw();
+      });
+      table.appendChild(add);
+    };
+    redraw();
+  },
+
+  propertyValueToText(value) {
+    if (Array.isArray(value)) return value.join(", ");
+    return value === undefined || value === null ? "" : String(value);
+  },
+
+  propertyValueFromText(text, type) {
+    if (type !== "list") return text;
+    // A lone {{ placeholder }} resolving to a list must reach the runtime whole,
+    // so it is never split here.
+    if (/^\s*\{\{\s*[a-z_][a-z0-9_]*\s*\}\}\s*$/.test(text)) return text.trim();
+    return text.split(/[,，]/).map((part) => part.trim()).filter(Boolean);
   },
 
   appendPublishPreview(host, step) {

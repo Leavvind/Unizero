@@ -24,6 +24,7 @@ export interface SemanticScholarPaper {
   publicationVenue?: unknown;
   publicationDate?: string;
   citationCount?: number;
+  referenceCount?: number;
   matchScore?: number;
 }
 

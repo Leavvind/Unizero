@@ -1,5 +1,5 @@
 /**
- * DOI / Semantic Scholar Paper ID enrichment for library items.
+ * Metadata completion for library items.
  *
  * The entry point only reads the current selection; lookup, cross-scoring,
  * conflict review, and write-back all stay in this module rather than swelling
@@ -7,6 +7,11 @@
  * scored together, and only a high-confidence candidate with a clear lead is
  * written automatically; a conflict with an existing identifier, or a candidate
  * that is not distinctive enough, must be confirmed by the user.
+ *
+ * Once a paper is resolved, its identifiers are written back, its Semantic
+ * Scholar citation count is refreshed, and any bibliographic field the item is
+ * *missing* is filled in. Fields the user already has are never overwritten:
+ * Zotero is the record of truth, and a lookup is only ever evidence about it.
  */
 
 import { config } from "../../package.json";
@@ -23,6 +28,8 @@ import {
   type SemanticScholarPaper,
 } from "./semanticScholarApi";
 import {
+  CITATION_COUNT_ALIASES,
+  CITATION_COUNT_FIELD,
   readItemPaperIdentifiers,
   S2_ID_ALIASES,
   S2_ID_FIELD,
@@ -32,11 +39,35 @@ const AUTO_SCORE = 0.92;
 const REVIEW_SCORE = 0.78;
 const AUTO_MARGIN = 0.05;
 
+/**
+ * What every lookup asks Semantic Scholar for.
+ *
+ * `citationCount` and `referenceCount` are not used for scoring — they are how
+ * a user tells two same-titled records apart in the review dialog, where a
+ * preprint with 3 references and the published paper with 60 look otherwise
+ * identical.
+ */
+const ENRICH_FIELDS = [
+  "title",
+  "year",
+  "authors",
+  "externalIds",
+  "url",
+  "venue",
+  "publicationVenue",
+  "abstract",
+  "citationCount",
+  "referenceCount",
+] as const;
+
 interface PaperCandidate {
   title: string;
   authors: string[];
   year?: string;
   venue?: string;
+  abstract?: string;
+  citations?: number;
+  references?: number;
   doi?: string;
   paperId?: string;
   score: number;
@@ -47,6 +78,10 @@ interface ItemMetadata {
   title: string;
   authors: string[];
   year?: string;
+  venue?: string;
+  abstract?: string;
+  citations?: number;
+  references?: number;
   doi?: string;
   paperId?: string;
 }
@@ -153,22 +188,42 @@ function externalID(paper: SemanticScholarPaper, name: string): string | undefin
   return entry?.[1] ? String(entry[1]) : undefined;
 }
 
+function countOrUndefined(value: unknown): number | undefined {
+  const count = Number(value);
+  return Number.isFinite(count) && count >= 0 ? count : undefined;
+}
+
 function fromSemanticScholar(paper?: SemanticScholarPaper): PaperCandidate | undefined {
   const title = String(paper?.title || "").trim();
   if (!paper || !title) { return; }
   const doi = externalID(paper, "DOI");
+  const publicationVenue = (paper.publicationVenue || undefined) as { name?: string } | undefined;
   return {
     title,
     authors: Array.isArray(paper.authors)
       ? paper.authors.map((author) => String(author?.name || "").trim()).filter(Boolean)
       : [],
     year: paper.year == null ? undefined : String(paper.year),
-    venue: paper.venue ? String(paper.venue) : undefined,
+    venue: String(paper.venue || publicationVenue?.name || "").trim() || undefined,
+    abstract: String(paper.abstract || "").trim() || undefined,
+    citations: countOrUndefined(paper.citationCount),
+    references: countOrUndefined(paper.referenceCount),
     doi: doi ? bareDOI(doi) : undefined,
     paperId: typeof paper.paperId === "string" ? paper.paperId.trim() : undefined,
     score: 0,
     sources: new Set(["Semantic Scholar"]),
   };
+}
+
+/** Crossref abstracts are JATS fragments; Zotero's abstract field is plain text. */
+function plainAbstract(value: unknown): string | undefined {
+  const text = String(value || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .replace(/^\s*abstract[:.\s]*/i, "")
+    .trim();
+  return text || undefined;
 }
 
 function fromCrossref(work: any): PaperCandidate | undefined {
@@ -188,6 +243,9 @@ function fromCrossref(work: any): PaperCandidate | undefined {
       : [],
     year: year == null ? undefined : String(year),
     venue: venue ? String(venue) : undefined,
+    abstract: plainAbstract(work.abstract),
+    citations: countOrUndefined(work["is-referenced-by-count"]),
+    references: countOrUndefined(work["reference-count"]),
     doi: work.DOI ? bareDOI(String(work.DOI)) : undefined,
     score: 0,
     sources: new Set(["Crossref"]),
@@ -199,7 +257,8 @@ async function searchCrossref(item: ItemMetadata): Promise<PaperCandidate[]> {
   const bibliographic = [item.title, item.authors[0], item.year].filter(Boolean).join(" ");
   const response = await getJSON(
       `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(bibliographic)}` +
-      `&rows=5&select=DOI,title,author,issued,container-title,type` +
+      `&rows=5&select=DOI,title,author,issued,container-title,type,abstract,` +
+      `reference-count,is-referenced-by-count` +
       `&mailto=${encodeURIComponent(MAILTO)}`,
     { tag: "metadata-crossref" },
   );
@@ -234,8 +293,31 @@ function mergeInto(candidates: PaperCandidate[], incoming?: PaperCandidate): voi
   existing.doi ||= incoming.doi;
   existing.year ||= incoming.year;
   existing.venue ||= incoming.venue;
+  existing.abstract ||= incoming.abstract;
+  // ??= rather than ||=: a genuinely uncited paper reports 0.
+  existing.citations ??= incoming.citations;
+  existing.references ??= incoming.references;
   if (incoming.authors.length > existing.authors.length) { existing.authors = incoming.authors; }
   incoming.sources.forEach((source) => existing.sources.add(source));
+}
+
+/**
+ * Field names carrying the venue, in the order Zotero maps them. Which one an
+ * item accepts depends on its type — a journalArticle has publicationTitle, a
+ * conferencePaper proceedingsTitle — so both reads and writes try them in turn.
+ */
+const VENUE_FIELDS = ["publicationTitle", "proceedingsTitle", "bookTitle"] as const;
+
+function readField(item: Zotero.Item, field: string): string {
+  try { return String(item.getField(field as any) || "").trim(); } catch { return ""; }
+}
+
+function readVenue(item: Zotero.Item): string {
+  for (const field of VENUE_FIELDS) {
+    const value = readField(item, field);
+    if (value) { return value; }
+  }
+  return "";
 }
 
 function readItemMetadata(item: Zotero.Item): ItemMetadata {
@@ -251,6 +333,9 @@ function readItemMetadata(item: Zotero.Item): ItemMetadata {
     title: item.getField("title") || item.getDisplayTitle() || "",
     authors,
     year: year || undefined,
+    venue: readVenue(item) || undefined,
+    abstract: readField(item, "abstractNote") || undefined,
+    citations: identifiers.citations,
     doi: identifiers.doi,
     paperId: identifiers.semanticScholarPaperId,
   };
@@ -289,16 +374,53 @@ function removeExtraValue(extra: string, aliases: string[]): string {
   }).join("\n").replace(/^\s+|\s+$/g, "");
 }
 
-async function writeIdentifiers(
+/** Split a display name into Zotero's two-field creator, or a single field. */
+function toCreator(name: string): { creatorType: string; firstName?: string;
+  lastName: string; fieldMode?: number } {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length < 2) {
+    // A one-token name (many CJK names, organisations) is not a "last name";
+    // single-field mode is how Zotero records that.
+    return { creatorType: "author", lastName: name.trim(), fieldMode: 1 };
+  }
+  return {
+    creatorType: "author",
+    firstName: parts.slice(0, -1).join(" "),
+    lastName: parts[parts.length - 1],
+  };
+}
+
+/** The bibliographic fields a candidate can supply, for reporting and writing. */
+function fillableFields(item: ItemMetadata, candidate: PaperCandidate): string[] {
+  const filled: string[] = [];
+  if (!item.title && candidate.title) { filled.push("title"); }
+  if (!item.authors.length && candidate.authors.length) { filled.push("authors"); }
+  if (!item.year && candidate.year) { filled.push("year"); }
+  if (!item.venue && candidate.venue) { filled.push("venue"); }
+  if (!item.abstract && candidate.abstract) { filled.push("abstract"); }
+  return filled;
+}
+
+/**
+ * Write the resolved paper back onto the item.
+ *
+ * Identifiers replace what is there (that is the decision the user just made in
+ * the review dialog); bibliographic fields are only ever *filled*, never
+ * overwritten, so a hand-corrected title survives every future run. The
+ * citation count is a snapshot rather than a fact about the work, so it is
+ * always refreshed.
+ */
+async function applyCandidate(
   item: Zotero.Item,
   candidate: PaperCandidate,
-  missingOnly = false,
+  missingIdentifiersOnly = false,
 ): Promise<boolean> {
   const current = readItemMetadata(item);
   let extra = item.getField("extra") || "";
   let changed = false;
 
-  if (candidate.doi && (!missingOnly || !current.doi) && !sameDOI(current.doi, candidate.doi)) {
+  if (candidate.doi && (!missingIdentifiersOnly || !current.doi) &&
+      !sameDOI(current.doi, candidate.doi)) {
     try {
       item.setField("DOI", candidate.doi);
       const withoutDuplicate = removeExtraValue(extra, ["DOI"]);
@@ -309,10 +431,38 @@ async function writeIdentifiers(
     changed = true;
   }
 
-  if (candidate.paperId && (!missingOnly || !current.paperId) &&
+  if (candidate.paperId && (!missingIdentifiersOnly || !current.paperId) &&
       !samePaperID(current.paperId, candidate.paperId)) {
     extra = replaceExtraValue(extra, S2_ID_ALIASES, S2_ID_FIELD, candidate.paperId);
     changed = true;
+  }
+
+  if (candidate.citations != null && candidate.citations !== current.citations) {
+    extra = replaceExtraValue(
+      extra, CITATION_COUNT_ALIASES, CITATION_COUNT_FIELD, String(candidate.citations),
+    );
+    changed = true;
+  }
+
+  for (const field of fillableFields(current, candidate)) {
+    try {
+      if (field === "title") { item.setField("title", candidate.title); }
+      else if (field === "authors") {
+        item.setCreators(candidate.authors.map(toCreator) as any);
+      }
+      else if (field === "year") { item.setField("date", candidate.year!); }
+      else if (field === "abstract") { item.setField("abstractNote", candidate.abstract!); }
+      else if (field === "venue") {
+        // Only one of these names is valid for this item type; the rest throw.
+        if (!VENUE_FIELDS.some((name) => {
+          try { item.setField(name as any, candidate.venue!); return true; } catch { return false; }
+        })) { continue; }
+      }
+      changed = true;
+    } catch (error) {
+      // A field this item type does not have is not a failure of the run.
+      ztoolkit.log(`[metadata-enrichment] could not fill ${field}: ${error}`);
+    }
   }
 
   if (!changed) { return false; }
@@ -323,7 +473,9 @@ async function writeIdentifiers(
 
 function candidateWouldChange(item: ItemMetadata, candidate: PaperCandidate): boolean {
   return (!!candidate.doi && !sameDOI(item.doi, candidate.doi)) ||
-    (!!candidate.paperId && !samePaperID(item.paperId, candidate.paperId));
+    (!!candidate.paperId && !samePaperID(item.paperId, candidate.paperId)) ||
+    (candidate.citations != null && candidate.citations !== item.citations) ||
+    fillableFields(item, candidate).length > 0;
 }
 
 function findCurrentIdentifierCandidate(
@@ -355,17 +507,17 @@ async function resolveItem(item: Zotero.Item): Promise<Resolution> {
   // readily, so these run strictly in sequence.
   if (metadata.doi) {
     mergeInto(candidates, fromSemanticScholar(
-      await fetchSemanticScholarPaperByDOI(metadata.doi),
+      await fetchSemanticScholarPaperByDOI(metadata.doi, ENRICH_FIELDS),
     ));
   }
   if (metadata.paperId &&
       !candidates.some((candidate) => samePaperID(candidate.paperId, metadata.paperId))) {
     mergeInto(candidates, fromSemanticScholar(
-      await fetchSemanticScholarPaper(metadata.paperId),
+      await fetchSemanticScholarPaper(metadata.paperId, ENRICH_FIELDS),
     ));
   }
   if (metadata.title) {
-    const searchResults = await searchSemanticScholarPapers(metadata.title, 5);
+    const searchResults = await searchSemanticScholarPapers(metadata.title, 5, ENRICH_FIELDS);
     searchResults.map(fromSemanticScholar).forEach((candidate) => mergeInto(candidates, candidate));
   }
 
@@ -380,7 +532,7 @@ async function resolveItem(item: Zotero.Item): Promise<Resolution> {
   );
   if (identityLookupCandidate?.doi) {
     mergeInto(candidates, fromSemanticScholar(
-      await fetchSemanticScholarPaperByDOI(identityLookupCandidate.doi),
+      await fetchSemanticScholarPaperByDOI(identityLookupCandidate.doi, ENRICH_FIELDS),
     ));
     candidates.forEach((candidate) => { candidate.score = scoreCandidate(metadata, candidate); });
     candidates.sort((left, right) => right.score - left.score);
@@ -410,9 +562,18 @@ function fieldRow(label: string, value?: string): any {
   };
 }
 
+/** An abstract is compared by presence and opening words, not in full. */
+function abstractSummary(abstract?: string): string | undefined {
+  if (!abstract) { return; }
+  const words = abstract.split(/\s+/).length;
+  const opening = abstract.slice(0, 90).trim();
+  return `${getString("metadata-enrich-abstract-words", { args: { words } })} — ` +
+    `${opening}${abstract.length > 90 ? "…" : ""}`;
+}
+
 function comparisonCard(
   heading: string,
-  values: { title: string; authors: string[]; year?: string; doi?: string; paperId?: string },
+  values: ItemMetadata | PaperCandidate,
   score?: number,
 ): any {
   const children: any[] = [
@@ -421,6 +582,18 @@ function comparisonCard(
     fieldRow(getString("metadata-enrich-field-title"), values.title),
     fieldRow(getString("metadata-enrich-field-authors"), values.authors.slice(0, 4).join(", ")),
     fieldRow(getString("metadata-enrich-field-year"), values.year),
+    fieldRow(getString("metadata-enrich-field-venue"), values.venue),
+    // Citation and reference counts are what separate a preprint from the
+    // published version when title, authors, and year are identical.
+    fieldRow(
+      getString("metadata-enrich-field-citations"),
+      values.citations == null ? undefined : String(values.citations),
+    ),
+    fieldRow(
+      getString("metadata-enrich-field-references"),
+      values.references == null ? undefined : String(values.references),
+    ),
+    fieldRow(getString("metadata-enrich-field-abstract"), abstractSummary(values.abstract)),
     fieldRow("DOI", values.doi),
     fieldRow("Semantic Scholar Paper ID", values.paperId),
   ];
@@ -436,7 +609,6 @@ function comparisonCard(
     styles: {
       boxSizing: "border-box",
       width: "350px",
-      minHeight: "285px",
       padding: "16px",
       border: "1px solid rgba(128, 128, 128, 0.35)",
       borderRadius: "8px",
@@ -456,6 +628,7 @@ async function reviewCandidate(
     ? `${getString("metadata-enrich-current-identifier-record")} · ` +
       Array.from(currentIdentifierCandidate.sources).join(" + ")
     : getString("metadata-enrich-current-record");
+  const willFill = fillableFields(current, candidate);
   const dialogData: Record<string, any> = {};
   let dialog = new ztoolkit.Dialog(1, 1)
     .addCell(0, 0, {
@@ -497,6 +670,22 @@ async function reviewCandidate(
               candidate.score,
             ),
           ],
+        },
+        {
+          tag: "p",
+          namespace: "html",
+          properties: {
+            textContent: willFill.length
+              ? getString("metadata-enrich-will-fill", {
+                args: {
+                  fields: willFill
+                    .map((field) => getString(`metadata-enrich-field-${field}`))
+                    .join(", "),
+                },
+              })
+              : getString("metadata-enrich-will-fill-nothing"),
+          },
+          styles: { margin: "14px 0 0", lineHeight: "1.5", opacity: "0.85" },
         },
       ],
     }, false)
@@ -591,11 +780,11 @@ export default class MetadataEnrichment {
     if (best.score < REVIEW_SCORE) {
       const current = resolution.currentIdentifierCandidate;
       if (!current) { return "skipped"; }
-      return await writeIdentifiers(item, current, true) ? "updated" : "unchanged";
+      return await applyCandidate(item, current, true) ? "updated" : "unchanged";
     }
     if (!doiConflict && !idConflict && resolution.currentIdentifierCandidate &&
         candidatesMatch(best, resolution.currentIdentifierCandidate)) {
-      return await writeIdentifiers(item, best, true) ? "updated" : "unchanged";
+      return await applyCandidate(item, best, true) ? "updated" : "unchanged";
     }
     if (!candidateWouldChange(resolution.item, best)) { return "unchanged"; }
 
@@ -612,10 +801,10 @@ export default class MetadataEnrichment {
       if (action === "keep") {
         const current = resolution.currentIdentifierCandidate;
         if (!current) { return "unchanged"; }
-        return await writeIdentifiers(item, current, true) ? "updated" : "unchanged";
+        return await applyCandidate(item, current, true) ? "updated" : "unchanged";
       }
     }
-    return await writeIdentifiers(item, best) ? "updated" : "unchanged";
+    return await applyCandidate(item, best) ? "updated" : "unchanged";
   }
 
   private async runForItems(items: Zotero.Item[], win: Window): Promise<void> {

@@ -18,6 +18,7 @@ import {
   adoptArtifact, findArtifacts, isArtifact, markArtifact,
   type ArtifactKind,
 } from "./artifactIdentity";
+import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
 import { libraryScope } from "./libraryScope";
 
 const GENERATED_TAG = "MD/generated";
@@ -145,8 +146,8 @@ export function conversionPayload(
 
   payload.item_key = parent.key;
   payload.title = parent.getField("title") || "";
-  payload.doi = parent.getField("DOI") || "";
   payload.publication = parent.getField("publicationTitle") || "";
+  payload.abstract = parent.getField("abstractNote") || "";
   const year = (parent.getField("date") || "").match(/\d{4}/);
   payload.year = year ? year[0] : "";
   payload.authors = parent.getCreators().map((creator) =>
@@ -154,6 +155,14 @@ export function conversionPayload(
       ? `${creator.firstName} ${creator.lastName}`
       : creator.lastName,
   );
+
+  // The Semantic Scholar link and citation count in a converted document come
+  // from what Complete Metadata resolved and stored on the item, so the runtime
+  // never has to guess a paper from its title a second time.
+  const identifiers = readItemPaperIdentifiers(parent);
+  payload.doi = identifiers.doi || "";
+  payload.s2_paper_id = identifiers.semanticScholarPaperId || "";
+  payload.citations = identifiers.citations;
 
   // Better BibTeX is an optional dependency: use its citekey when installed,
   // otherwise omit the field.

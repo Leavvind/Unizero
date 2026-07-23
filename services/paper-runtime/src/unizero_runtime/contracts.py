@@ -44,7 +44,12 @@ class ConvertRequest(RequestModel):
     year: str = ""
     doi: str = ""
     publication: str = ""
+    abstract: str = ""
     citekey: str = ""
+    # Resolved on the Zotero side by Complete Metadata and stored on the item, so
+    # the runtime never has to guess a paper from its title.
+    s2_paper_id: str = ""
+    citations: Optional[int] = None
     item_key: str = ""
     attachment_key: str = ""
     attachment_title: str = ""
@@ -84,11 +89,6 @@ class AnnotateRequest(RequestModel):
     annotations: list[AnnotationPayload] = Field(default_factory=list)
 
 
-class FrontmatterConfigPatch(RequestModel):
-    tags: Optional[list[str]] = None
-    extra: Optional[dict[str, Any]] = None
-
-
 class ConfigPatch(RequestModel):
     port: Optional[int] = None
     vault_root: Optional[str] = None
@@ -96,7 +96,6 @@ class ConfigPatch(RequestModel):
     work_dir: Optional[str] = None
     bbt_rpc: Optional[str] = None
     options: Optional[ConvertOptionsPatch] = None
-    frontmatter: Optional[FrontmatterConfigPatch] = None
 
 
 class JobAccepted(BaseModel):

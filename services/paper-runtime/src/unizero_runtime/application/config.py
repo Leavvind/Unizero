@@ -32,12 +32,10 @@ DEFAULT_CONFIG = {
         "strip_references": True,
         "table_vlm": False,
     },
-    "frontmatter": {
-        "tags": ["paper"],
-        "extra": {},
-    },
 }
-_DICT_KEYS = ("options", "frontmatter")
+# Frontmatter is no longer a global setting: it belongs to the template's
+# YAML Frontmatter module, which is where a user can see it take effect.
+_DICT_KEYS = ("options",)
 
 
 def _copy(value: dict) -> dict:

@@ -71,3 +71,35 @@ existing body
     assert context.final_md.name == "Same Title — l42-ATTACH01.md"
     assert context.final_md.is_file()
     assert (store / "same2026--l42-ATTACH01.content_list.json").is_file()
+
+
+def test_a_disabled_frontmatter_module_publishes_a_bare_document(
+    tmp_path: Path,
+) -> None:
+    """Selecting the YAML Frontmatter module is what adds frontmatter.
+
+    Deselecting it has to leave the body untouched rather than emit an empty
+    `---\n---` block, which Obsidian would show as a note with no properties.
+    """
+    papers = tmp_path / "papers"
+    papers.mkdir()
+    extracted = tmp_path / "extracted.md"
+    extracted.write_text("# Body\n", encoding="utf-8")
+
+    context = ConversionContext(
+        pdf_path=tmp_path / "paper.pdf",
+        work_dir=tmp_path / "work",
+        papers_dir=papers,
+        output_root=tmp_path,
+        citekey="bare2026",
+        artifact_key="bare2026",
+        meta=PaperMeta(title="Bare", citekey="bare2026"),
+        opts=ConvertOptions(),
+        log=[].append,
+    )
+    context.out_md = extracted
+    # _stage_frontmatter never ran, so ctx.frontmatter is still empty.
+    _stage_publish(context, {"destination": str(papers), "filename": "{{ title }}.md"})
+
+    assert context.final_md is not None
+    assert context.final_md.read_text(encoding="utf-8") == "# Body\n"

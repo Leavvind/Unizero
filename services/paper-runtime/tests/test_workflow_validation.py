@@ -100,3 +100,71 @@ def test_unsafe_template_ids_are_refused(isolated_home: Path, template_id: str) 
     store = _store(isolated_home)
     with pytest.raises(ValueError):
         store.save_dict({"id": template_id, "name": "x", "modules": []})
+
+
+# --------------------------------------------------------------------------- #
+# Migration of templates saved by an earlier version
+# --------------------------------------------------------------------------- #
+
+def _legacy_template() -> dict:
+    """A template as it was written before enrich.semantic-scholar was removed
+    and before frontmatter became a property mapping table."""
+    return {
+        "schema_version": 1,
+        "id": "paper-to-markdown",
+        "name": "legacy",
+        "version": 1,
+        "modules": [
+            {"id": "enrich", "module": "enrich.semantic-scholar", "enabled": True,
+             "settings": {}},
+            {"id": "extract", "module": "extract.mineru", "enabled": True,
+             "settings": {}},
+            {"id": "frontmatter", "module": "transform.frontmatter", "enabled": True,
+             "settings": {"tags": ["paper", "unread"], "extra": {"url": "{{ zotero_select }}"}}},
+            {"id": "publish", "module": "publish.markdown-directory", "enabled": True,
+             "settings": {"destination": "20_Papers"}},
+        ],
+    }
+
+
+def _write_user_template(home: Path, document: dict) -> None:
+    (paths.user_templates_dir(home) / f"{document['id']}.yaml").write_text(
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
+def test_a_template_holding_a_removed_module_still_loads(isolated_home: Path) -> None:
+    # Validation raises on the first unknown module, which would otherwise take
+    # every other template down with it.
+    _write_user_template(isolated_home, _legacy_template())
+    store = _store(isolated_home)
+
+    entry = next(item for item in store.list() if item["id"] == "paper-to-markdown")
+    modules = [item["module"] for item in entry["modules"]]
+    assert "enrich.semantic-scholar" not in modules
+    assert "extract.mineru" in modules
+
+
+def test_legacy_frontmatter_settings_become_a_property_table(isolated_home: Path) -> None:
+    _write_user_template(isolated_home, _legacy_template())
+    store = _store(isolated_home)
+
+    entry = next(item for item in store.list() if item["id"] == "paper-to-markdown")
+    settings = next(
+        item["settings"] for item in entry["modules"]
+        if item["module"] == "transform.frontmatter"
+    )
+    assert "tags" not in settings and "extra" not in settings
+    rows = {item["key"]: item for item in settings["properties"]}
+    assert rows["tags"]["value"] == ["paper", "unread"]
+    assert rows["url"]["value"] == "{{ zotero_select }}"
+    # the mapped Zotero fields survive the migration unchanged
+    assert rows["title"]["value"] == "{{ title }}"
+
+
+def test_a_legacy_document_posted_by_an_old_client_is_migrated(isolated_home: Path) -> None:
+    store = _store(isolated_home)
+    document = store.save_dict(_legacy_template())
+    modules = [item["module"] for item in document["template"]["modules"]]
+    assert "enrich.semantic-scholar" not in modules

@@ -21,7 +21,6 @@ from ..pipeline.steps import (
     resolve_obsidian_destination,
 )
 from ..pipeline.templates import TemplateStore
-from ..providers.semantic_scholar import s2_lookup
 from .annotations import (
     Annotation,
     annotate_md,
@@ -224,6 +223,9 @@ class ZoMinerApplication:
             title = f"{title} — {attachment_title}"
             job.append(f"[supplement] doc key: {doc_key}")
 
+        # A supplement is a file under the item, not the paper itself: giving it
+        # the paper's identifiers would make two documents claim one work.
+        paper_id = "" if request.is_supplement else request.s2_paper_id.strip()
         meta = PaperMeta(
             title=title,
             authors=request.authors,
@@ -231,26 +233,17 @@ class ZoMinerApplication:
             citekey=doc_key,
             doi="" if request.is_supplement else request.doi,
             publication=request.publication,
+            abstract="" if request.is_supplement else request.abstract,
             item_key=request.item_key,
             attachment_key=request.attachment_key,
             library_id=request.library_id,
             library_scope=request.library_scope,
+            s2_url=(
+                f"https://www.semanticscholar.org/paper/{paper_id}"
+                if paper_id else ""
+            ),
+            s2_citations=None if request.is_supplement else request.citations,
         )
-
-        enrich = None
-        if not request.is_supplement:
-            def enrich(meta_to_enrich: PaperMeta, log) -> None:
-                result = s2_lookup(doi=meta_to_enrich.doi, title=request.title)
-                if result is None:
-                    log("[s2] no match found")
-                    return
-                meta_to_enrich.s2_url = result["s2_url"]
-                meta_to_enrich.s2_citations = result.get("citations")
-                meta_to_enrich.doi = meta_to_enrich.doi or result.get("doi", "")
-                log(
-                    f"[s2] {meta_to_enrich.s2_url} "
-                    f"(citations: {meta_to_enrich.s2_citations})",
-                )
 
         options_config = dict(cfg["options"])
         if request.options:
@@ -292,10 +285,8 @@ class ZoMinerApplication:
             log=job.append,
             mineru_version=self.mineru_version,
             store_dir=self.store_dir,
-            fm_cfg=cfg.get("frontmatter"),
             template=template,
             output_root=output_root,
-            enrich=enrich,
         )
         for warning in result.warnings:
             job.append(f"[warn] {warning}")

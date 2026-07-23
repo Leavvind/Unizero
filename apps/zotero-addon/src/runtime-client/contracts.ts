@@ -123,10 +123,18 @@ export interface ConvertRequest {
   title?: string;
   doi?: string;
   publication?: string;
+  abstract?: string;
   year?: string;
   authors?: string[];
   /** Supplied by Better BibTeX; absent when it is not installed. */
   citekey?: string;
+  /**
+   * Resolved on the Zotero side by Complete Metadata. The runtime derives the
+   * Semantic Scholar link from the paper id rather than looking a paper up
+   * itself; `citations` is the count as of the last Complete Metadata run.
+   */
+  s2_paper_id?: string;
+  citations?: number;
 }
 
 export interface ConvertAccepted {

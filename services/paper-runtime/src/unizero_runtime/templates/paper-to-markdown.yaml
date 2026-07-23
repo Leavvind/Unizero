@@ -4,11 +4,6 @@ name: Generate paper Markdown
 version: 1
 description: Convert, clean up, and publish a Zotero PDF as Markdown using MinerU.
 modules:
-  - id: enrich
-    module: enrich.semantic-scholar
-    enabled: true
-    settings: {}
-
   - id: extract
     module: extract.mineru
     enabled: true
@@ -55,9 +50,24 @@ modules:
     module: transform.frontmatter
     enabled: true
     settings:
-      tags:
-        - paper
-      extra: {}
+      properties:
+        - {key: title, value: "{{ title }}", type: text}
+        - {key: aliases, value: "{{ citekey }}", type: list}
+        - {key: authors, value: "{{ authors }}", type: list}
+        - {key: year, value: "{{ year }}", type: number}
+        - {key: citekey, value: "{{ citekey }}", type: text}
+        - {key: doi, value: "{{ doi }}", type: text}
+        - {key: publication, value: "{{ publication }}", type: text}
+        - {key: unizero-item, value: "{{ unizero_item }}", type: text}
+        - {key: zotero, value: "{{ zotero_select }}", type: text}
+        - {key: unizero-attachment, value: "{{ unizero_attachment }}", type: text}
+        - {key: pdf, value: "{{ zotero_pdf }}", type: text}
+        - {key: pdf-path, value: "{{ pdf_path }}", type: text}
+        - {key: semantic-scholar, value: "{{ semantic_scholar }}", type: text}
+        - {key: citations, value: "{{ citations }}", type: number}
+        - {key: tags, value: [paper], type: list}
+        - {key: created, value: "{{ today }}", type: date}
+        - {key: converter, value: "{{ converter }}", type: text}
 
   - id: publish
     module: publish.markdown-directory

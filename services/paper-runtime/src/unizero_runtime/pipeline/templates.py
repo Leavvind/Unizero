@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from .migrations import migrate_template_dict
 from .workflow import ModuleRegistry, WorkflowTemplate
 
 
@@ -36,7 +37,7 @@ class TemplateStore:
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict):
             raise ValueError(f"template YAML must contain an object: {path}")
-        return WorkflowTemplate.from_dict(value)
+        return WorkflowTemplate.from_dict(migrate_template_dict(value))
 
     def reload(self) -> None:
         with self._lock:
@@ -83,7 +84,8 @@ class TemplateStore:
             }
 
     def save_dict(self, value: dict[str, Any]) -> dict[str, Any]:
-        template = WorkflowTemplate.from_dict(value)
+        # A client may still be posting a document it loaded before an upgrade.
+        template = WorkflowTemplate.from_dict(migrate_template_dict(value))
         if not _SAFE_ID.fullmatch(template.id):
             raise ValueError(
                 "template id must use lowercase letters, numbers, '.', '_' or '-'",

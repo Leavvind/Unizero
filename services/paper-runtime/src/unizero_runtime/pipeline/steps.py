@@ -8,6 +8,7 @@ frontmatter → copy into vault.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -304,100 +305,176 @@ def _fm_value(v) -> str:
     return _yaml_str(str(v))
 
 
-_FM_PLACEHOLDER = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
+_FM_PLACEHOLDER = re.compile(r"\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}")
+_FM_SOLE_PLACEHOLDER = re.compile(r"^\s*\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}\s*$")
+
+FRONTMATTER_TYPES = ("text", "list", "number", "date", "checkbox")
+
+#: Placeholder names a property value may use, in the order the settings help
+#: lists them. Kept beside `_fm_variables`, which must supply every one of them.
+FRONTMATTER_VARIABLES = (
+    "title", "citekey", "authors", "year", "doi", "publication", "abstract",
+    "item_key", "attachment_key", "library_id", "unizero_item",
+    "unizero_attachment", "zotero_select", "zotero_pdf", "pdf_path",
+    "semantic_scholar", "citations", "today", "converter",
+)
 
 
-def _fm_variables(meta: "PaperMeta") -> dict[str, str]:
-    """The {{ variables }} available inside extra-field values."""
+def _fm_variables(meta: "PaperMeta", mineru_version: str = "",
+                  pdf_path: Optional[Path] = None) -> dict[str, Any]:
+    """The {{ variables }} a frontmatter property value may draw on.
+
+    Values keep their own Python type — `authors` stays a list and `citations`
+    stays an int — so that a property whose value is nothing but one placeholder
+    can project that type straight into YAML.
+    """
     return {
         "title": meta.title,
         "citekey": meta.citekey,
+        "authors": list(meta.authors),
         "year": meta.year,
         "doi": meta.doi,
         "publication": meta.publication,
+        "abstract": meta.abstract,
         "item_key": meta.item_key,
         "attachment_key": meta.attachment_key,
         "library_id": str(meta.library_id),
+        "unizero_item": f"{meta.library_id}:{meta.item_key}" if meta.item_key else "",
+        "unizero_attachment": (
+            f"{meta.library_id}:{meta.attachment_key}" if meta.attachment_key else ""
+        ),
         "zotero_select": meta.zotero_item_uri,
         "zotero_pdf": meta.zotero_pdf_uri,
+        # local path so an agent can Read specific PDF pages directly
+        "pdf_path": "" if pdf_path is None else str(pdf_path).replace(chr(92), "/"),
+        "semantic_scholar": meta.s2_url,
+        "citations": meta.s2_citations,
+        "today": date.today().isoformat(),
+        "converter": f"mineru {mineru_version}" if mineru_version else "",
     }
 
 
-def _fm_render(v, variables: dict[str, str]):
-    if isinstance(v, str):
-        return _FM_PLACEHOLDER.sub(
-            lambda m: variables.get(m.group(1), m.group(0)), v,
-        )
-    return v
+def _fm_scalar(value: Any) -> str:
+    """Flatten a variable into text for interpolation into a larger string."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(item) for item in value)
+    return str(value)
+
+
+def _fm_resolve(template: Any, variables: dict[str, Any]) -> Any:
+    """A value that is nothing but one placeholder keeps the variable's own type;
+    anything else is plain string interpolation."""
+    if not isinstance(template, str):
+        return template
+    sole = _FM_SOLE_PLACEHOLDER.match(template)
+    if sole and sole.group(1) in variables:
+        return variables[sole.group(1)]
+    return _FM_PLACEHOLDER.sub(
+        lambda match: _fm_scalar(variables.get(match.group(1), match.group(0))),
+        template,
+    )
+
+
+def _fm_coerce(value: Any, kind: str) -> Any:
+    """Shape a resolved value the way the declared property type serializes."""
+    if kind == "list":
+        items = value if isinstance(value, (list, tuple)) else [value]
+        return [item for item in items if _fm_scalar(item).strip()]
+    if kind == "checkbox":
+        if isinstance(value, str):
+            return value.strip().lower() in ("true", "yes", "1", "on")
+        return bool(value)
+    if kind == "number":
+        if isinstance(value, bool) or value is None:
+            return ""
+        if isinstance(value, (int, float)):
+            return value
+        text = str(value).strip()
+        try:
+            return int(text)
+        except ValueError:
+            pass
+        try:
+            return float(text)
+        except ValueError:
+            # Not a number after all; emit it as text rather than dropping it.
+            return text
+    return _fm_scalar(value)
+
+
+def _fm_is_empty(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, (list, tuple, str)):
+        return not value
+    return False
+
+
+DEFAULT_FRONTMATTER_PROPERTIES: list[dict[str, Any]] = [
+    {"key": "title", "value": "{{ title }}", "type": "text"},
+    # the filename is the full title; the citekey alias keeps [[citekey]] links resolving
+    {"key": "aliases", "value": "{{ citekey }}", "type": "list"},
+    {"key": "authors", "value": "{{ authors }}", "type": "list"},
+    {"key": "year", "value": "{{ year }}", "type": "number"},
+    {"key": "citekey", "value": "{{ citekey }}", "type": "text"},
+    {"key": "doi", "value": "{{ doi }}", "type": "text"},
+    {"key": "publication", "value": "{{ publication }}", "type": "text"},
+    # unizero-attachment is the ownership marker Publish reads before it
+    # overwrites an existing file; dropping it disables that protection.
+    {"key": "unizero-item", "value": "{{ unizero_item }}", "type": "text"},
+    {"key": "zotero", "value": "{{ zotero_select }}", "type": "text"},
+    {"key": "unizero-attachment", "value": "{{ unizero_attachment }}", "type": "text"},
+    {"key": "pdf", "value": "{{ zotero_pdf }}", "type": "text"},
+    {"key": "pdf-path", "value": "{{ pdf_path }}", "type": "text"},
+    {"key": "semantic-scholar", "value": "{{ semantic_scholar }}", "type": "text"},
+    {"key": "citations", "value": "{{ citations }}", "type": "number"},
+    {"key": "tags", "value": ["paper"], "type": "list"},
+    {"key": "created", "value": "{{ today }}", "type": "date"},
+    {"key": "converter", "value": "{{ converter }}", "type": "text"},
+]
 
 
 def build_frontmatter(meta: "PaperMeta", mineru_version: str = "",
                       pdf_path: Optional[Path] = None,
-                      fm_cfg: Optional[dict] = None) -> str:
-    """fm_cfg: {"tags": [...], "extra": {key: value}} — user-configurable parts."""
-    fm_cfg = fm_cfg or {}
-    lines = ["---"]
-    lines.append(f"title: {_yaml_str(meta.title)}")
-    if meta.citekey:
-        # filename is the full title; the citekey alias keeps [[citekey]] links resolving
-        lines.append("aliases:")
-        lines.append(f"  - {_yaml_str(meta.citekey)}")
-    if meta.authors:
-        lines.append("authors:")
-        for a in meta.authors:
-            lines.append(f"  - {_yaml_str(a)}")
-    if meta.year:
-        lines.append(f"year: {meta.year}")
-    if meta.citekey:
-        lines.append(f"citekey: {_yaml_str(meta.citekey)}")
-    if meta.doi:
-        lines.append(f"doi: {_yaml_str(meta.doi)}")
-    if meta.publication:
-        lines.append(f"publication: {_yaml_str(meta.publication)}")
-    if meta.item_key:
-        lines.append(
-            f"unizero-item: {_yaml_str(f'{meta.library_id}:{meta.item_key}')}",
-        )
-        lines.append(f"zotero: {_yaml_str(meta.zotero_item_uri)}")
-    if meta.attachment_key:
-        lines.append(
-            "unizero-attachment: "
-            f"{_yaml_str(f'{meta.library_id}:{meta.attachment_key}')}",
-        )
-        lines.append(f"pdf: {_yaml_str(meta.zotero_pdf_uri)}")
-    if pdf_path is not None:
-        # local path so an agent can Read specific PDF pages directly
-        lines.append(f"pdf-path: {_yaml_str(str(pdf_path).replace(chr(92), '/'))}")
-    if meta.s2_url:
-        lines.append(f"semantic-scholar: {meta.s2_url}")
-    if meta.s2_citations is not None:
-        lines.append(f"citations: {meta.s2_citations}")
-    variables = _fm_variables(meta)
-    for k, v in (fm_cfg.get("extra") or {}).items():
-        k = str(k).strip()
-        if not k:
+                      properties: Optional[list[dict[str, Any]]] = None) -> str:
+    """Project metadata through a property mapping table into a YAML block.
+
+    Each entry is {"key", "value", "type", "omit_if_empty"}; `value` is a
+    template over `_fm_variables`, or a literal (including a literal list).
+    Returns "" when nothing is left to write, so a document can legitimately
+    carry no frontmatter at all.
+    """
+    specs = DEFAULT_FRONTMATTER_PROPERTIES if properties is None else properties
+    variables = _fm_variables(meta, mineru_version, pdf_path)
+    lines: list[str] = []
+    seen: set[str] = set()
+    for spec in specs:
+        if not isinstance(spec, dict):
             continue
-        if isinstance(v, list):
-            lines.append(f"{k}:")
-            for it in v:
-                lines.append(f"  - {_fm_value(_fm_render(it, variables))}")
+        key = str(spec.get("key") or "").strip()
+        # A repeated key would produce YAML whose duplicate is silently dropped
+        # by every parser downstream; keep the first one and say nothing twice.
+        if not key or key in seen:
+            continue
+        kind = str(spec.get("type") or "text")
+        if kind not in FRONTMATTER_TYPES:
+            kind = "text"
+        value = _fm_coerce(_fm_resolve(spec.get("value", ""), variables), kind)
+        if _fm_is_empty(value) and bool(spec.get("omit_if_empty", True)):
+            continue
+        seen.add(key)
+        if kind == "list":
+            lines.append(f"{key}:")
+            lines.extend(f"  - {_fm_value(item)}" for item in value)
         else:
-            lines.append(f"{k}: {_fm_value(_fm_render(v, variables))}")
-    # Unconfigured tags default to paper; an explicitly empty list omits the
-    # tags field entirely.
-    tags = fm_cfg.get("tags")
-    if tags is None:
-        tags = ["paper"]
-    if tags:
-        lines.append("tags:")
-        for t in tags:
-            lines.append(f"  - {_fm_value(t)}")
-    lines.append(f"created: {date.today().isoformat()}")
-    if mineru_version:
-        lines.append(f"converter: mineru {mineru_version}")
-    lines.append("---")
-    lines.append("")
-    return "\n".join(lines)
+            lines.append(f"{key}: {_fm_value(value)}")
+    if not lines:
+        return ""
+    return "\n".join(["---", *lines, "---", ""])
 
 
 # --------------------------------------------------------------------------- #
@@ -412,6 +489,7 @@ class PaperMeta:
     citekey: str = ""
     doi: str = ""
     publication: str = ""
+    abstract: str = ""
     item_key: str = ""          # Zotero parent item key
     attachment_key: str = ""    # Zotero PDF attachment key
     library_id: int = 1
@@ -525,8 +603,6 @@ class ConversionContext:
     log: LogFn
     mineru_version: str = ""
     store_dir: Optional[Path] = None
-    fm_cfg: Optional[dict] = None
-    enrich: Optional[Callable[[PaperMeta, LogFn], None]] = None
     warnings: list[str] = field(default_factory=list)
     pages: int = 0
     out_md: Optional[Path] = None
@@ -547,11 +623,6 @@ def _require_output(ctx: ConversionContext) -> Path:
     if ctx.out_md is None:
         raise RuntimeError("workflow has no extracted markdown artifact")
     return ctx.out_md
-
-
-def _stage_enrich(ctx: ConversionContext, _settings: dict[str, Any]) -> None:
-    if ctx.enrich is not None:
-        ctx.enrich(ctx.meta, ctx.log)
 
 
 def _stage_extract(ctx: ConversionContext, settings: dict[str, Any]) -> None:
@@ -759,13 +830,11 @@ def _stage_tables_export(ctx: ConversionContext, settings: dict[str, Any]) -> No
 
 
 def _stage_frontmatter(ctx: ConversionContext, settings: dict[str, Any]) -> None:
-    config = dict(ctx.fm_cfg or {})
-    config.update(settings)
     ctx.frontmatter = build_frontmatter(
         ctx.meta,
         ctx.mineru_version,
         pdf_path=ctx.pdf_path,
-        fm_cfg=config,
+        properties=settings.get("properties"),
     )
 
 
@@ -968,17 +1037,6 @@ def _object_schema(properties: dict[str, Any]) -> dict[str, Any]:
 
 MODULE_REGISTRY: ModuleRegistry[ConversionContext] = ModuleRegistry()
 MODULE_REGISTRY.register(WorkflowModule(
-    id="enrich.semantic-scholar",
-    name="Semantic Scholar metadata enrichment",
-    role="prepare",
-    handler=_stage_enrich,
-    description=(
-        "Fill in the S2 link, citation count, and a missing DOI from the DOI "
-        "or title."
-    ),
-    settings_schema=_object_schema({}),
-))
-MODULE_REGISTRY.register(WorkflowModule(
     id="extract.mineru",
     name="Extract · MinerU",
     role="extract",
@@ -1108,19 +1166,41 @@ MODULE_REGISTRY.register(WorkflowModule(
     name="YAML Frontmatter",
     role="process",
     handler=_stage_frontmatter,
-    description="Generate the YAML metadata block at the top of the Markdown.",
-    defaults={"tags": ["paper"], "extra": {}},
+    description=(
+        "Map metadata onto the Obsidian properties written at the top of the "
+        "Markdown. Disable this module and the document is published with no "
+        "frontmatter at all — note that Publish then loses the "
+        "unizero-attachment marker it uses to avoid overwriting a document "
+        "owned by a different Zotero attachment."
+    ),
+    defaults={"properties": copy.deepcopy(DEFAULT_FRONTMATTER_PROPERTIES)},
     settings_schema=_object_schema({
-        "tags": {"type": "array", "title": "Tags", "items": {"type": "string"}},
-        "extra": {
-            "type": "object", "title": "Extra fields",
-            "additionalProperties": True,
+        "properties": {
+            "type": "array",
+            "title": "Properties",
+            "x-editor": "frontmatter-properties",
             "description": (
-                "One key: value per line. Values support the variables "
-                "{{ title }}, {{ citekey }}, {{ year }}, {{ doi }}, "
-                "{{ zotero_select }} (Zotero item link), and {{ zotero_pdf }} "
-                "(PDF link). For example, url: {{ zotero_select }}."
+                "One row per Obsidian property, written in this order. The "
+                "value is a template over " + ", ".join(
+                    f"{{{{ {name} }}}}" for name in FRONTMATTER_VARIABLES
+                ) + ". A value that is nothing but one placeholder keeps that "
+                "variable's own shape ({{ authors }} stays a list); anything "
+                "else is text substitution, so \"{{ year }} · {{ publication }}\" "
+                "works too. Free text with no placeholder is a constant."
             ),
+            "items": _object_schema({
+                "key": {"type": "string", "title": "Property"},
+                # deliberately untyped: a literal list is as valid as a template
+                "value": {"title": "Value"},
+                "type": {
+                    "type": "string", "title": "Type",
+                    "enum": list(FRONTMATTER_TYPES),
+                    "enumNames": ["Text", "List", "Number", "Date", "Checkbox"],
+                },
+                "omit_if_empty": {
+                    "type": "boolean", "title": "Omit when empty",
+                },
+            }),
         },
     }),
 ))
@@ -1182,10 +1262,8 @@ def convert_pdf(
     log: LogFn,
     mineru_version: str = "",
     store_dir: Optional[Path] = None,
-    fm_cfg: Optional[dict] = None,
     template: Optional[WorkflowTemplate] = None,
     output_root: Optional[Path] = None,
-    enrich: Optional[Callable[[PaperMeta, LogFn], None]] = None,
 ) -> ConvertResult:
     """Run a validated YAML template and return its published artifacts."""
     if template is None:
@@ -1208,8 +1286,6 @@ def convert_pdf(
         log=log,
         mineru_version=mineru_version,
         store_dir=store_dir,
-        fm_cfg=fm_cfg,
-        enrich=enrich,
     )
     report = WorkflowRunner(template, MODULE_REGISTRY).run(context, log)
     if context.final_md is None:

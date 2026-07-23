@@ -4,8 +4,7 @@ migrate_flat.py — one-time migration of vault papers from
 to the flat layout
   20_Papers/<citekey>.md  (+ attachments/<citekey>/, content_list -> service store)
 
-Also re-runs the current postprocess passes (incl. preamble trim) and adds
-Semantic Scholar frontmatter fields.
+Also re-runs the current postprocess passes (incl. preamble trim).
 
 Usage: python migrate_flat.py [--papers-dir D:/code/Academic/20_Papers]
 """
@@ -20,7 +19,6 @@ import sys
 from pathlib import Path
 
 from unizero_runtime.pipeline.postprocess import PostCtx, read_pdf_toc, run_passes
-from unizero_runtime.providers.semantic_scholar import s2_lookup
 
 HERE = Path(__file__).resolve().parent
 STORE = HERE / "store"
@@ -52,7 +50,6 @@ def migrate_one(d: Path, papers_dir: Path) -> None:
     fm, body = (m.group(1), text[m.end():]) if m else ("", text)
 
     title = fm_get(fm, "title")
-    doi = fm_get(fm, "doi")
     zuri = ""
     zm = re.search(r"^pdf:\s*(zotero://open-pdf/\S+)", fm, re.M)
     if zm:
@@ -104,21 +101,11 @@ def migrate_one(d: Path, papers_dir: Path) -> None:
         )
         print(f"   [migrate] moved {moved} image(s) -> attachments/{name}/")
 
-    # frontmatter: add aliases + semantic scholar
+    # frontmatter: add aliases. Semantic Scholar fields are no longer guessed
+    # from the title here — run Complete Metadata on the Zotero item and
+    # reconvert, which resolves the paper against the item and is reviewable.
     if title and "aliases:" not in fm:
         fm = re.sub(r"^(title:.*)$", r"\1\naliases:\n  - " + title, fm, count=1, flags=re.M)
-    if "semantic-scholar:" not in fm:
-        s2 = s2_lookup(doi=doi, title=title)
-        if s2:
-            add = f"semantic-scholar: {s2['s2_url']}\n"
-            if s2.get("citations") is not None:
-                add += f"citations: {s2['citations']}\n"
-            if not doi and s2.get("doi"):
-                add += f"doi: {s2['doi']}\n"
-            fm = re.sub(r"^tags:$", add + "tags:", fm, count=1, flags=re.M)
-            print(f"   [s2] {s2['s2_url']} (citations: {s2.get('citations')})")
-        else:
-            print("   [s2] no match")
 
     (papers_dir / f"{name}.md").write_text(fm + body, encoding="utf-8")
     shutil.rmtree(d)

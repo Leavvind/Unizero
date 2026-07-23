@@ -41,9 +41,12 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Product work
 
-- Expand metadata review from identifier completion to field-level candidate comparison.
-- Carry provider provenance and retrieval time for volatile scholarly data.
+- Let metadata review resolve conflicts field by field, rather than accepting or
+  rejecting a candidate paper whole.
+- Carry provider provenance and retrieval time for volatile scholarly data — the
+  citation count on an item is currently a bare number with no "as of".
 - Add annotation profiles with type, color, tags, comments, and managed output modes.
-- Allow frontmatter templates to select fields from a versioned Zotero snapshot.
+- Allow frontmatter properties to draw on a versioned Zotero snapshot rather than
+  the item's state at conversion time.
 
 Prioritize verified behavior and clear boundaries over directory reshuffling.
