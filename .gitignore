@@ -1,0 +1,42 @@
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+config.json
+*.local.json
+
+# JavaScript / TypeScript
+node_modules/
+build/
+dist/
+coverage/
+*.tsbuildinfo
+*.xpi
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Paper runtime state
+services/paper-runtime/work/
+services/paper-runtime/store/
+services/paper-runtime/user_templates/
+services/paper-runtime/*.log
+
+# Temporary artifacts
+.tmp/
+tmp/
+*.preview.md
+

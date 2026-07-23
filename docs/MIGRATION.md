@@ -1,0 +1,215 @@
+# Migration Plan
+
+This document controls the staged integration of Zoference and ZoMiner into UniZero.
+It is a plan, not a statement of implemented features.
+
+## Migration principles
+
+- Move behavior before redesigning it.
+- Keep each phase buildable and manually inspectable.
+- Preserve legacy data readers before changing writers.
+- Do not migrate generated output or user-local state.
+- Add tests around boundaries before changing those boundaries.
+- Keep the original repositories intact until UniZero reaches feature parity.
+
+## Source-to-target map
+
+| Source | Target | Strategy |
+| --- | --- | --- |
+| `Zoference/addon` | `apps/zotero-addon/addon` | Use as the initial manifest, locale, and preference foundation |
+| `Zoference/src/index.ts`, `addon.ts`, `hooks.ts` | add-on lifecycle and core | Migrate first; preserve symmetric cleanup |
+| `Zoference/src/modules/metadataEnrichment.ts` | `features/metadata` | Move at parity, then separate resolution, review, and write-back |
+| Zoference references/citations modules | `features/relations` and `providers` | Separate application orchestration from provider adapters |
+| `Zoference/src/modules/views.ts` | `ui` plus feature services | Do not copy as the long-term boundary; extract incrementally |
+| ZoMiner `api-client.js`, `service.js` | `runtime-client` | Port to TypeScript behind a typed client |
+| ZoMiner `commands.js`, `plugin.js` | conversion/annotation features and UI | Port capability by capability |
+| ZoMiner `zotero-adapter.js` | Zotero adapters and artifact registry | Preserve behavior, then replace title-based identity |
+| `ZoMiner/paper_service` | `services/paper-runtime` | Migrate at behavior parity before package refactoring |
+| ZoMiner built-in templates | runtime `templates` | Preserve IDs and support user-template discovery |
+| `zominer.references/1` fixtures | `packages/contracts/legacy` | Keep readable during the transition |
+
+## Files that must not be migrated
+
+- source-repository `.git` directories;
+- `node_modules`, build output, XPI files, Python environments;
+- `.env`, machine-local config, logs, caches;
+- `paper_service/work`, `paper_service/store`, and user template overrides;
+- real Zotero library data or published vault notes.
+
+Use synthetic fixtures when contract examples require representative data.
+
+## Phase 0 — Foundation
+
+Status: **in progress**
+
+Deliverables:
+
+- English repository README and contributor instructions;
+- architecture and project-structure documents;
+- migration map and accepted runtime-boundary ADR;
+- empty ownership directories with no placeholder implementation;
+- licensing and attribution decision before source migration.
+
+Exit gate:
+
+- every planned code destination has one clear owner;
+- current and target behavior are clearly distinguished;
+- no source code or user-local state has been copied;
+- the combined license and notice approach is recorded.
+
+## Phase 1 — Unified add-on shell
+
+Use Zoference as the initial add-on host.
+
+Deliverables:
+
+- working TypeScript add-on build under `apps/zotero-addon`;
+- UniZero lifecycle and namespace;
+- preferences and legacy preference migration strategy;
+- References/Citations behavior retained;
+- metadata identifier completion retained;
+- old and new add-ons can be distinguished during development.
+
+Exit gate:
+
+- type check and production build pass;
+- the XPI installs in Zotero;
+- startup, item pane, References, Citations, import/relate, and shutdown are manually
+  checked;
+- no ZoMiner capability is claimed yet.
+
+## Phase 2 — ZoMiner add-on capability port
+
+Port the Zotero-facing parts of ZoMiner into the unified add-on without moving the
+Python runtime yet.
+
+Deliverables:
+
+- typed runtime API client and health negotiation;
+- runtime process management;
+- conversion and annotation commands;
+- conversion target and Zotero snapshot adapters;
+- template-management UI;
+- existing artifact attachment behavior.
+
+Exit gate:
+
+- the unified XPI can drive the existing ZoMiner service;
+- conversion, table artifact, reference artifact, and annotation injection match the
+  source behavior;
+- the separate ZoMiner XPI is not required for the manual check.
+
+## Phase 3 — Paper runtime migration
+
+Move `paper_service` into `services/paper-runtime` at behavior parity.
+
+Deliverables:
+
+- real Python package layout and dependency configuration;
+- existing `/api/v1` compatibility;
+- built-in templates and user-template discovery;
+- tests for workflow validation, reference extraction, frontmatter, and annotation
+  idempotency;
+- clean handling of runtime store, work, and config paths.
+
+Exit gate:
+
+- runtime tests pass;
+- existing conversion fixtures produce equivalent artifacts;
+- the unified add-on can start, query, and stop the migrated runtime.
+
+## Phase 4 — Contracts and artifact integration
+
+Replace implicit cross-feature coupling with explicit contracts.
+
+Deliverables:
+
+- versioned nested item and attachment snapshot;
+- common artifact envelope;
+- artifact registry keyed by library, item, attachment, kind, and schema;
+- direct delivery of extracted references from conversion jobs;
+- legacy `zominer.references/1` reader retained;
+- cache key and persistence correctness fixes.
+
+Exit gate:
+
+- stale add-on/runtime combinations fail with a clear compatibility message;
+- group-library keys do not collide;
+- artifact lookup does not depend only on display titles;
+- legacy reference attachments still populate the relations feature.
+
+## Phase 5 — Canonical metadata and frontmatter
+
+Expand identifier completion into field-level metadata management.
+
+Deliverables:
+
+- normalized candidate model with provider provenance;
+- identity resolution before field merging;
+- review UI for missing and conflicting fields;
+- transactional Zotero write-back;
+- frontmatter field projection over a fresh Zotero snapshot;
+- Semantic Scholar enrichment removed from the default conversion template while the
+  provider remains available to metadata and relations features.
+
+Exit gate:
+
+- metadata changes are previewable and reversible through Zotero history where
+  available;
+- conversion reflects newly applied Zotero metadata;
+- template authors control which Zotero fields enter frontmatter;
+- volatile citation data is labeled with source and retrieval time.
+
+## Phase 6 — Annotation profiles and export modes
+
+Deliverables:
+
+- normalized type, color, tags, comment, and position data;
+- profile-driven rendering;
+- inline, managed-section, and standalone output modes;
+- stable markers for managed output;
+- dry-run and unmatched-annotation report;
+- compatibility with existing injected annotation keys.
+
+Exit gate:
+
+- repeated runs are idempotent;
+- highlight and underline can render differently;
+- profile behavior is testable without Zotero;
+- living Markdown is not regenerated or overwritten unexpectedly.
+
+## Cross-cutting migration work
+
+### Licensing and attribution
+
+Before copying Zoference code:
+
+- add the full AGPL-3.0-or-later license text;
+- preserve upstream and modifier copyright notices;
+- add notices for bundled or copied assets;
+- document the license chosen for original ZoMiner code.
+
+### Naming and compatibility
+
+Track migrations for:
+
+- add-on ID and global Zotero namespace;
+- preference prefixes;
+- cache filenames and keys;
+- XPI and update-manifest filenames;
+- attachment titles and generated tags;
+- service names, ports, and local paths;
+- template and artifact schema IDs.
+
+Display names may change early. Stable identifiers change only with a compatibility
+reader or explicit one-time migration.
+
+### Verification
+
+Every phase updates:
+
+- root documentation;
+- component build and test commands;
+- manual Zotero smoke-check steps;
+- migration status in this document.
+
