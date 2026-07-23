@@ -516,6 +516,8 @@ export default class MetadataEnrichment {
   private running = false;
 
   register(win: Window): void {
+    // MenuManager registration is global, but each window needs the Fluent resource.
+    (win as any).MozXULElement?.insertFTLIfNeeded?.(`${config.addonRef}-addon.ftl`);
     if (this.registeredMenuID) { return; }
     const menuManager = (Zotero as any).MenuManager;
     if (!menuManager?.registerMenu) {
@@ -523,7 +525,6 @@ export default class MetadataEnrichment {
       return;
     }
     // MenuManager 只挂 data-l10n-id，不代插件加载自己的 Fluent 文件。
-    (win as any).MozXULElement?.insertFTLIfNeeded?.(`${config.addonRef}-addon.ftl`);
     this.registeredMenuID = menuManager.registerMenu({
       menuID: `${config.addonRef}-metadata-enrichment`,
       pluginID: config.addonID,
@@ -544,7 +545,8 @@ export default class MetadataEnrichment {
   }
 
   unregister(_win: Window): void {
-    this.unregisterAll();
+    // Global registration is removed only by unregisterAll() during add-on shutdown.
+    // Closing one main window must not remove the menu from the others.
   }
 
   unregisterAll(): void {

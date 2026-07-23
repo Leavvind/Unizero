@@ -33,6 +33,7 @@ def test_health_satisfies_the_addon_handshake(client: TestClient) -> None:
     # The add-on compares this as a string and refuses to proceed on a mismatch.
     assert str(payload["api_version"]) == API_VERSION
     assert ADDON_REQUIRED_CAPABILITIES <= set(payload["capabilities"])
+    assert "library-scope" in payload["capabilities"]
 
 
 def test_unprefixed_health_still_answers(client: TestClient) -> None:
@@ -45,6 +46,11 @@ def test_templates_expose_id_and_name(client: TestClient) -> None:
     assert templates
     entry = templates[0]
     assert entry["id"] and entry["name"]
+
+
+def test_workflows_endpoint_uses_its_declared_envelope(client: TestClient) -> None:
+    payload = client.get(f"{PREFIX}/workflows").json()
+    assert payload["workflows"]
 
 
 def test_unknown_template_is_rejected_before_a_job_is_created(client: TestClient) -> None:
@@ -93,6 +99,16 @@ def test_unknown_request_fields_are_refused(client: TestClient) -> None:
     })
 
     assert response.status_code == 422
+
+
+def test_invalid_library_scope_is_refused(client: TestClient) -> None:
+    response = client.post(f"{PREFIX}/convert", json={
+        "pdf_path": "/x.pdf",
+        "library_scope": "groups/not-a-number",
+    })
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 def test_convert_request_defaults_are_part_of_the_contract(client: TestClient) -> None:

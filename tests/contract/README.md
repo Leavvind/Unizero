@@ -1,20 +1,14 @@
 # Contract Tests
 
-This directory will verify compatibility between the TypeScript add-on client, the
-Python runtime, and versioned example payloads.
+Cross-language checks are currently executed by the two component-native test commands:
 
-Initial coverage should include:
+- `apps/zotero-addon/scripts/check-contracts.mjs` compares TypeScript wire interfaces
+  with `packages/contracts/http/v1.schema.json`;
+- `services/paper-runtime/tests/test_shared_contract.py` compares Pydantic models with
+  the same schema and validates the shared examples.
 
-- health and API capability negotiation;
-- conversion request and job-result fixtures;
-- common artifact envelopes;
-- error response mapping;
-- legacy `zominer.references/1` parsing;
-- rejection of unsupported breaking contract versions.
+Keeping the runners beside their language toolchains avoids adding a fake root package.
+This directory will own cross-process fixtures that need their own runner once artifact
+envelopes and legacy `zominer.references/1` fixtures land.
 
-Use synthetic paper and Zotero identifiers. Do not commit real library data.
-
-**Nothing lives here yet.** Drift between the two hand-written `contracts` modules
-currently surfaces only as a 4xx at the moment a user acts; these tests are what would
-catch it earlier. See [`../../docs/ROADMAP.md`](../../docs/ROADMAP.md).
-
+All examples use synthetic paper and Zotero identifiers. Do not commit real library data.

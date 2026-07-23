@@ -15,6 +15,7 @@ from ..application.config import ConfigStore
 from ..contracts import (
     API_VERSION,
     SERVICE_VERSION,
+    AnnotateResponse,
     AnnotateRequest,
     ConfigPatch,
     ConfigResponse,
@@ -24,7 +25,10 @@ from ..contracts import (
     JobAccepted,
     JobListItem,
     JobStatusResponse,
+    TemplateDetailResponse,
+    TemplateListResponse,
     TemplateSaveRequest,
+    WorkflowListResponse,
 )
 from ..application.jobs import Job, JobManager
 from ..pipeline.steps import MODULE_REGISTRY
@@ -34,7 +38,7 @@ from ..pipeline.templates import TemplateStore
 API_PREFIX = f"/api/v{API_VERSION}"
 CAPABILITIES = [
     "convert", "annotate", "jobs", "config", "workflows",
-    "templates", "modules",
+    "templates", "modules", "library-scope",
 ]
 
 
@@ -122,7 +126,7 @@ def create_app(
             "capabilities": CAPABILITIES,
         }
 
-    @app.get(f"{API_PREFIX}/workflows")
+    @app.get(f"{API_PREFIX}/workflows", response_model=WorkflowListResponse)
     def workflows():
         return {"workflows": templates.list()}
 
@@ -130,11 +134,14 @@ def create_app(
     def modules():
         return {"modules": MODULE_REGISTRY.describe()}
 
-    @app.get(f"{API_PREFIX}/templates")
+    @app.get(f"{API_PREFIX}/templates", response_model=TemplateListResponse)
     def template_list():
         return {"templates": templates.list()}
 
-    @app.get(f"{API_PREFIX}/templates/{{template_id}}")
+    @app.get(
+        f"{API_PREFIX}/templates/{{template_id}}",
+        response_model=TemplateDetailResponse,
+    )
     def template_document(template_id: str):
         document = templates.document(template_id)
         if document is None:
@@ -200,7 +207,7 @@ def create_app(
     def jobs_list():
         return [_job_list_item(job) for job in jobs.list()]
 
-    @app.post(f"{API_PREFIX}/annotate")
+    @app.post(f"{API_PREFIX}/annotate", response_model=AnnotateResponse)
     @app.post("/annotate", include_in_schema=False)
     def annotate(request: AnnotateRequest):
         return application.annotate(request)

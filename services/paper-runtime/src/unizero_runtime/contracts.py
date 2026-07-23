@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 API_VERSION = "1"
-SERVICE_VERSION = "0.4.0"
+try:
+    SERVICE_VERSION = version("unizero-runtime")
+except PackageNotFoundError:
+    # Source-tree imports before installation (for example, an editor) still get a
+    # meaningful value. Installed and editable environments use pyproject metadata.
+    SERVICE_VERSION = "0.1.0"
 
 
 class RequestModel(BaseModel):
@@ -44,6 +50,10 @@ class ConvertRequest(RequestModel):
     attachment_title: str = ""
     is_supplement: bool = False
     library_id: int = 1
+    library_scope: str = Field(
+        default="library",
+        pattern=r"^(library|groups/[1-9][0-9]*)$",
+    )
     template: str = "paper-to-markdown"
     workflow: Optional[str] = None
     options: Optional[ConvertOptionsPatch] = None
@@ -67,6 +77,10 @@ class AnnotateRequest(RequestModel):
     citekey: str = ""
     item_key: str = ""
     library_id: int = 1
+    library_scope: str = Field(
+        default="library",
+        pattern=r"^(library|groups/[1-9][0-9]*)$",
+    )
     annotations: list[AnnotationPayload] = Field(default_factory=list)
 
 
@@ -98,6 +112,50 @@ class JobStatusResponse(BaseModel):
     error: Optional[str] = None
 
 
+class TemplateSummary(BaseModel):
+    id: str
+    name: str
+    version: int
+    description: str
+    builtin: bool
+    customized: bool
+    stages: list[str]
+    modules: list[dict[str, Any]]
+
+
+class TemplateListResponse(BaseModel):
+    templates: list[TemplateSummary]
+
+
+class WorkflowListResponse(BaseModel):
+    workflows: list[TemplateSummary]
+
+
+class WorkflowTemplateDocument(BaseModel):
+    schema_version: int
+    id: str
+    name: str
+    version: int
+    description: str
+    modules: list[dict[str, Any]]
+
+
+class TemplateDetailResponse(BaseModel):
+    template: WorkflowTemplateDocument
+    yaml: str
+    builtin: bool
+    customized: bool
+
+
+class AnnotateResponse(BaseModel):
+    md_path: str
+    total: int
+    injected: int
+    already: int
+    skipped: list[dict[str, Any]]
+    unrouted: int
+
+
 class JobListItem(BaseModel):
     job_id: str
     status: str
@@ -113,7 +171,7 @@ class JobListItem(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    ok: bool = True
+    ok: bool
     service: str
     service_version: str
     api_version: str

@@ -58,11 +58,19 @@ export default class Views {
   constructor() {
     initLocale();
     this.utils = new Utils()
-    this.addStyle()
   }
 
-  private addStyle() {
-    const styles = ztoolkit.UI.createElement(document, "style", {
+  public onWindowLoad(win: Window): void {
+    this.addStyle(win.document);
+  }
+
+  public onWindowUnload(win: Window): void {
+    win.document.getElementById("reference-style")?.remove();
+  }
+
+  private addStyle(targetDocument: Document) {
+    if (targetDocument.getElementById("reference-style")) { return; }
+    const styles = ztoolkit.UI.createElement(targetDocument, "style", {
       id: "reference-style",
       namespace: "html",
       properties: {
@@ -196,12 +204,13 @@ export default class Views {
         `
       },
     });
-    document.documentElement.appendChild(styles);
+    targetDocument.documentElement.appendChild(styles);
   }
   /**
    * 注册阅读侧边栏
    */
-  public async onInit() {
+  public async onInit(win: Window = window) {
+    this.onWindowLoad(win);
     // 版本号打到日志里：这轮排查最费时间的就是分不清“功能有 bug”还是“装的还是旧包”。
     ztoolkit.log(`${config.addonName} ${version} registering item pane section`);
     (Zotero as any)[`${config.addonInstance}Version`] = version;
@@ -301,6 +310,8 @@ export default class Views {
       (Zotero as any).ItemPaneManager?.unregisterSection(this.registeredPaneID);
       this.registeredPaneID = undefined;
     }
+    delete (Zotero as any)[`${config.addonInstance}Version`];
+    delete (Zotero as any)[`${config.addonInstance}Debug`];
   }
 
   // ---------------------------------------------------------------- 本地缓存

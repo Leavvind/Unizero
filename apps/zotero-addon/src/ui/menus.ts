@@ -20,8 +20,6 @@ const MENU_CONVERT = `${config.addonRef}-convert-menu`;
 const MENU_ANNOTATE = `${config.addonRef}-annotate-menuitem`;
 const MENU_PANEL = `${config.addonRef}-panel-menuitem`;
 
-const ALL_MENU_IDS = [MENU_CONVERT, MENU_ANNOTATE, MENU_PANEL];
-
 /** 服务不可用、模板列表拿不到时用的兜底模板。runtime 一定内置了它。 */
 const FALLBACK_TEMPLATE_ID = "paper-to-markdown";
 const FALLBACK_TEMPLATE_NAME = "生成论文 Markdown";
@@ -88,27 +86,16 @@ function buildConvertMenu(mainWindow: Window, document: Document): Element {
   return convert;
 }
 
-/** 幂等：窗口重载或重复注册时不会叠加菜单项。 */
-export function registerMenus(mainWindow: Window, openPanel: OpenPanel): void {
+/** Conversion and runtime-panel contribution. Idempotent per main window. */
+export function registerConversionMenus(
+  mainWindow: Window,
+  openPanel: OpenPanel,
+): void {
   const document = mainWindow.document;
-  if (document.getElementById(MENU_CONVERT)) { return; }
-
   const itemMenu = document.getElementById("zotero-itemmenu");
-  if (!itemMenu) { return; }
-
-  itemMenu.appendChild(buildConvertMenu(mainWindow, document));
-
-  const annotate = (document as any).createXULElement("menuitem");
-  annotate.id = MENU_ANNOTATE;
-  annotate.setAttribute("label", "注入批注到 MD");
-  annotate.addEventListener("command", () => {
-    annotateSelected(mainWindow).catch((error) => {
-      ztoolkit.log(`annotateSelected error: ${error}`);
-      showError(String(error));
-    });
-  });
-  itemMenu.appendChild(annotate);
-
+  if (itemMenu && !document.getElementById(MENU_CONVERT)) {
+    itemMenu.appendChild(buildConvertMenu(mainWindow, document));
+  }
   const toolsMenu = document.getElementById("menu_ToolsPopup");
   if (toolsMenu && !document.getElementById(MENU_PANEL)) {
     const panel = (document as any).createXULElement("menuitem");
@@ -119,9 +106,31 @@ export function registerMenus(mainWindow: Window, openPanel: OpenPanel): void {
   }
 }
 
-export function unregisterMenus(mainWindow: Window): void {
-  for (const id of ALL_MENU_IDS) {
+/** Annotation command contribution. Idempotent per main window. */
+export function registerAnnotationMenu(mainWindow: Window): void {
+  const document = mainWindow.document;
+  if (document.getElementById(MENU_ANNOTATE)) { return; }
+  const itemMenu = document.getElementById("zotero-itemmenu");
+  if (!itemMenu) { return; }
+  const annotate = (document as any).createXULElement("menuitem");
+  annotate.id = MENU_ANNOTATE;
+  annotate.setAttribute("label", "注入批注到 MD");
+  annotate.addEventListener("command", () => {
+    annotateSelected(mainWindow).catch((error) => {
+      ztoolkit.log(`annotateSelected error: ${error}`);
+      showError(String(error));
+    });
+  });
+  itemMenu.appendChild(annotate);
+}
+
+export function unregisterConversionMenus(mainWindow: Window): void {
+  for (const id of [MENU_CONVERT, MENU_PANEL]) {
     const element = mainWindow.document.getElementById(id);
     if (element) { element.remove(); }
   }
+}
+
+export function unregisterAnnotationMenu(mainWindow: Window): void {
+  mainWindow.document.getElementById(MENU_ANNOTATE)?.remove();
 }

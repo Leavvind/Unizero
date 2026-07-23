@@ -8,6 +8,13 @@
  */
 
 import type { AnnotateRequest, AnnotationPayloadItem } from "../runtime-client/contracts";
+import { libraryScope } from "./libraryScope";
+
+export interface PreparedAnnotateRequest extends AnnotateRequest {
+  item_key: string;
+  library_id: number;
+  annotations: AnnotationPayloadItem[];
+}
 
 /** runtime 目前只能把这两类批注定位回 Markdown 正文。 */
 const SUPPORTED_TYPES = ["highlight", "underline"];
@@ -41,7 +48,7 @@ export function regularParents(items: Zotero.Item[]): Zotero.Item[] {
  * 按 sortIndex 排序，让注入顺序跟阅读顺序一致——runtime 侧是按顺序匹配正文的，
  * 乱序会显著降低匹配率。
  */
-export function annotationPayload(parent: Zotero.Item): AnnotateRequest {
+export function annotationPayload(parent: Zotero.Item): PreparedAnnotateRequest {
   const annotations: AnnotationPayloadItem[] = [];
 
   for (const id of parent.getAttachments()) {
@@ -66,11 +73,14 @@ export function annotationPayload(parent: Zotero.Item): AnnotateRequest {
     }
   }
 
-  annotations.sort((left, right) => left.sort_index.localeCompare(right.sort_index));
+  annotations.sort((left, right) =>
+    String(left.sort_index || "").localeCompare(String(right.sort_index || "")),
+  );
 
-  const payload: AnnotateRequest = {
+  const payload: PreparedAnnotateRequest = {
     item_key: parent.key,
     library_id: parent.libraryID || 1,
+    library_scope: libraryScope(parent.libraryID || 1),
     annotations,
   };
 

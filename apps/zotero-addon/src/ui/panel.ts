@@ -23,6 +23,7 @@ const PANEL_URL = `chrome://${config.addonRef}/content/panel.xhtml`;
 const PANEL_WINDOW_NAME = `${config.addonRef}-panel`;
 
 let panelWindow: Window | null = null;
+let panelOwner: Window | null = null;
 
 /** 面板通过 window.arguments[0].api 拿到的全部能力。 */
 function panelApi() {
@@ -48,6 +49,7 @@ export function openPanel(mainWindow: Window): void {
     "chrome,centerscreen,resizable=yes,dialog=no,width=1040,height=860",
     { api: panelApi() },
   );
+  panelOwner = mainWindow;
 }
 
 /** 插件卸载时把面板一起关掉，否则它会留在屏幕上引用已失效的 api。 */
@@ -60,4 +62,12 @@ export function closePanel(): void {
     }
   }
   panelWindow = null;
+  panelOwner = null;
+}
+
+/** Close only the panel belonging to the main window that is being unloaded. */
+export function closePanelForOwner(mainWindow: Window): void {
+  if (panelOwner === mainWindow) {
+    closePanel();
+  }
 }

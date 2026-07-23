@@ -13,6 +13,7 @@ import {
   markConverted,
 } from "../../zotero/conversionAdapter";
 import { showError, startBatch, type ProgressLine } from "../../ui/progress";
+import { getConversionPref } from "./settings";
 
 /**
  * job 轮询间隔。
@@ -104,7 +105,9 @@ export async function convertSelected(
       line.setProgress(100);
       const result = final.result || {};
       line.setText(`完成: ${result.md_path || ""}`);
-      await markConverted(target, result);
+      await markConverted(target, result, {
+        mdSnapshot: getConversionPref("mdSnapshot"),
+      });
     } catch (error) {
       line.setError();
       line.setText(`失败: ${error}`);

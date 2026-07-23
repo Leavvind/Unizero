@@ -28,6 +28,7 @@ from .annotations import (
     citekey_of_md,
     find_md_by_attachment,
     find_md_by_citekey,
+    find_md_by_item,
 )
 from .config import ConfigStore
 from .jobs import Job
@@ -229,6 +230,8 @@ class ZoMinerApplication:
             publication=request.publication,
             item_key=request.item_key,
             attachment_key=request.attachment_key,
+            library_id=request.library_id,
+            library_scope=request.library_scope,
         )
 
         enrich = None
@@ -264,6 +267,14 @@ class ZoMinerApplication:
             else Path(cfg["papers_dir"])
         )
         safe_key = safe_dirname(doc_key)
+        artifact_key = (
+            safe_key
+            if request.library_scope == "library"
+            else safe_dirname(
+                f"{safe_key}--l{request.library_id}-"
+                f"{request.attachment_key or request.item_key}",
+            )
+        )
         work_dir = Path(cfg["work_dir"]) / f"{safe_key}_{job.id[:8]}"
 
         job.append(f"[job] {pdf.name} ({safe_key})")
@@ -272,6 +283,7 @@ class ZoMinerApplication:
             work_dir=work_dir,
             papers_dir=papers_dir,
             citekey=safe_key,
+            artifact_key=artifact_key,
             meta=meta,
             opts=options,
             log=job.append,
@@ -321,7 +333,19 @@ class ZoMinerApplication:
             (
                 target
                 for directory in publish_dirs
-                if (target := find_md_by_citekey(directory, citekey)) is not None
+                if (
+                    target := (
+                        find_md_by_item(
+                            directory,
+                            request.library_id,
+                            request.item_key,
+                        )
+                        if request.item_key else None
+                    ) or (
+                        find_md_by_citekey(directory, citekey)
+                        if request.library_scope == "library" else None
+                    )
+                ) is not None
             ),
             None,
         )
@@ -333,6 +357,7 @@ class ZoMinerApplication:
                 comment=item.comment,
                 page_label=item.page_label,
                 sort_index=item.sort_index,
+                library_scope=request.library_scope,
             )
             for item in request.annotations
             if item.key and item.text
@@ -358,7 +383,12 @@ class ZoMinerApplication:
                     found
                     for directory in publish_dirs
                     if (
-                        found := find_md_by_attachment(directory, attachment_key)
+                        found := find_md_by_attachment(
+                            directory,
+                            attachment_key,
+                            request.library_id,
+                            request.library_scope,
+                        )
                     ) is not None
                 ),
                 None,
@@ -368,7 +398,14 @@ class ZoMinerApplication:
                 continue
             routed_any = True
             doc_key = citekey_of_md(target) or citekey
-            report = annotate_md(target, group, self.store_dir, doc_key)
+            state_key = (
+                doc_key
+                if request.library_scope == "library"
+                else safe_dirname(
+                    f"{doc_key}--l{request.library_id}-{attachment_key}",
+                )
+            )
+            report = annotate_md(target, group, self.store_dir, state_key)
             total["md_path"] = total["md_path"] or report["md_path"]
             total["injected"] += report["injected"]
             total["already"] += report["already"]

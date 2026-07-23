@@ -9,25 +9,25 @@ It brings together four related capabilities:
 - PDF-to-Markdown conversion and publishing;
 - Zotero annotation export and incremental Markdown injection.
 
-It is one Zotero add-on backed by an optional local paper-processing runtime, not one
-large process containing every concern.
+It is one Zotero add-on backed by an optional local paper-processing runtime.
 
 ## Project status
 
-Working, and used daily by its author.
-
 `apps/zotero-addon` provides references, citations, and metadata enrichment in the item
 pane, plus PDF → Markdown conversion, annotation injection, artifact registration, and
-local runtime process management. `services/paper-runtime` is an installable Python
-package serving `/api/v1`, with 43 tests and its state kept outside the source tree.
+local runtime process management.
+
+`services/paper-runtime` is an installable Python
+package serving `/api/v1`, with 65 tests and its state kept outside the source tree.
 
 Both were manually checked in Zotero on 2026-07-23. Generated attachments are identified
 by an explicit `unizero:<kind>` tag, so they are never found — or erased — by title.
+The subsequent feature-registry, multi-window, port-sync, and group-library changes need
+the focused manual checks listed in the roadmap.
 
-Not yet done: `packages/contracts` and `tests/contract` hold boundary documentation
-rather than schemas, so the two `contracts` modules are hand-written mirrors of one
-contract. Settings are still split across a preference pane and a panel dialog. Open
-verification and planned work are in [Roadmap](docs/ROADMAP.md).
+The HTTP v1 field contract now lives in `packages/contracts` and is checked against both
+language models. Common artifact envelopes and legacy contract fixtures are not yet
+done. Open verification and planned work are in [Roadmap](docs/ROADMAP.md).
 
 ## Architecture at a glance
 
@@ -76,14 +76,11 @@ The detailed target tree and dependency rules are in
 
 ## Origins
 
-UniZero was formed by merging **Zoference** — a TypeScript Zotero add-on for references,
-citations, and metadata, itself a fork of `MuiseDestiny/zotero-reference` — with
-**ZoMiner**, a plain-JavaScript Zotero plugin and its Python `paper_service` for
-MinerU-based PDF conversion.
+UniZero was formed by merging **Zoference** and **ZoMiner**.
 
-That merge is complete. Zoference supplied the add-on shell; ZoMiner's Zotero-facing half
-was ported into it and its Python half became `services/paper-runtime`. See
-[How UniZero Was Assembled](docs/HISTORY.md) for where each piece went and which
+Zoference supplied the add-on shell; ZoMiner's Zotero-facing half
+was ported into it and its Python half became `services/paper-runtime`.
+See [How UniZero Was Assembled](docs/HISTORY.md) for where each piece went and which
 identifiers changed, and [Compatibility Readers](docs/COMPATIBILITY.md) for the code that
 still reads state written by the predecessors.
 
@@ -100,9 +97,9 @@ still reads state written by the predecessors.
 
 ## Roadmap
 
-Planned work, grouped by area: a unified settings UI, real cross-language contracts, a
-common artifact envelope and group-library correctness, field-level metadata management
-with frontmatter projection, and annotation profiles with multiple output modes.
+Planned work, grouped by area: a common artifact envelope, field-level metadata
+management with frontmatter projection, and annotation profiles with multiple output
+modes. Group-library, lifecycle, and preference changes still need manual Zotero checks.
 
 See [Roadmap](docs/ROADMAP.md), which also tracks the checks that are still open on work
 already landed.
@@ -152,4 +149,3 @@ Copyright © Polygon. Copyright notices and component attributions are recorded 
 
 The AGPL requires that anyone you distribute the add-on to can obtain the corresponding
 source code. If you redistribute a built `.xpi`, publish this repository alongside it.
-

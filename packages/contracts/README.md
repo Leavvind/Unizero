@@ -3,19 +3,16 @@
 This directory owns language-neutral compatibility contracts shared by the TypeScript
 add-on and Python paper runtime.
 
-Planned contents:
+Current contents:
 
-- versioned HTTP request, response, capability, and error schemas;
-- artifact envelopes and artifact-kind schemas;
-- synthetic example payloads;
-- legacy fixtures such as `zominer.references/1`.
+- `http/v1.schema.json`: canonical request/response fields, requiredness, API version,
+  and required capabilities;
+- `examples/`: synthetic payloads validated by the Python models.
 
 Contracts are public compatibility surfaces. Do not place add-on or runtime
 implementation logic here, and do not add placeholder files merely to make the directory
 look occupied.
 
-**Nothing lives here yet.** Until it does, `apps/zotero-addon/src/runtime-client/contracts.ts`
-and `services/paper-runtime/src/unizero_runtime/contracts.py` are hand-written mirrors of
-one contract that both type-check green while disagreeing. See the change rules in
-[`../../AGENTS.md`](../../AGENTS.md) and [`../../docs/ROADMAP.md`](../../docs/ROADMAP.md).
-
+`npm run check` compares the TypeScript interfaces with the canonical schema.
+`services/paper-runtime/tests/test_shared_contract.py` compares the Pydantic models and
+validates the shared examples. Artifact envelopes and legacy fixtures remain planned.

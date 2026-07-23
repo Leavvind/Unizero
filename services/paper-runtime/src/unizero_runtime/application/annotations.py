@@ -40,10 +40,11 @@ class Annotation:
     comment: str = ""
     page_label: str = ""
     sort_index: str = ""
+    library_scope: str = "library"
 
     def link(self) -> str:
         return (
-            f"zotero://open-pdf/library/items/{self.attachment_key}"
+            f"zotero://open-pdf/{self.library_scope}/items/{self.attachment_key}"
             f"?page={self.page_label}&annotation={self.key}"
         )
 
@@ -272,12 +273,45 @@ def find_md_by_citekey(papers_dir: Path, citekey: str) -> Optional[Path]:
     return None
 
 
-def find_md_by_attachment(papers_dir: Path, attachment_key: str) -> Optional[Path]:
-    """Locate the MD converted from this PDF attachment (frontmatter pdf: line)."""
-    needle = re.compile(
-        rf"^pdf:\s*zotero://open-pdf/library/items/{re.escape(attachment_key)}\s*$", re.M)
+def _identity_line(field: str, value: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"^{re.escape(field)}:\s*[\"']?{re.escape(value)}[\"']?\s*$",
+        re.M,
+    )
+
+
+def find_md_by_item(
+    papers_dir: Path,
+    library_id: int,
+    item_key: str,
+) -> Optional[Path]:
+    """Locate a UniZero MD by its library-qualified parent item identity."""
+    needle = _identity_line("unizero-item", f"{library_id}:{item_key}")
     for md in papers_dir.glob("*.md"):
         if needle.search(_fm_of(md)):
+            return md
+    return None
+
+
+def find_md_by_attachment(
+    papers_dir: Path,
+    attachment_key: str,
+    library_id: int = 1,
+    library_scope: str = "library",
+) -> Optional[Path]:
+    """Locate the MD converted from this PDF attachment (frontmatter pdf: line)."""
+    identity = _identity_line(
+        "unizero-attachment",
+        f"{library_id}:{attachment_key}",
+    )
+    legacy = re.compile(
+        rf"^pdf:\s*[\"']?zotero://open-pdf/{re.escape(library_scope)}"
+        rf"/items/{re.escape(attachment_key)}[\"']?\s*$",
+        re.M,
+    )
+    for md in papers_dir.glob("*.md"):
+        frontmatter = _fm_of(md)
+        if identity.search(frontmatter) or legacy.search(frontmatter):
             return md
     return None
 
@@ -288,12 +322,12 @@ def citekey_of_md(md: Path) -> str:
 
 
 def annotate_md(
-    md_path: Path, annotations: list[Annotation], store_dir: Path, citekey: str,
+    md_path: Path, annotations: list[Annotation], store_dir: Path, state_key: str,
 ) -> dict:
     """Inject into md_path; persist injected keys in the store. Returns a report."""
     text = md_path.read_text(encoding="utf-8")
 
-    keys_path = store_dir / f"{citekey}.annotations.json"
+    keys_path = store_dir / f"{state_key}.annotations.json"
     known: set[str] = set()
     if keys_path.exists():
         try:

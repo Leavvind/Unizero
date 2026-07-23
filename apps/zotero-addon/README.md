@@ -77,10 +77,14 @@ Two layouts coexist inside `src/`, on purpose:
 | Path | Contents |
 | --- | --- |
 | `src/modules/` | Zoference's original flat layout, carried over as-is |
+| `src/core/` | static feature registry and symmetric lifecycle dispatch |
 | `src/runtime-client/` | typed client, contracts, settings, and process management |
 | `src/features/` | conversion and annotation commands |
-| `src/zotero/` | the only code that mutates Zotero items |
+| `src/zotero/` | new Zotero adapters and library-scoped identity helpers |
 | `src/ui/` | menus, panel, progress reporting |
+
+New feature code keeps Zotero mutations in `src/zotero/`. The predecessor
+`src/modules/` layout still contains Zotero mutations and is extracted incrementally.
 
 New code goes in the second layout, described in
 [`../../docs/PROJECT_STRUCTURE.md`](../../docs/PROJECT_STRUCTURE.md). The flat modules

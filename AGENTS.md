@@ -7,18 +7,21 @@ treated as implemented behavior.
 
 ## Current state
 
-UniZero is one project. The merge of Zoference and ZoMiner is finished — there is no
-remaining code to copy, and neither source repository is an input to development any
-more. How it was assembled is recorded in `docs/HISTORY.md`.
+Unizero is a project, merging from [Zoference](https://github.com/Leavvind/zotero-reference) and [Zominer](https://github.com/Leavvind/ZoMiner).
+- How it was assembled is recorded in `docs/HISTORY.md`.
+
 
 `apps/zotero-addon` carries all Zotero-facing code. `services/paper-runtime` is an
 installable Python package serving `/api/v1`. Both were manually checked in Zotero by the
-maintainer on 2026-07-23. Generated attachments are identified by an explicit
+maintainer on 2026-07-23. The later feature-registry, multi-window, port-sync, and
+group-library changes still need the manual checks listed in `docs/ROADMAP.md`. Generated
+attachments are identified by an explicit
 `unizero:<kind>` tag (`src/zotero/artifactIdentity.ts`), not by their display title.
 
-`packages/contracts` and `tests/contract` hold boundary documentation and nothing else.
-Until they hold real schemas, the two `contracts` modules are hand-written mirrors — see
-the rule below. Do not add placeholder build scripts, fake packages, or speculative
+`packages/contracts/http/v1.schema.json` is the canonical HTTP v1 field/requiredness
+declaration, with synthetic examples under `packages/contracts/examples`. Component-native
+checks compare it with both `contracts` modules. Artifact schemas and legacy fixtures are
+still planned; do not add placeholder build scripts, fake packages, or speculative
 abstractions merely to make the target tree look complete.
 
 Open verification and planned work are in `docs/ROADMAP.md`. What still reads state
@@ -108,12 +111,10 @@ These constraints originate in Zoference and continue to apply after migration.
 
 ## Change rules
 
-- `src/runtime-client/contracts.ts` and
-  `services/paper-runtime/src/unizero_runtime/contracts.py` are hand-written mirrors of
-  one contract. Change one, change the other in the same commit. Both sides type-check
-  green while disagreeing, so drift only surfaces as a 4xx at the moment a user acts.
-  Until `packages/contracts` holds real schemas, this rule is the only thing holding
-  them together.
+- HTTP v1 changes start in `packages/contracts/http/v1.schema.json`; update
+  `src/runtime-client/contracts.ts` and
+  `services/paper-runtime/src/unizero_runtime/contracts.py` in the same commit.
+  `npm run check` and `tests/test_shared_contract.py` must both pass.
 - Everything listed in `docs/COMPATIBILITY.md` reads state written by a predecessor
   add-on. Removing one is its own commit, stating which retirement condition was met and
   how that was determined. Never as cleanup, and never bundled into an unrelated change.
@@ -144,6 +145,8 @@ Add-on, from `apps/zotero-addon`:
 npm run check
 npm run build
 ```
+
+`npm run check` includes the TypeScript/schema contract drift check.
 
 Runtime, from `services/paper-runtime`:
 
@@ -185,4 +188,3 @@ If a manual check cannot be run, state that explicitly.
 Existing changes belong to the user. Do not discard or rewrite unrelated work. Avoid
 destructive Git commands. Keep the predecessor repositories untouched unless the task
 explicitly includes them.
-

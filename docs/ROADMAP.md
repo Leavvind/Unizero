@@ -34,19 +34,26 @@ at the top because each one is a claim the repository currently cannot support.
   `setRuntimePref` rather than through XUL `preference=` binding. Each field needs one
   round trip — change it, reopen the pane, confirm it stuck — and the port additionally
   needs to reach a manually started runtime's `config.json`.
+- **Lifecycle after registry extraction.** Normal Zotero exit must stop a runtime started
+  by the add-on; closing one of two main windows must leave the other window's item pane
+  and global metadata menu working; disabling the add-on must remove every registration.
+- **Group-library end to end.** Automated tests cover scoped identities, deep links,
+  contract payloads, and runtime routing. A real group item still needs conversion,
+  re-conversion, and annotation injection in Zotero, including a same-title item in the
+  user library to prove the two outputs do not cross.
 
 ## Contracts
 
-`packages/contracts/` and `tests/contract/` are ownership directories holding only
-boundary documentation. Until they hold something,
-`src/runtime-client/contracts.ts` and `src/unizero_runtime/contracts.py` are hand-written
-mirrors of one contract, and the rule in [AGENTS.md](../AGENTS.md) requiring both to
-change together is the only thing holding them in agreement.
+`packages/contracts/http/v1.schema.json` now declares HTTP field names, requiredness,
+the API version, and required capabilities. `npm run check` compares TypeScript wire
+interfaces against it; the runtime suite compares Pydantic models and validates the
+shared synthetic examples.
 
-- versioned HTTP request, response, capability, and error schemas;
+- extend the schema to config, job-list, module-description, and template-write payloads;
 - artifact envelopes and artifact-kind schemas;
-- synthetic example payloads and legacy fixtures;
-- contract tests that fail on drift instead of leaving it to surface as a 4xx.
+- legacy fixtures such as `zominer.references/1`;
+- full value/type validation on the TypeScript side, beyond current field/requiredness
+  comparison.
 
 Do not add generated bindings without a reproducible generation command, and do not
 create placeholder files here merely to make the tree look complete.
@@ -57,8 +64,10 @@ create placeholder files here merely to make the tree look complete.
 - a common artifact envelope shared by Markdown, tables, and references;
 - conversion jobs return extracted references directly, so the relations feature stops
   depending on reading an attachment back;
-- group-library correctness — `library_id` defaults to `1` when absent, inherited from
-  ZoMiner, and cache and artifact keys must include `libraryID`;
+- verify group-library conversion in Zotero. Current add-on payloads carry a validated
+  Zotero URI scope, caches use `libraryID:itemKey`, and runtime store/artifact keys are
+  scoped; older runtimes are rejected for group items instead of silently using the user
+  library;
 - a clear compatibility message when a stale add-on meets a newer runtime or vice versa;
 - rename the generated attachment titles off the `ZoMiner` prefix, keeping the old
   strings as adoption criteria.
@@ -95,6 +104,8 @@ working.
 
 ## Structure
 
+- `src/core/featureRegistry.ts` now statically registers the four product feature IDs and
+  owns symmetric per-window and shutdown dispatch. Events and shared jobs remain planned.
 - `src/modules/` is Zoference's original flat layout and `views.ts` is 2112 lines
   carrying view code, cache policy, network orchestration, and Zotero mutation together.
   It is extracted incrementally, when that code is being touched for another reason —

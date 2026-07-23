@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from unizero_runtime.application.annotations import Annotation, annotate_md
+from unizero_runtime.application.annotations import (
+    Annotation,
+    annotate_md,
+    find_md_by_attachment,
+    find_md_by_item,
+)
 
 
 BODY = """---
@@ -141,3 +146,34 @@ def test_incremental_injection_adds_only_the_new_one(tmp_path: Path) -> None:
     text = md.read_text(encoding="utf-8")
     assert text.count("ANN00001") == 1
     assert text.count("ANN00002") == 1
+
+
+def test_group_annotation_link_uses_group_scope() -> None:
+    annotation = _annotation("ANN00001", "quick brown fox")
+    annotation.library_scope = "groups/123456"
+
+    assert annotation.link().startswith(
+        "zotero://open-pdf/groups/123456/items/ATTACH01",
+    )
+
+
+def test_library_qualified_frontmatter_routes_group_documents(tmp_path: Path) -> None:
+    md = tmp_path / "group.md"
+    md.write_text(
+        """---
+title: Group Paper
+unizero-item: "42:ITEM0001"
+unizero-attachment: "42:ATTACH01"
+pdf: "zotero://open-pdf/groups/123456/items/ATTACH01"
+---
+""",
+        encoding="utf-8",
+    )
+
+    assert find_md_by_item(tmp_path, 42, "ITEM0001") == md
+    assert find_md_by_attachment(
+        tmp_path,
+        "ATTACH01",
+        42,
+        "groups/123456",
+    ) == md

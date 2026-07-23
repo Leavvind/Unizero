@@ -83,8 +83,9 @@ home are not.
 .venv/Scripts/python.exe -m pytest
 ```
 
-43 tests covering runtime paths, template validation, reference extraction, frontmatter
-projection, annotation idempotency, and the `/api/v1` contract the add-on depends on.
+65 tests covering runtime paths, template validation, reference extraction, frontmatter
+projection, annotation idempotency, group-library identity, and the shared `/api/v1`
+contract the add-on depends on.
 
 They do not cover conversion itself: that needs MinerU, a GPU, and a real PDF. Anything
 exercising the pipeline end to end is still a manual check.

@@ -1,0 +1,16 @@
+{
+  "item_key": "ITEM0001",
+  "library_id": 42,
+  "library_scope": "groups/123456",
+  "citekey": "example2026",
+  "annotations": [
+    {
+      "key": "ANN00001",
+      "attachment_key": "ATTACH01",
+      "text": "Synthetic annotation text",
+      "comment": "Example comment",
+      "page_label": "3",
+      "sort_index": "00000|0000000|00000"
+    }
+  ]
+}

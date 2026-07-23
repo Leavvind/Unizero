@@ -19,11 +19,14 @@ import {
   type RuntimeErrorBody,
   type TemplateDetail,
   type TemplateListResponse,
+  type WorkflowListResponse,
 } from "./contracts";
 import { serviceURL } from "./settings";
 
 /** 15s：转换是异步 job，所有同步端点都只做记账，不该跑这么久。 */
 const REQUEST_TIMEOUT_MS = 15000;
+const LIBRARY_SCOPE_CAPABILITY = "library-scope";
+let runtimeCapabilities = new Set<string>();
 
 /**
  * 契约不兼容。与网络错误分开，因为处置方式完全不同：网络错误可以重试或启动服务，
@@ -64,6 +67,7 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
+  baseURL: string = serviceURL(),
 ): Promise<T> {
   const options: Record<string, unknown> = {
     headers: { "Content-Type": "application/json" },
@@ -77,7 +81,7 @@ async function request<T>(
   try {
     const xhr = await Zotero.HTTP.request(
       method,
-      serviceURL() + API_PREFIX + path,
+      baseURL + API_PREFIX + path,
       options as any,
     );
     const response = (xhr as any).response as T & RuntimeErrorBody;
@@ -110,6 +114,7 @@ export const runtimeClient = {
       );
     }
     const capabilities = health.capabilities || [];
+    runtimeCapabilities = new Set(capabilities);
     for (const required of REQUIRED_CAPABILITIES) {
       if (!capabilities.includes(required)) {
         throw new RuntimeIncompatibleError(`本地服务缺少必要能力: ${required}`);
@@ -118,7 +123,7 @@ export const runtimeClient = {
     return health;
   },
 
-  workflows: () => request<unknown>("GET", "/workflows"),
+  workflows: () => request<WorkflowListResponse>("GET", "/workflows"),
   modules: () => request<unknown>("GET", "/modules"),
 
   templates: () => request<TemplateListResponse>("GET", "/templates"),
@@ -129,8 +134,10 @@ export const runtimeClient = {
   resetTemplate: (templateId: string) =>
     request<unknown>("DELETE", `/templates/${encodeURIComponent(templateId)}`),
 
-  convert: (payload: ConvertRequest) =>
-    request<ConvertAccepted>("POST", "/convert", payload),
+  convert: (payload: ConvertRequest) => {
+    const compatible = withoutUnsupportedLibraryScope(payload);
+    return request<ConvertAccepted>("POST", "/convert", compatible);
+  },
   job: (jobId: string, logTail = 20) =>
     request<JobState>(
       "GET",
@@ -138,12 +145,35 @@ export const runtimeClient = {
     ),
   jobs: () => request<unknown>("GET", "/jobs"),
 
-  annotate: (payload: AnnotateRequest) =>
-    request<AnnotateResponse>("POST", "/annotate", payload),
+  annotate: (payload: AnnotateRequest) => {
+    const compatible = withoutUnsupportedLibraryScope(payload);
+    return request<AnnotateResponse>("POST", "/annotate", compatible);
+  },
 
   config: () => request<unknown>("GET", "/config"),
   saveConfig: (payload: unknown) => request<unknown>("POST", "/config", payload),
+  saveConfigAtPort: (port: number, payload: unknown) =>
+    request<unknown>("POST", "/config", payload, `http://127.0.0.1:${port}`),
   shutdown: () => request<unknown>("POST", "/shutdown"),
 };
 
 export type RuntimeClient = typeof runtimeClient;
+
+/**
+ * Older ZoMiner runtimes reject unknown request fields. User-library requests can fall
+ * back to their historical shape; group-library requests must fail loudly rather than
+ * generate links and state for the wrong library.
+ */
+function withoutUnsupportedLibraryScope<
+  T extends ConvertRequest | AnnotateRequest
+>(payload: T): T {
+  if (runtimeCapabilities.has(LIBRARY_SCOPE_CAPABILITY)) { return payload; }
+  if (payload.library_scope && payload.library_scope !== "library") {
+    throw new RuntimeIncompatibleError(
+      "当前本地服务不支持 Zotero 群组文库，请升级 UniZero runtime",
+    );
+  }
+  const compatible = { ...payload };
+  delete compatible.library_scope;
+  return compatible;
+}

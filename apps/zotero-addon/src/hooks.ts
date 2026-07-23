@@ -1,12 +1,8 @@
 import { config } from "../package.json";
-import { registerPrefsScripts, registerPrefs } from "./modules/prefs";
+import { featureRegistry } from "./core/features";
+import { registerPrefsScripts } from "./modules/prefs";
 import { migrateLegacyPrefs } from "./modules/migrate";
-import Views from "./modules/views";
-import MetadataEnrichment from "./modules/metadataEnrichment";
 import { migrateLegacyRuntimePrefs } from "./runtime-client/settings";
-import { stopOnShutdown } from "./runtime-client/process";
-import { registerMenus, unregisterMenus } from "./ui/menus";
-import { closePanel, openPanel } from "./ui/panel";
 
 async function onStartup() {
   await Promise.all([
@@ -28,49 +24,20 @@ async function onMainWindowLoad(win: Window): Promise<void> {
   migrateLegacyPrefs();
   migrateLegacyRuntimePrefs();
 
-  // Register the visible section first. Optional preference modules
-  // must not be able to prevent the main UI from appearing.
-  if (!Zotero[config.addonInstance]?.views) {
-    const views = new Views();
-    await views.onInit();
-    Zotero[config.addonInstance].views = views;
-
-    try {
-      registerPrefs();
-    } catch (error) {
-      Zotero.logError(error as Error);
-    }
-  }
-
-  addon.data.metadataEnrichment ||= new MetadataEnrichment();
-  addon.data.metadataEnrichment.register(win);
-
-  // 转换/批注菜单。注册失败不该影响已经装好的 References/Citations。
-  try {
-    registerMenus(win, openPanel);
-  } catch (error) {
-    Zotero.logError(error as Error);
-  }
+  await featureRegistry.onWindowLoad(win);
 }
 
 async function onMainWindowUnload(win: Window): Promise<void> {
-  addon.data.metadataEnrichment?.unregister(win);
-  unregisterMenus(win);
-  Zotero[config.addonInstance]?.views?.onDestroy?.();
-  ztoolkit.unregisterAll();
-  addon.data.dialog?.window?.close();
+  await featureRegistry.onWindowUnload(win);
 }
 
+/** Normal application exit: only external resources need explicit synchronous cleanup. */
+function onAppShutdown(): void {
+  featureRegistry.onAppShutdown();
+}
 
-function onShutdown(): void {
-  addon.data.metadataEnrichment?.unregisterAll();
-  for (const win of Zotero.getMainWindows()) {
-    unregisterMenus(win);
-  }
-  closePanel();
-  // 只停我们自己拉起来的 runtime。同步调用：shutdown 钩子不 await 异步清理。
-  stopOnShutdown();
-  Zotero[config.addonInstance]?.views?.onDestroy?.();
+async function onShutdown(): Promise<void> {
+  await featureRegistry.onShutdown();
   ztoolkit.unregisterAll();
   // Remove addon object
   addon.data.alive = false;
@@ -100,6 +67,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
 
 export default {
   onStartup,
+  onAppShutdown,
   onShutdown,
   onPrefsEvent,
   onMainWindowLoad,

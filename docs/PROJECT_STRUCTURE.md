@@ -12,7 +12,7 @@ UniZero/
 │   └── zotero-addon/
 │       ├── addon/                 # Manifest, locales, icons, preferences
 │       ├── src/
-│       │   ├── core/              # Module registry, events, jobs, shared services
+│       │   ├── core/              # Static feature registry; events/jobs are planned
 │       │   ├── features/
 │       │   │   ├── metadata/
 │       │   │   ├── relations/
@@ -132,4 +132,3 @@ annotations without directly importing their UI.
 - Artifact kinds describe data, not brands, for example
   `literature.references` rather than `zominer-references`.
 - Display names may change without changing identifiers.
-

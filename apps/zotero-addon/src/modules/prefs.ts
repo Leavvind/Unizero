@@ -26,14 +26,14 @@ import {
   type ConversionSettings,
 } from "../features/conversion/settings";
 
-export function registerPrefs() {
+export async function registerPrefs(): Promise<void> {
   const prefOptions = {
     pluginID: config.addonID,
     src: rootURI + "chrome/content/preferences.xhtml",
     label: "UniZero",
     image: `chrome://${config.addonRef}/content/icons/favicon.png`,
   };
-  (Zotero as any).PreferencePanes.register(prefOptions);
+  await (Zotero as any).PreferencePanes.register(prefOptions);
 }
 
 /** 元素 id 在 XHTML 里都带 addonRef 前缀，这里统一补上。 */
@@ -64,8 +64,10 @@ const CONVERSION_CHECKBOXES: Array<[string, keyof ConversionSettings]> = [
  *
  * 失败不报错：服务没开是常态而不是异常，何况新端口已经存进 prefs，下次启动照样对。
  */
-function syncPortToRuntime(port: number): void {
-  runtimeClient.saveConfig({ port }).catch((error) => {
+function syncPortToRuntime(currentPort: number, nextPort: number): void {
+  // Contact the service on the port it is listening on now. serviceURL() already
+  // points at nextPort by the time this asynchronous request starts.
+  runtimeClient.saveConfigAtPort(currentPort, { port: nextPort }).catch((error) => {
     ztoolkit.log(`runtime port not synced, service likely offline: ${error}`);
   });
 }
@@ -90,10 +92,13 @@ function bindRuntimeSettings(doc: Document): void {
     port.addEventListener("change", () => {
       // 空值或垃圾输入退回默认端口，而不是把 NaN 写进一个整数 pref。
       const parsed = parseInt(String(port.value), 10);
-      const value = parsed > 0 && parsed <= 65535 ? parsed : servicePort();
+      const currentPort = servicePort();
+      const value = parsed > 0 && parsed <= 65535 ? parsed : currentPort;
       port.value = String(value);
       setRuntimePref("port", value);
-      syncPortToRuntime(value);
+      if (value !== currentPort) {
+        syncPortToRuntime(currentPort, value);
+      }
     });
   }
 

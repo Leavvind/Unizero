@@ -11,11 +11,11 @@
  */
 
 import type { ConvertRequest, ExtractedReference, JobResult } from "../runtime-client/contracts";
-import { getConversionPref } from "../features/conversion/settings";
 import {
   adoptArtifact, findArtifacts, isArtifact, markArtifact,
   type ArtifactKind,
 } from "./artifactIdentity";
+import { libraryScope } from "./libraryScope";
 
 const GENERATED_TAG = "MD/generated";
 const MD_ATTACHMENT_TITLE = "ZoMiner MD";
@@ -124,6 +124,7 @@ export function conversionPayload(
     attachment_title: attachment.getField("title") || "",
     is_supplement: !!target.isSupplement,
     library_id: attachment.libraryID || 1,
+    library_scope: libraryScope(attachment.libraryID || 1),
     template: templateId || "paper-to-markdown",
   };
 
@@ -298,7 +299,10 @@ async function attachReferences(
 
   const temp = Zotero.getTempDirectory();
   // 文件名带上源附件 key：同一条目的多个 PDF 并发转换时不能互相踩临时文件。
-  temp.append(`unizero-references-${context.parent.key}-${context.source}.json`);
+  temp.append(
+    `unizero-references-${context.parent.libraryID}-` +
+    `${context.parent.key}-${context.source}.json`,
+  );
   const path = temp.path;
 
   await Zotero.File.putContentsAsync(path, payload);
@@ -324,6 +328,7 @@ async function attachReferences(
 export async function markConverted(
   target: ConversionTarget,
   result: JobResult | undefined,
+  options: { mdSnapshot: boolean },
 ): Promise<void> {
   const parent = target.parent;
   if (!parent) { return; }
@@ -346,7 +351,7 @@ export async function markConverted(
 
   if (outcome.md_path) {
     await attachMarkdown(context, outcome.md_path);
-    if (getConversionPref("mdSnapshot")) {
+    if (options.mdSnapshot) {
       try {
         await attachImportedCopy(
           context, "markdown-copy", outcome.md_path,

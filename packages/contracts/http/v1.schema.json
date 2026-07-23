@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Leavvind/Unizero/contracts/http/v1.schema.json",
+  "title": "UniZero paper runtime HTTP contract v1",
+  "x-api-version": "1",
+  "x-required-capabilities": ["convert", "annotate", "jobs"],
+  "$defs": {
+    "JobStatus": {
+      "type": "string",
+      "enum": ["queued", "running", "done", "failed"]
+    },
+    "ConvertOptionsPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": { "type": ["string", "null"] },
+        "ocr_mode": { "type": ["string", "null"] },
+        "language": { "type": ["string", "null"] },
+        "device": { "type": ["string", "null"] },
+        "enable_formula": { "type": ["boolean", "null"] },
+        "enable_table": { "type": ["boolean", "null"] },
+        "split_threshold": { "type": ["integer", "null"] },
+        "chunk_size": { "type": ["integer", "null"] },
+        "images_mode": { "type": ["string", "null"] },
+        "table_mode": { "type": ["string", "null"] },
+        "strip_repeated_lines": { "type": ["boolean", "null"] },
+        "strip_references": { "type": ["boolean", "null"] },
+        "table_vlm": { "type": ["boolean", "null"] }
+      }
+    },
+    "ConvertRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pdf_path"],
+      "properties": {
+        "pdf_path": { "type": "string" },
+        "title": { "type": "string", "default": "" },
+        "authors": { "type": "array", "items": { "type": "string" }, "default": [] },
+        "year": { "type": "string", "default": "" },
+        "doi": { "type": "string", "default": "" },
+        "publication": { "type": "string", "default": "" },
+        "citekey": { "type": "string", "default": "" },
+        "item_key": { "type": "string", "default": "" },
+        "attachment_key": { "type": "string", "default": "" },
+        "attachment_title": { "type": "string", "default": "" },
+        "is_supplement": { "type": "boolean", "default": false },
+        "library_id": { "type": "integer", "default": 1 },
+        "library_scope": {
+          "type": "string",
+          "pattern": "^(library|groups/[1-9][0-9]*)$",
+          "default": "library"
+        },
+        "template": { "type": "string", "default": "paper-to-markdown" },
+        "workflow": { "type": ["string", "null"], "default": null },
+        "options": {
+          "anyOf": [
+            { "$ref": "#/$defs/ConvertOptionsPatch" },
+            { "type": "null" }
+          ],
+          "default": null
+        }
+      }
+    },
+    "AnnotationPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "text"],
+      "properties": {
+        "key": { "type": "string" },
+        "attachment_key": { "type": "string", "default": "" },
+        "text": { "type": "string" },
+        "comment": { "type": "string", "default": "" },
+        "page_label": { "type": "string", "default": "" },
+        "sort_index": { "type": "string", "default": "" }
+      }
+    },
+    "AnnotateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "citekey": { "type": "string", "default": "" },
+        "item_key": { "type": "string", "default": "" },
+        "library_id": { "type": "integer", "default": 1 },
+        "library_scope": {
+          "type": "string",
+          "pattern": "^(library|groups/[1-9][0-9]*)$",
+          "default": "library"
+        },
+        "annotations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AnnotationPayload" },
+          "default": []
+        }
+      }
+    },
+    "HealthResponse": {
+      "type": "object",
+      "required": [
+        "ok",
+        "service",
+        "service_version",
+        "api_version",
+        "capabilities",
+        "workflows",
+        "mineru_version",
+        "vault",
+        "vault_configured",
+        "papers_dir",
+        "queued"
+      ],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "service": { "type": "string" },
+        "service_version": { "type": "string" },
+        "api_version": { "type": "string", "const": "1" },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "workflows": { "type": "array" },
+        "mineru_version": { "type": "string" },
+        "vault": { "type": "string" },
+        "vault_configured": { "type": "boolean" },
+        "papers_dir": { "type": "string" },
+        "queued": { "type": "integer" }
+      }
+    },
+    "TemplateSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "version",
+        "description",
+        "builtin",
+        "customized",
+        "stages",
+        "modules"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "version": { "type": "integer" },
+        "description": { "type": "string" },
+        "builtin": { "type": "boolean" },
+        "customized": { "type": "boolean" },
+        "stages": { "type": "array", "items": { "type": "string" } },
+        "modules": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "TemplateListResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["templates"],
+      "properties": {
+        "templates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TemplateSummary" }
+        }
+      }
+    },
+    "WorkflowListResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflows"],
+      "properties": {
+        "workflows": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TemplateSummary" }
+        }
+      }
+    },
+    "WorkflowTemplateDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "id",
+        "name",
+        "version",
+        "description",
+        "modules"
+      ],
+      "properties": {
+        "schema_version": { "type": "integer" },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "version": { "type": "integer" },
+        "description": { "type": "string" },
+        "modules": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "TemplateDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["template", "yaml", "builtin", "customized"],
+      "properties": {
+        "template": { "$ref": "#/$defs/WorkflowTemplateDocument" },
+        "yaml": { "type": "string" },
+        "builtin": { "type": "boolean" },
+        "customized": { "type": "boolean" }
+      }
+    },
+    "JobAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "status"],
+      "properties": {
+        "job_id": { "type": "string" },
+        "status": { "$ref": "#/$defs/JobStatus" }
+      }
+    },
+    "JobStatusResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "status"],
+      "properties": {
+        "job_id": { "type": "string" },
+        "status": { "$ref": "#/$defs/JobStatus" },
+        "log_tail": { "type": "array", "items": { "type": "string" }, "default": [] },
+        "result": { "type": ["object", "null"], "default": null },
+        "error": { "type": ["string", "null"], "default": null }
+      }
+    },
+    "AnnotateResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["md_path", "total", "injected", "already", "skipped", "unrouted"],
+      "properties": {
+        "md_path": { "type": "string" },
+        "total": { "type": "integer" },
+        "injected": { "type": "integer" },
+        "already": { "type": "integer" },
+        "skipped": { "type": "array" },
+        "unrouted": { "type": "integer" }
+      }
+    },
+    "ErrorDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "details": {}
+      }
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error"],
+      "properties": {
+        "error": { "$ref": "#/$defs/ErrorDetail" }
+      }
+    }
+  }
+}

@@ -59,3 +59,18 @@ def test_absent_fields_are_omitted_rather_than_emitted_empty() -> None:
     # An empty `doi:` key is worse than no key: it looks like a recorded absence.
     assert "doi" not in document
     assert "authors" not in document
+
+
+def test_group_library_identity_and_links_are_projected() -> None:
+    document = _parsed(PaperMeta(
+        title="A Group Paper",
+        item_key="ITEM0001",
+        attachment_key="ATTACH01",
+        library_id=42,
+        library_scope="groups/123456",
+    ))
+
+    assert document["unizero-item"] == "42:ITEM0001"
+    assert document["unizero-attachment"] == "42:ATTACH01"
+    assert document["zotero"] == "zotero://select/groups/123456/items/ITEM0001"
+    assert document["pdf"] == "zotero://open-pdf/groups/123456/items/ATTACH01"

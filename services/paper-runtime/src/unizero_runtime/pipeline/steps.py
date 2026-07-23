@@ -189,7 +189,7 @@ def merge_chunk_outputs(
 def inject_zotero_page_links(
     md_path: Path,
     content_list_path: Path,
-    attachment_key: str,
+    zotero_pdf_uri: str,
     page_offset: int = 0,
 ) -> tuple[int, int]:
     """
@@ -217,7 +217,7 @@ def inject_zotero_page_links(
 
     md_text = md_path.read_text(encoding="utf-8")
     md_lines = md_text.split("\n")
-    base_uri = f"zotero://open-pdf/library/items/{attachment_key}"
+    base_uri = zotero_pdf_uri
 
     insertions: list[tuple[int, str]] = []
     search_from = 0
@@ -316,13 +316,9 @@ def _fm_variables(meta: "PaperMeta") -> dict[str, str]:
         "publication": meta.publication,
         "item_key": meta.item_key,
         "attachment_key": meta.attachment_key,
-        "zotero_select": (
-            f"zotero://select/library/items/{meta.item_key}" if meta.item_key else ""
-        ),
-        "zotero_pdf": (
-            f"zotero://open-pdf/library/items/{meta.attachment_key}"
-            if meta.attachment_key else ""
-        ),
+        "library_id": str(meta.library_id),
+        "zotero_select": meta.zotero_item_uri,
+        "zotero_pdf": meta.zotero_pdf_uri,
     }
 
 
@@ -358,9 +354,16 @@ def build_frontmatter(meta: "PaperMeta", mineru_version: str = "",
     if meta.publication:
         lines.append(f"publication: {_yaml_str(meta.publication)}")
     if meta.item_key:
-        lines.append(f"zotero: zotero://select/library/items/{meta.item_key}")
+        lines.append(
+            f"unizero-item: {_yaml_str(f'{meta.library_id}:{meta.item_key}')}",
+        )
+        lines.append(f"zotero: {_yaml_str(meta.zotero_item_uri)}")
     if meta.attachment_key:
-        lines.append(f"pdf: zotero://open-pdf/library/items/{meta.attachment_key}")
+        lines.append(
+            "unizero-attachment: "
+            f"{_yaml_str(f'{meta.library_id}:{meta.attachment_key}')}",
+        )
+        lines.append(f"pdf: {_yaml_str(meta.zotero_pdf_uri)}")
     if pdf_path is not None:
         # local path so an agent can Read specific PDF pages directly
         lines.append(f"pdf-path: {_yaml_str(str(pdf_path).replace(chr(92), '/'))}")
@@ -409,8 +412,22 @@ class PaperMeta:
     publication: str = ""
     item_key: str = ""          # Zotero parent item key
     attachment_key: str = ""    # Zotero PDF attachment key
+    library_id: int = 1
+    library_scope: str = "library"
     s2_url: str = ""            # Semantic Scholar page
     s2_citations: Optional[int] = None
+
+    @property
+    def zotero_item_uri(self) -> str:
+        if not self.item_key:
+            return ""
+        return f"zotero://select/{self.library_scope}/items/{self.item_key}"
+
+    @property
+    def zotero_pdf_uri(self) -> str:
+        if not self.attachment_key:
+            return ""
+        return f"zotero://open-pdf/{self.library_scope}/items/{self.attachment_key}"
 
 
 @dataclass
@@ -500,6 +517,7 @@ class ConversionContext:
     papers_dir: Path
     output_root: Optional[Path]
     citekey: str
+    artifact_key: str
     meta: PaperMeta
     opts: ConvertOptions
     log: LogFn
@@ -607,7 +625,7 @@ def _stage_page_links(ctx: ConversionContext, _settings: dict[str, Any]) -> None
         return
     try:
         ctx.pages_found, ctx.pages_injected = inject_zotero_page_links(
-            out_md, ctx.content_list_path, ctx.meta.attachment_key,
+            out_md, ctx.content_list_path, ctx.meta.zotero_pdf_uri,
         )
         ctx.log(f"[links] injected {ctx.pages_injected}/{ctx.pages_found} page links")
     except Exception as exc:
@@ -690,8 +708,7 @@ def _stage_transform(ctx: ConversionContext, settings: dict[str, Any]) -> None:
         content_list=ctx.content_list,
         toc=read_pdf_toc(ctx.pdf_path),
         zotero_pdf_uri=(
-            f"zotero://open-pdf/library/items/{ctx.meta.attachment_key}"
-            if ctx.meta.attachment_key else ""
+            ctx.meta.zotero_pdf_uri
         ),
         title=ctx.meta.title,
         images_mode=ctx.opts.images_mode,
@@ -724,13 +741,10 @@ def _stage_tables_export(ctx: ConversionContext, settings: dict[str, Any]) -> No
     try:
         ctx.tables_html = export_tables_html(
             content_list,
-            target_dir / f"{ctx.citekey}.tables.html",
+            target_dir / f"{ctx.artifact_key}.tables.html",
             title=ctx.meta.title or ctx.citekey,
             citekey=ctx.citekey,
-            zotero_pdf_uri=(
-                f"zotero://open-pdf/library/items/{ctx.meta.attachment_key}"
-                if ctx.meta.attachment_key else ""
-            ),
+            zotero_pdf_uri=ctx.meta.zotero_pdf_uri,
             pdf_path=ctx.pdf_path,
             images_root=out_md.parent / "images",
             include_figures=bool(settings.get("include_figures", False)),
@@ -824,6 +838,57 @@ def _stage_publish(ctx: ConversionContext, settings: dict[str, Any]) -> None:
     )
 
     existing_file = str(settings.get("existing_file") or "overwrite")
+    if ctx.final_md.exists() and existing_file == "overwrite":
+        # Never overwrite a document that is explicitly owned by another Zotero
+        # attachment. Legacy files have no marker and keep their historical behavior;
+        # newly generated files carry the marker written by build_frontmatter().
+        try:
+            head = ctx.final_md.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )[:4000]
+        except OSError:
+            head = ""
+        match = re.search(
+            r"^unizero-attachment:\s*[\"']?([^\"'\r\n]+)[\"']?\s*$",
+            head,
+            re.M,
+        )
+        expected = f"{ctx.meta.library_id}:{ctx.meta.attachment_key}"
+        if match and match.group(1).strip() != expected:
+            owner_suffix = safe_filename(
+                f"l{ctx.meta.library_id}-{ctx.meta.attachment_key}",
+                str(ctx.meta.library_id),
+            )
+            candidate = ctx.papers_dir / (
+                f"{ctx.final_md.stem} — {owner_suffix}{ctx.final_md.suffix}"
+            )
+            counter = 2
+            while candidate.exists():
+                try:
+                    candidate_head = candidate.read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    )[:4000]
+                except OSError:
+                    candidate_head = ""
+                candidate_owner = re.search(
+                    r"^unizero-attachment:\s*[\"']?([^\"'\r\n]+)[\"']?\s*$",
+                    candidate_head,
+                    re.M,
+                )
+                if candidate_owner and candidate_owner.group(1).strip() == expected:
+                    break
+                candidate = ctx.papers_dir / (
+                    f"{ctx.final_md.stem} — {owner_suffix} ({counter})"
+                    f"{ctx.final_md.suffix}"
+                )
+                counter += 1
+            ctx.final_md = candidate
+            ctx.log(
+                "[publish] filename belonged to another Zotero attachment; "
+                f"using {ctx.final_md.name}",
+            )
     if ctx.final_md.exists() and existing_file == "skip":
         ctx.log(f"[publish] kept existing {ctx.final_md}")
         return
@@ -845,7 +910,7 @@ def _stage_publish(ctx: ConversionContext, settings: dict[str, Any]) -> None:
         attachments_directory = str(
             settings.get("attachments_directory") or "attachments",
         )
-        att_dir = ctx.papers_dir / attachments_directory / ctx.citekey
+        att_dir = ctx.papers_dir / attachments_directory / ctx.artifact_key
         if att_dir.exists():
             shutil.rmtree(att_dir)
         att_dir.mkdir(parents=True)
@@ -861,7 +926,7 @@ def _stage_publish(ctx: ConversionContext, settings: dict[str, Any]) -> None:
             ctx.body = _IMG_REF_RE.sub(
                 lambda match: (
                     match.group(1)
-                    + f"{attachments_directory}/{ctx.citekey}/"
+                    + f"{attachments_directory}/{ctx.artifact_key}/"
                     + Path(match.group("path").replace("\\", "/")).name
                     + match.group(3)
                 ),
@@ -875,7 +940,7 @@ def _stage_publish(ctx: ConversionContext, settings: dict[str, Any]) -> None:
 
     if ctx.store_dir is not None and ctx.content_list:
         ctx.store_dir.mkdir(parents=True, exist_ok=True)
-        (ctx.store_dir / f"{ctx.citekey}.content_list.json").write_text(
+        (ctx.store_dir / f"{ctx.artifact_key}.content_list.json").write_text(
             json.dumps(ctx.content_list, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -1074,6 +1139,7 @@ def convert_pdf(
     work_dir: Path,
     papers_dir: Path,
     citekey: str,
+    artifact_key: str,
     meta: PaperMeta,
     opts: ConvertOptions,
     log: LogFn,
@@ -1099,6 +1165,7 @@ def convert_pdf(
             else None
         ),
         citekey=citekey,
+        artifact_key=artifact_key,
         meta=meta,
         opts=opts,
         log=log,

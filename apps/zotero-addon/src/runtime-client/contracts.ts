@@ -23,26 +23,70 @@ export const API_PREFIX = `/api/v${API_VERSION}`;
 export const REQUIRED_CAPABILITIES = ["convert", "annotate", "jobs"] as const;
 
 export interface HealthResponse {
-  api_version: string | number;
-  capabilities?: string[];
+  ok: boolean;
+  service: string;
+  service_version: string;
+  api_version: string;
+  capabilities: string[];
+  workflows: unknown[];
+  mineru_version: string;
+  vault: string;
+  vault_configured: boolean;
+  papers_dir: string;
+  queued: number;
   [key: string]: unknown;
 }
 
 export interface TemplateSummary {
   id: string;
-  name?: string;
-  description?: string;
-  /** 用户覆盖过内置模板时为 true。 */
-  overridden?: boolean;
+  name: string;
+  version: number;
+  description: string;
+  builtin: boolean;
+  /** 用户覆盖了同 ID 的内置模板时为 true。 */
+  customized: boolean;
+  stages: string[];
+  modules: unknown[];
 }
 
 export interface TemplateListResponse {
-  templates?: TemplateSummary[];
+  templates: TemplateSummary[];
 }
 
-export interface TemplateDetail extends TemplateSummary {
-  workflow?: unknown;
-  [key: string]: unknown;
+export interface WorkflowListResponse {
+  workflows: TemplateSummary[];
+}
+
+export interface WorkflowTemplateDocument {
+  schema_version: number;
+  id: string;
+  name: string;
+  version: number;
+  description: string;
+  modules: unknown[];
+}
+
+export interface TemplateDetail {
+  template: WorkflowTemplateDocument;
+  yaml: string;
+  builtin: boolean;
+  customized: boolean;
+}
+
+export interface ConvertOptionsPatch {
+  backend?: string;
+  ocr_mode?: string;
+  language?: string;
+  device?: string;
+  enable_formula?: boolean;
+  enable_table?: boolean;
+  split_threshold?: number;
+  chunk_size?: number;
+  images_mode?: string;
+  table_mode?: string;
+  strip_repeated_lines?: boolean;
+  strip_references?: boolean;
+  table_vlm?: boolean;
 }
 
 /**
@@ -53,11 +97,19 @@ export interface TemplateDetail extends TemplateSummary {
  */
 export interface ConvertRequest {
   pdf_path: string;
-  attachment_key: string;
-  attachment_title: string;
-  is_supplement: boolean;
-  library_id: number;
-  template: string;
+  attachment_key?: string;
+  attachment_title?: string;
+  is_supplement?: boolean;
+  library_id?: number;
+  /**
+   * Zotero URI scope: `library` for the user library, `groups/<groupID>` for groups.
+   * Additive v1 capability `library-scope`; omitted for an older runtime.
+   */
+  library_scope?: string;
+  template?: string;
+  /** Kept for compatibility with the original v1 endpoint. */
+  workflow?: string;
+  options?: ConvertOptionsPatch;
   /** 独立附件（没有父条目）时缺省。 */
   item_key?: string;
   title?: string;
@@ -71,6 +123,7 @@ export interface ConvertRequest {
 
 export interface ConvertAccepted {
   job_id: string;
+  status: JobStatus;
 }
 
 export type JobStatus = "queued" | "running" | "done" | "failed";
@@ -83,7 +136,7 @@ export interface JobResult {
 }
 
 export interface JobState {
-  job_id?: string;
+  job_id: string;
   status: JobStatus;
   log_tail?: string[];
   result?: JobResult;
@@ -104,27 +157,31 @@ export interface ExtractedReference {
 
 export interface AnnotationPayloadItem {
   key: string;
-  attachment_key: string;
+  attachment_key?: string;
   text: string;
-  comment: string;
-  page_label: string;
-  sort_index: string;
+  comment?: string;
+  page_label?: string;
+  sort_index?: string;
 }
 
 export interface AnnotateRequest {
-  item_key: string;
-  library_id: number;
-  annotations: AnnotationPayloadItem[];
+  item_key?: string;
+  library_id?: number;
+  /** See ConvertRequest.library_scope. */
+  library_scope?: string;
+  annotations?: AnnotationPayloadItem[];
   citekey?: string;
 }
 
 export interface AnnotateResponse {
+  md_path: string;
   injected: number;
   total: number;
   /** 上一轮已经注入过、这次跳过的数量。注入是幂等的。 */
-  already?: number;
+  already: number;
   /** 在 Markdown 里找不到对应位置的批注。 */
-  skipped?: unknown[];
+  skipped: unknown[];
+  unrouted: number;
 }
 
 /** 服务端统一错误体。 */
