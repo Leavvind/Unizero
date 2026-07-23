@@ -13,6 +13,7 @@ import {
 import { resolveMany } from "./resolve";
 import { PanelStatus } from "./status";
 import { readItemPaperIdentifiers } from "./itemIdentifiers";
+import { forPersistence } from "./edgeIdentity";
 const localStorage = new LocalStorge(config.addonRef);
 
 /**
@@ -225,8 +226,10 @@ export default class Views {
     (Zotero as any)[`${config.addonInstance}Version`] = version;
     // A debugging hatch: whether the cache saved anything and what, is invisible
     // from the UI, and guessing round by round is slow. Calling
-    // Zotero.UniZeroDebug() from Run JavaScript shows all of it at once.
-    (Zotero as any)[`${config.addonInstance}Debug`] = () => ({
+    // `await Zotero.UniZeroDebug()` from Run JavaScript shows all of it at once.
+    // Async because the cache is now a directory of per-item shards, which has to
+    // be read to be reported on.
+    (Zotero as any)[`${config.addonInstance}Debug`] = async () => ({
       version,
       referencesCacheEnabled: this.isCacheEnabled("saveAPIReferences"),
       citationsCacheEnabled: this.isCacheEnabled("saveCitations"),
@@ -235,15 +238,7 @@ export default class Views {
         saveCitations: Zotero.Prefs.get(`${config.addonRef}.saveCitations`),
         semanticScholarKey: Boolean(Zotero.Prefs.get(`${config.addonRef}.semanticScholar.apiKey`)),
       },
-      cacheFile: localStorage.filename,
-      cacheLoaded: localStorage.cache !== undefined,
-      entries: Object.entries(localStorage.cache || {}).map(([itemKey, value]) => ({
-        itemKey,
-        keys: Object.keys(value as object),
-        references: (value as any)?.[CACHE_KEY_REFERENCES]?.references?.length,
-        resolved: (value as any)?.[CACHE_KEY_REFERENCES]?.resolved,
-        citations: (value as any)?.[CACHE_KEY_CITATIONS]?.all?.length,
-      })).filter((entry) => entry.keys.length),
+      cache: await localStorage.summary(),
       lastReferenceLoad: this.lastLoadDiagnostic,
       lastCitationsLoad: this.lastCitationsDiagnostic,
       citationsEngines: citationsDiagnostics,
@@ -303,6 +298,18 @@ export default class Views {
         const referencesPane = this.getPane(panel, "references");
         setSectionSummary("");
         try {
+          // Bring this item's cache shard into memory before anything reads it.
+          // Everything downstream — including the synchronous render path — then
+          // hits memory, so only this one place has to be aware that the cache
+          // lives in per-item files.
+          if (parentItem) { await localStorage.load(parentItem); }
+          // selectTab() ran during the synchronous render, when the shard was not
+          // loaded yet, so a Citations tab restored from cache comes up empty.
+          // Re-running it now is the restore; the guard inside skips the work when
+          // the tab already has state.
+          if (panel.dataset.activeTab === "citations") {
+            this.selectTab(panel, "citations", true);
+          }
           // The direct-DOI route and the ZoMiner attachment both work in either
           // tab type without a Reader, so auto-loading runs first; only when
           // neither source exists does it fall back to the PDF parsing path that
@@ -376,7 +383,7 @@ export default class Views {
       doi: identifiers.doi || "",
       semanticScholarPaperId: identifiers.semanticScholarPaperId,
       resolved,
-      references,
+      references: forPersistence(references, source),
     };
     localStorage.set(item, CACHE_KEY_REFERENCES, payload).catch(
       (error) => ztoolkit.log("save references cache failed", error),
@@ -393,7 +400,11 @@ export default class Views {
     const item = (pane as any)._referenceItem as Zotero.Item;
     const state = (pane as any)._citationsState as CitationsCache | undefined;
     if (!item || !state?.all?.length) { return; }
-    localStorage.set(item, CACHE_KEY_CITATIONS, { ...state, savedAt: Date.now() }).catch(
+    localStorage.set(item, CACHE_KEY_CITATIONS, {
+      ...state,
+      savedAt: Date.now(),
+      all: forPersistence(state.all, state.source),
+    }).catch(
       (error) => ztoolkit.log("save citations cache failed", error),
     );
   }
@@ -441,6 +452,7 @@ export default class Views {
   ) {
     const item = (pane as any)._referenceItem as Zotero.Item;
     if (!item) { return; }
+    await localStorage.load(item);
     // A manual refresh passes useCache=false: that click means "give me the latest".
     if (useCache && this.restoreCitationsFromCache(pane)) { return; }
     const label = pane.querySelector("#reference-num") as HTMLSpanElement;
@@ -1241,6 +1253,10 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     if (!item) {
       throw new Error("Reference panel has no item context");
     }
+    // A resident shard makes this a no-op; it matters for the paths that reach a
+    // refresh without going through the section's async render, and after the
+    // resident set has evicted this item.
+    await localStorage.load(item);
 
     // Highest priority: the local cache. A reference list does not change once
     // settled, and the cost of redoing it is not in the direct-DOI call but in the
@@ -1666,7 +1682,6 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     // Current item
     const contextPanel = node.closest(".zoference-section") as any
     let item = contextPanel?._referenceItem || this.utils.getItem()!
-    let editTimer: number | undefined
     const box = ztoolkit.UI.createElement(
       document,
       "div",
@@ -1688,7 +1703,6 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
               event.stopPropagation()
               // ctrl-click jumps to the local item or the url
               if (event.ctrlKey || event.metaKey) {
-                window.clearTimeout(editTimer)
                 if (reference._item) {
                   return this.utils.selectItemInLibrary(reference._item)
                 } else {
@@ -1715,15 +1729,11 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
                   Zotero.launchURL(URL);
                 }
               } else {
-                if (rows.querySelector("#reference-edit")) { return }
-                if (editTimer) {
-                  window.clearTimeout(editTimer)
-                  Zotero.ProgressWindowSet.closeAll()
-                  this.utils.copyText((idText ? idText + "\n" : "") + refText, false);
-                  (new PanelStatus("Reference"))
-                    .createLine({ text: refText, type: "success" })
-                    .show()
-                }
+                Zotero.ProgressWindowSet.closeAll()
+                this.utils.copyText((idText ? idText + "\n" : "") + refText, false);
+                (new PanelStatus("Reference"))
+                  .createLine({ text: refText, type: "success" })
+                  .show()
               }
             }
           },
@@ -1749,18 +1759,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
             },
             styles: {
               width: "100%"
-            },
-            listeners: [
-              {
-                type: "mousedown",
-                listener: () => {
-                  editTimer = window.setTimeout(() => {
-                    editTimer = undefined
-                    enterEdit()
-                  }, 500);
-                }
-              }
-            ]
+            }
           }
         ]
       }
@@ -1781,70 +1780,14 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       }
     )
 
-    let enterEdit = () => {
-      let label = box.querySelector("#reference-label")! as XUL.Label
-      label.style.display = "none"
-      let textarea = ztoolkit.UI.createElement(
-        document,
-        "textarea",
-        {
-          id: "reference-edit",
-          namespace: "html",
-          attributes: {
-            flex: "1",
-            multiline: "true",
-            rows: "4"
-          },
-          properties: {
-            value: addPrefix ? label.innerText.replace(/^\[\d+\]\s+/, "") : label.innerText,
-          },
-          styles: {
-            width: "100%"
-          },
-          listeners: [
-            {
-              type: "blur",
-              listener: async () => {
-                await exitEdit()
-              }
-            }
-          ]
-        }
-      ) as HTMLTextAreaElement
-      textarea.focus()
-      label.parentNode!.insertBefore(textarea, label)
-      let exitEdit = async () => {
-        // Restore the UI
-        let inputText = textarea.value
-        if (!inputText) { return }
-        label.style.display = ""
-        // textbox.style.display = "none"
-        textarea.remove()
-        // Save the result
-        if (inputText == reference.text) { return }
-        label.innerText = `[${refIndex + 1}] ${inputText}`;
-        references[refIndex] = {
-          ...reference,
-          ...{ identifiers: this.utils.getIdentifiers(inputText) },
-          ...this.utils.refText2Info(inputText),
-          ...{ text: inputText }
-        }
-        reference = references[refIndex]
-        let i = this.utils.searchLibraryItem(reference)
-        const key = `References-${node.getAttribute("source")}`
-        window.setTimeout(async () => {
-          await localStorage.set(item, key, references)
-        })
-      }
-
-      let id = window.setInterval(async () => {
-        let active = rows.querySelector(".active")
-        if (active && active != box) {
-          await exitEdit()
-          window.clearInterval(id)
-        }
-      }, 100)
-    }
+    // Long-pressing a row used to turn it into a textarea for correcting the raw
+    // citation text. It was removed rather than repaired: the save wrote to a
+    // `References-<source>` key that nothing ever read back, so an edit survived
+    // until the next render and then silently reverted to the fetched text — and
+    // repairing it would have meant a second, user-authored tier of cache with its
+    // own overwrite and lifetime rules, for a correction the reference list is not
+    // the right place to make. Linking a reference to a real library item (the
+    // +/- control below) is unaffected: that writes Zotero relations, not cache.
 
     let setState = (state: string = "") => {
       switch (state) {
