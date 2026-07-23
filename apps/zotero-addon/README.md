@@ -1,15 +1,12 @@
 # UniZero Zotero Add-on
 
 The UniZero Zotero add-on. It owns Zotero lifecycle, UI, feature modules, scholarly
-providers, Zotero adapters, preferences, and localization. In a later phase it will also
-own the typed client for the local paper runtime.
+providers, Zotero adapters, preferences, localization, and the typed client for the local
+paper runtime.
 
-## Current state (Phases 1–2)
+## What it does
 
-Both source projects' Zotero-facing features are present, at behavior parity with their
-originals.
-
-From Zoference:
+Library and literature features:
 
 - item-pane section with References and Citations;
 - reference and citation providers (OpenAlex, Crossref, Semantic Scholar, arXiv);
@@ -17,7 +14,7 @@ From Zoference:
 - import and relate discovered items;
 - hover/click tip cards and preferences.
 
-From ZoMiner:
+Document features, which need the runtime:
 
 - PDF → Markdown conversion driven by runtime templates, from the item context menu;
 - annotation injection into generated Markdown;
@@ -37,7 +34,7 @@ The add-on talks to [`services/paper-runtime`](../../services/paper-runtime) ove
 | 4 | `unizero-runtime` is on `PATH` | `unizero-runtime --port N` |
 
 So both path settings are optional once the runtime is installed. Explicit settings
-always beat discovery — a ZoMiner user whose migrated `serverScript` points at the old
+always beat discovery — a user whose `serverScript` still points at a ZoMiner
 `paper_service/server.py` keeps running that, and clears the setting to move over.
 
 Order 3 precedes 4 because on Windows it can select `pythonw.exe`, while pip's
@@ -51,23 +48,26 @@ Resolution lives in [`src/runtime-client/launch.ts`](src/runtime-client/launch.t
 also mirrors the runtime-home rules from the Python side's `paths.py` so a crashed
 startup can still be explained from `server.log`.
 
-No phase has passed its manual Zotero check yet.
+All of this was manually checked in Zotero on 2026-07-23; launch resolution itself has
+only been checked from the command line so far.
 
 ## Source layout
 
 Two layouts coexist inside `src/`, on purpose:
 
-| Path | Origin |
+| Path | Contents |
 | --- | --- |
-| `src/modules/` | Zoference, flat, migrated as-is in Phase 1 |
+| `src/modules/` | Zoference's original flat layout, carried over as-is |
 | `src/runtime-client/` | typed client, contracts, settings, and process management |
 | `src/features/` | conversion and annotation commands |
 | `src/zotero/` | the only code that mutates Zotero items |
 | `src/ui/` | menus, panel, progress reporting |
 
-New code goes in the second layout, which is the target described in
-[`../../docs/PROJECT_STRUCTURE.md`](../../docs/PROJECT_STRUCTURE.md). Moving the
-Zoference modules over belongs to their own migration phases.
+New code goes in the second layout, described in
+[`../../docs/PROJECT_STRUCTURE.md`](../../docs/PROJECT_STRUCTURE.md). The flat modules
+are extracted incrementally, when that code is being touched for another reason —
+`views.ts` alone is 2112 lines and has no tests, so a dedicated refactor buys less than
+it risks.
 
 ## Build
 
@@ -112,27 +112,21 @@ ID, preference prefix, cache filename, and localization prefix all derive from
 `config.addonRef` in [`package.json`](package.json).
 
 Because the add-on ID changed, Zotero treats UniZero as a separate add-on rather than an
-upgrade — it can be installed alongside Zoference and ZoMiner during development. Three
-compatibility readers cover the transition:
+upgrade — it can be installed alongside Zoference and ZoMiner. Several readers cover the
+transition, including preference copiers in
+[`src/modules/migrate.ts`](src/modules/migrate.ts) and
+[`src/runtime-client/settings.ts`](src/runtime-client/settings.ts), a cache fallback in
+[`src/modules/localStorage.ts`](src/modules/localStorage.ts), and title-based adoption of
+pre-migration artifacts in
+[`src/zotero/conversionAdapter.ts`](src/zotero/conversionAdapter.ts).
 
-- [`src/modules/migrate.ts`](src/modules/migrate.ts) copies preferences the user
-  explicitly changed, once, walking `config.legacyAddonRefs` newest-first, guarded by
-  `unizero.legacyPrefsMigrated`;
-- [`src/modules/localStorage.ts`](src/modules/localStorage.ts) falls back to the older
-  reference cache files so users do not re-parse their whole library;
-- [`src/runtime-client/settings.ts`](src/runtime-client/settings.ts) copies ZoMiner's
-  preferences from `extensions.zominer.*`, guarded by
-  `unizero.legacyRuntimePrefsMigrated`.
-
-The runtime reader is separate from the Zoference one because ZoMiner kept its keys on
-the global Prefs branch rather than under `extensions.zotero.*`.
-
-All three leave the old state in place. Do not remove any of them without a documented
-migration.
+They all leave the old state in place. Each is inventoried with its retirement condition
+in [`../../docs/COMPATIBILITY.md`](../../docs/COMPATIBILITY.md); do not remove one as
+cleanup.
 
 Internal CSS class names still use the `zoference-` prefix. They are private to the
-injected stylesheet and were deliberately left alone in Phase 1 to keep the migration
-diff reviewable.
+injected stylesheet, so renaming them would be a large diff through `views.ts` with no
+behavioral effect.
 
 ## Licensing
 
@@ -143,4 +137,5 @@ AGPL-3.0-or-later, inherited from Zoference and from its upstream
 ## See also
 
 - [`../../docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
-- [`../../docs/MIGRATION.md`](../../docs/MIGRATION.md)
+- [`../../docs/COMPATIBILITY.md`](../../docs/COMPATIBILITY.md)
+- [`../../docs/ROADMAP.md`](../../docs/ROADMAP.md)

@@ -1,7 +1,8 @@
 # Project Structure
 
-This is the target repository structure. Directories may contain only boundary
-documentation until their migration phase begins.
+This is the target repository structure. It is mostly built; where a directory below does
+not exist yet, or holds only boundary documentation, that is noted in
+[ROADMAP.md](ROADMAP.md) rather than here.
 
 ```text
 UniZero/
@@ -30,7 +31,7 @@ UniZero/
 │       │   ├── application/       # Jobs and use-case orchestration
 │       │   ├── pipeline/          # Registry, templates, and pipeline steps
 │       │   ├── providers/         # MinerU, PDF, filesystem, publishing
-│       │   ├── artifacts/         # Artifact creation and runtime index (Phase 4)
+│       │   ├── artifacts/         # Artifact creation and runtime index (planned)
 │       │   ├── templates/         # Built-in conversion templates (package data)
 │       │   ├── contracts.py       # Request/response models shared by api and application
 │       │   ├── paths.py           # Runtime home resolution
@@ -48,8 +49,10 @@ UniZero/
 │   └── contract/
 ├── docs/
 │   ├── ARCHITECTURE.md
-│   ├── MIGRATION.md
+│   ├── COMPATIBILITY.md
+│   ├── HISTORY.md
 │   ├── PROJECT_STRUCTURE.md
+│   ├── ROADMAP.md
 │   └── decisions/
 └── scripts/
 ```
@@ -65,9 +68,9 @@ The Zotero add-on is the user-facing application. It owns:
 - lightweight network providers;
 - the client for the local runtime.
 
-Zoference supplies the initial build and lifecycle foundation. ZoMiner's plain
-JavaScript add-on is ported into this application by capability; it does not remain as
-a second embedded plugin.
+Zoference supplied the build and lifecycle foundation. ZoMiner's plain JavaScript add-on
+was ported into this application by capability rather than kept as a second embedded
+plugin.
 
 ## Why the runtime lives under `services/`
 

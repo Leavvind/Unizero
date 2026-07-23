@@ -8,13 +8,10 @@ It runs as a separate process and talks to the Zotero add-on over a versioned lo
 HTTP contract. It does not access Zotero directly and is not required for metadata or
 literature-relations features.
 
-## Current state (Phase 3)
-
-Migrated from ZoMiner's `paper_service` at behavior parity, with one deliberate change:
-runtime state no longer lives inside the source tree. See *Runtime home* below.
-
-It serves the same `/api/v1` contract, so the add-on drives this and the original
-ZoMiner service identically.
+It began as ZoMiner's `paper_service` and was moved here at behavior parity, with one
+deliberate change: runtime state no longer lives inside the source tree. See
+*Runtime home* below. The `/api/v1` contract is unchanged, so the add-on drives this and
+the original ZoMiner service identically.
 
 ## Install
 
@@ -109,7 +106,8 @@ src/unizero_runtime/
 ```
 
 `artifacts/` from [`../../docs/PROJECT_STRUCTURE.md`](../../docs/PROJECT_STRUCTURE.md)
-does not exist yet; the artifact envelope and registry arrive in Phase 4.
+does not exist yet — the artifact envelope and registry are planned, not built. See
+[`../../docs/ROADMAP.md`](../../docs/ROADMAP.md).
 
 ## License
 

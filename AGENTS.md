@@ -2,46 +2,42 @@
 
 Instructions for coding agents and contributors working in this repository.
 
-This file describes what is true now. Plans belong in `docs/MIGRATION.md` and must not
-be treated as implemented behavior.
+This file describes what is true now. Plans belong in `docs/ROADMAP.md` and must not be
+treated as implemented behavior.
 
-## Current phase
+## Current state
 
-Both source projects have been migrated (**Phases 1–3**) and manually checked in Zotero
-by the maintainer on 2026-07-23. `apps/zotero-addon` carries all Zotero-facing code;
-`services/paper-runtime` is an installable Python package serving the unchanged
-`/api/v1` contract.
+UniZero is one project. The merge of Zoference and ZoMiner is finished — there is no
+remaining code to copy, and neither source repository is an input to development any
+more. How it was assembled is recorded in `docs/HISTORY.md`.
 
-**Phase 4 is in progress.** Explicit artifact identity has landed
-(`src/zotero/artifactIdentity.ts`); the versioned cross-runtime contract has not.
-`packages/contracts` and `tests/contract` are still empty ownership directories.
+`apps/zotero-addon` carries all Zotero-facing code. `services/paper-runtime` is an
+installable Python package serving `/api/v1`. Both were manually checked in Zotero by the
+maintainer on 2026-07-23. Generated attachments are identified by an explicit
+`unizero:<kind>` tag (`src/zotero/artifactIdentity.ts`), not by their display title.
 
-What the manual check did *not* establish: that artifacts produced by this runtime match
-what ZoMiner produced for the same PDF. That gate is a comparison against old output and
-is still open — see `docs/MIGRATION.md`. Adoption of pre-migration artifacts is likewise
-unverified, since it needs an item converted before the migration.
+`packages/contracts` and `tests/contract` hold boundary documentation and nothing else.
+Until they hold real schemas, the two `contracts` modules are hand-written mirrors — see
+the rule below. Do not add placeholder build scripts, fake packages, or speculative
+abstractions merely to make the target tree look complete.
+
+Open verification and planned work are in `docs/ROADMAP.md`. What still reads state
+written by the predecessor add-ons is in `docs/COMPATIBILITY.md`; that code is live and
+is not cleanup material.
 
 Two source layouts coexist inside `src/` on purpose: Zoference's original flat
-`src/modules/`, and the target layout from `docs/PROJECT_STRUCTURE.md`
-(`runtime-client/`, `features/`, `zotero/`, `ui/`) used by Phase 2 code. New code goes in
-the target layout. Moving the Zoference modules is the business of their own phases, not
-an opportunistic cleanup.
+`src/modules/`, and the layout from `docs/PROJECT_STRUCTURE.md` (`runtime-client/`,
+`features/`, `zotero/`, `ui/`). New code goes in the second. The flat modules are
+extracted incrementally, when that code is being touched for another reason — not as
+opportunistic cleanup.
 
-Do not add placeholder build scripts, fake packages, or speculative abstractions merely
-to make the target tree look complete.
+## Predecessor repositories
 
-## Source repositories
+`../Zoference` and `../ZoMiner` are sibling checkouts, kept as behavioral references for
+parity questions. Treat them as read-only unless a task explicitly asks for changes
+there. Nothing in this repository depends on them.
 
-The migration sources are sibling repositories:
-
-- `../Zoference`
-- `../ZoMiner`
-
-Treat them as read-only migration sources unless a task explicitly asks for changes in
-those repositories. Preserve their behavior, history, license notices, and useful
-rationale comments.
-
-Never migrate generated or machine-local content, including:
+Nothing generated or machine-local is ever copied out of them:
 
 - `node_modules/`, `build/`, `.venv/`, and `*.xpi`;
 - ZoMiner `paper_service/work/` and `paper_service/store/`;
@@ -55,8 +51,10 @@ Never migrate generated or machine-local content, including:
 2. **A separate local runtime.** Heavy PDF processing remains in
    `services/paper-runtime`; do not import Python implementation details into the
    add-on.
-3. **A versioned boundary.** Communication crosses a localhost HTTP contract defined
-   under `packages/contracts`.
+3. **A versioned boundary.** Communication crosses an explicit localhost HTTP contract.
+   It is currently declared twice — `src/runtime-client/contracts.ts` and
+   `src/unizero_runtime/contracts.py` — and `packages/contracts` is where a single
+   language-neutral declaration will live.
 4. **Zotero is canonical.** Bibliographic metadata and annotations originate from
    Zotero. Derived cache entries and Markdown frontmatter do not become competing
    sources of truth.
@@ -108,23 +106,22 @@ page.
 
 These constraints originate in Zoference and continue to apply after migration.
 
-## Migration rules
+## Change rules
 
-- Migrate in bounded, reviewable commits by capability, not by copying whole
-  repositories at once.
-- Establish behavior parity before redesigning a migrated capability.
-- Keep legacy preference, cache, artifact-title, and schema readers until the relevant
-  migration is verified.
 - `src/runtime-client/contracts.ts` and
   `services/paper-runtime/src/unizero_runtime/contracts.py` are hand-written mirrors of
   one contract. Change one, change the other in the same commit. Both sides type-check
   green while disagreeing, so drift only surfaces as a 4xx at the moment a user acts.
-  Until `packages/contracts` exists, this rule is the only thing holding them together.
-- The `zominer.references/1` artifact must remain readable during the transition.
+  Until `packages/contracts` holds real schemas, this rule is the only thing holding
+  them together.
+- Everything listed in `docs/COMPATIBILITY.md` reads state written by a predecessor
+  add-on. Removing one is its own commit, stating which retirement condition was met and
+  how that was determined. Never as cleanup, and never bundled into an unrelated change.
 - Do not rename public IDs, add-on IDs, preferences, artifacts, or release files without
-  a documented migration.
-- Complete licensing and attribution work before copying source code.
-- Update `docs/MIGRATION.md` when a phase changes status.
+  a documented compatibility path. Display names may change freely; stable identifiers
+  may not.
+- Establish behavior parity before redesigning a capability that came from a predecessor.
+- Update `docs/ROADMAP.md` when planned work lands or an open verification closes.
 
 ## Documentation conventions
 
@@ -172,7 +169,7 @@ For documentation-only changes:
 - inspect Markdown links and headings;
 - confirm that no generated or user-local files were added.
 
-The integrated manual smoke check will cover:
+The integrated manual smoke check covers:
 
 1. add-on startup and shutdown without leaked registrations;
 2. metadata candidate review and safe Zotero write-back;
@@ -186,6 +183,6 @@ If a manual check cannot be run, state that explicitly.
 ## Working tree safety
 
 Existing changes belong to the user. Do not discard or rewrite unrelated work. Avoid
-destructive Git commands. Keep migration-source repositories untouched unless the task
+destructive Git commands. Keep the predecessor repositories untouched unless the task
 explicitly includes them.
 

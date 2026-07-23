@@ -8,9 +8,9 @@
  * 本模块只负责“读取那个附件”。它是纯抽取工件（raw 引文 + 页码 + DOI/arXiv）；
  * 标题/作者/期刊/年份/摘要等元数据解析由 add-on 侧完成（Crossref/OpenAlex/LLM）。
  *
- * 这是当前唯一的跨插件耦合点。附件的 JSON 契约（`schema: "zominer.references/N"`）是
- * UniZero Phase 4 要替换成直接投递的数据边界；在那之前这个读取路径必须保持可用，
- * 见 docs/MIGRATION.md。
+ * 附件的 JSON 契约（`schema: "zominer.references/N"`）现在仍是转换产出的写入格式，
+ * 也就是说这是抽取结果到达插件的**唯一**路径。计划是让转换任务直接返回参考文献，
+ * 在那之前这个读取路径必须保持可用，见 docs/COMPATIBILITY.md。
  */
 
 const REFS_ATTACHMENT_TITLE = "ZoMiner References";

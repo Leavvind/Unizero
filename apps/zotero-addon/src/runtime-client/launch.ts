@@ -1,9 +1,9 @@
 /**
  * 决定"用什么命令把 paper runtime 拉起来"。
  *
- * ZoMiner 只有一种启动方式：`<python> <server.py>`，两个路径都要用户手填。Phase 3 把
- * runtime 做成了可安装包（console script `unizero-runtime`，以及 `python -m
- * unizero_runtime`），于是绝大多数情况下这两个路径都能自己推出来。
+ * ZoMiner 只有一种启动方式：`<python> <server.py>`，两个路径都要用户手填。runtime 现在
+ * 是可安装包（console script `unizero-runtime`，以及 `python -m unizero_runtime`），
+ * 于是绝大多数情况下这两个路径都能自己推出来。
  *
  * 解析顺序里有一条不可动摇：**用户显式配置永远优先于自动发现**。已经填了
  * serverScript 的用户（包括从 ZoMiner 迁移过来、指向旧 paper_service/server.py 的）

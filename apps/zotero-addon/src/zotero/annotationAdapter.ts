@@ -3,8 +3,8 @@
  *
  * 端口自 ZoMiner `modules/zotero-adapter.js` 的批注部分，行为保持一致。
  *
- * Phase 6 会把这里扩展成规范化的批注模型（类型/颜色/标签/位置 + profile 渲染）。
  * 当前只支持高亮和下划线，且只投递纯文本——这是 ZoMiner 的既有行为，先对齐再演进。
+ * 规范化的批注模型（类型/颜色/标签/位置 + profile 渲染）见 docs/ROADMAP.md。
  */
 
 import type { AnnotateRequest, AnnotationPayloadItem } from "../runtime-client/contracts";

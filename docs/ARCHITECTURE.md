@@ -207,10 +207,10 @@ The common artifact envelope includes:
 Initial artifact kinds include Markdown, table summary, extracted references, layout
 content list, and annotation export.
 
-The legacy `zominer.references/1` attachment remains a readable compatibility format
-during migration. Once a conversion job returns extracted references directly, the
-attachment may remain as a durable/exportable artifact but is no longer the only
-communication mechanism between features.
+The `zominer.references/1` attachment must remain readable. It is currently both the
+write format and the only path by which extracted references reach the add-on. Once a
+conversion job returns them directly, the attachment may remain as a durable, exportable
+artifact but stops being a communication mechanism between features.
 
 ## Annotation model
 

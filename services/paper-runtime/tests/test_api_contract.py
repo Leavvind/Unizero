@@ -100,7 +100,7 @@ def test_convert_request_defaults_are_part_of_the_contract(client: TestClient) -
 
     A request carrying only pdf_path is accepted and queued: template falls back to
     paper-to-markdown and library_id to 1. The library_id default is the group-library
-    hazard recorded against Phase 4 -- pinned here so the fix cannot land unnoticed.
+    hazard recorded in docs/ROADMAP.md -- pinned here so the fix cannot land unnoticed.
     """
     response = client.post(f"{PREFIX}/convert", json={"pdf_path": "/nonexistent.pdf"})
 

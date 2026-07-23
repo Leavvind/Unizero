@@ -282,7 +282,7 @@ async function attachImportedCopy(
  * 内容是纯抽取工件（raw 引文 + 页码 + DOI/arXiv）；元数据解析由 add-on 的 provider
  * 侧完成，不回写这里。读取端见 src/modules/zomReferences.ts。
  *
- * Phase 4 会让转换 job 直接投递这些数据，届时这个附件降级为兼容产物。
+ * 计划是让转换 job 直接投递这些数据（见 docs/ROADMAP.md），届时这个附件降级为兼容产物。
  */
 async function attachReferences(
   context: ArtifactContext,

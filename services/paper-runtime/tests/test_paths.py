@@ -1,8 +1,8 @@
 """Runtime state must live outside the package and be relocatable.
 
-This is the behavioural change Phase 3 introduces on purpose: ZoMiner derived every
-state path from ``__file__``, which stops working the moment the code is installed
-rather than run from a clone.
+This is the one behavioural change made on purpose when moving here from ZoMiner, which
+derived every state path from ``__file__`` -- that stops working the moment the code is
+installed rather than run from a clone.
 """
 
 from __future__ import annotations

@@ -9,29 +9,25 @@ It brings together four related capabilities:
 - PDF-to-Markdown conversion and publishing;
 - Zotero annotation export and incremental Markdown injection.
 
-UniZero is being formed from the existing **Zoference** and **ZoMiner** projects.
-The goal is one coherent Zotero add-on backed by an optional local paper-processing
-runtime, not one large process containing every concern.
+It is one Zotero add-on backed by an optional local paper-processing runtime, not one
+large process containing every concern.
 
 ## Project status
 
-**Phases 1–3 complete; Phase 4 in progress.**
+Working, and used daily by its author.
 
-`apps/zotero-addon` contains the Zoference features (references, citations, metadata
-enrichment) and the ported ZoMiner capabilities (PDF conversion, annotation injection,
-runtime process management, template panel), under one add-on ID with compatibility
-readers for both projects' preferences and caches.
+`apps/zotero-addon` provides references, citations, and metadata enrichment in the item
+pane, plus PDF → Markdown conversion, annotation injection, artifact registration, and
+local runtime process management. `services/paper-runtime` is an installable Python
+package serving `/api/v1`, with 43 tests and its state kept outside the source tree.
 
-`services/paper-runtime` is an installable Python package serving the same `/api/v1`
-contract as before, with 43 tests and its runtime state moved out of the source tree.
+Both were manually checked in Zotero on 2026-07-23. Generated attachments are identified
+by an explicit `unizero:<kind>` tag, so they are never found — or erased — by title.
 
-Phases 1–3 were manually checked in Zotero on 2026-07-23. Phase 4 has landed explicit
-artifact identity, so generated attachments are no longer found — or erased — by title.
-`packages/contracts` and `tests/contract` are still empty ownership directories.
-
-Two gates remain open: artifacts have not been diffed against ZoMiner's output for the
-same PDF, and adoption of pre-migration artifacts has not been exercised. See
-[Migration Plan](docs/MIGRATION.md).
+Not yet done: `packages/contracts` and `tests/contract` hold boundary documentation
+rather than schemas, so the two `contracts` modules are hand-written mirrors of one
+contract. Settings are still split across a preference pane and a panel dialog. Open
+verification and planned work are in [Roadmap](docs/ROADMAP.md).
 
 ## Architecture at a glance
 
@@ -72,24 +68,24 @@ See [Architecture](docs/ARCHITECTURE.md) for the full boundary model.
 | `services/paper-runtime/` | Python service for heavy PDF and Markdown workflows |
 | `packages/contracts/` | Versioned, language-neutral HTTP and artifact contracts |
 | `tests/contract/` | Cross-runtime contract fixtures and compatibility tests |
-| `docs/` | Architecture, project structure, migration plan, and decisions |
+| `docs/` | Architecture, project structure, roadmap, and decisions |
 | `scripts/` | Repository-level development and release helpers |
 
 The detailed target tree and dependency rules are in
 [Project Structure](docs/PROJECT_STRUCTURE.md).
 
-## Source projects
+## Origins
 
-- **Zoference** is the preferred foundation for the unified Zotero add-on because it
-  already has a TypeScript build, current Zotero item-pane integration, and lifecycle
-  handling.
-- **ZoMiner's Zotero plugin** is a migration source for service management, conversion
-  commands, item/attachment adapters, template UI, and artifact registration.
-- **ZoMiner's `paper_service`** remains a separate Python runtime and is migrated with
-  minimal behavioral change before deeper refactoring.
+UniZero was formed by merging **Zoference** — a TypeScript Zotero add-on for references,
+citations, and metadata, itself a fork of `MuiseDestiny/zotero-reference` — with
+**ZoMiner**, a plain-JavaScript Zotero plugin and its Python `paper_service` for
+MinerU-based PDF conversion.
 
-The source repositories remain authoritative until each migration phase is accepted.
-Do not delete or rewrite them as part of the initial integration.
+That merge is complete. Zoference supplied the add-on shell; ZoMiner's Zotero-facing half
+was ported into it and its Python half became `services/paper-runtime`. See
+[How UniZero Was Assembled](docs/HISTORY.md) for where each piece went and which
+identifiers changed, and [Compatibility Readers](docs/COMPATIBILITY.md) for the code that
+still reads state written by the predecessors.
 
 ## Design principles
 
@@ -102,19 +98,14 @@ Do not delete or rewrite them as part of the initial integration.
   migration or compatibility path.
 - Generated output and machine-local state are never committed.
 
-## Migration
+## Roadmap
 
-Migration is organized as independently verifiable phases:
+Planned work, grouped by area: a unified settings UI, real cross-language contracts, a
+common artifact envelope and group-library correctness, field-level metadata management
+with frontmatter projection, and annotation profiles with multiple output modes.
 
-1. repository and contract foundation;
-2. unified add-on shell;
-3. ZoMiner add-on capability port;
-4. Python runtime migration;
-5. integrated artifacts and relations;
-6. canonical metadata and frontmatter projection;
-7. annotation profiles and export modes.
-
-See [Migration Plan](docs/MIGRATION.md) for phase gates and the source-to-target map.
+See [Roadmap](docs/ROADMAP.md), which also tracks the checks that are still open on work
+already landed.
 
 ## Building and testing
 
