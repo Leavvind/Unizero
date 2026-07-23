@@ -7,16 +7,12 @@ be treated as implemented behavior.
 
 ## Current phase
 
-UniZero is in the **foundation phase**. No Zoference or ZoMiner application code has
-been migrated yet.
+UniZero has completed **Phase 1**: the Zoference add-on shell has been migrated into
+`apps/zotero-addon` at behavior parity and renamed to the UniZero identifiers.
 
-Allowed foundation work includes:
-
-- architecture and decision records;
-- target directories and package boundaries;
-- versioned contract design;
-- migration inventories and compatibility fixtures;
-- repository-wide documentation and tooling that is actually usable.
+No ZoMiner code has been migrated. `services/paper-runtime`, `packages/contracts`, and
+`tests/contract` are empty ownership directories. Phase 2 — porting ZoMiner's
+Zotero-facing capabilities against the existing ZoMiner service — is the next work.
 
 Do not add placeholder build scripts, fake packages, or speculative abstractions merely
 to make the target tree look complete.
@@ -123,7 +119,17 @@ These constraints originate in Zoference and continue to apply after migration.
 
 ## Verification
 
-There is currently no root build or test command.
+There is no root build or test command. Add-on changes are verified from
+`apps/zotero-addon`:
+
+```text
+npm run check
+npm run build
+```
+
+There is no automated test suite yet. A type check and a successful bundle do not verify
+Zotero UI behavior — any UI, lifecycle, or Zotero API change also needs a manual check in
+Zotero, and if you cannot run one, say so explicitly.
 
 For documentation-only changes:
 
@@ -131,15 +137,8 @@ For documentation-only changes:
 - inspect Markdown links and headings;
 - confirm that no generated or user-local files were added.
 
-After the add-on is migrated, the minimum gate will include:
-
-```text
-npm run check
-npm run build
-```
-
 After the runtime is migrated, it must gain a real Python test command before one is
-listed here. Do not imply that a type check or build verifies Zotero UI behavior.
+listed here.
 
 The integrated manual smoke check will cover:
 

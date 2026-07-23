@@ -20,6 +20,11 @@ coverage/
 *.tsbuildinfo
 *.xpi
 
+# Zotero add-on development
+# Machine-local Zotero binary/profile paths; see scripts/zotero-cmd-default.json.
+apps/zotero-addon/scripts/zotero-cmd.json
+*-ignore.ts
+
 # Python
 .venv/
 venv/

@@ -40,7 +40,7 @@ Use synthetic fixtures when contract examples require representative data.
 
 ## Phase 0 — Foundation
 
-Status: **in progress**
+Status: **complete**
 
 Deliverables:
 
@@ -59,24 +59,49 @@ Exit gate:
 
 ## Phase 1 — Unified add-on shell
 
+Status: **code migrated; manual Zotero check outstanding**
+
 Use Zoference as the initial add-on host.
 
 Deliverables:
 
-- working TypeScript add-on build under `apps/zotero-addon`;
-- UniZero lifecycle and namespace;
-- preferences and legacy preference migration strategy;
-- References/Citations behavior retained;
-- metadata identifier completion retained;
-- old and new add-ons can be distinguished during development.
+- working TypeScript add-on build under `apps/zotero-addon` — done;
+- UniZero lifecycle and namespace — done, `Zotero.UniZero` via `config.addonInstance`;
+- preferences and legacy preference migration strategy — done, see below;
+- References/Citations behavior retained — code migrated unchanged;
+- metadata identifier completion retained — code migrated unchanged;
+- old and new add-ons can be distinguished during development — done, the add-on ID
+  changed to `unizero@leavvind` so both can be installed side by side.
+
+### Identifier changes made in this phase
+
+| Identifier | Zoference | UniZero | Compatibility |
+| --- | --- | --- | --- |
+| add-on ID | `zoference@leavvind` | `unizero@leavvind` | none needed; separate add-on |
+| global namespace | `Zotero.Zoference` | `Zotero.UniZero` | debug hooks follow `addonInstance` |
+| preference prefix | `extensions.zotero.zoference.*` | `extensions.zotero.unizero.*` | one-time copy in `src/modules/migrate.ts` |
+| reference cache | `zoference.json` | `unizero.json` | read-only fallback in `src/modules/localStorage.ts` |
+| locale prefix | `zoference-*.ftl` | `unizero-*.ftl` | build-time, no user state |
+| XPI | `zoference.xpi` | `unizero.xpi` | new release line, version reset to 0.1.0 |
+
+`config.legacyAddonRef` became `config.legacyAddonRefs`, an array ordered newest first
+(`["zoference", "zoteroreference"]`), so users coming directly from zotero-reference are
+still covered. Both compatibility readers leave the old state in place.
+
+Internal `zoference-` CSS class names were left unchanged: they are private to the
+injected stylesheet, and renaming them would have added a large diff to `views.ts` with
+no behavioral effect.
 
 Exit gate:
 
-- type check and production build pass;
-- the XPI installs in Zotero;
-- startup, item pane, References, Citations, import/relate, and shutdown are manually
-  checked;
-- no ZoMiner capability is claimed yet.
+- [x] type check and production build pass;
+- [ ] the XPI installs in Zotero;
+- [ ] startup, item pane, References, Citations, import/relate, and shutdown are manually
+      checked;
+- [x] no ZoMiner capability is claimed yet.
+
+Phase 2 must not start until the manual check passes, because parity with Zoference is
+the only thing this phase asserts.
 
 ## Phase 2 — ZoMiner add-on capability port
 
@@ -182,12 +207,26 @@ Exit gate:
 
 ### Licensing and attribution
 
-Before copying Zoference code:
+Status: **done for the add-on; open for the runtime.**
 
-- add the full AGPL-3.0-or-later license text;
-- preserve upstream and modifier copyright notices;
-- add notices for bundled or copied assets;
-- document the license chosen for original ZoMiner code.
+Zoference is a fork of `MuiseDestiny/zotero-reference` — its git history starts with
+commits by Polygon (MuiseDestiny), and upstream is AGPL-3.0. UniZero's add-on is
+therefore a second-generation derivative and inherits AGPL-3.0-or-later. That is not a
+choice: the upstream copyright holder's terms carry forward, and the copyright and
+license notices must be preserved in any distribution.
+
+Completed:
+
+- full AGPL-3.0-or-later text in `LICENSE`;
+- upstream and modifier copyright notices in `NOTICE`;
+- notices for bundled components (zotero-plugin-toolkit, zotero-plugin-template,
+  zotero-types) in `NOTICE`.
+
+Open:
+
+- the license for original ZoMiner code. `paper_service` is original work that runs as a
+  separate process behind an HTTP contract, so it is not a derivative of the AGPL add-on
+  and may carry a different license. Decide before Phase 3 and record it in `NOTICE`.
 
 ### Naming and compatibility
 

@@ -1,0 +1,59 @@
+{
+  "name": "unizero",
+  "version": "0.1.0",
+  "description": "UniZero for Zotero",
+  "config": {
+    "addonName": "UniZero",
+    "addonID": "unizero@leavvind",
+    "addonRef": "unizero",
+    "addonInstance": "UniZero",
+    "legacyAddonRefs": ["zoference", "zoteroreference"],
+    "contactEmail": "j45rbnr8p4@privaterelay.appleid.com",
+    "releasepage": "https://github.com/Leavvind/UniZero/releases/latest/download/unizero.xpi",
+    "updaterdf": "https://raw.githubusercontent.com/Leavvind/UniZero/main/update.json"
+  },
+  "main": "src/index.ts",
+  "scripts": {
+    "build-dev": "cross-env NODE_ENV=development node scripts/build.mjs",
+    "build-prod": "cross-env NODE_ENV=production node scripts/build.mjs",
+    "build": "concurrently -c auto npm:build-prod npm:tsc",
+    "check": "tsc --noEmit",
+    "tsc": "tsc --noEmit",
+    "start": "node scripts/start.mjs",
+    "start-watch": "npm run build-dev && concurrently -c auto npm:start npm:watch",
+    "stop": "node scripts/stop.mjs",
+    "restart-dev": "npm run build-dev && npm run stop && npm run start",
+    "restart-prod": "npm run build-prod && npm run stop && npm run start",
+    "restart": "npm run restart-dev",
+    "reload": "npm run build-dev && node scripts/reload.mjs",
+    "watch": "chokidar \"src/**\" \"addon/**\" -c \"npm run reload\"",
+    "release": "release-it",
+    "update-deps": "npm update --save"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leavvind/UniZero.git"
+  },
+  "author": "Leavvind",
+  "license": "AGPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/Leavvind/UniZero/issues"
+  },
+  "homepage": "https://github.com/Leavvind/UniZero#readme",
+  "dependencies": {
+    "zotero-plugin-toolkit": "5.1.4"
+  },
+  "devDependencies": {
+    "@types/node": "^18.13.0",
+    "chokidar-cli": "^3.0.0",
+    "compressing": "^1.7.0",
+    "concurrently": "^7.6.0",
+    "cross-env": "^7.0.3",
+    "esbuild": "^0.17.7",
+    "minimist": "^1.2.8",
+    "release-it": "^20.2.1",
+    "replace-in-file": "^6.3.5",
+    "typescript": "^4.9.5",
+    "zotero-types": "^1.0.9"
+  }
+}

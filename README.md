@@ -15,11 +15,15 @@ runtime, not one large process containing every concern.
 
 ## Project status
 
-**Foundation phase — no application code has been migrated yet.**
+**Phase 1 — the unified add-on shell has been migrated.**
 
-The repository currently defines the intended boundaries, project structure, migration
-order, and contributor rules. This is deliberate: code will be moved only after its
-destination and compatibility obligations are clear.
+`apps/zotero-addon` now contains the Zoference add-on at behavior parity, renamed to the
+UniZero add-on ID, preference prefix, and global namespace, with compatibility readers
+for the older preference and cache names. It type-checks, builds, and packages an XPI.
+
+ZoMiner's Zotero-facing capabilities and its Python runtime have not been migrated yet.
+`services/paper-runtime`, `packages/contracts`, and `tests/contract` are still empty
+ownership directories.
 
 ## Architecture at a glance
 
@@ -106,10 +110,37 @@ See [Migration Plan](docs/MIGRATION.md) for phase gates and the source-to-target
 
 ## Building and testing
 
-There is no UniZero build yet because application code has not been migrated. Do not
-publish placeholder build commands.
+The add-on builds from `apps/zotero-addon`:
 
-Each migration phase must add its real verification commands to this README and
-[AGENTS.md](AGENTS.md). Until then, review the documentation and repository layout
-directly.
+```bash
+cd apps/zotero-addon && npm ci
+```
+
+```bash
+cd apps/zotero-addon && npm run build
+```
+
+This type-checks and writes `apps/zotero-addon/build/unizero.xpi`. Development setup and
+the Zotero run loop are documented in
+[`apps/zotero-addon/README.md`](apps/zotero-addon/README.md).
+
+There is no automated test suite yet, and no runtime build — the Python service has not
+been migrated. A type check and a successful bundle do not verify Zotero UI behavior;
+add-on changes still require a manual check in Zotero.
+
+Each further migration phase must add its real verification commands here and in
+[AGENTS.md](AGENTS.md).
+
+## License
+
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
+
+UniZero's add-on is a modified version of
+[Zoference](https://github.com/Leavvind/Zoference), which is itself a modified version of
+[MuiseDestiny/zotero-reference](https://github.com/MuiseDestiny/zotero-reference),
+Copyright © Polygon. Copyright notices and component attributions are recorded in
+[NOTICE](NOTICE).
+
+The AGPL requires that anyone you distribute the add-on to can obtain the corresponding
+source code. If you redistribute a built `.xpi`, publish this repository alongside it.
 

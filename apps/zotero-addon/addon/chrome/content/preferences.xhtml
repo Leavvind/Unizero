@@ -1,0 +1,102 @@
+<linkset>
+  <html:link rel="localization" href="__addonRef__-preferences.ftl" />
+</linkset>
+<vbox id="zotero-prefpane-__addonRef__" onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', {window})">
+  <groupbox>
+    <html:h2 data-l10n-id="caption-api"></html:h2>
+    <html:div style="margin-left: .7em; margin-bottom: .5em; opacity: .8;" data-l10n-id="sourceOrder-note"></html:div>
+    <hbox style="margin: 4px 0; margin-left: .7em;">
+      <html:span style="margin: auto 0; margin-right: .5em;" data-l10n-id="semanticScholarApiKey"></html:span>
+      <html:input style="width: 22em; margin: auto 0; height: 1em;" type="password"
+        id="__addonRef__-semantic-scholar-api-key"
+        preference="extensions.zotero.__addonRef__.semanticScholar.apiKey">
+      </html:input>
+    </hbox>
+    <html:div style="margin-left: .7em; margin-top: .3em; opacity: .8;" data-l10n-id="semanticScholarApiKey-note"></html:div>
+  </groupbox>
+  <groupbox>
+    <html:h2 data-l10n-id="caption-refresh"></html:h2>
+    <checkbox native="true" id="__addonRef__-auto-refresh" data-l10n-id="autoRefresh"
+      preference="extensions.zotero.__addonRef__.autoRefresh" />
+    <html:div style="
+        display: flex;
+        margin-top: .5em;
+        flex-direction: row;
+        align-items: left;
+        width: 80%;
+      ">
+      <html:input style="
+          width: 100%;
+          margin: auto .5em;
+        " type="text" id="__addonRef__-not-auto-refresh-item-types"
+        preference="extensions.zotero.__addonRef__.notAutoRefreshItemTypes">
+      </html:input>
+    </html:div>
+  </groupbox>
+  <groupbox>
+    <html:h2 data-l10n-id="caption-tip"></html:h2>
+    <hbox style="margin: 4px 0;margin-left: .7em;">
+      <html:span style="margin: auto 0; margin-right: .5em;" data-l10n-id="tipBackgroundColor"></html:span>
+      <html:input style="width: 6em; margin: auto 0; height: 1em;" type="text" id="__addonRef__-tip-background-color"
+        preference="extensions.zotero.__addonRef__.tipBackgroundColor">
+      </html:input>
+      <html:span style="margin: auto 0; margin-left: 1em; margin-right: .5em;" data-l10n-id="tipTitleColor"></html:span>
+      <html:input style="width: 6em; margin: auto 0; height: 1em;" type="text" id="__addonRef__-tip-title-color"
+        preference="extensions.zotero.__addonRef__.tipTitleColor">
+      </html:input>
+    </hbox>
+    <html:div style="
+      display: flex;
+      flex-direction: row;
+    ">
+      <checkbox native="true" id="__addonRef__-is-show-tip" data-l10n-id="isShowTip-start"
+        preference="extensions.zotero.__addonRef__.isShowTip" style="margin-right: .5em;"/>
+      <html:input style="width: 4em; margin: auto 0; height: 1em;" type="text"
+        id="__addonRef__-remove-tip-after-millisecond"
+        preference="extensions.zotero.__addonRef__.showTipAfterMillisecond">
+      </html:input>
+      <html:span style="margin: auto 0; margin-left: .5em;" data-l10n-id="isShowTip-end"></html:span>
+    </html:div>
+    <checkbox native="true" id="__addonRef__-ctrl-click-translate" data-l10n-id="ctrlClickTranslate"
+      preference="extensions.zotero.__addonRef__.ctrlClickTranslate" />
+    <hbox style="margin: 4px 0;margin-left: .7em;">
+      <html:span style="margin: auto 0; margin-right: .5em;" data-l10n-id="shadeMillisecond-start"></html:span>
+      <html:input style="width: 4em; margin: auto 0; height: 1em;" type="text" id="__addonRef__-shade-millisecond"
+        preference="extensions.zotero.__addonRef__.shadeMillisecond">
+      </html:input>
+      <html:span style="margin: auto 0; margin-left: .5em;" data-l10n-id="shadeMillisecond-end"></html:span>
+    </hbox>
+    <hbox style="margin: 4px 0;margin-left: .7em;">
+      <html:span style="margin: auto 0;margin-right: .5em;" data-l10n-id="removeTipAfterMillisecond-start"></html:span>
+      <html:input style="width: 4em; margin: auto 0; height: 1em;" type="text"
+        id="__addonRef__-remove-tip-after-millisecond"
+        preference="extensions.zotero.__addonRef__.removeTipAfterMillisecond">
+      </html:input>
+      <html:span style="margin: auto 0; margin-left: .5em;" data-l10n-id="removeTipAfterMillisecond-end">
+      </html:span>
+    </hbox>
+  </groupbox>
+  <groupbox>
+    <html:h2 data-l10n-id="caption-related"></html:h2>
+    <checkbox native="true" id="__addonRef__-loading-related" data-l10n-id="loadingRelated"
+      preference="extensions.zotero.__addonRef__.loadingRelated" />
+  </groupbox>
+  <groupbox>
+    <html:h2 data-l10n-id="caption-save"></html:h2>
+    <checkbox native="true" id="__addonRef__-save-api-references" data-l10n-id="saveAPIReferences"
+      preference="extensions.zotero.__addonRef__.saveAPIReferences" />
+    <checkbox native="true" id="__addonRef__-save-citations" data-l10n-id="saveCitations"
+      preference="extensions.zotero.__addonRef__.saveCitations" />
+    <html:div style="margin-left: .7em; margin-top: .3em; opacity: .8;" data-l10n-id="save-note"></html:div>
+  </groupbox>
+  <groupbox>
+    <html:h2 data-l10n-id="caption-match"></html:h2>
+    <hbox style="margin-left: .7em;display: flex;align-items: center;">
+      <html:span style="margin: auto 0; margin-right: .5em;" data-l10n-id="notInLibarayOpacity-start"></html:span>
+      <html:input style="width: 4em; margin: auto 0; height: 1em;" type="range" min="0" max="1" step="0.01" id="__addonRef__-not-in-library-opacity"
+        preference="extensions.zotero.__addonRef__.notInLibarayOpacity">
+      </html:input>
+      <html:span style="margin: auto 0; margin-left: .5em;" data-l10n-id="notInLibarayOpacity-end"></html:span>
+    </hbox>
+  </groupbox>
+</vbox>
