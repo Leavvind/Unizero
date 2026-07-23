@@ -15,20 +15,22 @@ runtime, not one large process containing every concern.
 
 ## Project status
 
-**Phase 2 — the add-on now carries both source projects' Zotero-facing features.**
+**Phase 3 — both source projects have been migrated.**
 
-`apps/zotero-addon` contains the Zoference add-on (references, citations, metadata
+`apps/zotero-addon` contains the Zoference features (references, citations, metadata
 enrichment) and the ported ZoMiner capabilities (PDF conversion, annotation injection,
 runtime process management, template panel), under one add-on ID with compatibility
-readers for both projects' preference and cache names. It type-checks, builds, and
-packages an XPI.
+readers for both projects' preferences and caches. It type-checks, builds, and packages
+an XPI.
 
-The Python runtime has not moved yet: the add-on drives ZoMiner's existing
-`paper_service` over its `/api/v1` contract. `services/paper-runtime`,
-`packages/contracts`, and `tests/contract` are still empty ownership directories.
+`services/paper-runtime` is an installable Python package serving the same `/api/v1`
+contract as before, with 43 tests and its runtime state moved out of the source tree.
 
-Neither phase has passed its manual Zotero check yet — see
-[Migration Plan](docs/MIGRATION.md).
+`packages/contracts` and `tests/contract` are still empty ownership directories.
+
+**No phase has passed a manual check yet** — nothing has been exercised against a running
+Zotero, and no end-to-end conversion has been run. See
+[Migration Plan](docs/MIGRATION.md) for what remains on each gate.
 
 ## Architecture at a glance
 
@@ -129,9 +131,19 @@ This type-checks and writes `apps/zotero-addon/build/unizero.xpi`. Development s
 the Zotero run loop are documented in
 [`apps/zotero-addon/README.md`](apps/zotero-addon/README.md).
 
-There is no automated test suite yet, and no runtime build — the Python service has not
-been migrated. A type check and a successful bundle do not verify Zotero UI behavior;
-add-on changes still require a manual check in Zotero.
+The runtime installs and tests from `services/paper-runtime`:
+
+```bash
+cd services/paper-runtime && uv venv --python 3.12 && uv pip install -e ".[dev]"
+```
+
+```bash
+cd services/paper-runtime && .venv/Scripts/python.exe -m pytest
+```
+
+The add-on has no automated tests, and the runtime's tests stop short of conversion
+itself, which needs MinerU and a real PDF. A type check and a green suite do not verify
+Zotero UI behavior; add-on changes still require a manual check in Zotero.
 
 Each further migration phase must add its real verification commands here and in
 [AGENTS.md](AGENTS.md).

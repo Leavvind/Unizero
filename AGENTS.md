@@ -7,14 +7,16 @@ be treated as implemented behavior.
 
 ## Current phase
 
-UniZero has ported both source projects' Zotero-facing code into `apps/zotero-addon`
-(**Phases 1 and 2**). Neither phase has passed its manual Zotero check; do not treat
-either as verified.
+Both source projects have been migrated (**Phases 1–3**). `apps/zotero-addon` carries
+all Zotero-facing code; `services/paper-runtime` is an installable Python package
+serving the unchanged `/api/v1` contract.
 
-The Python runtime has not moved. The add-on talks to ZoMiner's existing `paper_service`
-over `/api/v1`. `services/paper-runtime`, `packages/contracts`, and `tests/contract` are
-empty ownership directories. Phase 3 — migrating `paper_service` at behavior parity — is
-the next work.
+**Nothing has passed a manual check yet.** The runtime has 43 automated tests, but no
+phase has been exercised against a running Zotero, and no end-to-end conversion has been
+run. Do not describe any migrated capability as verified.
+
+`packages/contracts` and `tests/contract` are still empty ownership directories. Phase 4
+— explicit artifact identity and a versioned cross-runtime contract — is the next work.
 
 Two source layouts coexist inside `src/` on purpose: Zoference's original flat
 `src/modules/`, and the target layout from `docs/PROJECT_STRUCTURE.md`
@@ -127,26 +129,39 @@ These constraints originate in Zoference and continue to apply after migration.
 
 ## Verification
 
-There is no root build or test command. Add-on changes are verified from
-`apps/zotero-addon`:
+There is no root build or test command. Each component is verified from its own
+directory.
+
+Add-on, from `apps/zotero-addon`:
 
 ```text
 npm run check
 npm run build
 ```
 
-There is no automated test suite yet. A type check and a successful bundle do not verify
+Runtime, from `services/paper-runtime`:
+
+```text
+.venv/Scripts/python.exe -m pytest
+```
+
+The add-on has no automated tests. A type check and a successful bundle do not verify
 Zotero UI behavior — any UI, lifecycle, or Zotero API change also needs a manual check in
 Zotero, and if you cannot run one, say so explicitly.
+
+The runtime's tests cover paths, template validation, reference extraction, frontmatter,
+annotation idempotency, and the `/api/v1` contract. They deliberately do not cover
+conversion, which needs MinerU, a GPU, and a real PDF. Do not add mocked pipeline tests
+to close that gap: they would assert that the mocks agree with each other.
+
+Runtime tests must never touch the developer's real runtime home. `tests/conftest.py`
+forces an isolated home per test; keep it that way.
 
 For documentation-only changes:
 
 - verify that all referenced repository paths exist;
 - inspect Markdown links and headings;
 - confirm that no generated or user-local files were added.
-
-After the runtime is migrated, it must gain a real Python test command before one is
-listed here.
 
 The integrated manual smoke check will cover:
 
