@@ -147,7 +147,6 @@ export type JobStatus = "queued" | "running" | "done" | "failed";
 export interface JobResult {
   md_path?: string;
   tables_html_path?: string;
-  references?: ExtractedReference[];
   [key: string]: unknown;
 }
 
@@ -157,19 +156,6 @@ export interface JobState {
   log_tail?: string[];
   result?: JobResult;
   error?: string;
-}
-
-/**
- * Extraction artifact: the raw citation string plus locating information, with no
- * resolved metadata. Title/author/year resolution happens in the add-on's
- * providers; see src/modules/zomReferences.ts.
- */
-export interface ExtractedReference {
-  raw?: string;
-  page?: number;
-  doi?: string;
-  arxiv?: string;
-  [key: string]: unknown;
 }
 
 export interface AnnotationPayloadItem {

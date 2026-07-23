@@ -69,7 +69,7 @@ package. User template overrides live in the runtime home.
 .venv/Scripts/python.exe -m pytest
 ```
 
-Tests use an isolated runtime home and cover paths, templates, contracts, references,
+Tests use an isolated runtime home and cover paths, templates, contracts,
 frontmatter, artifact scoping, and annotation idempotency. Real PDF conversion requires
 MinerU and is verified manually.
 

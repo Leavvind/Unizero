@@ -13,7 +13,7 @@
  * pre-migration one.
  */
 
-import type { ConvertRequest, ExtractedReference, JobResult } from "../runtime-client/contracts";
+import type { ConvertRequest, JobResult } from "../runtime-client/contracts";
 import {
   adoptArtifact, findArtifacts, isArtifact, markArtifact,
   type ArtifactKind,
@@ -29,8 +29,6 @@ const MD_COPY_ATTACHMENT_TITLE = "ZoMiner MD Copy";
 /** The Chinese title this add-on used before the interface was unified on English. */
 const LEGACY_MD_COPY_ATTACHMENT_TITLE = "ZoMiner MD 副本";
 const TABLES_ATTACHMENT_TITLE = "ZoMiner Tables";
-const REFS_ATTACHMENT_TITLE = "ZoMiner References";
-const REFS_SCHEMA = "zominer.references/1";
 
 export interface ConversionTarget {
   /** A standalone PDF attachment has no parent item. */
@@ -311,54 +309,6 @@ async function attachImportedCopy(
 }
 
 /**
- * Write the extracted references as a JSON attachment (application/json) so the
- * relations feature can read them offline.
- *
- * The content is a pure extraction artifact (raw citation + page + DOI/arXiv);
- * metadata resolution happens on the add-on's provider side and is never written
- * back here. The reader is src/modules/zomReferences.ts.
- *
- * The plan is for the conversion job to deliver this data directly (see
- * docs/ROADMAP.md), at which point this attachment becomes a compatibility artifact.
- */
-async function attachReferences(
-  context: ArtifactContext,
-  references: ExtractedReference[],
-  title: string,
-): Promise<void> {
-  const payload = JSON.stringify({
-    schema: REFS_SCHEMA,
-    generated_at: new Date().toISOString(),
-    count: references.length,
-    references,
-  }, null, 2);
-
-  const temp = Zotero.getTempDirectory();
-  // The filename carries the source attachment key: concurrent conversions of
-  // several PDFs under one item must not clobber each other's temp file.
-  temp.append(
-    `unizero-references-${context.parent.libraryID}-` +
-    `${context.parent.key}-${context.source}.json`,
-  );
-  const path = temp.path;
-
-  await Zotero.File.putContentsAsync(path, payload);
-  try {
-    await attachImportedCopy(
-      context, "references", path, title, "application/json",
-    );
-  } finally {
-    // The temp file must go even if the import failed — it carries the full
-    // reference content.
-    try {
-      await IOUtils.remove(path, { ignoreAbsent: true });
-    } catch (error) {
-      ztoolkit.log(`temp reference file cleanup failed: ${error}`);
-    }
-  }
-}
-
-/**
  * Register the artifacts once a conversion finishes.
  *
  * Each kind gets its own try/catch: a failed table export must not stop
@@ -415,13 +365,4 @@ export async function markConverted(
     }
   }
 
-  if (Array.isArray(outcome.references) && outcome.references.length) {
-    try {
-      await attachReferences(
-        context, outcome.references, REFS_ATTACHMENT_TITLE + context.suffix,
-      );
-    } catch (error) {
-      ztoolkit.log(`references attach failed: ${error}`);
-    }
-  }
 }

@@ -302,8 +302,6 @@ class ZoMinerApplication:
             "warnings": result.warnings,
             "template": result.workflow,
             "workflow": result.workflow,
-            "references": result.references,
-            "references_count": len(result.references),
         }
         shutil.rmtree(work_dir, ignore_errors=True)
 

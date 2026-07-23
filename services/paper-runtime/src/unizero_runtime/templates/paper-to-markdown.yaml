@@ -24,12 +24,6 @@ modules:
     enabled: true
     settings: {}
 
-  - id: references
-    module: transform.references
-    enabled: true
-    settings:
-      warn_if_empty: true
-
   - id: markdown-cleanup
     module: transform.markdown-cleanup
     enabled: true

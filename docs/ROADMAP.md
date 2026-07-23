@@ -24,9 +24,7 @@ READMEs and `docs/ARCHITECTURE.md`.
 - Cover config, job-list, module-description, template-write, and shutdown payloads in
   the shared HTTP schema.
 - Validate field values as well as field names and requiredness.
-- Define a versioned artifact envelope for Markdown, tables, and extracted references.
-- Return extracted references in conversion results instead of making another feature
-  read a generated attachment.
+- Define a versioned artifact envelope for Markdown and tables.
 - Provide clear add-on/runtime upgrade guidance when capabilities are incompatible.
 
 ## Add-on maintainability

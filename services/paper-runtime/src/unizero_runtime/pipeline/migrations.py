@@ -18,7 +18,13 @@ from .steps import DEFAULT_FRONTMATTER_PROPERTIES
 #: citation count, and a missing DOI into the Markdown only; the add-on's
 #: Complete Metadata action now resolves the same facts against the Zotero item,
 #: where they can be reviewed and reused.
-REMOVED_MODULES = {"enrich.semantic-scholar"}
+#: transform.references parsed the reference section out of content_list and
+#: attached it to the Zotero item. It was the last-resort source for the citation
+#: sidebar, reached only when OpenAlex, Crossref, and Semantic Scholar all
+#: returned nothing for the item's identifiers — and it cost a full MinerU run to
+#: produce what those return in seconds. An item with no identifiers is better
+#: served by resolving one (Complete Metadata) than by parsing its bibliography.
+REMOVED_MODULES = {"enrich.semantic-scholar", "transform.references"}
 
 _FRONTMATTER_MODULE = "transform.frontmatter"
 

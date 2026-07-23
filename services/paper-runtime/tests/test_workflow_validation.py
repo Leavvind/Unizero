@@ -107,8 +107,9 @@ def test_unsafe_template_ids_are_refused(isolated_home: Path, template_id: str) 
 # --------------------------------------------------------------------------- #
 
 def _legacy_template() -> dict:
-    """A template as it was written before enrich.semantic-scholar was removed
-    and before frontmatter became a property mapping table."""
+    """A template as it was written before enrich.semantic-scholar and
+    transform.references were removed, and before frontmatter became a property
+    mapping table."""
     return {
         "schema_version": 1,
         "id": "paper-to-markdown",
@@ -117,6 +118,8 @@ def _legacy_template() -> dict:
         "modules": [
             {"id": "enrich", "module": "enrich.semantic-scholar", "enabled": True,
              "settings": {}},
+            {"id": "references", "module": "transform.references", "enabled": True,
+             "settings": {"warn_if_empty": True}},
             {"id": "extract", "module": "extract.mineru", "enabled": True,
              "settings": {}},
             {"id": "frontmatter", "module": "transform.frontmatter", "enabled": True,
@@ -143,6 +146,7 @@ def test_a_template_holding_a_removed_module_still_loads(isolated_home: Path) ->
     entry = next(item for item in store.list() if item["id"] == "paper-to-markdown")
     modules = [item["module"] for item in entry["modules"]]
     assert "enrich.semantic-scholar" not in modules
+    assert "transform.references" not in modules
     assert "extract.mineru" in modules
 
 
@@ -168,3 +172,4 @@ def test_a_legacy_document_posted_by_an_old_client_is_migrated(isolated_home: Pa
     document = store.save_dict(_legacy_template())
     modules = [item["module"] for item in document["template"]["modules"]]
     assert "enrich.semantic-scholar" not in modules
+    assert "transform.references" not in modules
