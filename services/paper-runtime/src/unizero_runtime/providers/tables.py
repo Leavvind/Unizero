@@ -1,12 +1,15 @@
 """
-tables_export.py — 把 MinerU 识别的表格汇成一个自包含 HTML（作为 Zotero 附件）。
+tables_export.py — collect the tables MinerU detected into one self-contained
+HTML file (stored as a Zotero attachment).
 
-素材全部来自 content_list：caption / footnote / 裁剪图（img_path）/ 页码。
-裁剪图优先复用 MinerU 已导出的图片文件；文件缺失时按 bbox 从原 PDF 直接
-渲染 —— content_list 的 bbox 是按页宽/页高归一化到 0–1000 的坐标，因此
-仅凭 store/<citekey>.content_list.json 加本地 PDF 也能为存量论文回填：
+Everything comes from content_list: caption / footnote / cropped image
+(img_path) / page number. Cropped images reuse the files MinerU already
+exported; when a file is missing the crop is rendered straight from the source
+PDF using the bbox — content_list bboxes are normalised to 0–1000 against page
+width/height, so store/<citekey>.content_list.json plus a local PDF is enough to
+backfill previously converted papers:
 
-    python tables_export.py <citekey> --pdf <原PDF> [--attachment-key KEY]
+    python tables_export.py <citekey> --pdf <source PDF> [--attachment-key KEY]
 """
 
 from __future__ import annotations
@@ -21,8 +24,8 @@ from typing import Any, Callable, Optional
 
 LogFn = Callable[[str], None]
 
-_BBOX_SCALE = 1000  # content_list bbox 的归一化坐标系
-_BBOX_PAD = 3       # 裁剪四周留白（归一化单位），避免线条贴边
+_BBOX_SCALE = 1000  # normalised coordinate system of content_list bboxes
+_BBOX_PAD = 3       # crop padding (normalised units) so rules are not clipped
 _CROP_DPI = 200
 
 
@@ -32,7 +35,7 @@ class TableEntry:
     caption: str
     footnote: str
     page_idx: Optional[int]      # 0-based
-    img_name: str                # MinerU 裁剪图 basename，可为空
+    img_name: str                # basename of the MinerU crop; may be empty
     bbox: Optional[list]
 
 
@@ -67,15 +70,15 @@ def collect_entries(
 
 
 def _index_images(images_root: Optional[Path]) -> dict[str, Path]:
-    """basename → 文件路径；分块合并后裁剪图位于 images/<chunk>/ 子目录。"""
+    """basename → file path; after chunk merging crops live in images/<chunk>/."""
     if images_root is None or not images_root.is_dir():
         return {}
     return {p.name: p for p in images_root.rglob("*") if p.is_file()}
 
 
 def _render_crop(doc: Any, entry: TableEntry) -> Optional[bytes]:
-    """按归一化 bbox 从 PDF 页面渲染裁剪图（PNG）。"""
-    import fitz  # PyMuPDF，随 mineru 依赖安装
+    """Render a crop (PNG) from the PDF page using the normalised bbox."""
+    import fitz  # PyMuPDF, installed as a mineru dependency
 
     if entry.page_idx is None or not entry.bbox or len(entry.bbox) != 4:
         return None
@@ -114,7 +117,7 @@ def _block_html(
             f'alt="{html.escape(entry.caption or entry.kind)}">'
         )
     else:
-        parts.append('<p class="missing">（裁剪图不可用 — 见 PDF）</p>')
+        parts.append('<p class="missing">(crop unavailable — see PDF)</p>')
     if entry.footnote:
         parts.append(f'<p class="footnote">{html.escape(entry.footnote)}</p>')
     if page is not None and zotero_pdf_uri:
@@ -129,7 +132,7 @@ def _block_html(
 
 
 _PAGE_TEMPLATE = """<!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -148,7 +151,7 @@ img {{ max-width: 100%; border: 1px solid #ddd; border-radius: 4px; }}
 </head>
 <body>
 <h1>{title} <small>{citekey}</small></h1>
-<p class="meta">{count} · ZoMiner 表格汇总（自动生成，重新转换会覆盖）</p>
+<p class="meta">{count} · ZoMiner table digest (generated; re-conversion overwrites it)</p>
 {blocks}
 </body>
 </html>
@@ -167,7 +170,8 @@ def export_tables_html(
     include_figures: bool = False,
     log: LogFn = print,
 ) -> Optional[Path]:
-    """生成表格汇总 HTML；论文没有表格时返回 None（不写文件）。"""
+    """Write the table digest HTML; return None (and write nothing) if the
+    paper has no tables."""
     entries = collect_entries(content_list, include_figures)
     if not entries:
         log("[tables-export] no tables in content_list — skipped")
@@ -222,20 +226,31 @@ def export_tables_html(
 def main() -> int:
     here = Path(__file__).parent
     parser = argparse.ArgumentParser(
-        description="用 store/ 里的 content_list 为已转换论文生成/回填表格汇总 HTML",
+        description=(
+            "Generate or backfill the table digest HTML for an already "
+            "converted paper from the content_list in store/"
+        ),
     )
-    parser.add_argument("citekey", help="store/<citekey>.content_list.json 的 citekey")
-    parser.add_argument("--pdf", help="原 PDF 路径（渲染裁剪图；存量论文必需）")
+    parser.add_argument("citekey",
+                        help="citekey of store/<citekey>.content_list.json")
+    parser.add_argument("--pdf",
+                        help="source PDF path (renders crops; required for "
+                             "previously converted papers)")
     parser.add_argument("--attachment-key", default="",
-                        help="Zotero PDF 附件 key（生成 zotero:// 页码链接）")
-    parser.add_argument("--title", default="", help="论文标题（HTML 页首显示）")
-    parser.add_argument("--include-figures", action="store_true", help="同时包含插图")
-    parser.add_argument("--out", help="输出路径，默认 store/<citekey>.tables.html")
+                        help="Zotero PDF attachment key (used for zotero:// "
+                             "page links)")
+    parser.add_argument("--title", default="",
+                        help="paper title (shown in the HTML header)")
+    parser.add_argument("--include-figures", action="store_true",
+                        help="include figures as well")
+    parser.add_argument("--out",
+                        help="output path; defaults to "
+                             "store/<citekey>.tables.html")
     args = parser.parse_args()
 
     cl_path = here / "store" / f"{args.citekey}.content_list.json"
     if not cl_path.is_file():
-        print(f"未找到 {cl_path}")
+        print(f"not found: {cl_path}")
         return 1
     content_list = json.loads(cl_path.read_text(encoding="utf-8"))
     out = export_tables_html(

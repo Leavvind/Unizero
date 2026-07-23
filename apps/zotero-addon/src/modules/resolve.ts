@@ -1,21 +1,26 @@
 /**
- * 元数据解析层：raw 引文字符串 → 结构化元数据。
+ * Metadata resolution layer: raw citation string → structured metadata.
  *
- * ZoMiner 只负责从 PDF 抽出干净的 raw 引文串（见 zomReferences.ts），本模块负责把它
- * 对上真实文献，补出 DOI / 标题 / 作者 / 期刊 / 年份 / 摘要 / 被引数。
+ * ZoMiner only extracts clean raw citation strings from the PDF (see
+ * zomReferences.ts); this module matches them against real publications and fills
+ * in DOI, title, authors, venue, year, abstract, and citation count.
  *
- * 为什么必须有这一层：实测这批金融/会计论文的参考文献里**一条 DOI 都没有**（期刊传统是
- * “刊名+卷+页”不印 DOI），而侧栏的悬浮窗补全和 “+” 导入按钮都以 identifiers.DOI 为前提。
- * 所以没有这层，信息展示和入库全都做不了。
+ * Why the layer is necessary: in practice, the references of this body of
+ * finance/accounting papers contain **no DOIs at all** — the journals' convention
+ * is "title + volume + pages" without a DOI — while the sidebar's tooltip
+ * enrichment and its "+" import button both require identifiers.DOI. Without this
+ * layer, neither display nor import works.
  *
- * 引擎顺序：
- *   1. Crossref `query.bibliographic` —— 专为“整条引文串”匹配设计，命中率最高，
- *      且 `is-referenced-by-count` 顺带给出被引数。
- *   2. OpenAlex —— 兜底匹配；同时是摘要的主要来源（Crossref 摘要覆盖率很低）。
- * LLM 兜底按既定架构预留，本轮不实现。
+ * Engine order:
+ *   1. Crossref `query.bibliographic` — built for matching a whole citation string,
+ *      with the highest hit rate, and `is-referenced-by-count` supplies the
+ *      citation count for free.
+ *   2. OpenAlex — the fallback matcher, and also the main source of abstracts,
+ *      since Crossref's abstract coverage is poor.
+ * An LLM fallback is reserved by the agreed architecture but not implemented here.
  */
 
-/** 解析结果。字段命名对齐 ItemInfo，便于直接并入侧栏的数据结构。 */
+/** A resolution result. Field names follow ItemInfo so it merges straight into the sidebar's data. */
 export interface ResolvedInfo {
   identifiers: { DOI?: string; arXiv?: string };
   title?: string;
@@ -23,39 +28,43 @@ export interface ResolvedInfo {
   year?: string;
   primaryVenue?: string;
   abstract?: string;
-  /** 被引次数，供悬浮窗显示 “Cited N times”。 */
+  /** Citation count, shown in the tooltip as "Cited N times". */
   citations?: number;
   url?: string;
-  /** 命中的引擎，用于在 UI 上标注来源。 */
+  /** Which engine matched, so the UI can label the source. */
   source?: string;
-  /** 标题与 raw 串的匹配度 0~1，低于阈值的结果会被丢弃。 */
+  /** Title-to-raw match score in 0..1; results below the threshold are discarded. */
   score?: number;
   /**
-   * 分数低于 MIN_SCORE 的猜测。这种结果只能拿来展示，绝不能进入导入路径——
-   * 调用方必须据此拒绝写入 identifiers，否则 “+” 会把一篇错的论文导进文库。
+   * A guess scoring below MIN_SCORE. Such a result may only be displayed and must
+   * never reach the import path — the caller has to refuse to write identifiers
+   * from it, or "+" will import the wrong paper into the library.
    */
   lowConfidence?: boolean;
 }
 
-/** Crossref / OpenAlex 的 polite pool 都建议带联系方式，能显著降低被限流的概率。 */
+/** Both polite pools recommend a contact address, which markedly lowers the chance of throttling. */
 import { MAILTO } from "./scholarlyHttp";
-/** 标题匹配度低于此值视为误匹配，宁可不给也不给错的。 */
+/** Below this title match score the result counts as a mismatch: better nothing than wrong. */
 const MIN_SCORE = 0.55;
 
 const memo = new Map<string, ResolvedInfo | null>();
 
 /**
- * 可重试的传输失败：网络不通、429、5xx。
+ * A retryable transport failure: no network, 429, or 5xx.
  *
- * 必须和“查通了但没有结果”严格区分开。以前两者都被压成 undefined，于是一次限流
- * 和“这条确实查无此文”在上层看起来一模一样，被当成解析完成写进缓存——重启后磁盘
- * 缓存又挡住重试，一次网络抖动就永久留疤。
+ * It must be kept strictly apart from "the query went through and found nothing".
+ * Both used to collapse into undefined, so one throttled request looked exactly
+ * like a genuine no-such-paper to the layer above, counted as resolved, and was
+ * written to the cache — after which the on-disk cache blocked the retry and a
+ * single network hiccup left a permanent scar.
  */
 export class RetryableResolveError extends Error {}
 
 async function getJSON(url: string): Promise<any | undefined> {
   try {
-    // 404 是有效答案（“没有这条记录”），交给下面按空结果处理，不要当异常。
+    // A 404 is a valid answer ("no such record"): handled below as an empty
+    // result, not as an exception.
     const res = await Zotero.HTTP.request("GET", url, {
       responseType: "json",
       successCodes: [200, 404],
@@ -64,16 +73,18 @@ async function getJSON(url: string): Promise<any | undefined> {
   } catch (error: any) {
     const status = error?.status ?? error?.xmlhttp?.status;
     ztoolkit.log("[resolve] request failed", url, status, error);
-    // 没有状态码 = 网络层就没打通；429/5xx = 对方让我们过会儿再来。都属于可重试。
+    // No status code means the network layer never connected; 429/5xx means the
+    // other side asked us to come back later. Both are retryable.
     if (!status || status === 429 || status >= 500) {
       throw new RetryableResolveError(`${url} failed (${status || "network error"})`);
     }
-    // 其余 4xx 是请求本身的问题，重试也没用，按空结果处理。
+    // Any other 4xx is a problem with the request itself; retrying will not help,
+    // so treat it as an empty result.
     return undefined;
   }
 }
 
-/** 归一化成可比较的词序列：小写、去标点、去掉过短的虚词。 */
+/** Normalise to a comparable token sequence: lowercase, strip punctuation, drop short stopwords. */
 function tokens(text: string): string[] {
   return (text || "")
     .toLowerCase()
@@ -83,8 +94,10 @@ function tokens(text: string): string[] {
 }
 
 /**
- * 标题落在 raw 引文串里的比例。用“标题词有多少出现在 raw 中”而不是双向相似度，
- * 因为 raw 串里还含作者/期刊/卷页等额外信息，双向比较会被稀释。
+ * The fraction of the title found inside the raw citation string. This measures
+ * how many title tokens appear in the raw string rather than a two-way similarity,
+ * because the raw string also carries authors, venue, volume, and pages, which
+ * would dilute a symmetric comparison.
  */
 function matchScore(raw: string, title?: string): number {
   if (!title) { return 0; }
@@ -95,14 +108,14 @@ function matchScore(raw: string, title?: string): number {
   return hit / titleTokens.length;
 }
 
-/** Crossref 摘要是 JATS XML 片段，去掉标签取纯文本。 */
+/** Crossref abstracts are JATS XML fragments; strip the tags for plain text. */
 function stripJats(abstract?: string): string | undefined {
   if (!abstract) { return undefined; }
   const text = abstract.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   return text || undefined;
 }
 
-/** OpenAlex 摘要是倒排索引 {word: [positions]}，需要还原成正文。 */
+/** OpenAlex abstracts are an inverted index {word: [positions]}; restore the prose. */
 function unInvertAbstract(index?: Record<string, number[]>): string | undefined {
   if (!index) { return undefined; }
   const slots: string[] = [];
@@ -141,7 +154,7 @@ function fromCrossref(work: any): ResolvedInfo | null {
 
 function fromOpenAlex(work: any): ResolvedInfo | null {
   if (!work) { return null; }
-  // OpenAlex 的 doi 是完整 URL，统一剥成裸 DOI。
+  // OpenAlex's doi is a full URL; strip it to a bare DOI.
   const doi = work.doi ? String(work.doi).replace(/^https?:\/\/doi\.org\//i, "") : undefined;
   const authors = (work.authorships || [])
     .map((a: any) => a?.author?.display_name)
@@ -159,7 +172,7 @@ function fromOpenAlex(work: any): ResolvedInfo | null {
   };
 }
 
-/** 已知 DOI：直接取权威记录，并用 OpenAlex 补摘要/被引数。 */
+/** Known DOI: fetch the authoritative record and fill abstract/citations from OpenAlex. */
 async function byDOI(doi: string): Promise<ResolvedInfo | null> {
   const crossref = fromCrossref(
     await getJSON(`https://api.crossref.org/works/${encodeURIComponent(doi)}?mailto=${MAILTO}`)
@@ -169,7 +182,8 @@ async function byDOI(doi: string): Promise<ResolvedInfo | null> {
     await getJSON(`https://api.openalex.org/works/doi:${encodeURIComponent(doi)}?mailto=${MAILTO}`),
   );
   if (!crossref && !openalex) { return null; }
-  // 以 Crossref 为主体（书目字段更规范），用 OpenAlex 填补它缺的摘要和被引数。
+  // Crossref forms the base, since its bibliographic fields are better
+  // standardised; OpenAlex fills in the abstract and citation count it lacks.
   const merged: ResolvedInfo = { ...(openalex || {}), ...(crossref || {}) } as ResolvedInfo;
   merged.abstract = crossref?.abstract || openalex?.abstract;
   merged.citations = crossref?.citations ?? openalex?.citations;
@@ -179,7 +193,7 @@ async function byDOI(doi: string): Promise<ResolvedInfo | null> {
   return merged;
 }
 
-/** 未知 DOI：拿整条 raw 引文串去匹配。 */
+/** Unknown DOI: match on the whole raw citation string. */
 async function byRaw(raw: string): Promise<ResolvedInfo | null> {
   const query = encodeURIComponent(raw.slice(0, 500));
   const crossref = fromCrossref(
@@ -191,7 +205,8 @@ async function byRaw(raw: string): Promise<ResolvedInfo | null> {
   );
   if (crossref) {
     crossref.score = matchScore(raw, crossref.title);
-    // 命中且够像：再用 OpenAlex 补摘要（Crossref 摘要覆盖率很低）。
+    // A hit that is similar enough: fill the abstract from OpenAlex, since
+    // Crossref's abstract coverage is poor.
     if (crossref.score >= MIN_SCORE) {
       if (!crossref.abstract && crossref.identifiers.DOI) {
         const enriched = fromOpenAlex(
@@ -206,7 +221,7 @@ async function byRaw(raw: string): Promise<ResolvedInfo | null> {
     }
   }
 
-  // Crossref 没命中或匹配度不足，换 OpenAlex 再试一次。
+  // Crossref missed or scored too low; try OpenAlex instead.
   const openalex = fromOpenAlex(
     await getJSON(
       `https://api.openalex.org/works?search=${query}&per-page=1&mailto=${MAILTO}`,
@@ -217,8 +232,9 @@ async function byRaw(raw: string): Promise<ResolvedInfo | null> {
     if (openalex.score >= MIN_SCORE) { return openalex; }
   }
 
-  // 两边都不够像：返回分数较高的那个，但打上 lowConfidence。上层只能拿它做展示，
-  // 不得据此写入 identifiers——否则 MIN_SCORE 这道闸门形同虚设。
+  // Neither is similar enough: return the higher-scoring one but mark it
+  // lowConfidence. The caller may only display it and must not write identifiers
+  // from it, or the MIN_SCORE gate means nothing.
   const best = [crossref, openalex].filter(Boolean).sort(
     (a, b) => (b!.score || 0) - (a!.score || 0),
   )[0];
@@ -227,7 +243,10 @@ async function byRaw(raw: string): Promise<ResolvedInfo | null> {
     : null;
 }
 
-/** 解析单条引文：有 DOI 走权威查询，没有就用 raw 串匹配。结果做内存缓存。 */
+/**
+ * Resolve one citation: an authoritative lookup when a DOI is present, otherwise a
+ * raw-string match. Results are cached in memory.
+ */
 export async function resolveOne(
   raw: string,
   identifiers?: { DOI?: string; arXiv?: string },
@@ -239,7 +258,8 @@ export async function resolveOne(
     result = identifiers?.DOI ? await byDOI(identifiers.DOI) : await byRaw(raw);
   } catch (error) {
     ztoolkit.log("[resolve] failed", raw.slice(0, 60), error);
-    // 传输失败不缓存，也不冒充“查无此文”——原样抛给上层，由它决定这一轮不算完成。
+    // A transport failure is neither cached nor disguised as "no such paper":
+    // rethrow it so the caller can decide this round did not complete.
     if (error instanceof RetryableResolveError) { throw error; }
   }
   memo.set(key, result);
@@ -247,9 +267,10 @@ export async function resolveOne(
 }
 
 /**
- * 批量解析。用固定并发的工作池而不是 Promise.all，避免一次性打出上百个请求被限流
- * （Crossref/OpenAlex 对突发流量都会 429）。每解析完一条就回调，让 UI 能逐条更新，
- * 而不是等全部结束才刷新。
+ * Resolve in bulk. A fixed-concurrency worker pool rather than Promise.all, so a
+ * hundred requests do not go out at once and get throttled — both Crossref and
+ * OpenAlex answer bursts with 429. Each completed citation invokes the callback,
+ * letting the UI update entry by entry instead of waiting for the whole batch.
  */
 export async function resolveMany(
   items: { raw: string; identifiers?: { DOI?: string; arXiv?: string } }[],
@@ -257,7 +278,8 @@ export async function resolveMany(
   concurrency: number = 4,
 ): Promise<{ failed: number }> {
   let cursor = 0;
-  // 传输失败的条数。只要不为 0，这批就不算解析完成，缓存不能标 resolved。
+  // Count of transport failures. While it is non-zero the batch is not resolved
+  // and the cache must not be marked as such.
   let failed = 0;
   const worker = async () => {
     while (cursor < items.length) {

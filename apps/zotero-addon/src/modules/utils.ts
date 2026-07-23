@@ -51,8 +51,8 @@ class Utils {
     try {
       text = text.replace(/^\[\d+?\]/, "")
       text = text.replace(/\s+/g, " ")
-      // 匹配标题
-      // 引号引起来，100%是标题
+      // Match the title.
+      // Anything in quotation marks is certainly the title.
       let title: string, titleMatch: string
       if (/\u201c(.+)\u201d/.test(text)) {
         [titleMatch, title] = text.match(/\u201c(.+)\u201d/)!
@@ -61,9 +61,11 @@ class Utils {
         }
       } else {
         title = titleMatch = ((text.indexOf(". ") != -1 && text.match(/\.\s/g)!.length >= 2) && text.split(". ") || text.split("."))
-          // 找出最长的两个，其中一个最有可能是一堆作者，另一个最有可能是标题
+          // Take the two longest: one is most likely the author list, the other
+          // most likely the title.
           .sort((a, b) => b.length - a.length)
-          // 统计它们中缩写以及符号出现的次数，出现次数最多的有可能是作者
+          // Count initials and punctuation in each; the higher count is probably
+          // the authors.
           .map((s: string) => {
             let count = 0;
             [/[A-Z]\./g, /[,\.\-\(\)\:]/g, /\d/g].forEach(regex => {
@@ -72,7 +74,7 @@ class Utils {
             })
             return [count / s.length, s]
           })
-          // 过滤期刊描述
+          // Filter out the journal description.
           .filter((s: any) => s[1].match(/\s+/g)?.length >= 3)
           .sort((a: any, b: any) => a[0] - b[0])![0][1] as string
         if (/\[[A-Z]\]$/.test(title)) {
@@ -105,7 +107,7 @@ class Utils {
   }
 
   public _parseRefText(text: string): { year: string, authors: string[], title: string } {
-    // 匹配年份
+    // Match the year.
     let year
     let _years = text.match(/[^\d]?(\d{4})[^\d]?/g) as string[]
     if (_years) {
@@ -116,7 +118,7 @@ class Utils {
     }
     year = year as string
     if (this.isChinese(text)) {
-      // extract author and title
+      // Extract author and title. Sample inputs this branch handles:
       // [1] 张 宁, 张 雨青, 吴 坎坎. 信任的心理和神经生理机制. 2011, 1137-1143.
       // [1] 中央环保督察视角下的城市群高质量发展研究——以成渝城市群为例[J].李毅.  环境生态学.2022(04) 
       let parts = text
@@ -177,13 +179,16 @@ class Utils {
   }
 
   /**
-   * 按标识符建条目。
+   * Create an item from an identifier.
    *
-   * `libraryID` 必须由调用方给出——传正在阅读的那篇论文所在的文库。以前这里取的是
-   * `ZoteroPane.getSelectedLibraryID()`，即“左侧栏当前选中的文库”，在阅读器里它完全
-   * 可能是另一个文库，于是参考文献被导到了和原文不相干的地方。
+   * `libraryID` must be supplied by the caller — the library holding the paper
+   * currently being read. This used to call `ZoteroPane.getSelectedLibraryID()`,
+   * i.e. "whatever library is selected in the left pane", which inside the reader
+   * can easily be a different library, so references landed somewhere unrelated to
+   * the source.
    *
-   * collections 同样按文库过滤：跨文库的 collection ID 塞进来会让保存失败。
+   * Collections are filtered by library for the same reason: a collection ID from
+   * another library makes the save fail.
    */
   async createItemByZotero(
     identifiers: ItemBaseInfo["identifiers"],
@@ -207,8 +212,9 @@ class Utils {
 
   public searchRelatedItem(item: Zotero.Item, refItem: Zotero.Item): Zotero.Item | undefined {
     if (!item) { return }
-    // 关联条目的 key 是相对其所属文库的，必须用 item 自己的 libraryID 去查。
-    // 硬编码 1（My Library）会让群组文库里的条目一律查不到已有关联。
+    // A related item's key is relative to its own library, so the lookup must use
+    // the item's own libraryID. Hardcoding 1 (My Library) means items in a group
+    // library never find their existing relations.
     let relatedItems = item.relatedItems
       .map(key => Zotero.Items.getByLibraryAndKey(item.libraryID, key) as Zotero.Item)
       .filter(Boolean)
@@ -246,7 +252,7 @@ class Utils {
   }
 
   /**
-   * 搜索本地，获取参考文献的本地item引用
+   * Search the local library for an item matching this reference.
    * @param info 
    * @returns 
    */
@@ -257,7 +263,7 @@ class Utils {
       info._item = this.cache[key]
       return this.cache[key]
     } else {
-      // 进行粗暴搜索，可能时间缓慢
+      // Brute-force search; this can be slow.
       let items: Zotero.Item[] = await Zotero.Items.getAll(1);
       let getPureText = (s: string) => (this.cache["getPureText" + s] ??= s.toLowerCase().match(/[0-9a-z\u4e00-\u9fa5]+/g)?.join("")!)
       let item = await this.searchItem(info) || items.filter(i => (
@@ -278,7 +284,7 @@ class Utils {
       if (item) {
         info._item = item 
         this.cache[key] = item
-        // 用本地得到的信息反向更新info
+        // Update info from what the local item tells us.
         info.title = item.getField("title") as string
         let DOI = item.getField("DOI") as string
         if (DOI) {

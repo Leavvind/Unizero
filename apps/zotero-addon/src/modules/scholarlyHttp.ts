@@ -1,25 +1,33 @@
 /**
- * 学术 API 的共用 HTTP 层。
+ * Shared HTTP layer for the scholarly APIs.
  *
- * 存在的理由有两个：
- *   1. Semantic Scholar 的 key 必须走 `x-api-key` 请求头。匿名请求共用公共配额，key 的
- *      具体额度则取决于账户——所以凡是打 S2 的地方都得走同一个入口，漏一处就等于没配。
- *   2. Crossref / OpenAlex 的 polite pool 要求带联系方式，同样得统一附上。
+ * It exists for two reasons:
+ *   1. A Semantic Scholar key has to travel in the `x-api-key` header. Anonymous
+ *      requests share one public quota, while a key's allowance depends on the
+ *      account — so every call to S2 must go through one entry point, since a
+ *      single miss is the same as not configuring the key at all.
+ *   2. Crossref's and OpenAlex's polite pools want contact details, which likewise
+ *      have to be attached in one place.
  */
 
 import { config } from "../../package.json";
 
-/** Crossref / OpenAlex 的 polite pool 联系方式。 */
+/** Contact address for the Crossref / OpenAlex polite pools. */
 export const MAILTO = config.contactEmail;
 
-/** 用户在设置里填的 Semantic Scholar key；没填就返回空串，调用方据此走匿名路径。 */
+/**
+ * The Semantic Scholar key from settings; an empty string when unset, which tells
+ * callers to take the anonymous path.
+ */
 export function getSemanticScholarKey(): string {
   return String(Zotero.Prefs.get(`${config.addonRef}.semanticScholar.apiKey`) || "").trim();
 }
 
 /**
- * S2 的入门 key 当前按 1 RPS 发放。所有业务模块共用同一条队列，避免“补全信息”刚结束，
- * References 紧接着又发一枪而得到 429。只限制请求开始时间，慢请求不会把后续请求永久堵住。
+ * S2's entry-level key is currently issued at 1 RPS. Every feature module shares
+ * this one queue, so References cannot fire immediately after metadata enrichment
+ * finishes and collect a 429. Only request start times are gated, so a slow
+ * request never blocks later ones indefinitely.
  */
 const SEMANTIC_SCHOLAR_INTERVAL_MS = 1050;
 let semanticScholarGate: Promise<void> = Promise.resolve();
@@ -31,12 +39,16 @@ async function waitForSemanticScholarTurn(): Promise<void> {
     if (remaining > 0) { await Zotero.Promise.delay(remaining); }
     lastSemanticScholarRequestAt = Date.now();
   });
-  // 前一轮即使意外失败也不能让整条队列永久 rejected。
+  // An unexpected failure in the previous turn must not leave the whole queue
+  // permanently rejected.
   semanticScholarGate = turn.catch(() => undefined);
   await turn;
 }
 
-/** 统一的 GET JSON。失败一律返回 undefined，让调用方走各自的兜底而不是炸掉整个面板。 */
+/**
+ * The common GET-JSON helper. Any failure returns undefined so callers can take
+ * their own fallback instead of blowing up the whole pane.
+ */
 export async function getJSON(
   url: string,
   options: { headers?: Record<string, string>; tag?: string } = {},
@@ -54,8 +66,9 @@ export async function getJSON(
 }
 
 /**
- * 打 Semantic Scholar 的严格版本：HTTP 失败会抛给调用方，References/Citations 才能把
- * “429 / 网络失败”和“请求成功但确实是空列表”区分开。
+ * The strict variant for Semantic Scholar: HTTP failures are thrown to the caller,
+ * which is what lets References and Citations tell "429 or network failure" apart
+ * from "the request succeeded and the list really is empty".
  */
 export async function getSemanticScholarJSONStrict(url: string, tag?: string): Promise<any> {
   await waitForSemanticScholarTurn();
@@ -75,7 +88,7 @@ export async function getSemanticScholarJSONStrict(url: string, tag?: string): P
   }
 }
 
-/** 元数据搜索允许失败后继续走 Crossref，所以保留软失败版本。 */
+/** Metadata search may fail and fall through to Crossref, so the soft variant stays. */
 export async function getSemanticScholarJSON(url: string, tag?: string): Promise<any | undefined> {
   try {
     return await getSemanticScholarJSONStrict(url, tag);
@@ -84,7 +97,7 @@ export async function getSemanticScholarJSON(url: string, tag?: string): Promise
   }
 }
 
-/** 剥掉 doi.org 前缀，统一成裸 DOI。 */
+/** Strip any doi.org prefix down to a bare DOI. */
 export function bareDOI(doi: string): string {
   return String(doi || "")
     .trim()
@@ -93,7 +106,7 @@ export function bareDOI(doi: string): string {
     .trim();
 }
 
-/** OpenAlex 摘要是倒排索引 {word: [positions]}，还原成正文。 */
+/** OpenAlex abstracts are an inverted index {word: [positions]}; restore the prose. */
 export function unInvertAbstract(index?: Record<string, number[]>): string | undefined {
   if (!index) { return undefined; }
   const slots: string[] = [];
@@ -104,7 +117,7 @@ export function unInvertAbstract(index?: Record<string, number[]>): string | und
   return text || undefined;
 }
 
-/** 没有 raw 引文串时，用结构化字段拼一条给列表显示。 */
+/** With no raw citation string, build one from structured fields for the list. */
 export function composeText(info: Partial<ItemBaseInfo>): string {
   return [
     info.authors?.length ? info.authors.slice(0, 3).join(", ") : undefined,
@@ -114,7 +127,7 @@ export function composeText(info: Partial<ItemBaseInfo>): string {
   ].filter(Boolean).join(". ");
 }
 
-/** 把 OpenAlex 的完整 URL 形式 ID（https://openalex.org/W123）剥成裸 ID。 */
+/** Strip OpenAlex's full URL id form (https://openalex.org/W123) to a bare id. */
 export function bareOpenAlexID(id: string): string {
   return String(id || "").replace(/^https?:\/\/openalex\.org\//i, "");
 }

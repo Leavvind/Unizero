@@ -1,15 +1,19 @@
 /**
- * Zotero 设置里的 UniZero 面板。
+ * The UniZero pane inside Zotero's settings.
  *
- * 面板里有两类设置，读写方式不同：
+ * The pane holds two kinds of settings, read and written differently:
  *
- * - **文献关系那几组**用 XUL 的 `preference=` 声明式绑定，Zotero 自己负责读写和即时生效。
- * - **本地服务 / 转换那两组**在这里手工接线，走 `getRuntimePref` / `setRuntimePref`。
+ * - **The reference-relations groups** use XUL's declarative `preference=`
+ *   binding, and Zotero handles reading, writing, and taking effect immediately.
+ * - **The local-service and conversion groups** are wired up by hand here, through
+ *   `getRuntimePref` / `setRuntimePref`.
  *
- * 后者不用声明式绑定不是为了写得复杂：这些键已经有一套带类型的访问器（port 是整数，
- * 其余是布尔和字符串），面板此前也是通过它们写的。再挂一条声明式写路径，等于让同一批
- * 键有两个写入口，绕过 RuntimeSettings 的类型，还得指望 XUL 那边的类型转换和 Prefs
- * 里声明的类型正好对上。
+ * The latter avoid declarative binding not for the sake of complexity: those keys
+ * already have typed accessors (port is an integer, the rest are booleans and
+ * strings), and the panel has always written through them. Adding a declarative
+ * write path would give the same keys two entry points, bypass the RuntimeSettings
+ * types, and leave us hoping XUL's type coercion happens to agree with the types
+ * declared in Prefs.
  */
 
 import { config } from "../../package.json";
@@ -36,7 +40,7 @@ export async function registerPrefs(): Promise<void> {
   await (Zotero as any).PreferencePanes.register(prefOptions);
 }
 
-/** 元素 id 在 XHTML 里都带 addonRef 前缀，这里统一补上。 */
+/** Element ids all carry the addonRef prefix in the XHTML; add it in one place. */
 function element(doc: Document, suffix: string): any {
   return doc.getElementById(`${config.addonRef}-${suffix}`);
 }
@@ -56,13 +60,17 @@ const CONVERSION_CHECKBOXES: Array<[string, keyof ConversionSettings]> = [
 ];
 
 /**
- * 端口改了之后，同步给正在运行的 runtime。
+ * Push a changed port to the running runtime.
  *
- * 插件自己拉起服务时端口是命令行传的，`config.json` 不参与——但用户手动跑
- * `python -m unizero_runtime` 时它就是权威值。不同步的话，手动启动的服务继续听着旧端口，
- * 而插件已经去敲新端口了，症状是一个明明活着的服务永远健康检查失败。
+ * When the add-on starts the service itself the port comes from the command line
+ * and `config.json` plays no part — but for a user running
+ * `python -m unizero_runtime` by hand, config.json is the authority. Without this
+ * sync a manually started service keeps listening on the old port while the add-on
+ * knocks on the new one, and the symptom is a plainly alive service that never
+ * passes a health check.
  *
- * 失败不报错：服务没开是常态而不是异常，何况新端口已经存进 prefs，下次启动照样对。
+ * Failure is not reported: a stopped service is normal rather than exceptional,
+ * and the new port is already in prefs, so the next start is correct regardless.
  */
 function syncPortToRuntime(currentPort: number, nextPort: number): void {
   // Contact the service on the port it is listening on now. serviceURL() already
@@ -73,8 +81,9 @@ function syncPortToRuntime(currentPort: number, nextPort: number): void {
 }
 
 /**
- * 即时生效，不设保存按钮——和同一面板里那些声明式绑定的项保持一致。面板里一半改完就生效、
- * 另一半要按保存，是比多点一次按钮更糟的事。
+ * Changes take effect immediately, with no Save button — consistent with the
+ * declaratively bound settings in the same pane. A pane where half the settings
+ * apply on change and the other half need saving is worse than one extra click.
  */
 function bindRuntimeSettings(doc: Document): void {
   for (const [id, name] of RUNTIME_TEXT_FIELDS) {
@@ -90,7 +99,8 @@ function bindRuntimeSettings(doc: Document): void {
   if (port) {
     port.value = String(servicePort());
     port.addEventListener("change", () => {
-      // 空值或垃圾输入退回默认端口，而不是把 NaN 写进一个整数 pref。
+      // Empty or junk input falls back to the default port rather than writing
+      // NaN into an integer pref.
       const parsed = parseInt(String(port.value), 10);
       const currentPort = servicePort();
       const value = parsed > 0 && parsed <= 65535 ? parsed : currentPort;
@@ -131,7 +141,8 @@ export function registerPrefsScripts(_window: Window) {
   try {
     bindRuntimeSettings(addon.data.prefs!.window.document);
   } catch (error) {
-    // 接线失败只该让这两组设置失灵，不该带走整个设置面板。
+    // A wiring failure should disable only these two groups, not take down the
+    // whole settings pane.
     Zotero.logError(error as Error);
   }
 }

@@ -58,8 +58,10 @@ var Panel = {
     return JSON.parse(JSON.stringify(value));
   },
 
-  // 这个浮层现在只放服务端目录（存在 runtime 的 config.json 里）。Zotero 偏好项都在
-  // 设置 → UniZero。元素 id 还叫 settings-*，是这个 dialog 的内部命名，没有对外含义。
+  // This overlay now holds only the server-side directories (stored in the runtime's
+  // config.json). Zotero preferences all live under Settings → UniZero. The element
+  // ids are still settings-*, which is this dialog's internal naming and carries no
+  // external meaning.
   openSettings() {
     document.getElementById("settings-overlay").hidden = false;
     document.getElementById("btn-settings-close").focus();
@@ -91,7 +93,7 @@ var Panel = {
         }
         if (!this.templatesLoaded) {
           try { await this.loadTemplateCatalog(); } catch (error) {
-            document.getElementById("template-validation").textContent = "模板读取失败: " + error;
+            document.getElementById("template-validation").textContent = "Failed to load templates: " + error;
           }
         }
       }
@@ -106,15 +108,15 @@ var Panel = {
     let detail = document.getElementById("status-detail");
     if (this.online) {
       dot.className = "dot ok";
-      let ver = health.mineru_version ? "MinerU " + health.mineru_version : "MinerU 版本未知";
-      text.textContent = "运行中（" + ver + (health.queued ? "，队列 " + health.queued : "") + "）";
+      let ver = health.mineru_version ? "MinerU " + health.mineru_version : "MinerU version unknown";
+      text.textContent = "Running (" + ver + (health.queued ? ", queued " + health.queued : "") + ")";
       detail.textContent = health.vault_configured === false
-        ? "默认输出基目录未设置；Publish 使用绝对路径时无需设置  |  " + api.serviceURL()
-        : "默认输出基目录: " + health.vault + "  |  " + api.serviceURL();
+        ? "No default output base directory set; not required when Publish uses absolute paths  |  " + api.serviceURL()
+        : "Default output base directory: " + health.vault + "  |  " + api.serviceURL();
     } else {
       dot.className = "dot bad";
-      text.textContent = "未运行";
-      detail.textContent = api.serviceURL() + " — 点击启动，或在转换时自动启动";
+      text.textContent = "Not running";
+      detail.textContent = api.serviceURL() + " — click to start, or let a conversion start it";
     }
     document.getElementById("btn-start").disabled = this.online;
     document.getElementById("btn-stop").disabled = !this.online;
@@ -132,14 +134,14 @@ var Panel = {
     empty.style.display = "none";
     table.style.display = "table";
     body.textContent = "";
-    const labels = { queued: "排队中", running: "转换中", done: "完成", failed: "失败" };
+    const labels = { queued: "Queued", running: "Converting", done: "Done", failed: "Failed" };
     for (let job of jobs) {
       let row = document.createElement("tr");
       let time = document.createElement("td");
       time.textContent = new Date(job.created * 1000).toLocaleTimeString("zh-CN", { hour12: false });
       row.appendChild(time);
       let title = document.createElement("td");
-      title.textContent = job.title || "(未命名)";
+      title.textContent = job.title || "(untitled)";
       row.appendChild(title);
       let status = document.createElement("td");
       status.className = "status " + job.status;
@@ -167,7 +169,7 @@ var Panel = {
       let jobs = await api.client.jobs();
       active = jobs.some((job) => job.status === "running" || job.status === "queued");
     } catch (error) {}
-    if (active && !window.confirm("仍有任务在转换或排队，确定停止服务？")) return;
+    if (active && !window.confirm("Jobs are still converting or queued. Stop the service anyway?")) return;
     await api.stopService();
     this.serverCfgLoaded = false;
     this.templatesLoaded = false;
@@ -177,11 +179,11 @@ var Panel = {
   loadServerForm(config, path) {
     document.getElementById("s-output-root").value = config.vault_root || "";
     document.getElementById("s-work").value = config.work_dir || "";
-    document.getElementById("server-cfg-path").textContent = path ? "保存于 " + path : "";
+    document.getElementById("server-cfg-path").textContent = path ? "Stored at " + path : "";
   },
 
   async saveServerConfig() {
-    if (!this.online) return window.alert("请先启动服务。");
+    if (!this.online) return window.alert("Start the service first.");
     try {
       let response = await api.client.saveConfig({
         vault_root: document.getElementById("s-output-root").value.trim(),
@@ -191,7 +193,7 @@ var Panel = {
       let step = this.current && this.current.modules[this.selectedStep];
       if (step && step.module === "publish.markdown-directory") this.updatePublishPreview(step);
       this.flash("server-saved");
-    } catch (error) { window.alert("保存失败: " + error); }
+    } catch (error) { window.alert("Save failed: " + error); }
   },
 
   async loadTemplateCatalog(preferredId) {
@@ -221,7 +223,7 @@ var Panel = {
       );
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", this.current && template.id === this.current.id ? "true" : "false");
-      button.textContent = template.name + (template.customized ? " · 已修改" : "");
+      button.textContent = template.name + (template.customized ? " · modified" : "");
       button.title = template.description || template.id;
       button.addEventListener("click", () => this.loadTemplate(template.id));
       host.appendChild(button);
@@ -245,8 +247,8 @@ var Panel = {
     document.getElementById("template-description").value = this.current.description || "";
     document.getElementById("template-yaml").value = this.currentDocument ? this.currentDocument.yaml : "";
     let origin = this.currentDocument && this.currentDocument.customized
-      ? "内置模板的用户覆盖" : this.currentDocument && this.currentDocument.builtin
-        ? "内置模板" : "用户模板";
+      ? "User override of a built-in template" : this.currentDocument && this.currentDocument.builtin
+        ? "Built-in template" : "User template";
     document.getElementById("template-origin").textContent = origin + " · " + this.current.id;
     this.renderSteps();
   },
@@ -268,8 +270,8 @@ var Panel = {
       let label = document.createElement("div");
       label.innerHTML = "<div class='step-name'></div><div class='step-meta'><span class='role-badge'></span><span class='step-id'></span></div>";
       label.children[0].textContent = definition.name
-        + (step.enabled === false ? "（已停用，见 YAML）" : "");
-      let roleLabels = { prepare: "准备", extract: "提取", process: "处理", publish: "发布" };
+        + (step.enabled === false ? " (disabled, see YAML)" : "");
+      let roleLabels = { prepare: "Prepare", extract: "Extract", process: "Process", publish: "Publish" };
       label.children[1].children[0].textContent = roleLabels[definition.role] || definition.role;
       label.children[1].children[1].textContent = step.id;
       label.title = step.module;
@@ -306,7 +308,8 @@ var Panel = {
   },
 
   removeStep(index) {
-    // 撤下的模块回到可选区；本次会话内重新加入时恢复其设置
+    // A removed module returns to the available list; re-adding it within this
+    // session restores its settings.
     let removed = this.current.modules.splice(index, 1)[0];
     if (removed) this.removedSettings[removed.module] = this.clone(removed.settings || {});
     this.selectedStep = Math.min(index, this.current.modules.length - 1);
@@ -326,7 +329,7 @@ var Panel = {
     if (!available.length) {
       let hint = document.createElement("div");
       hint.className = "hint";
-      hint.textContent = "所有可选模块都已在执行列表中。";
+      hint.textContent = "Every available module is already in the run list.";
       host.appendChild(hint);
       return;
     }
@@ -389,7 +392,7 @@ var Panel = {
     let definition = this.moduleDefinition(step);
     if (!step || !definition) {
       host.className = "hint";
-      host.textContent = "选择一个模块进行设置。";
+      host.textContent = "Select a module to configure it.";
       return;
     }
     host.className = "";
@@ -404,7 +407,7 @@ var Panel = {
     let schema = definition.settings_schema || { type: "object", properties: {} };
     this.appendSchemaFields(form, schema, step.settings, []);
     if (!Object.keys(schema.properties || {}).length) {
-      form.textContent = "此模块没有可调整设置。";
+      form.textContent = "This module has no adjustable settings.";
       form.className = "hint";
     }
     if (step.module === "publish.markdown-directory") this.appendPublishPreview(host, step);
@@ -467,13 +470,13 @@ var Panel = {
         let toggle = document.createElement("label");
         toggle.className = "toggle";
         let toggleText = document.createElement("span");
-        toggleText.textContent = input.checked ? "已启用" : "未启用";
+        toggleText.textContent = input.checked ? "Enabled" : "Disabled";
         toggle.appendChild(input);
         toggle.appendChild(toggleText);
         control.appendChild(toggle);
         input.addEventListener("change", () => {
           this.setPath(settings, path, input.checked);
-          toggleText.textContent = input.checked ? "已启用" : "未启用";
+          toggleText.textContent = input.checked ? "Enabled" : "Disabled";
           this.updatePublishPreviewIfNeeded();
         });
       } else if (field.type === "integer" || field.type === "number") {
@@ -545,18 +548,18 @@ var Panel = {
       let vault = slash < 0 ? spec : spec.slice(0, slash);
       let sub = slash < 0 ? "" : spec.slice(slash + 1);
       preview.textContent = vault
-        ? "实际输出目录：Obsidian 库「" + vault + "」" + (sub ? " / " + sub : "")
-          + "（保存时按本机 Obsidian 配置定位，Windows/macOS 通用）"
-        : "obsidian:// 目标缺少库名，格式：obsidian://库名/子目录";
+        ? 'Actual output directory: Obsidian vault "' + vault + '"' + (sub ? " / " + sub : "")
+          + " (located from the local Obsidian configuration on save; works on Windows and macOS)"
+        : "The obsidian:// destination has no vault name; the format is obsidian://<vault>/<subdirectory>";
     } else if (absolute) {
-      preview.textContent = "实际输出目录：" + destination + "（绝对路径，不使用默认输出基目录）";
+      preview.textContent = "Actual output directory: " + destination + " (absolute path; the default output base directory is not used)";
     } else if (root && destination) {
       let separator = root.includes("\\") ? "\\" : "/";
-      preview.textContent = "实际输出目录：" + root.replace(/[\\/]+$/, "") + separator + destination.replace(/^[\\/]+/, "");
+      preview.textContent = "Actual output directory: " + root.replace(/[\\/]+$/, "") + separator + destination.replace(/^[\\/]+/, "");
     } else if (!destination) {
-      preview.textContent = "请填写 Publish 目标目录。";
+      preview.textContent = "Enter a Publish destination directory.";
     } else {
-      preview.textContent = "当前是相对目录；请在“设置 → 服务目录”填写默认输出基目录，或在这里改用绝对路径。";
+      preview.textContent = "This is a relative directory; set a default output base directory under Settings → Service directories, or use an absolute path here.";
     }
   },
 
@@ -578,11 +581,11 @@ var Panel = {
       this.currentDocument = response;
       this.current = this.clone(response.template);
       await this.loadTemplateCatalog(this.current.id);
-      document.getElementById("template-validation").textContent = "模板结构有效";
+      document.getElementById("template-validation").textContent = "Template structure is valid";
       this.flash("template-saved");
     } catch (error) {
-      document.getElementById("template-validation").textContent = "保存失败: " + error;
-      window.alert("模板保存失败: " + error);
+      document.getElementById("template-validation").textContent = "Save failed: " + error;
+      window.alert("Failed to save the template: " + error);
     }
   },
 
@@ -592,30 +595,30 @@ var Panel = {
 
   async duplicateTemplate() {
     if (!this.current) return;
-    let id = window.prompt("新模板 ID（小写字母、数字和连字符）", this.current.id + "-copy");
+    let id = window.prompt("New template ID (lowercase letters, digits, and hyphens)", this.current.id + "-copy");
     if (!id) return;
     id = id.trim();
     let duplicate = this.clone(this.current);
     duplicate.id = id;
-    duplicate.name = duplicate.name + " 副本";
+    duplicate.name = duplicate.name + " copy";
     duplicate.version = 1;
     try {
       await api.client.saveTemplate(id, { template: duplicate });
       await this.loadTemplateCatalog(id);
-    } catch (error) { window.alert("复制失败: " + error); }
+    } catch (error) { window.alert("Duplicate failed: " + error); }
   },
 
   async resetTemplate() {
     if (!this.current) return;
-    let action = this.currentDocument && this.currentDocument.builtin ? "恢复内置默认值" : "删除此用户模板";
-    if (!window.confirm(action + "？")) return;
+    let action = this.currentDocument && this.currentDocument.builtin ? "Restore the built-in defaults" : "Delete this user template";
+    if (!window.confirm(action + "?")) return;
     try {
       let id = this.current.id;
       await api.client.resetTemplate(id);
       this.current = null;
       this.currentDocument = null;
       await this.loadTemplateCatalog(id);
-    } catch (error) { window.alert("操作失败: " + error); }
+    } catch (error) { window.alert("Action failed: " + error); }
   },
 
   async applyYaml() {
@@ -628,7 +631,7 @@ var Panel = {
       this.current = this.clone(response.template);
       await this.loadTemplateCatalog(this.current.id);
       this.flash("template-saved");
-    } catch (error) { window.alert("YAML 无效: " + error); }
+    } catch (error) { window.alert("Invalid YAML: " + error); }
   },
 
   flash(id) {

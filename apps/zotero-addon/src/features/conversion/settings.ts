@@ -1,6 +1,7 @@
 /**
- * 转换功能自己的设置。与 runtime 连接设置分开：这些描述"产物怎么落地"，
- * 换一个 runtime 端口不该影响它们。
+ * Settings owned by the conversion feature. Kept apart from the runtime
+ * connection settings: these describe how artifacts land, and changing the
+ * runtime port should not affect them.
  */
 
 import { config } from "../../../package.json";
@@ -9,8 +10,9 @@ const PREFIX = `${config.addonRef}.conversion.`;
 
 export interface ConversionSettings {
   /**
-   * 除了链接式 Markdown 附件，再往 Zotero storage 里存一份只读副本。
-   * 好处是随 Zotero 同步、换机器能看；代价是每次重转都会覆盖。
+   * Alongside the linked Markdown attachment, keep a read-only copy in Zotero
+   * storage. It travels with Zotero sync and is readable on another machine, at
+   * the cost of being overwritten on every re-conversion.
    */
   mdSnapshot: boolean;
 }

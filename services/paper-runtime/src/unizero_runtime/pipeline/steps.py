@@ -71,8 +71,9 @@ def split_pdf_into_chunks(
             raise RuntimeError(f"{pdf_path} has 0 pages")
         out: list[tuple[Path, int, int]] = []
         w = max(3, len(str(total)))
-        # 分块名不带原文件名：超长书名会被 MinerU 截断输出目录名，
-        # 导致各分块输出互相覆盖且合并时找不到目录
+        # Chunk names omit the source filename: MinerU truncates the output
+        # directory name for very long book titles, which makes the chunks
+        # overwrite each other and leaves no directory to find when merging.
         for s in range(0, total, chunk_size):
             e = min(s + chunk_size - 1, total - 1)
             cp = chunks_dir / f"chunk_p{s+1:0{w}d}-{e+1:0{w}d}.pdf"
@@ -307,7 +308,7 @@ _FM_PLACEHOLDER = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
 
 
 def _fm_variables(meta: "PaperMeta") -> dict[str, str]:
-    """附加字段值里可用的 {{ 变量 }}。"""
+    """The {{ variables }} available inside extra-field values."""
     return {
         "title": meta.title,
         "citekey": meta.citekey,
@@ -382,7 +383,8 @@ def build_frontmatter(meta: "PaperMeta", mineru_version: str = "",
                 lines.append(f"  - {_fm_value(_fm_render(it, variables))}")
         else:
             lines.append(f"{k}: {_fm_value(_fm_render(v, variables))}")
-    # tags 未配置时默认 paper；显式配置为空列表则不输出 tags 字段
+    # Unconfigured tags default to paper; an explicitly empty list omits the
+    # tags field entirely.
     tags = fm_cfg.get("tags")
     if tags is None:
         tags = ["paper"]
@@ -751,7 +753,8 @@ def _stage_tables_export(ctx: ConversionContext, settings: dict[str, Any]) -> No
             log=ctx.log,
         )
     except Exception as exc:
-        # 汇总是附属产物，失败不应中断整个转换
+        # The digest is a side artifact; its failure must not abort the
+        # conversion.
         ctx.warnings.append(f"tables export failed: {exc}")
 
 
@@ -767,7 +770,7 @@ def _stage_frontmatter(ctx: ConversionContext, settings: dict[str, Any]) -> None
 
 
 def _obsidian_registry_path() -> Optional[Path]:
-    """本机 Obsidian 的库注册文件（记录每个库名对应的本地路径）。"""
+    """The local Obsidian vault registry, mapping each vault name to its path."""
     if sys.platform == "win32":
         appdata = os.environ.get("APPDATA", "")
         return Path(appdata) / "obsidian" / "obsidian.json" if appdata else None
@@ -777,19 +780,25 @@ def _obsidian_registry_path() -> Optional[Path]:
 
 
 def resolve_obsidian_destination(destination: str) -> Path:
-    """`obsidian://<库名>/<子目录>` → 本机该 Obsidian 库下的绝对路径。
+    """`obsidian://<vault>/<subdirectory>` → an absolute path inside that local
+    Obsidian vault.
 
-    同名库在 Windows/macOS 上路径不同，用库名寻址可以让同一份模板跨系统通用。
+    The same vault sits at different paths on Windows and macOS, so addressing
+    it by name lets one template work across systems.
     """
     spec = destination[len("obsidian://"):].replace("\\", "/").strip("/")
     vault_name, _, sub_path = spec.partition("/")
     if not vault_name:
-        raise RuntimeError("obsidian:// 目标缺少库名，格式应为 obsidian://库名/子目录")
+        raise RuntimeError(
+            "the obsidian:// destination has no vault name; the format is "
+            "obsidian://<vault>/<subdirectory>",
+        )
     registry = _obsidian_registry_path()
     if registry is None or not registry.is_file():
         raise RuntimeError(
-            f"未找到本机 Obsidian 配置（{registry}）；"
-            "请确认已安装并打开过 Obsidian，或改用绝对路径",
+            f"No local Obsidian configuration found ({registry}); check that "
+            "Obsidian is installed and has been opened at least once, or use "
+            "an absolute path instead",
         )
     vaults = json.loads(registry.read_text(encoding="utf-8")).get("vaults") or {}
     paths = [Path(str(entry.get("path", ""))) for entry in vaults.values() if entry.get("path")]
@@ -799,9 +808,9 @@ def resolve_obsidian_destination(destination: str) -> Path:
     for vault_path in paths:
         if vault_path.name.lower() == vault_name.lower():
             return vault_path / sub_path if sub_path else vault_path
-    known = "、".join(p.name for p in paths) or "（无）"
+    known = ", ".join(p.name for p in paths) or "(none)"
     raise RuntimeError(
-        f"本机 Obsidian 中没有名为“{vault_name}”的库；已注册的库：{known}",
+        f'No local Obsidian vault named "{vault_name}"; registered vaults: {known}',
     )
 
 
@@ -821,8 +830,9 @@ def _stage_publish(ctx: ConversionContext, settings: dict[str, Any]) -> None:
         ctx.papers_dir = ctx.output_root / destination_path
     else:
         raise RuntimeError(
-            "Publish 目标目录是相对路径，但未配置默认输出基目录；"
-            "请设置基目录或改用绝对路径",
+            "The Publish destination is a relative path but no default output "
+            "base directory is configured; set a base directory or use an "
+            "absolute path instead",
         )
     ctx.papers_dir.mkdir(parents=True, exist_ok=True)
     filename_template = str(settings.get("filename") or "{{ title }}.md")
@@ -959,10 +969,13 @@ def _object_schema(properties: dict[str, Any]) -> dict[str, Any]:
 MODULE_REGISTRY: ModuleRegistry[ConversionContext] = ModuleRegistry()
 MODULE_REGISTRY.register(WorkflowModule(
     id="enrich.semantic-scholar",
-    name="Semantic Scholar 元数据补全",
+    name="Semantic Scholar metadata enrichment",
     role="prepare",
     handler=_stage_enrich,
-    description="根据 DOI 或标题补全 S2 链接、引用数和缺失 DOI。",
+    description=(
+        "Fill in the S2 link, citation count, and a missing DOI from the DOI "
+        "or title."
+    ),
     settings_schema=_object_schema({}),
 ))
 MODULE_REGISTRY.register(WorkflowModule(
@@ -970,7 +983,9 @@ MODULE_REGISTRY.register(WorkflowModule(
     name="Extract · MinerU",
     role="extract",
     handler=_stage_extract,
-    description="调用 MinerU 解析 PDF；Extract 是模板必选模块。",
+    description=(
+        "Parse the PDF with MinerU. Extract is a required template module."
+    ),
     defaults={
         "execution": "local",
         "backend": "pipeline",
@@ -982,66 +997,73 @@ MODULE_REGISTRY.register(WorkflowModule(
     },
     settings_schema=_object_schema({
         "execution": {
-            "type": "string", "title": "执行位置", "enum": ["local"],
-            "enumNames": ["本地"],
-            "description": "API runner 将在后续版本接入。",
+            "type": "string", "title": "Execution", "enum": ["local"],
+            "enumNames": ["Local"],
+            "description": "The API runner arrives in a later version.",
         },
         "backend": {
-            "type": "string", "title": "解析后端",
+            "type": "string", "title": "Parsing backend",
             "enum": ["pipeline", "vlm-transformers"],
-            "enumNames": ["Pipeline", "本地 VLM"],
+            "enumNames": ["Pipeline", "Local VLM"],
         },
         "ocr_mode": {
-            "type": "string", "title": "OCR 模式",
+            "type": "string", "title": "OCR mode",
             "enum": ["auto", "ocr", "txt"],
         },
         "language": {
-            "type": "string", "title": "语言",
+            "type": "string", "title": "Language",
             "enum": ["auto", "en", "zh"],
-            "enumNames": ["自动", "English", "中文"],
+            "enumNames": ["Auto", "English", "Chinese"],
         },
-        "enable_formula": {"type": "boolean", "title": "识别公式"},
-        "enable_table": {"type": "boolean", "title": "识别表格"},
+        "enable_formula": {"type": "boolean", "title": "Detect formulas"},
+        "enable_table": {"type": "boolean", "title": "Detect tables"},
         "chunking": _object_schema({
-            "enabled": {"type": "boolean", "title": "启用长 PDF 切块"},
+            "enabled": {"type": "boolean", "title": "Chunk long PDFs"},
             "threshold_pages": {
-                "type": "integer", "title": "切块阈值（页）", "minimum": 1,
+                "type": "integer", "title": "Chunking threshold (pages)",
+                "minimum": 1,
             },
             "chunk_size": {
-                "type": "integer", "title": "每块页数", "minimum": 5,
+                "type": "integer", "title": "Pages per chunk", "minimum": 5,
             },
         }),
     }),
 ))
 MODULE_REGISTRY.register(WorkflowModule(
     id="transform.zotero-page-links",
-    name="Zotero 页码链接",
+    name="Zotero page links",
     role="process",
     handler=_stage_page_links,
-    description="把内容块连接到 zotero://open-pdf 的对应页码。",
+    description="Link content blocks to the matching zotero://open-pdf page.",
     settings_schema=_object_schema({}),
 ))
 MODULE_REGISTRY.register(WorkflowModule(
     id="transform.references",
-    name="参考文献抽取",
+    name="Reference extraction",
     role="process",
     handler=_stage_references,
     description=(
-        "从 content_list 抽取参考文献段，解析为结构化条目"
-        "（raw 引文 / 页码 / DOI / arXiv），供引用侧栏解析入库。"
-        "需在 markdown-cleanup 的 strip_references 之前运行。"
+        "Extract the reference section from content_list and parse it into "
+        "structured entries (raw citation / page / DOI / arXiv) for the "
+        "citation sidebar to resolve and store. Must run before "
+        "strip_references in markdown-cleanup."
     ),
     defaults={"warn_if_empty": True},
     settings_schema=_object_schema({
-        "warn_if_empty": {"type": "boolean", "title": "0 条参考文献时告警"},
+        "warn_if_empty": {
+            "type": "boolean", "title": "Warn when no references are found",
+        },
     }),
 ))
 MODULE_REGISTRY.register(WorkflowModule(
     id="transform.markdown-cleanup",
-    name="Markdown 后处理",
+    name="Markdown post-processing",
     role="process",
     handler=_stage_transform,
-    description="处理目录、标题、图片、表格、重复行和 References。",
+    description=(
+        "Handle the table of contents, headings, images, tables, repeated "
+        "lines, and References."
+    ),
     defaults={
         "images_mode": "none", "table_mode": "none",
         "strip_repeated_lines": False, "strip_references": True,
@@ -1049,30 +1071,36 @@ MODULE_REGISTRY.register(WorkflowModule(
     },
     settings_schema=_object_schema({
         "images_mode": {
-            "type": "string", "title": "图片模式", "enum": ["none", "all"],
-            "enumNames": ["仅保留 PDF 指针", "保存引用图片"],
+            "type": "string", "title": "Image mode", "enum": ["none", "all"],
+            "enumNames": ["PDF pointers only", "Save referenced images"],
         },
         "table_mode": {
-            "type": "string", "title": "表格模式", "enum": ["none", "md", "html"],
-            "enumNames": ["仅保留 PDF 指针", "Markdown", "HTML"],
+            "type": "string", "title": "Table mode",
+            "enum": ["none", "md", "html"],
+            "enumNames": ["PDF pointers only", "Markdown", "HTML"],
         },
-        "strip_repeated_lines": {"type": "boolean", "title": "清理重复行"},
-        "strip_references": {"type": "boolean", "title": "清理 References"},
-        "table_vlm": {"type": "boolean", "title": "VLM 精修复杂表格"},
+        "strip_repeated_lines": {
+            "type": "boolean", "title": "Remove repeated lines",
+        },
+        "strip_references": {"type": "boolean", "title": "Remove References"},
+        "table_vlm": {
+            "type": "boolean", "title": "Refine complex tables with a VLM",
+        },
     }),
 ))
 MODULE_REGISTRY.register(WorkflowModule(
     id="export.zotero-tables",
-    name="表格汇总（Zotero 附件）",
+    name="Table digest (Zotero attachment)",
     role="process",
     handler=_stage_tables_export,
     description=(
-        "把全部表格的裁剪图、表注和页码链接汇成一个自包含 HTML；"
-        "插件会把它作为附件存入 Zotero 条目（重新转换时覆盖）。"
+        "Collect every table's crop, caption, and page link into one "
+        "self-contained HTML file; the add-on stores it on the Zotero item as "
+        "an attachment (overwritten on re-conversion)."
     ),
     defaults={"include_figures": False},
     settings_schema=_object_schema({
-        "include_figures": {"type": "boolean", "title": "同时包含插图"},
+        "include_figures": {"type": "boolean", "title": "Include figures too"},
     }),
 ))
 MODULE_REGISTRY.register(WorkflowModule(
@@ -1080,29 +1108,32 @@ MODULE_REGISTRY.register(WorkflowModule(
     name="YAML Frontmatter",
     role="process",
     handler=_stage_frontmatter,
-    description="生成 Markdown 顶部的 YAML 元数据。",
+    description="Generate the YAML metadata block at the top of the Markdown.",
     defaults={"tags": ["paper"], "extra": {}},
     settings_schema=_object_schema({
         "tags": {"type": "array", "title": "Tags", "items": {"type": "string"}},
         "extra": {
-            "type": "object", "title": "附加字段", "additionalProperties": True,
+            "type": "object", "title": "Extra fields",
+            "additionalProperties": True,
             "description": (
-                "每行一个 key: value。值支持变量：{{ title }}、{{ citekey }}、"
-                "{{ year }}、{{ doi }}、{{ zotero_select }}（Zotero 条目链接）、"
-                "{{ zotero_pdf }}（PDF 链接）。例如 url: {{ zotero_select }}。"
+                "One key: value per line. Values support the variables "
+                "{{ title }}, {{ citekey }}, {{ year }}, {{ doi }}, "
+                "{{ zotero_select }} (Zotero item link), and {{ zotero_pdf }} "
+                "(PDF link). For example, url: {{ zotero_select }}."
             ),
         },
     }),
 ))
 MODULE_REGISTRY.register(WorkflowModule(
     id="publish.markdown-directory",
-    name="Publish · Markdown 目录",
+    name="Publish · Markdown directory",
     role="publish",
     handler=_stage_publish,
     description=(
-        "将 Markdown 和引用图片保存到目标目录；支持绝对路径、"
-        "基于默认输出基目录的相对路径，以及 obsidian://库名/子目录。"
-        "Publish 是模板必选模块。"
+        "Save the Markdown and its referenced images to a destination "
+        "directory. Absolute paths, paths relative to the default output base "
+        "directory, and obsidian://<vault>/<subdirectory> are all supported. "
+        "Publish is a required template module."
     ),
     defaults={
         "destination": "20_Papers", "filename": "{{ title }}.md",
@@ -1112,23 +1143,29 @@ MODULE_REGISTRY.register(WorkflowModule(
     settings_schema=_object_schema({
         "destination": {
             "type": "string",
-            "title": "目标目录（绝对 / 相对 / Obsidian 库）",
+            "title": "Destination (absolute / relative / Obsidian vault)",
             "description": (
-                "绝对路径直接使用；相对路径基于“设置 → 服务目录”"
-                "中的默认输出基目录；obsidian://库名/子目录 按本机 "
-                "Obsidian 配置自动定位同名库，跨 Windows/macOS 通用。"
+                "Absolute paths are used as-is; relative paths resolve against "
+                "the default output base directory under Settings → Service "
+                "directories; obsidian://<vault>/<subdirectory> locates the "
+                "vault of that name from the local Obsidian configuration, so "
+                "the same template works on both Windows and macOS."
             ),
         },
         "filename": {
-            "type": "string", "title": "文件名模板",
-            "description": "支持 {{ title }} 和 {{ citekey }}。",
+            "type": "string", "title": "Filename template",
+            "description": "Supports {{ title }} and {{ citekey }}.",
         },
-        "attachments_directory": {"type": "string", "title": "附件子目录"},
-        "copy_referenced_only": {"type": "boolean", "title": "只复制正文引用的图片"},
+        "attachments_directory": {
+            "type": "string", "title": "Attachments subdirectory",
+        },
+        "copy_referenced_only": {
+            "type": "boolean", "title": "Only copy images referenced in the body",
+        },
         "existing_file": {
-            "type": "string", "title": "文件已存在",
+            "type": "string", "title": "When the file already exists",
             "enum": ["overwrite", "skip", "rename"],
-            "enumNames": ["覆盖", "跳过", "自动重命名"],
+            "enumNames": ["Overwrite", "Skip", "Rename automatically"],
         },
     }),
 ))

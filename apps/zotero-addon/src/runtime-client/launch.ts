@@ -1,39 +1,45 @@
 /**
- * 决定"用什么命令把 paper runtime 拉起来"。
+ * Decide what command starts the paper runtime.
  *
- * ZoMiner 只有一种启动方式：`<python> <server.py>`，两个路径都要用户手填。runtime 现在
- * 是可安装包（console script `unizero-runtime`，以及 `python -m unizero_runtime`），
- * 于是绝大多数情况下这两个路径都能自己推出来。
+ * ZoMiner had exactly one launch mode, `<python> <server.py>`, with both paths
+ * typed in by the user. The runtime is now an installable package (console script
+ * `unizero-runtime`, plus `python -m unizero_runtime`), so in the vast majority of
+ * cases both paths can be inferred.
  *
- * 解析顺序里有一条不可动摇：**用户显式配置永远优先于自动发现**。已经填了
- * serverScript 的用户（包括从 ZoMiner 迁移过来、指向旧 paper_service/server.py 的）
- * 必须继续跑他们指定的那份，否则就是在背地里换掉他们的服务端。
+ * One rule in the resolution order is immovable: **an explicit user setting always
+ * beats auto-discovery.** Users who have already filled in serverScript —
+ * including those migrated from ZoMiner and still pointing at the old
+ * paper_service/server.py — must keep running the file they named; anything else
+ * swaps out their server behind their back.
  */
 
 import { getRuntimePref } from "./settings";
 
-/** 探测某个解释器是否装了指定模块时的超时，秒。 */
+/** Timeout, in seconds, when probing whether an interpreter has given modules. */
 const PROBE_TIMEOUT_S = 3;
 
-/** 装了本包就意味着 fastapi/uvicorn/pydantic/mineru 都在（它们是硬依赖）。 */
+/**
+ * Having this package installed implies fastapi/uvicorn/pydantic/mineru are too,
+ * since they are hard dependencies.
+ */
 const RUNTIME_PACKAGE = "unizero_runtime";
 
-/** legacy 脚本模式没有包可探，只能逐个查依赖。 */
+/** Legacy script mode has no package to probe, so check dependencies one by one. */
 const LEGACY_MODULES = ["fastapi", "uvicorn", "pydantic", "mineru"];
 
-/** pip 生成的 console script 名，来自 pyproject.toml 的 [project.scripts]。 */
+/** Name of the pip-generated console script, from [project.scripts] in pyproject.toml. */
 const CONSOLE_SCRIPT = "unizero-runtime";
 
 export type LaunchMode = "module" | "console-script" | "legacy-script";
 
 export interface LaunchPlan {
   mode: LaunchMode;
-  /** nsIFile，实际被执行的那个文件。 */
+  /** nsIFile: the file actually executed. */
   executable: any;
   args: string[];
-  /** 日志与错误信息里用的可读描述。 */
+  /** Human-readable description used in logs and error messages. */
   description: string;
-  /** 仅 legacy-script 模式有值。日志位置的兜底查找需要它。 */
+  /** Set only in legacy-script mode; the log-location fallback search needs it. */
   scriptPath?: string;
 }
 
@@ -55,7 +61,7 @@ function pathEntries(): string[] {
   const entries: string[] = [];
   for (let directory of environmentVariable("PATH").split(separator)) {
     directory = directory.trim();
-    // WindowsApps 里的是应用商店占位符，运行它只会弹出商店页面。
+    // Entries under WindowsApps are Store stubs; running one just opens the Store.
     if (!directory || (Zotero.isWin && /WindowsApps/i.test(directory))) { continue; }
     entries.push(directory);
   }
@@ -67,10 +73,11 @@ function join(directory: string, name: string): string {
 }
 
 /**
- * 过滤出真实存在的文件，并按路径去重。
+ * Keep only files that really exist, deduplicated by path.
  *
- * 去重不是洁癖：PATH 里出现重复目录很常见，而每个候选解释器最多要花 PROBE_TIMEOUT_S
- * 秒去探测，重复探同一个解释器就是白等 3 秒。
+ * The deduplication is not fastidiousness: duplicate directories on PATH are
+ * common, and probing each candidate interpreter can cost up to PROBE_TIMEOUT_S
+ * seconds, so probing the same interpreter twice wastes three seconds.
  */
 function existingFiles(paths: string[]): any[] {
   const found: any[] = [];
@@ -84,17 +91,18 @@ function existingFiles(paths: string[]): any[] {
       seen.add(key);
       found.push(file);
     } catch (error) {
-      // 路径语法在当前平台上非法，跳过。
+      // The path syntax is invalid on this platform; skip it.
     }
   }
   return found;
 }
 
 /**
- * 用候选解释器跑一句 import 探测。
+ * Run a one-line import probe with a candidate interpreter.
  *
- * 比"文件存在"强得多的判据：PATH 上第一个 python 往往不是装了依赖的那个，
- * 而两者在文件系统层面看起来完全一样。
+ * A far stronger test than "the file exists": the first python on PATH is often
+ * not the one with the dependencies, and the two look identical at the filesystem
+ * level.
  */
 function pythonHasModules(pythonFile: any, modules: string[]): boolean {
   try {
@@ -112,7 +120,7 @@ function pythonHasModules(pythonFile: any, modules: string[]): boolean {
   }
 }
 
-/** 用户填的是 python.exe 时优先换成 pythonw.exe：前者会常驻一个黑色控制台窗口。 */
+/** When the user names python.exe, prefer pythonw.exe: the former leaves a console window open. */
 function preferWindowless(path: string): string[] {
   if (/python\.exe$/i.test(path)) {
     return [path.replace(/python\.exe$/i, "pythonw.exe"), path];
@@ -127,11 +135,12 @@ function configuredPython(): any {
   return existing.length ? existing[0] : null;
 }
 
-/** PATH 上所有存在的解释器，按"更可能是对的那个"排序。 */
+/** Every interpreter present on PATH, ordered by how likely it is to be the right one. */
 function pathPythons(): any[] {
   const candidates: string[] = [];
   for (const directory of pathEntries()) {
-    // pythonw 在前：Windows 上它不带控制台窗口。Unix 上没有这个文件，自然跳过。
+    // pythonw first: on Windows it has no console window. On Unix the file does
+    // not exist, so it is skipped naturally.
     for (const name of Zotero.isWin
       ? ["pythonw.exe", "python.exe"]
       : ["python3", "python"]) {
@@ -141,7 +150,7 @@ function pathPythons(): any[] {
   return existingFiles(candidates);
 }
 
-/** legacy 模式：venv 相对 server.py 的位置，见 services/paper-runtime/scripts/server.py。 */
+/** Legacy mode: the venv's location relative to server.py; see services/paper-runtime/scripts/server.py. */
 function scriptRelativePythons(script: string): any[] {
   if (!script) { return []; }
   // <root>/scripts/server.py → <root>/.venv/
@@ -159,7 +168,7 @@ function findConsoleScript(): any {
     try {
       if (!Zotero.isWin && !file.isExecutable()) { continue; }
     } catch (error) {
-      // isExecutable 在某些卷上会抛，别因此丢掉候选。
+      // isExecutable throws on some volumes; do not drop the candidate over it.
     }
     return file;
   }
@@ -167,29 +176,31 @@ function findConsoleScript(): any {
 }
 
 function normalizeScriptPath(script: string): string {
-  // macOS/Linux 下常见手误：从别处粘贴绝对路径时漏了开头的 "/"
+  // Common slip on macOS/Linux: an absolute path pasted from elsewhere lost its
+  // leading "/".
   if (!Zotero.isWin && /^Users\//.test(script)) { return `/${script}`; }
   return script;
 }
 
 /**
- * legacy：`<python> <script>`。
+ * Legacy: `<python> <script>`.
  *
- * 保留是因为迁移过来的 ZoMiner 用户的 serverScript 可能指向旧的
- * paper_service/server.py —— 那份脚本不认 --port，会静默忽略它，行为与迁移前一致。
+ * Kept because a migrated ZoMiner user's serverScript may still point at the old
+ * paper_service/server.py — that script does not know --port and silently ignores
+ * it, which matches pre-migration behaviour.
  */
 function legacyPlan(script: string, port: number): LaunchPlan {
   let scriptFile: any;
   try {
     scriptFile = localFile(script);
   } catch (error) {
-    throw new Error(`server.py 路径无效: ${script}`);
+    throw new Error(`Invalid server.py path: ${script}`);
   }
   if (!scriptFile.exists()) {
     throw new Error(
-      `server.py 不存在: ${script}\n` +
-      "请在 工具 → UniZero 面板 → 插件运行 中修改或清空 server.py 路径\n" +
-      "（清空后会自动查找已安装的 unizero-runtime）",
+      `server.py does not exist: ${script}\n` +
+      "Change or clear the server.py path under Settings → UniZero → Local service\n" +
+      "(clearing it makes the add-on look for an installed unizero-runtime)",
     );
   }
 
@@ -210,7 +221,8 @@ function legacyPlan(script: string, port: number): LaunchPlan {
     }
   }
 
-  // 一个都没装全依赖时仍用第一个：让服务真的启动一次，失败信息比"找不到 Python"具体。
+  // If none has the full dependency set, still use the first: actually starting
+  // the service yields a more specific failure than "no Python found".
   if (candidates.length) {
     return {
       mode: "legacy-script",
@@ -220,11 +232,13 @@ function legacyPlan(script: string, port: number): LaunchPlan {
       scriptPath: script,
     };
   }
-  throw new Error("找不到 Python（请在 UniZero 面板中设置 Python 路径）");
+  throw new Error(
+    "No Python found (set the Python path under Settings → UniZero → Local service)",
+  );
 }
 
 /**
- * 解析启动方式。失败时抛出的信息要能直接指导用户下一步做什么。
+ * Resolve the launch mode. A thrown message must tell the user what to do next.
  */
 export function resolveLaunchPlan(port: number): LaunchPlan {
   const script = String(getRuntimePref("serverScript") || "").trim();
@@ -232,7 +246,8 @@ export function resolveLaunchPlan(port: number): LaunchPlan {
 
   const portArgs = ["--port", String(port)];
 
-  // 用户指定了解释器：只认这一个，装没装包都用它——显式配置不该被自动发现绕过。
+  // The user named an interpreter: use only that one, package installed or not —
+  // an explicit setting must not be bypassed by auto-discovery.
   const explicit = configuredPython();
   if (explicit) {
     return {
@@ -243,8 +258,9 @@ export function resolveLaunchPlan(port: number): LaunchPlan {
     };
   }
 
-  // PATH 上装了本包的解释器。放在 console script 前面：Windows 上这条能选到
-  // pythonw.exe，而 pip 生成的 unizero-runtime.exe 是控制台程序，会留一个黑窗口。
+  // An interpreter on PATH that has the package. Tried before the console script:
+  // on Windows this path can pick pythonw.exe, whereas pip's unizero-runtime.exe
+  // is a console program and leaves a black window behind.
   for (const file of pathPythons()) {
     if (!pythonHasModules(file, [RUNTIME_PACKAGE])) { continue; }
     return {
@@ -255,8 +271,9 @@ export function resolveLaunchPlan(port: number): LaunchPlan {
     };
   }
 
-  // console script 自带绝对解释器路径，所以在 venv 未激活、python 不在 PATH 上时
-  // 反而是唯一能用的入口（pipx 安装就是这种形态）。
+  // The console script embeds an absolute interpreter path, so when no venv is
+  // active and python is not on PATH it is the only usable entry point — which is
+  // exactly what a pipx install looks like.
   const consoleScript = findConsoleScript();
   if (consoleScript) {
     return {
@@ -268,21 +285,24 @@ export function resolveLaunchPlan(port: number): LaunchPlan {
   }
 
   throw new Error(
-    "找不到 paper runtime。\n\n" +
-    "请任选一种：\n" +
-    "· 安装 runtime 后重试：在 services/paper-runtime 下执行\n" +
+    "The paper runtime was not found.\n\n" +
+    "Choose any one of these:\n" +
+    "· Install the runtime and retry: from services/paper-runtime, run\n" +
     "  uv venv --python 3.12 && uv pip install -e .\n" +
-    "· 在 工具 → UniZero 面板 → 插件运行 中填写 Python 路径\n" +
-    "  （指向已装 unizero-runtime 的解释器，例如 .venv/Scripts/pythonw.exe）\n" +
-    "· 或填写 server.py 路径，指向 services/paper-runtime/scripts/server.py",
+    "· Set the Python path under Settings → UniZero → Local service\n" +
+    "  (point it at an interpreter with unizero-runtime installed, e.g.\n" +
+    "  .venv/Scripts/pythonw.exe)\n" +
+    "· Or set the server.py path to services/paper-runtime/scripts/server.py",
   );
 }
 
 /**
- * runtime 存放可变状态的目录，与 services/paper-runtime/.../paths.py 保持一致。
+ * Directory where the runtime keeps mutable state; kept in step with
+ * services/paper-runtime/.../paths.py.
  *
- * 这里必须重复实现一遍：add-on 读不到 Python 侧的代码，而它需要知道 server.log 在哪
- * 才能在启动失败时给出具体原因。两边任一改动都要同时改另一边。
+ * The duplication is unavoidable: the add-on cannot read the Python side, yet it
+ * needs to know where server.log is to explain a failed start. A change on either
+ * side has to be made on both.
  */
 export function runtimeHome(): string {
   const override = environmentVariable("UNIZERO_RUNTIME_HOME").trim();

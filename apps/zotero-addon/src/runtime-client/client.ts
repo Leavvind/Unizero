@@ -1,9 +1,10 @@
 /**
- * Paper runtime 的类型化 HTTP 客户端。
+ * Typed HTTP client for the paper runtime.
  *
- * 端口自 ZoMiner `modules/api-client.js`，行为保持一致，改动只在类型和错误提取上。
- * 这是 add-on 里唯一知道 runtime HTTP 细节的地方——上层功能模块只看 contracts.ts
- * 里的类型，不碰 URL、状态码或 Zotero.HTTP。
+ * Ported from ZoMiner's `modules/api-client.js` with identical behaviour; the only
+ * changes are typing and error extraction. This is the one place in the add-on
+ * that knows the runtime's HTTP details — feature modules above it see only the
+ * types in contracts.ts and never touch URLs, status codes, or Zotero.HTTP.
  */
 
 import {
@@ -23,14 +24,17 @@ import {
 } from "./contracts";
 import { serviceURL } from "./settings";
 
-/** 15s：转换是异步 job，所有同步端点都只做记账，不该跑这么久。 */
+/** 15s: conversion is an async job, and every synchronous endpoint only does
+ *  bookkeeping, so none should take anywhere near this long. */
 const REQUEST_TIMEOUT_MS = 15000;
 const LIBRARY_SCOPE_CAPABILITY = "library-scope";
 let runtimeCapabilities = new Set<string>();
 
 /**
- * 契约不兼容。与网络错误分开，因为处置方式完全不同：网络错误可以重试或启动服务，
- * 版本不匹配重试多少次都没用，必须让用户去升级其中一端。
+ * Contract incompatibility. Kept apart from network errors because the remedies
+ * differ completely: a network error can be retried or fixed by starting the
+ * service, whereas no number of retries fixes a version mismatch — the user has to
+ * upgrade one of the two sides.
  */
 export class RuntimeIncompatibleError extends Error {
   constructor(message: string) {
@@ -40,10 +44,11 @@ export class RuntimeIncompatibleError extends Error {
 }
 
 /**
- * 把服务端的结构化错误体从 Zotero.HTTP 的异常里挖出来。
+ * Dig the server's structured error body out of a Zotero.HTTP exception.
  *
- * Zotero.HTTP 在非 2xx 时抛的是包着 xhr 的对象，直接 String(error) 只会得到
- * "Unexpected status code 500"，服务端辛苦返回的 error.message 就丢了。
+ * On a non-2xx response Zotero.HTTP throws an object wrapping the xhr, so a plain
+ * String(error) yields only "Unexpected status code 500" and the error.message the
+ * server took care to return is lost.
  */
 function toRuntimeError(error: unknown): Error {
   try {
@@ -58,7 +63,7 @@ function toRuntimeError(error: unknown): Error {
       return new Error(detail.message || detail.code || String(error));
     }
   } catch (ignored) {
-    // 响应体不是 JSON 或者根本没有响应体，退回原始错误。
+    // The body is not JSON, or there is no body at all: fall back to the raw error.
   }
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -85,7 +90,8 @@ async function request<T>(
       options as any,
     );
     const response = (xhr as any).response as T & RuntimeErrorBody;
-    // 服务端也会用 200 + error 体表达业务失败，不只是靠状态码。
+    // The server also signals business failures as 200 plus an error body, not
+    // only through status codes.
     if (response && (response as RuntimeErrorBody).error) {
       const detail = (response as RuntimeErrorBody).error!;
       throw new Error(detail.message || detail.code || "runtime error");
@@ -101,23 +107,25 @@ export const runtimeClient = {
   request,
 
   /**
-   * 握手。除了确认服务活着，还要确认它说的是同一个协议。
+   * Handshake. Confirms both that the service is alive and that it speaks the
+   * same protocol.
    *
-   * 版本精确匹配而不是取兼容区间：v1 阶段两端都在快速变化，"大概能通" 的失败模式
-   * （字段静默缺失）比直接拒绝难查得多。
+   * Versions must match exactly rather than fall in a compatible range: during v1
+   * both sides move fast, and the "probably compatible" failure mode — fields
+   * silently missing — is far harder to diagnose than an outright rejection.
    */
   async health(): Promise<HealthResponse> {
     const health = await request<HealthResponse>("GET", "/health");
     if (String(health.api_version) !== API_VERSION) {
       throw new RuntimeIncompatibleError(
-        `服务 API 版本不兼容：插件需要 v${API_VERSION}，服务提供 v${health.api_version}`,
+        `Incompatible service API version: the add-on needs v${API_VERSION}, the service offers v${health.api_version}`,
       );
     }
     const capabilities = health.capabilities || [];
     runtimeCapabilities = new Set(capabilities);
     for (const required of REQUIRED_CAPABILITIES) {
       if (!capabilities.includes(required)) {
-        throw new RuntimeIncompatibleError(`本地服务缺少必要能力: ${required}`);
+        throw new RuntimeIncompatibleError(`The local service lacks a required capability: ${required}`);
       }
     }
     return health;
@@ -170,7 +178,7 @@ function withoutUnsupportedLibraryScope<
   if (runtimeCapabilities.has(LIBRARY_SCOPE_CAPABILITY)) { return payload; }
   if (payload.library_scope && payload.library_scope !== "library") {
     throw new RuntimeIncompatibleError(
-      "当前本地服务不支持 Zotero 群组文库，请升级 UniZero runtime",
+      "This local service does not support Zotero group libraries; upgrade the UniZero runtime",
     );
   }
   const compatible = { ...payload };

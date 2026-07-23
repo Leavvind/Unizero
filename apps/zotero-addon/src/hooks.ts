@@ -20,7 +20,8 @@ async function onMainWindowLoad(win: Window): Promise<void> {
     Zotero.uiReadyPromise,
   ]);
 
-  // 必须早于任何 Prefs.get：面板一旦读到默认值就已经晚了。
+  // Must run before any Prefs.get: once a pane has read a default value it is
+  // already too late.
   migrateLegacyPrefs();
   migrateLegacyRuntimePrefs();
 

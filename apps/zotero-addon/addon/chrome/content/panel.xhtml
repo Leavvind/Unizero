@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-  <title>UniZero 面板</title>
+  <title>UniZero Panel</title>
   <style>
     :root {
       color-scheme: light;
@@ -328,75 +328,75 @@
   <script src="panel.js"></script>
 </head>
 <body>
-  <h2 style="margin-top:0">服务状态</h2>
+  <h2 style="margin-top:0">Service status</h2>
   <div class="card">
     <div class="row">
       <span class="dot" id="status-dot"></span>
-      <span id="status-text">检查中…</span>
+      <span id="status-text">Checking…</span>
       <span class="spacer"></span>
-      <button id="btn-settings">服务目录…</button>
-      <button id="btn-start" class="primary">启动服务</button>
-      <button id="btn-stop">停止服务</button>
-      <button id="btn-refresh">刷新</button>
+      <button id="btn-settings">Service directories…</button>
+      <button id="btn-start" class="primary">Start service</button>
+      <button id="btn-stop">Stop service</button>
+      <button id="btn-refresh">Refresh</button>
     </div>
     <div id="status-detail"></div>
   </div>
 
-  <h2>任务</h2>
+  <h2>Jobs</h2>
   <div class="card">
-    <div id="jobs-empty" class="hint">暂无任务（本次服务会话）</div>
+    <div id="jobs-empty" class="hint">No jobs yet (this service session)</div>
     <table id="jobs-table" style="display:none">
-      <thead><tr><th style="width:64px">时间</th><th>标题</th><th style="width:70px">状态</th><th>详情</th></tr></thead>
+      <thead><tr><th style="width:64px">Time</th><th>Title</th><th style="width:70px">Status</th><th>Details</th></tr></thead>
       <tbody id="jobs-body"></tbody>
     </table>
   </div>
 
-  <h2>转换模板</h2>
+  <h2>Conversion templates</h2>
   <div class="card">
-    <div id="templates-offline" class="offline">服务未运行——启动后才能读取和编辑模板。</div>
+    <div id="templates-offline" class="offline">The service is not running — start it to read and edit templates.</div>
     <div class="toolbar template-toolbar">
       <div id="template-tabs" class="template-tabs" role="tablist"></div>
-      <button id="btn-template-duplicate">复制模板</button>
-      <button id="btn-template-reset">恢复默认 / 删除</button>
+      <button id="btn-template-duplicate">Duplicate template</button>
+      <button id="btn-template-reset">Restore default / delete</button>
     </div>
     <div class="hint" id="template-origin" style="margin-top:6px"></div>
     <div id="template-editor">
       <div class="template-meta">
         <div>
-          <label class="field-label" for="template-name">模板名称</label>
-          <input type="text" id="template-name" placeholder="模板名称"/>
+          <label class="field-label" for="template-name">Template name</label>
+          <input type="text" id="template-name" placeholder="Template name"/>
         </div>
         <div>
-          <label class="field-label" for="template-description">模板说明</label>
-          <textarea id="template-description" placeholder="模板说明"></textarea>
+          <label class="field-label" for="template-description">Template description</label>
+          <textarea id="template-description" placeholder="Template description"></textarea>
         </div>
       </div>
       <div class="template-layout">
         <div class="pane">
-          <div class="pane-title">执行模块</div>
+          <div class="pane-title">Modules to run</div>
           <div id="template-steps"></div>
           <div class="add-module">
-            <div class="add-module-title">可选模块 · 点击加入执行列表，执行列表中 × 撤回到这里</div>
+            <div class="add-module-title">Available modules · click to add one to the run list; × in the run list returns it here</div>
             <div id="module-add-options" class="module-add-options"></div>
           </div>
         </div>
         <div class="pane">
-          <div class="pane-title" id="settings-title">模块设置</div>
-          <div id="module-settings" class="hint">选择一个模块进行设置。</div>
+          <div class="pane-title" id="settings-title">Module settings</div>
+          <div id="module-settings" class="hint">Select a module to configure it.</div>
         </div>
       </div>
       <div class="actions">
-        <button id="btn-template-save" class="primary">保存模板</button>
-        <button id="btn-template-reload">重新读取</button>
-        <span class="saved" id="template-saved">已保存 ✓</span>
+        <button id="btn-template-save" class="primary">Save template</button>
+        <button id="btn-template-reload">Reload</button>
+        <span class="saved" id="template-saved">Saved ✓</span>
         <span id="template-validation" class="hint"></span>
       </div>
       <details class="yaml">
-        <summary>高级：查看 / 编辑完整 YAML</summary>
+        <summary>Advanced: view / edit the full YAML</summary>
         <textarea id="template-yaml" spellcheck="false"></textarea>
         <div class="actions">
-          <button id="btn-yaml-apply">应用 YAML</button>
-          <span class="hint">YAML 是模板的真实存储格式；GUI 与它编辑同一份数据。</span>
+          <button id="btn-yaml-apply">Apply YAML</button>
+          <span class="hint">YAML is how templates are actually stored; the GUI edits the same data.</span>
         </div>
       </details>
     </div>
@@ -405,27 +405,28 @@
   <div id="settings-overlay" class="overlay" hidden="hidden">
     <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
       <div class="dialog-head">
-        <span class="dialog-title" id="settings-dialog-title">服务目录</span>
+        <span class="dialog-title" id="settings-dialog-title">Service directories</span>
         <span class="spacer"></span>
-        <button id="btn-settings-close" aria-label="关闭">关闭</button>
+        <button id="btn-settings-close" aria-label="Close">Close</button>
       </div>
       <div class="dialog-body">
         <!--
-          这里只放服务端配置：它存在 runtime 的 config.json 里，服务没跑就读不到，
-          所以进不了 Zotero 设置面板。Python 路径、端口、自动启停这些存在 Zotero
-          prefs 里的项已经搬到 设置 → UniZero。
+          Server-side configuration only: it lives in the runtime's config.json and is
+          unreadable while the service is stopped, so it cannot go in the Zotero
+          preferences pane. The items stored in Zotero prefs — Python path, port,
+          auto start/stop — have moved to Settings → UniZero.
         -->
         <div class="setting-section-content">
-          <div id="server-offline" class="offline">服务未运行——启动后才能读取和保存服务目录。</div>
+          <div id="server-offline" class="offline">The service is not running — start it to read and save service directories.</div>
           <div class="form">
-            <label for="s-output-root">默认输出基目录</label><input type="text" id="s-output-root" placeholder="例如 ~/Academic 或 D:\Academic"/>
-            <div class="hint path-help">仅用于解析 Publish 的相对目标目录；Publish 使用绝对路径时可以留空。</div>
-            <label for="s-work">临时工作目录</label><input type="text" id="s-work"/>
+            <label for="s-output-root">Default output base directory</label><input type="text" id="s-output-root" placeholder="e.g. ~/Academic or D:\Academic"/>
+            <div class="hint path-help">Used only to resolve relative Publish destinations; leave empty when Publish uses absolute paths.</div>
+            <label for="s-work">Temporary work directory</label><input type="text" id="s-work"/>
           </div>
           <div class="actions">
-            <button id="btn-save-server" class="primary">保存服务目录</button>
-            <button id="btn-reload-server">重新读取</button>
-            <span class="saved" id="server-saved">已保存 ✓</span>
+            <button id="btn-save-server" class="primary">Save service directories</button>
+            <button id="btn-reload-server">Reload</button>
+            <span class="saved" id="server-saved">Saved ✓</span>
           </div>
           <div class="hint" id="server-cfg-path" style="margin-top:7px"></div>
         </div>

@@ -9,8 +9,8 @@ import {
 import Requests from "./requests";
 
 /**
- * 放弃知网，默认PDF处理完全可以解析出中文参考文献
- * 知网结果顺序是错误的，并不想加入它
+ * CNKI is deliberately not used: the default PDF processing already extracts
+ * Chinese references, and CNKI returns them in the wrong order.
  */
 class API {
   public utils: Utils;
@@ -147,7 +147,8 @@ class API {
           abstract: data.abstract,
           source: "semanticscholar",
           type: "journalArticle",
-          // 被引数以 tag 形式展示（与 readpaper 一致），悬浮窗即 “Cited N times”。
+          // The citation count is shown as a tag, matching readpaper; the tooltip
+          // reads "Cited N times".
           tags: [
             ...(data.fieldsOfStudy || []),
             ...(data.citationCount > 0
@@ -250,7 +251,7 @@ class API {
     if (response) {
       response.DOI = DOI
       if (!response.abstract) {
-        // 可能是摘要太长，打开网页版获取
+        // The abstract may have been too long for the API; fetch the web page instead.
         let text = await this.requests.get(
           `https://www.semanticscholar.org/paper/${response.paperId}`,
           "text/html"
@@ -289,8 +290,10 @@ class API {
 
 
   async getDOIRelatedArray(DOI: string, limit: number = 20): Promise<ItemBaseInfo[] | undefined> {
-    // 遗留“推荐关联”没有稳定入口；不要让参考文献面板在后台偷偷请求另一套推荐服务。
-    // 相关论文/图谱如果重新设计，应作为独立功能实现，而不是和元数据补全绑在一起。
+    // The legacy "related recommendations" have no stable endpoint; the reference
+    // pane must not quietly call a second recommendation service in the
+    // background. If related papers or a graph view are redesigned, they belong in
+    // a separate feature rather than tied to metadata enrichment.
     return
   }
 
@@ -384,9 +387,9 @@ class API {
     let response = await this.requests.post(api, body)
     if (response && response?.data?.list?.[0]) {
       let data = response?.data?.list?.[0]
-      // 验证DOI
+      // Verify the DOI
       if (doi) {
-        // 获取paperId的doi
+        // Fetch the DOI belonging to this paperId
         let _res = await this.requests.post(
           "https://readpaper.com/api/microService-app-aiKnowledge/aiKnowledge/paper/getPaperDetailInfo",
           { paperId: data.id }

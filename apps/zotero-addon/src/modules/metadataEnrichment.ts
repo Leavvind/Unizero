@@ -1,9 +1,12 @@
 /**
- * 文库条目的 DOI / Semantic Scholar Paper ID 补全。
+ * DOI / Semantic Scholar Paper ID enrichment for library items.
  *
- * 入口只负责拿当前选择；查询、交叉评分、冲突复核和写回都留在本模块，避免继续膨胀
- * views.ts。Semantic Scholar 搜索与 Crossref 结果会合并评分，只有高置信度且候选领先
- * 明显时才自动写入；已有标识符冲突或候选不够唯一时必须让用户确认。
+ * The entry point only reads the current selection; lookup, cross-scoring,
+ * conflict review, and write-back all stay in this module rather than swelling
+ * views.ts further. Semantic Scholar search results and Crossref results are
+ * scored together, and only a high-confidence candidate with a clear lead is
+ * written automatically; a conflict with an existing identifier, or a candidate
+ * that is not distinctive enough, must be confirmed by the user.
  */
 
 import { config } from "../../package.json";
@@ -71,7 +74,7 @@ function compactText(value: string): string {
   return normalizeText(value).replace(/\s+/g, "");
 }
 
-/** 标题很短，二维编辑距离只会浪费内存；保留一行即可。 */
+/** Titles are short, so a two-dimensional edit-distance table only wastes memory; one row is enough. */
 function levenshteinRatio(left: string, right: string): number {
   const a = compactText(left).slice(0, 500);
   const b = compactText(right).slice(0, 500);
@@ -334,8 +337,10 @@ function findCurrentIdentifierCandidate(
 }
 
 /**
- * 已有标识符存在时，候选必须提供同类标识符才能参与“替换”排名。否则把只有 S2 ID 的
- * 候选写到已有 DOI 旁边（或反过来），会制造一条内部自相矛盾的 Zotero 记录。
+ * When an identifier is already present, a candidate must offer the same kind of
+ * identifier to compete for replacement. Otherwise writing a candidate that has
+ * only an S2 ID next to an existing DOI — or the reverse — produces a Zotero
+ * record that contradicts itself.
  */
 function candidateIsViable(candidate: PaperCandidate, item: ItemMetadata): boolean {
   return (!item.doi || !!candidate.doi) && (!item.paperId || !!candidate.paperId);
@@ -346,7 +351,8 @@ async function resolveItem(item: Zotero.Item): Promise<Resolution> {
   const candidates: PaperCandidate[] = [];
   const crossrefPromise = searchCrossref(metadata);
 
-  // 同一条记录最多需要三次 S2 请求。匿名 API 很容易被突发请求限流，因此严格串行。
+  // One record needs up to three S2 requests. The anonymous API rate-limits bursts
+  // readily, so these run strictly in sequence.
   if (metadata.doi) {
     mergeInto(candidates, fromSemanticScholar(
       await fetchSemanticScholarPaperByDOI(metadata.doi),
@@ -367,7 +373,8 @@ async function resolveItem(item: Zotero.Item): Promise<Resolution> {
   candidates.forEach((candidate) => { candidate.score = scoreCandidate(metadata, candidate); });
   candidates.sort((left, right) => right.score - left.score);
 
-  // Crossref 的最佳候选可能还没有 S2 ID；只对可进入复核区间的候选多做一次精确查询。
+  // Crossref's best candidate may not carry an S2 ID yet; spend one extra exact
+  // lookup only on a candidate that could reach the review threshold.
   const identityLookupCandidate = candidates.find(
     (candidate) => candidate.doi && !candidate.paperId && candidate.score >= REVIEW_SCORE,
   );
@@ -524,7 +531,8 @@ export default class MetadataEnrichment {
       ztoolkit.log("[metadata-enrichment] Zotero.MenuManager is unavailable");
       return;
     }
-    // MenuManager 只挂 data-l10n-id，不代插件加载自己的 Fluent 文件。
+    // MenuManager only attaches data-l10n-id; it does not load the add-on's own
+    // Fluent files on its behalf.
     this.registeredMenuID = menuManager.registerMenu({
       menuID: `${config.addonRef}-metadata-enrichment`,
       pluginID: config.addonID,

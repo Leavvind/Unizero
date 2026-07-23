@@ -1,19 +1,24 @@
 /**
- * DOI 直连参考文献。
+ * References fetched directly by DOI.
  *
- * ZoMiner 那条路要先跑 MinerU 把 PDF 转 Markdown，慢、且只对已经处理过的条目有效。
- * 但绝大多数条目在导入时就带 DOI，出版商本来就把参考文献列表报给了 Crossref /
- * OpenAlex / Semantic Scholar——直接查即可，秒级返回而且自带结构化元数据，
- * 不需要再走 resolve.ts 的逐条模糊匹配。
+ * The ZoMiner route has to run MinerU to convert the PDF to Markdown first: slow,
+ * and only useful for items already processed. But the overwhelming majority of
+ * items arrive with a DOI, and publishers already report their reference lists to
+ * Crossref, OpenAlex, and Semantic Scholar — so querying those directly answers in
+ * seconds, comes with structured metadata, and skips resolve.ts's per-entry fuzzy
+ * matching entirely.
  *
- * 三个引擎的取舍：
- *   - OpenAlex：`referenced_works` 给的是 OpenAlex ID，可以一次 batch 拉回完整元数据
- *     （标题/作者/年份/期刊/摘要/被引数），一趟到位，所以放第一。
- *   - Crossref：`reference` 字段覆盖广，但内容取决于出版商——有的只有 unstructured
- *     字符串，有的连 DOI 都有。作为主力兜底。
- *   - Semantic Scholar：匿名限流严（~1rps），放最后。
+ * Why the three engines are ordered as they are:
+ *   - OpenAlex: `referenced_works` returns OpenAlex IDs, and one batch request
+ *     brings back full metadata (title, authors, year, venue, abstract, citation
+ *     count) in a single trip, so it goes first.
+ *   - Crossref: the `reference` field has broad coverage, but its content depends
+ *     on the publisher — sometimes only an unstructured string, sometimes a DOI as
+ *     well. It is the main fallback.
+ *   - Semantic Scholar: anonymous rate limiting is tight (~1 rps), so it goes last.
  *
- * 三家都空才回落到 ZoMiner 的 PDF 抽取（见 views.ts 的调用点）。
+ * Only when all three come back empty does the caller fall back to ZoMiner's PDF
+ * extraction; see the call site in views.ts.
  */
 
 import {
@@ -23,10 +28,13 @@ import {
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
 
-/** OpenAlex 一次 filter 查询能塞的 ID 数上限。 */
+/** Maximum number of IDs one OpenAlex filter query can carry. */
 const OPENALEX_BATCH = 50;
 
-/** 最近一次查询里三家各自的下场。参考文献偏少时，用它区分“本来就少”和“某家挂了”。 */
+/**
+ * How each of the three sources fared in the last query. When a reference list
+ * looks short, this distinguishes "there really are few" from "one source failed".
+ */
 export const referencesDiagnostics: {
   doi?: string;
   semanticScholarPaperId?: string;
@@ -39,7 +47,7 @@ export const referencesDiagnostics: {
 
 export interface ReferencesResult {
   references: ItemBaseInfo[];
-  /** 命中的引擎，用于在侧栏 source 标记和提示里显示。 */
+  /** Which engine matched, shown in the sidebar's source badge and messages. */
   source: "OpenAlex" | "Crossref" | "Semantic Scholar";
 }
 
@@ -69,14 +77,18 @@ const OPENALEX_SELECT = "id,doi,display_name,authorships,publication_year,primar
   "abstract_inverted_index,cited_by_count,type";
 
 /**
- * OpenAlex：先取 referenced_works（只是 ID 列表），再分批把元数据拉回来。
- * batch 请求之间保持顺序，好让侧栏里的参考文献编号和原文大致对得上。
+ * OpenAlex: fetch referenced_works first — just a list of IDs — then pull the
+ * metadata back in batches. Batch requests keep their order so the reference
+ * numbers in the sidebar line up roughly with the source paper.
  *
- * 两个坑，都是实测踩出来的：
- *   1. 条目 DOI 指向的记录不一定是参考文献最全的那条（预印本 23 条 vs 发表版 185 条），
- *      所以先把记录簇找齐，取 `referenced_works_count` 最大的那条。
- *   2. `filter=openalex:` 批量查不会跟随合并重定向——被合并掉的 ID 直接不返回。
- *      同一批 23 个 ID 只回来 19 条，剩下 4 条得单独取。
+ * Two problems, both found in practice:
+ *   1. The record the item's DOI points at is not necessarily the one with the
+ *      fullest reference list (23 entries on the preprint versus 185 on the
+ *      published version), so the record cluster is gathered first and the one
+ *      with the largest `referenced_works_count` is used.
+ *   2. A `filter=openalex:` batch query does not follow merge redirects — merged
+ *      IDs simply do not come back. A batch of 23 IDs returned 19, and the
+ *      remaining 4 had to be fetched individually.
  */
 async function fromOpenAlex(doi: string): Promise<ItemBaseInfo[] | null> {
   const cluster = await resolveOpenAlexCluster(doi);
@@ -93,7 +105,7 @@ async function fromOpenAlex(doi: string): Promise<ItemBaseInfo[] | null> {
     .filter(Boolean);
   if (!ids.length) { return null; }
 
-  // 按 ID 建索引，好把乱序返回的结果还原成 referenced_works 的原始顺序。
+  // Index by ID so out-of-order results can be restored to referenced_works order.
   const byId = new Map<string, any>();
   for (let start = 0; start < ids.length; start += OPENALEX_BATCH) {
     const chunk = ids.slice(start, start + OPENALEX_BATCH);
@@ -106,9 +118,11 @@ async function fromOpenAlex(doi: string): Promise<ItemBaseInfo[] | null> {
       byId.set(bareOpenAlexID(result?.id), result);
     }
   }
-  // 批量查漏掉的逐条补：单条接口会跟随合并，返回的 id 可能和请求的不同，
-  // 所以按请求的 ID 存，顺序才不会乱。
-  // 上限 20：正常只漏个位数，漏成片说明是整批请求挂了，那种情况逐条补只会更慢。
+  // Fill in what the batch query missed, one at a time: the single-record endpoint
+  // does follow merges, so the returned id may differ from the requested one —
+  // store under the requested ID to keep the order intact.
+  // Capped at 20: normally only a handful are missing, and losing them wholesale
+  // means the whole batch request failed, where one-by-one retries only go slower.
   const missing = ids.filter((id) => !byId.has(id)).slice(0, 20);
   for (const id of missing) {
     const single = await getJSON(
@@ -118,7 +132,8 @@ async function fromOpenAlex(doi: string): Promise<ItemBaseInfo[] | null> {
     if (single?.id) { byId.set(id, single); }
   }
   if (!byId.size) { return null; }
-  // 合并重定向会让两个请求 ID 落到同一条 work 上，按最终 id 去重。
+  // Merge redirects can land two requested IDs on the same work; deduplicate by
+  // the final id.
   const emitted = new Set<string>();
   return ids
     .map((id) => byId.get(id))
@@ -131,7 +146,7 @@ async function fromOpenAlex(doi: string): Promise<ItemBaseInfo[] | null> {
     .map(fromOpenAlexWork);
 }
 
-/** Crossref 的 reference 条目：结构化字段和 unstructured 串都可能出现。 */
+/** A Crossref reference entry: it may carry structured fields, an unstructured string, or both. */
 function fromCrossrefReference(reference: any, index: number): ItemBaseInfo | null {
   if (!reference) { return null; }
   const doi = reference.DOI ? bareDOI(reference.DOI) : undefined;
@@ -149,10 +164,12 @@ function fromCrossrefReference(reference: any, index: number): ItemBaseInfo | nu
     type: "journalArticle",
     source: "Crossref",
   };
-  // raw 串优先：它是原文里那一行，信息最全；没有才用结构化字段拼。
+  // The raw string wins: it is the line as printed in the source and carries the
+  // most information. Only without one do the structured fields get assembled.
   info.text = raw || composeText(info);
   if (!info.text && doi) {
-    // 出版商只报了 DOI 的条目。先摆个占位串把行撑起来，标记交给 resolve 那一轮换掉。
+    // The publisher reported only a DOI. Put a placeholder in to give the row
+    // something to show, flagged so the resolve pass replaces it.
     info.text = `DOI: ${doi}`;
     info._placeholderText = true;
   }
@@ -209,17 +226,22 @@ async function fromSemanticScholar(identifier: string): Promise<ItemBaseInfo[] |
 }
 
 /**
- * 按条目现有标识符取参考文献。DOI 交给三家，Paper ID 交给 Semantic Scholar；
- * 两者并存时 S2 优先走更精确的 Paper ID。多家有结果时，**条数最多的胜出**。
+ * Fetch references from whatever identifiers the item has. A DOI goes to all three
+ * sources, a Paper ID to Semantic Scholar; when both exist, S2 takes the more
+ * precise Paper ID. When several sources answer, **the longest list wins**.
  *
- * 以前是“第一个非空结果胜出”，OpenAlex 在最前面，于是它给多少就是多少——实测
- * 10.2139/ssrn.3086063 这样只有 19 条，而 Semantic Scholar 有 140 条。参考文献
- * 只会漏不会凭空多，所以条数多的那家覆盖更全，没有理由让顺序决定结果。
+ * This used to be "first non-empty result wins", with OpenAlex first, so whatever
+ * OpenAlex returned was the answer — and for 10.2139/ssrn.3086063 that was 19
+ * entries against Semantic Scholar's 140. References can be missed but never
+ * invented, so the longer list has the better coverage, and there is no reason to
+ * let ordering decide the outcome.
  *
- * 代价是三家都要等，而不是命中第一家就返回。但三家并发，慢的那一家决定总时长，
- * 通常也就多一两秒，换来的是不会莫名其妙少一大半。
+ * The cost is waiting for all three rather than returning on the first hit. But
+ * they run concurrently, so the slowest one sets the total, usually a second or
+ * two more — in exchange for never inexplicably losing half the list.
  *
- * 全空返回 null——调用方据此回落到 ZoMiner 的 PDF 抽取。
+ * Returns null when all are empty, which tells the caller to fall back to
+ * ZoMiner's PDF extraction.
  */
 export async function fetchReferencesByIdentifiers(
   rawDOI?: string,
@@ -263,8 +285,9 @@ export async function fetchReferencesByIdentifiers(
       ? run("Semantic Scholar", "semanticScholar", () => fromSemanticScholar(semanticScholarIdentifier))
       : Promise.resolve(null),
   ]);
-  // 严格大于才换家：条数打平时保持 OpenAlex → Crossref → Semantic Scholar 的偏好，
-  // 前面的元数据更结构化，后面 resolve 那轮要补的东西更少。
+  // Only a strictly larger count switches source: on a tie, keep the OpenAlex →
+  // Crossref → Semantic Scholar preference, since the earlier ones return more
+  // structured metadata and leave the resolve pass less to fill in.
   let best: ReferencesResult | null = null;
   for (const result of results) {
     if (result && (!best || result.references.length > best.references.length)) { best = result; }
@@ -273,7 +296,7 @@ export async function fetchReferencesByIdentifiers(
   return best;
 }
 
-/** 兼容旧调用点；新 UI 应把条目上的 Semantic Scholar Paper ID 一并传入。 */
+/** Kept for older call sites; new UI should also pass the item's Semantic Scholar Paper ID. */
 export async function fetchReferencesByDOI(rawDOI: string): Promise<ReferencesResult | null> {
   return fetchReferencesByIdentifiers(rawDOI);
 }

@@ -1,21 +1,26 @@
 /**
- * ZoMiner 桥接。
+ * ZoMiner bridge.
  *
- * 参考文献抽取已外包给 ZoMiner：它用 MinerU 把 PDF 转成 Markdown，在 `markdown-cleanup`
- * 删除参考文献段之前，从 content_list 抽取结构化参考文献，并把结果作为一个 `application/json`
- * 附件（标题以 “ZoMiner References” 开头）挂在 Zotero 条目下。
+ * Reference extraction is delegated to ZoMiner: it converts the PDF to Markdown
+ * with MinerU and, before `markdown-cleanup` strips the reference section, pulls
+ * structured references out of content_list and attaches the result to the Zotero
+ * item as an `application/json` attachment whose title starts with
+ * "ZoMiner References".
  *
- * 本模块只负责“读取那个附件”。它是纯抽取工件（raw 引文 + 页码 + DOI/arXiv）；
- * 标题/作者/期刊/年份/摘要等元数据解析由 add-on 侧完成（Crossref/OpenAlex/LLM）。
+ * This module only reads that attachment. Its content is a pure extraction
+ * artifact (raw citation + page + DOI/arXiv); resolving title, authors, venue,
+ * year, and abstract happens on the add-on side (Crossref/OpenAlex/LLM).
  *
- * 附件的 JSON 契约（`schema: "zominer.references/N"`）现在仍是转换产出的写入格式，
- * 也就是说这是抽取结果到达插件的**唯一**路径。计划是让转换任务直接返回参考文献，
- * 在那之前这个读取路径必须保持可用，见 docs/LEGACY_SUPPORT.md。
+ * The attachment's JSON contract (`schema: "zominer.references/N"`) is still what
+ * conversion writes, which makes this the **only** route by which extraction
+ * results reach the add-on. The plan is for the conversion job to return
+ * references directly; until then this read path must keep working. See
+ * docs/LEGACY_SUPPORT.md.
  */
 
 const REFS_ATTACHMENT_TITLE = "ZoMiner References";
 
-/** ZoMiner 附件里单条参考文献的形状。 */
+/** Shape of a single reference inside the ZoMiner attachment. */
 export interface ZoMinerReference {
   index: number;
   raw: string;
@@ -23,7 +28,7 @@ export interface ZoMinerReference {
   identifiers?: { doi?: string; arxiv?: string };
 }
 
-/** 在条目（或其父条目）下定位 ZoMiner 参考文献 JSON 附件。 */
+/** Locate the ZoMiner references JSON attachment under an item or its parent. */
 export function findReferencesAttachment(item: Zotero.Item): Zotero.Item | null {
   if (!item) { return null; }
   const parent = (item.isAttachment?.() && item.parentItem) ? item.parentItem : item;
@@ -40,8 +45,9 @@ export function findReferencesAttachment(item: Zotero.Item): Zotero.Item | null 
 }
 
 /**
- * 读取并解析 ZoMiner 参考文献附件，映射成侧栏使用的 ItemBaseInfo 列表。
- * 无附件时返回 null（表示该条目尚未经 ZoMiner 抽取），交给上层决定回退行为。
+ * Read and parse the ZoMiner references attachment into the ItemBaseInfo list the
+ * sidebar uses. Returns null when there is no attachment — meaning this item has
+ * not been through ZoMiner extraction — and leaves the fallback to the caller.
  */
 export async function readZoMinerReferences(item: Zotero.Item): Promise<ItemBaseInfo[] | null> {
   const attachment = findReferencesAttachment(item);
@@ -74,7 +80,7 @@ export async function readZoMinerReferences(item: Zotero.Item): Promise<ItemBase
     .map((reference: ZoMinerReference) => zomRefToInfo(reference));
 }
 
-/** 把 ZoMiner 的一条 raw 引文映射成 ItemBaseInfo（标题/作者留待上层解析补全）。 */
+/** Map one raw ZoMiner citation to ItemBaseInfo; title and authors are resolved later. */
 function zomRefToInfo(reference: ZoMinerReference): ItemBaseInfo {
   const identifiers: ItemBaseInfo["identifiers"] = {};
   if (reference.identifiers?.doi) { identifiers.DOI = reference.identifiers.doi; }

@@ -1,15 +1,16 @@
 /**
- * Semantic Scholar 官方 Academic Graph API 的轻量封装。
+ * Thin wrapper around Semantic Scholar's official Academic Graph API.
  *
- * DOI、S2 paperId 和标题检索都集中走这里，避免业务模块各自拼接网页私有接口，
- * 同时保证用户配置的 API key 不会被漏掉。
+ * DOI, S2 paperId, and title lookups all funnel through here, so feature modules
+ * never assemble calls to the site's private endpoints themselves and the user's
+ * configured API key can never be missed.
  */
 
 import { bareDOI, getSemanticScholarJSON } from "./scholarlyHttp";
 
 export interface SemanticScholarPaper {
   paperId?: string;
-  /** 旧 metadata adapter 会临时写入这个兼容字段。 */
+  /** The old metadata adapter writes this compatibility field temporarily. */
   DOI?: string;
   title?: string;
   year?: number | string;
@@ -53,7 +54,7 @@ export function encodeSemanticScholarPaperIdentifier(identifier: string): string
     encodeURIComponent(identifier.slice(separator + 1));
 }
 
-/** 按任意官方 paper identifier（paperId、DOI:、CorpusId: 等）精确读取论文。 */
+/** Fetch a paper exactly by any official identifier (paperId, DOI:, CorpusId:, …). */
 export async function fetchSemanticScholarPaper(
   identifier: string,
   fields: readonly string[] = DEFAULT_FIELDS,
@@ -67,7 +68,7 @@ export async function fetchSemanticScholarPaper(
   );
 }
 
-/** 按 DOI 精确读取一篇 S2 论文。 */
+/** Fetch one S2 paper exactly by DOI. */
 export async function fetchSemanticScholarPaperByDOI(
   rawDOI: string,
   fields: readonly string[] = DEFAULT_FIELDS,
@@ -77,7 +78,7 @@ export async function fetchSemanticScholarPaperByDOI(
   return await fetchSemanticScholarPaper(`DOI:${doi}`, fields);
 }
 
-/** 用官方 relevance search 返回若干候选，供调用方自行做书目字段交叉评分。 */
+/** Return candidates from the official relevance search for the caller to cross-score. */
 export async function searchSemanticScholarPapers(
   title: string,
   limit = 5,
@@ -96,7 +97,7 @@ export async function searchSemanticScholarPapers(
   return Array.isArray(response?.data) ? response.data : [];
 }
 
-/** 把 DOI 解析成 Semantic Scholar SHA paperId。 */
+/** Resolve a DOI to a Semantic Scholar SHA paperId. */
 export async function resolveSemanticScholarPaperByDOI(
   rawDOI: string,
 ): Promise<SemanticScholarPaperIdentity | undefined> {

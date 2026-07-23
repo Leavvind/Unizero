@@ -11,8 +11,9 @@ export default class Requests {
     if (this.cache[k]) {
       return this.cache[k]
     }
-    // 在这里注入 S2 key 而不是在每个调用点：api.ts 里散着好几处 semanticscholar 请求，
-    // 逐个改容易漏，漏一处就等于用户配了 key 还在被匿名限流。
+    // Inject the S2 key here rather than at every call site: api.ts makes several
+    // semanticscholar requests, changing them one by one is easy to get wrong, and
+    // a single miss means a user with a key is still rate-limited as anonymous.
     const key = getSemanticScholarKey()
     if (key && /^https:\/\/api\.semanticscholar\.org\//i.test(url)) {
       headers = { ...headers, "x-api-key": key }

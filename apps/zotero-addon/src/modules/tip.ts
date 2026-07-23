@@ -2,7 +2,7 @@ import { PanelStatus } from "./status";
 import { config } from "../../package.json";
 import Utils from "./utils";
 
-/** #rgb / #rrggbb → [r,g,b]，解析不了就返回 null 交由上层用默认值。 */
+/** #rgb / #rrggbb → [r,g,b]; null when unparseable, so the caller uses a default. */
 function parseHex(color: string): [number, number, number] | null {
   const hex = String(color || "").trim().replace(/^#/, "");
   if (hex.length === 3) {
@@ -14,7 +14,7 @@ function parseHex(color: string): [number, number, number] | null {
   return null;
 }
 
-/** WCAG 相对亮度，用来决定前景取深色还是浅色。 */
+/** WCAG relative luminance; decides whether the foreground goes dark or light. */
 function luminance([r, g, b]: [number, number, number]): number {
   const channel = (v: number) => {
     const c = v / 255;
@@ -31,16 +31,19 @@ function contrastRatio(a: string, b: string): number {
 }
 
 /**
- * 悬浮窗配色。
+ * Floating-window colours.
  *
- * 之前只设背景不设前景，文字颜色从 Zotero 主题继承——深色主题下就是白底白字，
- * 也就是“看不清”的根因。这里由背景亮度反推一套自洽的前景色，主题怎么切都成立。
+ * The background used to be set without a foreground, leaving the text colour
+ * inherited from the Zotero theme — which under a dark theme meant white on white,
+ * the root cause of the "can't read it" reports. The foreground is now derived
+ * from the background's luminance, so it holds under any theme.
  */
 function buildTheme(background: string, title: string) {
   const rgb = parseHex(background) || [255, 255, 255];
   const isDark = luminance(rgb) < 0.4;
   const foreground = isDark ? "#f2f3f5" : "#1b1d21";
-  // 标题色由用户配置，但深色背景上蓝色 #2270d9 对比度不足，兜底换成浅色变体。
+  // The title colour is user-configured, but blue #2270d9 lacks contrast on a dark
+  // background, so fall back to a lighter variant.
   const safeTitle = contrastRatio(title, background) >= 3 ? title : (isDark ? "#7fb2ff" : "#1a5fc0");
   return {
     background,
@@ -65,7 +68,7 @@ export default class TipUI {
     }
   }
   public tipTimer!: number;
-  /** 由背景色推出的前景色，保证深/浅色主题下都可读。 */
+  /** Foreground colours derived from the background; readable in light and dark themes. */
   private theme!: { background: string; foreground: string; muted: string; title: string };
 
   constructor() {
@@ -81,7 +84,7 @@ export default class TipUI {
   public onInit(refRect: Rect, position:string) {
     this.refRect = refRect;
     this.position = position;
-    // 初始化，先移除其它container
+    // Initialise: remove any other container first.
     this.clear()
     this.buildContainer()
   }
@@ -95,8 +98,7 @@ export default class TipUI {
     })
   }
   /**
-   * 放置container到合适位置
-   * 
+   * Place the container in a suitable position.
    */
   private place() {
     `
@@ -120,7 +122,7 @@ export default class TipUI {
 			x: 1196
 			y: 172
 		}
-		右上(x=0, y=0)
+		top-right (x=0, y=0)
 		`
     let setStyles = (styles: {[key: string]: string}) => {
       for (let k in styles) {
@@ -132,12 +134,14 @@ export default class TipUI {
     const maxWidth = winRect.width;
     const maxHeight = winRect.height;
     const refRect = this.refRect;
-    // 摘要是长文，一行超过 ~90 个字符就很难读；宽屏上按比例算会撑到上千像素
-    // （截图里那种一屏宽的白条），所以在比例之上再压一个绝对上限。
+    // An abstract is long prose, and a line past ~90 characters is hard to read;
+    // on a wide screen the proportional calculation stretches to a thousand-odd
+    // pixels — the screen-wide white bar seen in the screenshots — so an absolute
+    // cap sits on top of the proportion.
     const MAX_TIP_WIDTH = 560;
     const clampWidth = (width: number) => Math.max(280, Math.min(width, MAX_TIP_WIDTH, maxWidth - 60));
 
-    // 左侧
+    // Left side
     let styles: any
     if (this.position == "left") {
       styles = {
@@ -159,7 +163,7 @@ export default class TipUI {
       this.container.style.flexDirection = "column-reverse"
     }
     let rect = setStyles(styles)
-    // 判断是否超届
+    // Check whether it overflows the window.
     if (rect.bottom > maxHeight) {
       setStyles({
         top: "",
@@ -190,7 +194,7 @@ export default class TipUI {
   }
 
   private buildContainer() {
-    // 位置计算
+    // Position calculation
     this.container = ztoolkit.UI.createElement(
       document,
       "div",
@@ -207,7 +211,8 @@ export default class TipUI {
           padding: "1em 1.15em",
           backgroundColor: this.theme.background,
           color: this.theme.foreground,
-          // 边框在浅底深底上都能把悬浮窗从 PDF/列表背景里切出来。
+          // The border separates the tooltip from the PDF or list background on
+          // both light and dark surfaces.
           border: "1px solid rgb(128 128 128 / 35%)",
           fontSize: "13px",
           lineHeight: "1.5",
@@ -269,11 +274,11 @@ export default class TipUI {
   }
 
   /**
-   * @param title 标题
-   * @param tags 标签
-   * @param descriptions 描述，一般是期刊，年份作者等
-   * @param content 正文，一般是摘要
-   * @param titleURL 标题指向的链接，点击直接在浏览器打开
+   * @param title the title
+   * @param tags the tags
+   * @param descriptions description lines, usually venue, year, and authors
+   * @param content the body, usually the abstract
+   * @param titleURL link behind the title; clicking opens it in the browser
    * @returns
    */
   public addTip(
@@ -374,8 +379,10 @@ export default class TipUI {
                 type: "click",
                 listener: translateNode
               },
-              // 普通点击打开链接；ctrl/cmd 点击仍然是翻译（translateNode 自己判修饰键，
-              // 两个 listener 的触发条件互斥，不会一次点击既翻译又跳转）。
+              // A plain click opens the link; ctrl/cmd-click still translates.
+              // translateNode checks the modifier itself, and the two listeners'
+              // conditions are mutually exclusive, so one click never both
+              // translates and navigates.
               {
                 type: "click",
                 listener: (event: any) => {
@@ -474,7 +481,8 @@ export default class TipUI {
                   styles: {
                     display: "block",
                     lineHeight: "1.5em",
-                    // 用实色 muted 而不是 opacity —— opacity 0.5 叠在浅背景上几乎消失。
+                    // A solid muted colour rather than opacity: 0.5 opacity over a
+                    // light background all but disappears.
                     color: this.theme.muted,
                     cursor: "pointer",
                     userSelect: "none"
@@ -619,11 +627,11 @@ export default class TipUI {
       this.container.style.transformOrigin = "center center"
     }
     if (event.detail > 0) {
-      // 缩小
+      // Zoom out
       scale = scale - step
       this.container.style.transform = `scale(${scale < minScale ? minScale : scale})`;
     } else {
-      // 放大
+      // Zoom in
       scale = scale + step
       this.container.style.transform = `scale(${scale > maxScale ? maxScale : scale})`;
     }

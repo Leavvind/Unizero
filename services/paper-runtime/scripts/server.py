@@ -10,7 +10,7 @@ resolve ``services/paper-runtime/.venv``, which is where the runtime's virtualen
 actually is. Moving this file up or down a directory silently breaks interpreter
 auto-detection, so it stays put.
 
-Point the add-on's "server.py 路径" setting at this file.
+Point the add-on's "server.py path" setting at this file.
 """
 
 from __future__ import annotations

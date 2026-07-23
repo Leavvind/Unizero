@@ -1,26 +1,30 @@
 /**
- * Paper runtime 的连接与进程设置。
+ * Connection and process settings for the paper runtime.
  *
- * ZoMiner 把这些键放在 `extensions.zominer.*`（Zotero.Prefs 的 global 分支），UniZero
- * 统一收进 `extensions.zotero.unizero.runtime.*`。迁移见 migrateLegacyRuntimePrefs()。
+ * ZoMiner kept these keys under `extensions.zominer.*` (the global branch of
+ * Zotero.Prefs); UniZero collects them under
+ * `extensions.zotero.unizero.runtime.*`. See migrateLegacyRuntimePrefs() for the
+ * migration.
  */
 
 import { config } from "../../package.json";
 
 const PREFIX = `${config.addonRef}.runtime.`;
 
-/** ZoMiner 的旧键前缀。它在 Prefs 的 global 分支上，不在 extensions.zotero.* 下面。 */
+/** ZoMiner's legacy key prefix. It sits on the global Prefs branch, not under extensions.zotero.*. */
 const LEGACY_PREFIX = "extensions.zominer.";
 
 const DEFAULT_PORT = 23300;
 
 export interface RuntimeSettings {
-  /** Python 解释器绝对路径；留空则自动探测。 */
+  /** Absolute path to the Python interpreter; empty means auto-detect. */
   pythonPath: string;
   /**
-   * server.py 绝对路径。**可选**——留空时按 launch.ts 的顺序自动查找已安装的 runtime。
+   * Absolute path to server.py. **Optional** — when empty, launch.ts searches for
+   * an installed runtime in its own order.
    *
-   * 填了就一定用它（含从 ZoMiner 迁移过来、指向旧 paper_service/server.py 的情况）。
+   * When set it is always used, including the migrated-from-ZoMiner case where it
+   * still points at the old paper_service/server.py.
    */
   serverScript: string;
   port: number;
@@ -54,12 +58,15 @@ export function setRuntimePref<K extends keyof RuntimeSettings>(
   Zotero.Prefs.set(PREFIX + name, value as string | number | boolean, true);
 }
 
-/** 端口非法时退回默认值而不是抛错。启动进程和拼 URL 必须用同一个值。 */
+/**
+ * Fall back to the default rather than throwing on an invalid port. Starting the
+ * process and building the URL must use the same value.
+ */
 export function servicePort(): number {
   return parseInt(String(read("port")), 10) || DEFAULT_PORT;
 }
 
-/** runtime 只监听回环地址。 */
+/** The runtime listens only on the loopback address. */
 export function serviceURL(): string {
   return `http://127.0.0.1:${servicePort()}`;
 }
@@ -67,13 +74,15 @@ export function serviceURL(): string {
 const DONE_PREF = `${config.addonRef}.legacyRuntimePrefsMigrated`;
 
 /**
- * 从 ZoMiner 的 `extensions.zominer.*` 搬一次设置。
+ * Migrate settings once from ZoMiner's `extensions.zominer.*`.
  *
- * 和 migrateLegacyPrefs() 分开是因为两者的旧键根本不在同一个 Prefs 分支上：Zoference
- * 的旧键在 `extensions.zotero.<ref>.*`，ZoMiner 的在 `extensions.zominer.*`。合并成
- * 一个函数只会让两边的分支逻辑互相干扰。
+ * Kept separate from migrateLegacyPrefs() because the two sets of legacy keys are
+ * not even on the same Prefs branch: Zoference's live under
+ * `extensions.zotero.<ref>.*`, ZoMiner's under `extensions.zominer.*`. Merging
+ * them into one function would only let the two branch conditions interfere.
  *
- * 只搬用户显式设过的值，且不覆盖新键上已有的用户值——理由同 migrate.ts。
+ * Only values the user explicitly set are moved, and existing user values on the
+ * new keys are never overwritten — same reasoning as migrate.ts.
  */
 export function migrateLegacyRuntimePrefs(): void {
   try {
@@ -82,8 +91,9 @@ export function migrateLegacyRuntimePrefs(): void {
     const branch = (Zotero.Prefs as any).rootBranch;
     const migrated: string[] = [];
 
-    // 键名逐个列出而不是遍历旧分支：ZoMiner 的旧分支里可能还留着已废弃的实验键，
-    // 整支搬过来等于把垃圾一起继承。
+    // Key names are listed one by one rather than walking the legacy branch:
+    // ZoMiner's branch may still hold retired experimental keys, and moving the
+    // whole branch would inherit the junk along with it.
     const names: Array<keyof RuntimeSettings> = [
       "pythonPath", "serverScript", "port", "autoStart", "autoStopOnQuit",
     ];
@@ -110,7 +120,8 @@ export function migrateLegacyRuntimePrefs(): void {
       migrated.push(targetKey);
     }
 
-    // mdSnapshot 属于转换功能而不是 runtime 连接，落到 conversion 命名空间下。
+    // mdSnapshot belongs to the conversion feature, not the runtime connection,
+    // so it lands in the conversion namespace.
     const legacySnapshot = `${LEGACY_PREFIX}mdSnapshot`;
     const snapshotTarget = `extensions.zotero.${config.addonRef}.conversion.mdSnapshot`;
     if (branch.prefHasUserValue(legacySnapshot) &&
@@ -122,7 +133,8 @@ export function migrateLegacyRuntimePrefs(): void {
     Zotero.Prefs.set(DONE_PREF, true);
     ztoolkit.log(`UniZero: migrated ${migrated.length} legacy runtime prefs`, migrated);
   } catch (error) {
-    // 同 migrate.ts：迁移失败不打标记，下次启动重试，绝不拦住插件加载。
+    // As in migrate.ts: a failed migration is not marked done, so the next start
+    // retries it; it must never block the add-on from loading.
     Zotero.logError(error as Error);
   }
 }

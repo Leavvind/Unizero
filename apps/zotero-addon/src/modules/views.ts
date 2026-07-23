@@ -16,8 +16,10 @@ import { readItemPaperIdentifiers } from "./itemIdentifiers";
 const localStorage = new LocalStorge(config.addonRef);
 
 /**
- * 缓存键。带版本号是因为缓存里存的是已解析完的结构化条目，字段一旦扩充，
- * 旧记录会以“看起来完整实则缺字段”的形式静默存活，比缓存未命中更难查。
+ * Cache keys. They carry a version because the cache holds fully resolved
+ * structured entries: once the fields are extended, an old record survives
+ * silently as something that looks complete but is missing fields — harder to
+ * diagnose than a cache miss.
  */
 const CACHE_KEY_REFERENCES = "References-Resolved-v1";
 const CACHE_KEY_CITATIONS = "Citations-v1";
@@ -25,10 +27,12 @@ const CACHE_KEY_CITATIONS = "Citations-v1";
 interface ReferencesCache {
   savedAt: number;
   source: string;
-  /** 存档时的标识符；任一变化都说明旧列表可能不再属于这篇论文。 */
+  /** Identifiers at save time; a change in either means the old list may no
+   *  longer belong to this paper. */
   doi: string;
   semanticScholarPaperId?: string;
-  /** 元数据补全是否已跑完。false 表示这是抢在补全前落的盘，读回来要接着补。 */
+  /** Whether metadata resolution finished. False means this was written ahead of
+   *  resolution and reading it back should continue where it left off. */
   resolved: boolean;
   references: ItemBaseInfo[];
 }
@@ -49,11 +53,12 @@ export default class Views {
   public utils!: Utils;
   private registeredPaneID?: string;
   private registeredCitationsPaneID?: string;
-  /** 区块每次重建都是新 DOM，选中的标签页只能记在实例上才能跨重建保留。 */
+  /** Every section rebuild produces fresh DOM, so the selected tab has to live on
+   *  the instance to survive one. */
   private lastActiveTab: "references" | "citations" = "references";
-  /** 最近一次加载参考文献走的是哪条路，供 UniZeroDebug() 回读。 */
+  /** Which route the last reference load took; read back by UniZeroDebug(). */
   private lastLoadDiagnostic: any = null;
-  /** 同上，Citations 那一路。 */
+  /** The same, for the Citations route. */
   private lastCitationsDiagnostic: any = null;
   constructor() {
     initLocale();
@@ -131,13 +136,15 @@ export default class Views {
             font-weight: 600;
             opacity: 1;
           }
-          /* 不依赖 UA 样式表对 [hidden] 的处理：这个 section 挂在 Zotero 的 XHTML
-             主窗口里，隐藏必须由我们自己的规则说了算，否则切页看着像没反应。 */
+          /* Do not rely on the UA stylesheet's handling of [hidden]: this section
+             lives in Zotero's XHTML main window, so hiding has to be decided by
+             our own rules or switching tabs looks like it did nothing. */
           .zoference-section .reference-tab-pane[hidden],
           .zoference-section .reference-tab-pane.is-hidden {
             display: none !important;
           }
-          /* 面板内状态条：提示贴着触发操作的地方出现，不再飞到屏幕右下角。 */
+          /* In-panel status bar: messages appear next to the action that caused
+             them instead of flying to the bottom-right of the screen. */
           .zoference-section .reference-status {
             display: flex;
             align-items: center;
@@ -165,7 +172,8 @@ export default class Views {
           .zoference-section .reference-status-text {
             flex: 1;
             min-width: 0;
-            /* 状态条是一行高的固定装置：长文案截断，绝不把列表往下顶。 */
+            /* The status bar is a fixture one line tall: long text is truncated
+               and never pushes the list down. */
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -207,15 +215,17 @@ export default class Views {
     targetDocument.documentElement.appendChild(styles);
   }
   /**
-   * 注册阅读侧边栏
+   * Register the reading sidebar section.
    */
   public async onInit(win: Window = window) {
     this.onWindowLoad(win);
-    // 版本号打到日志里：这轮排查最费时间的就是分不清“功能有 bug”还是“装的还是旧包”。
+    // Log the version: the most time-consuming part of this round of debugging was
+    // telling "the feature is broken" apart from "an old build is still installed".
     ztoolkit.log(`${config.addonName} ${version} registering item pane section`);
     (Zotero as any)[`${config.addonInstance}Version`] = version;
-    // 排查用出口：缓存到底存没存、存了谁，靠界面看不出来，逐轮猜太慢。
-    // 在“运行 JavaScript”里调 Zotero.UniZeroDebug() 就能一次看全。
+    // A debugging hatch: whether the cache saved anything and what, is invisible
+    // from the UI, and guessing round by round is slow. Calling
+    // Zotero.UniZeroDebug() from Run JavaScript shows all of it at once.
     (Zotero as any)[`${config.addonInstance}Debug`] = () => ({
       version,
       referencesCacheEnabled: this.isCacheEnabled("saveAPIReferences"),
@@ -271,7 +281,8 @@ export default class Views {
           return;
         }
         if (tabType === "library") {
-          // ZoMiner 参考文献存在附件里，不依赖 Reader，Library 也能完整渲染。
+          // ZoMiner references live in an attachment and need no Reader, so the
+          // library view can render them fully.
           this.renderReferenceSection(body, item, undefined, true);
           return;
         }
@@ -287,12 +298,15 @@ export default class Views {
         if (!panel) { return; }
         const reader = (panel as any)._referenceReader || this.getReaderForBody(body);
         const parentItem = (panel as any)._referenceItem || item;
-        // 自动加载只作用于 Reference 标签页；Citations 等用户真的切过去才拉。
+        // Auto-loading applies to the Reference tab only; Citations waits until
+        // the user actually switches to it.
         const referencesPane = this.getPane(panel, "references");
         setSectionSummary("");
         try {
-          // DOI 直连 / ZoMiner 附件在两种标签页下都能用，不依赖 Reader，所以先统一走
-          // 自动加载；只有这两个源都没有时，才回落到需要 Reader 的 PDF 解析路径。
+          // The direct-DOI route and the ZoMiner attachment both work in either
+          // tab type without a Reader, so auto-loading runs first; only when
+          // neither source exists does it fall back to the PDF parsing path that
+          // does need a Reader.
           await this.autoLoadReferences(referencesPane, parentItem);
           if (tabType === "reader" && reader && referencesPane.getAttribute("isAutoLoaded") !== "true") {
             await this.maybeAutoRefresh(referencesPane, parentItem, reader);
@@ -314,17 +328,21 @@ export default class Views {
     delete (Zotero as any)[`${config.addonInstance}Debug`];
   }
 
-  // ---------------------------------------------------------------- 本地缓存
-  // 参考文献与被引列表都不是每天在变的东西，而重新取一次的代价很不对称：DOI 直连本身
-  // 只是一两个请求，真正贵的是后面逐条补全元数据那上百个模糊匹配请求。所以缓存存的是
-  // **解析完成之后**的结果，命中即整块跳过网络。
+  // ------------------------------------------------------------- Local cache
+  // Neither reference nor citation lists change from day to day, and the cost of
+  // fetching again is very lopsided: the direct-DOI call is one or two requests,
+  // while the expensive part is the hundreds of fuzzy-match requests that resolve
+  // metadata afterwards. So the cache stores the results **after** resolution, and
+  // a hit skips the network entirely.
 
   /**
-   * 开关判据是“没被显式关掉”，而不是“取到了 true”。
+   * The test is "not explicitly turned off" rather than "read back as true".
    *
-   * 插件 prefs.js 只写默认分支：换版本、改默认值、装包时机不对，都可能让 `get` 返回
-   * undefined。那时按“未开启”处理，缓存会整块静默失效——而这正是最难查的一类症状：
-   * 功能代码全对，只是从没被允许运行。
+   * The add-on's prefs.js only writes the default branch, so a version change, a
+   * changed default, or unlucky install timing can all make `get` return
+   * undefined. Treating that as "off" would silently disable the whole cache —
+   * exactly the hardest kind of symptom to trace: the feature code is entirely
+   * correct and simply was never allowed to run.
    */
   private isCacheEnabled(pref: "saveAPIReferences" | "saveCitations"): boolean {
     return Zotero.Prefs.get(`${config.addonRef}.${pref}`) !== false;
@@ -380,14 +398,15 @@ export default class Views {
     );
   }
 
-  /** 用缓存把 Citations 页整个还原（含翻页进度）。命中返回 true。 */
+  /** Restore the whole Citations tab from cache, paging progress included. True on a hit. */
   private restoreCitationsFromCache(pane: HTMLDivElement): boolean {
     if (!this.isCacheEnabled("saveCitations")) { return false; }
     const item = (pane as any)._referenceItem as Zotero.Item;
     if (!item) { return false; }
     const identifiers = readItemPaperIdentifiers(item);
     const cached = localStorage.get(item, CACHE_KEY_CITATIONS) as CitationsCache | undefined;
-    // 任一标识符变了都要失效；否则修正 DOI / Paper ID 后还会继续显示旧论文的列表。
+    // A change in either identifier invalidates the cache; otherwise correcting a
+    // DOI or Paper ID would keep showing the previous paper's list.
     if (!cached?.all?.length ||
         (cached.doi || "").toLowerCase() !== (identifiers.doi || "").toLowerCase() ||
         (cached.semanticScholarPaperId || "").toLowerCase() !==
@@ -406,12 +425,14 @@ export default class Views {
   }
 
   /**
-   * 拉取并渲染“引用本文的论文”。
+   * Fetch and render the papers citing this one.
    *
-   * @param pane   Citations 那个标签页的容器（不是整个 section）——两个标签页里都有
-   *               `#reference-num` 和 `.reference-grid`，作用域必须收窄到本页，
-   *               否则会去改到 Reference 那边的计数和列表。
-   * @param silent 自动渲染时不弹提示，只有手动点刷新才反馈——否则每次展开区块都弹一次。
+   * @param pane   The Citations tab's container, not the whole section: both tabs
+   *               contain `#reference-num` and `.reference-grid`, so the scope has
+   *               to be narrowed to this tab or the Reference tab's count and list
+   *               get modified instead.
+   * @param silent Auto-rendering shows no message and only a manual refresh gives
+   *               feedback; otherwise expanding the section pops one up every time.
    */
   public async refreshCitations(
     pane: HTMLDivElement,
@@ -420,7 +441,7 @@ export default class Views {
   ) {
     const item = (pane as any)._referenceItem as Zotero.Item;
     if (!item) { return; }
-    // 手动点刷新时 useCache=false：那一下的意思就是“我要最新的”。
+    // A manual refresh passes useCache=false: that click means "give me the latest".
     if (useCache && this.restoreCitationsFromCache(pane)) { return; }
     const label = pane.querySelector("#reference-num") as HTMLSpanElement;
     const list = pane.querySelector(".reference-main-list .reference-grid") as HTMLDivElement;
@@ -451,8 +472,9 @@ export default class Views {
     try {
       result = await fetchCitationsByIdentifiers(doi, semanticScholarPaperId);
     } catch (error) {
-      // 之前这里没有 catch：一旦抛异常，计数就永远停在“正在获取引用...”，
-      // 看着像卡死，而真正的原因一个字都不会露出来。
+      // There used to be no catch here: on a throw the count froze forever at
+      // "loading citations…", which looked like a hang while not a word of the
+      // actual reason ever surfaced.
       this.lastCitationsDiagnostic.stage = "threw";
       this.lastCitationsDiagnostic.error = String(error);
       label.innerText = `${getString("citationsbox-number-label")} — ${String(error).slice(0, 80)}`;
@@ -485,8 +507,9 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       return;
     }
 
-    // 翻页状态挂在 pane 上：后续 “加载更多” 要沿用第一页选定的引擎和 filter，
-    // 换引擎会因为两家排序不同而导致条目重复或跳号。
+    // Paging state hangs on the pane: a later "Load more" must reuse the engine
+    // and filter chosen for the first page, since switching engines duplicates or
+    // skips entries because the two order results differently.
     (pane as any)._citationsState = {
       doi,
       semanticScholarPaperId,
@@ -502,7 +525,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       this.appendCitationRows(pane, result.citations);
       this.updateCitationsLabel(pane);
     } catch (error) {
-      // 取到了但渲染不出来，和根本没取到是两码事，必须能区分开。
+      // Fetched but unrenderable is a different problem from never fetched, and
+      // the two have to be distinguishable.
       this.lastCitationsDiagnostic.stage = "render-failed";
       this.lastCitationsDiagnostic.error = String(error);
       label.innerText = `${result.total} ${getString("citationsbox-number-label")} (render failed)`;
@@ -525,7 +549,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     }
   }
 
-  /** “加载更多”：按被引数降序继续往下翻，追加到现有列表末尾。 */
+  /** "Load more": continue paging by descending citation count, appending to the list. */
   private async loadMoreCitations(pane: HTMLDivElement) {
     const state = (pane as any)._citationsState;
     if (!state) { return; }
@@ -550,7 +574,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       this.appendCitationRows(pane, result.citations);
       this.updateCitationsLabel(pane);
       this.setHidden(moreButton, !result.hasMore);
-      // 每翻一页就落盘：翻到第 5 页再重开区块，不该又回到第 1 页。
+      // Persist after every page: reopening the section on page 5 should not send
+      // the user back to page 1.
       this.saveCitationsCache(pane);
     } finally {
       moreButton.style.pointerEvents = "";
@@ -559,10 +584,11 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
   }
 
   /**
-   * 把一页引用渲染成行。
+   * Render one page of citations as rows.
    *
-   * addRow 取的是 `references[refIndex]`，所以必须把累计数组整个传进去、配上全局下标，
-   * 不能只传本页——否则行内交互读到的会是别人的数据。
+   * addRow reads `references[refIndex]`, so the whole accumulated array must be
+   * passed in together with a global index rather than just this page — otherwise
+   * in-row interactions read someone else's data.
    */
   private appendCitationRows(pane: HTMLDivElement, page: ItemBaseInfo[]) {
     const state = (pane as any)._citationsState;
@@ -571,13 +597,14 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     page.forEach((citation, index) => {
       const row = this.addRow(container, state.all, offset + index);
       if (row) {
-        // @ts-ignore addRow 建行时就绑好了，这里显式再绑一次以防 addRow 走了去重分支。
+        // @ts-ignore addRow binds this when it builds the row; rebind explicitly in
+        // case addRow took its deduplication branch.
         row.box.reference = citation;
       }
     });
   }
 
-  /** 计数显示成 “已加载/总数”，让人知道当前只是最重要的前几页而不是全部。 */
+  /** Show the count as "loaded/total", so it is clear this is the top pages, not everything. */
   private updateCitationsLabel(pane: HTMLDivElement) {
     const state = (pane as any)._citationsState;
     const label = pane.querySelector("#reference-num") as HTMLSpanElement;
@@ -605,10 +632,13 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     reader?: _ZoteroTypes.ReaderInstance,
     showReaderControls: boolean = true,
   ) {
-    // onRender 会被 Zotero 反复调用（滚动、面板尺寸变化、条目刷新都可能触发），而
-    // onAsyncRender 不保证跟着一起再跑一次。无条件重建就会出现：列表刚加载好，一次
-    // 多余的 onRender 把 DOM 清空重建，自动加载却不再触发——区块从此空着不动。
-    // 这正是“在库视图里切走再切回来，Reference 消失且不加载”的成因。
+    // Zotero calls onRender repeatedly — scrolling, pane resizing, and item
+    // refreshes can all trigger it — while onAsyncRender is not guaranteed to run
+    // again alongside it. Rebuilding unconditionally produces this: the list has
+    // just loaded, a spare onRender wipes and rebuilds the DOM, auto-loading never
+    // fires again, and the section sits empty from then on. That is exactly the
+    // cause of "switch away and back in the library view, and Reference disappears
+    // and never loads".
     const existing = body.querySelector(".zoference-section") as HTMLDivElement | null;
     if (existing && (existing as any)._referenceItem?.id === item.id) {
       if (reader) { (existing as any)._referenceReader = reader; }
@@ -617,16 +647,18 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
         (pane as any)._referenceItem = item;
         if (reader) { (pane as any)._referenceReader = reader; }
       }
-      // onAsyncRender 未必会再来一次，所以这里补一次自动加载。它自带 isAutoLoaded 闸门，
-      // 已经加载过的不会重复请求。
+      // onAsyncRender may not come round again, so trigger auto-loading here too.
+      // It has its own isAutoLoaded gate, so an already-loaded pane makes no
+      // duplicate requests.
       void this.autoLoadReferences(this.getPane(existing, "references"), item).catch(
         (error) => ztoolkit.log("auto load on re-render failed", error),
       );
       return;
     }
     body.querySelectorAll(".zoference-section").forEach((element) => element.remove());
-    // Zotero 主窗口是 XHTML（XML）文档：createElement 会建出 XUL 元素，且 innerHTML
-    // 走 XML 解析器。必须显式用 XHTML 命名空间建元素。
+    // Zotero's main window is an XHTML (XML) document: createElement produces XUL
+    // elements and innerHTML goes through the XML parser. Elements must be created
+    // in the XHTML namespace explicitly.
     const panel = body.ownerDocument.createElementNS(
       "http://www.w3.org/1999/xhtml",
       "div",
@@ -636,8 +668,9 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     if (reader) {
       (panel as any)._referenceReader = reader;
     }
-    // Reference 和 Citations 合成一个区块的两个标签页：侧栏图标只有一个入口，
-    // 两份数据又总是围绕同一篇论文，分成两个 section 会让侧栏和滚动都变碎。
+    // Reference and Citations are two tabs of one section: the sidebar offers a
+    // single icon, both sets of data always concern the same paper, and splitting
+    // them into two sections would fragment the sidebar and the scroll position.
     panel.innerHTML = showReaderControls ? `
       <div class="reference-tab-pane" data-tab="references">
         <div class="reference-main-list">
@@ -670,18 +703,22 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     panel.querySelectorAll(".reference-button").forEach(
       (element) => this.styleAsButton(element as HTMLElement),
     );
-    // “加载更多”初始不显示：div 没有 hidden 属性的默认样式可依赖，必须显式关掉。
+    // "Load more" starts hidden: a div has no default styling for the hidden
+    // attribute to rely on, so it has to be turned off explicitly.
     this.setHidden(panel.querySelector("#citations-more-button") as HTMLElement, true);
     const referencesPane = this.getPane(panel, "references");
     const citationsPane = this.getPane(panel, "citations");
-    // 两个标签页各自持有条目上下文：refresh* 只认自己那一页，不去翻整个 section。
+    // Each tab holds its own item context: the refresh* methods only look at their
+    // own pane and never search the whole section.
     for (const pane of [referencesPane, citationsPane]) {
       (pane as any)._referenceItem = item;
       if (reader) { (pane as any)._referenceReader = reader; }
     }
 
-    // 切页用事件委托 + 捕获阶段的 mousedown：逐个按钮绑 click 时，只要 Zotero 的
-    // item pane 在冒泡路径上吃掉了 click（或区块被重建导致监听器丢失），点上去就毫无反应。
+    // Tab switching uses delegation plus mousedown in the capture phase: with a
+    // click handler on each button, the tab simply stops responding whenever
+    // Zotero's item pane swallows the click somewhere along the bubble path, or a
+    // section rebuild loses the listener.
     const tabs = panel.querySelector(".reference-tabs") as HTMLDivElement;
     tabs.addEventListener("mousedown", (event: Event) => {
       const button = (event.target as HTMLElement)?.closest(".reference-tab") as HTMLElement | null;
@@ -716,7 +753,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       if (!timer) { return; }
       window.clearTimeout(timer);
       timer = undefined;
-      // 点刷新就是要最新的：local=false 绕过缓存，重新走 DOI 直连并覆盖存档。
+      // Clicking refresh means wanting the latest: local=false bypasses the cache,
+      // re-runs the direct-DOI route, and overwrites what was stored.
       await this.refreshReferences(referencesPane, false);
     });
     refreshButton.addEventListener("mouseleave", () => {
@@ -737,10 +775,11 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
   }
 
   /**
-   * 隐藏/显示。
+   * Hide or show an element.
    *
-   * 同时改属性和内联 display——这个 section 活在 Zotero 的 XHTML 主窗口里，
-   * 单靠 `hidden` 属性会不会生效取决于宿主样式表，不能赌。
+   * Sets both the attribute and inline display: this section lives in Zotero's
+   * XHTML main window, where whether the `hidden` attribute alone takes effect
+   * depends on the host stylesheet, which is not worth betting on.
    */
   private setHidden(element: HTMLElement, hidden: boolean) {
     element.hidden = hidden;
@@ -748,11 +787,12 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
   }
 
   /**
-   * 把 div 打扮成按钮。
+   * Dress a div up as a button.
    *
-   * 区块里所有按钮都是 div：`<button>` 在 Zotero 9 的 item pane 里根本不显示——
-   * 标签栏从 `<button>` 换成 `<div>` 之后立刻可见，就是这么试出来的。同一个原因让
-   * Citations 的“刷新”和“加载更多”也一直是隐形的。
+   * Every button in this section is a div: `<button>` simply does not render in
+   * Zotero 9's item pane — switching the tab bar from `<button>` to `<div>` made it
+   * visible immediately, which is how this was found. The same cause kept
+   * Citations' "Refresh" and "Load more" invisible.
    */
   private styleAsButton(element: HTMLElement) {
     element.style.cssText = [
@@ -770,11 +810,14 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
   }
 
   /**
-   * 建标签栏。
+   * Build the tab bar.
    *
-   * 刻意不走 innerHTML、不用 `<button>`、不依赖注入的样式表——这三样各自都可能是标签栏
-   * 显示不出来的原因（XML 片段解析、宿主对 button 的样式、样式表没落到 item pane），
-   * 逐个排查要好几轮。这里全部换成 DOM API 建 div + 内联样式，把三种可能一次排除掉。
+   * Deliberately avoids innerHTML, `<button>`, and any reliance on the injected
+   * stylesheet — each of the three could on its own explain a tab bar that does not
+   * appear (XML fragment parsing, the host's button styling, a stylesheet that
+   * never reached the item pane), and ruling them out one at a time takes several
+   * rounds. Building divs through the DOM API with inline styles eliminates all
+   * three at once.
    */
   private buildTabBar(panel: HTMLDivElement) {
     const doc = panel.ownerDocument;
@@ -793,7 +836,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       tab.className = "reference-tab";
       tab.dataset.tab = name;
       tab.textContent = getString(name === "references" ? "tab-references-label" : "tab-citations-label")
-        // Fluent 查不到时至少显示个能认的词，而不是一段空白让人以为标签栏没渲染。
+        // When Fluent has no match, show a recognisable word rather than a blank
+        // that looks like the tab bar failed to render.
         || (name === "references" ? "References" : "Citations");
       tab.style.cssText = [
         "flex: 1", "text-align: center", "padding: 4px 8px",
@@ -808,11 +852,14 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
   }
 
   /**
-   * 切换标签页。
+   * Switch tabs.
    *
-   * 隐藏同时改 `hidden` 属性、`is-hidden` 类和内联 display 三处：这个 section 活在
-   * Zotero 的 XHTML 主窗口里，单靠其中任何一处都可能被宿主样式表盖掉，看着就是“点了没反应”。
-   * 选中项记在 `panel.dataset.activeTab` 上，区块重建后能恢复到用户上次看的那页。
+   * Hiding sets all three of the `hidden` attribute, the `is-hidden` class, and
+   * inline display: this section lives in Zotero's XHTML main window, where any one
+   * of them alone can be overridden by the host stylesheet, which looks like a
+   * click that did nothing. The selection is recorded on
+   * `panel.dataset.activeTab` so a section rebuild returns to the tab the user was
+   * last on.
    */
   private selectTab(
     panel: HTMLDivElement,
@@ -824,7 +871,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       const tab = element as HTMLElement;
       const active = tab.dataset.tab === name;
       tab.classList.toggle("active", active);
-      // 选中态也走内联：注入的样式表要是没落到 item pane，两个标签会长得一模一样。
+      // The active state is inline too: if the injected stylesheet never reached
+      // the item pane, both tabs would look identical.
       tab.style.background = active ? "rgb(128 128 128 / 22%)" : "transparent";
       tab.style.fontWeight = active ? "600" : "normal";
       tab.style.opacity = active ? "1" : "0.7";
@@ -840,8 +888,10 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     if (name !== "citations") { return; }
     const citationsPane = this.getPane(panel, "citations");
     if ((citationsPane as any)._citationsState) { return; }
-    // 区块重建后恢复到 Citations 页时只读缓存，不联网：恢复是被动发生的，
-    // 用户并没有要求刷新，换个条目就自动打两个 API 属于白烧配额。
+    // Restoring the Citations tab after a section rebuild reads the cache only and
+    // never the network: restoration happens passively, the user did not ask for a
+    // refresh, and firing two API calls on every item change burns quota for
+    // nothing.
     if (restoring) {
       if (!this.restoreCitationsFromCache(citationsPane)) {
         const label = citationsPane.querySelector("#reference-num") as HTMLSpanElement;
@@ -849,23 +899,25 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       }
       return;
     }
-    // 用户主动切过去才拉数据——多数时候只看参考文献，每次展开区块都顺手打两个 API 是浪费。
+    // Data is fetched only when the user switches here deliberately: most of the
+    // time only references are wanted, and two extra API calls on every expansion
+    // are waste.
     void this.refreshCitations(citationsPane, true).catch(
       (error) => ztoolkit.log("citations lazy load failed", error),
     );
   }
 
-  /** 取某个标签页的容器。找不到时退回 section 本身，让旧调用点不至于直接抛错。 */
+  /** Get a tab's container; falls back to the section itself so older call sites do not throw. */
   private getPane(panel: HTMLDivElement, name: "references" | "citations"): HTMLDivElement {
     return (panel.querySelector(`.reference-tab-pane[data-tab="${name}"]`) as HTMLDivElement) || panel;
   }
 
-  /** Library 视图：条目若已被 ZoMiner 抽取过参考文献，则自动读取附件并渲染。 */
   /**
-   * 展开区块时自动加载参考文献。
+   * Auto-load references when the section is expanded.
    *
-   * 判据是“有没有可用的数据源”，而不是“有没有 ZoMiner 附件”——加了 DOI 直连之后，
-   * 带 DOI 的条目根本不需要附件也能出结果，旧的附件判据会把它们全挡在门外。
+   * The test is whether a usable data source exists, not whether a ZoMiner
+   * attachment does: with the direct-DOI route in place, an item with a DOI needs
+   * no attachment at all, and the old attachment test would shut all of them out.
    */
   private async autoLoadReferences(panel: HTMLDivElement, item: Zotero.Item) {
     if (!item) { return; }
@@ -986,10 +1038,10 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
   }
 
   /**
-   * 刷新推荐相关
-   * @param array 
-   * @param node 
-   * @returns 
+   * Refresh the recommended-related list.
+   * @param array
+   * @param node
+   * @returns
    */
   public refreshRelated(array: ItemBaseInfo[], node: HTMLDivElement) {
     let totalNum = 0
@@ -1059,8 +1111,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     const dests = await _pdfDocument._transport.getDestinations()
     // window.setTimeout(async () => {
     //   dests = await _pdfDocument._transport.getDestinations()
-    //   // 分析href与参考文献对应
-    //   // 统计与参考文献数量一致的引文
+    //   // Work out which href corresponds to which reference.
+    //   // Count the citation groups whose size matches the reference count.
     //   const statistics: any = {}
     //   Object.keys(dests).forEach(key => {
     //     let _key = key.replace(/\d/g, "")
@@ -1069,14 +1121,14 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     //   })
     //   // const totalNum = 36
     //   // let refKey = Object.keys(statistics).find(k => statistics[k] == totalNum)
-    //   // 用最大值概率最大，但是有一定风险
+    //   // The largest group is the most likely, though not without risk.
     //   let refKey = Object.keys(statistics).sort((k1, k2) => statistics[k2]- statistics[k1])[0]
     //   Object.keys(dests).forEach(key => {
     //     if (key.replace(/\d/g, "") == refKey) {
     //       refKeys.push(key)
     //     }
     //   })
-    //   // 根据匹配数字排序
+    //   // Sort by the matched number.
     //   refKeys = refKeys.sort((k1: string, k2: string) => {
     //     let n1 = Number(k1.match(/\d+/)![0])
     //     let n2 = Number(k2.match(/\d+/)![0])
@@ -1123,7 +1175,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
                 await Zotero.Promise.delay(1000)
               }
               // let dest = unescape()
-              // 有报错，#39 
+              // Throws an error; see #39
               _window.secondViewIframeWindow.eval(`PDFViewerApplication
                 .pdfViewer.linkService.goToDestination("${href.slice(1) }")`)
 
@@ -1139,7 +1191,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
               const references = panel.references
               if (!references) { return }
               const [x, y] = dests[href.slice(1)].slice(2, 4)
-              // 确定 refIndex
+              // Determine refIndex
               const distances = references.map((ref: { x: number; y: number }) => (x - ref.x) ** 2 + (y - ref.y) ** 2)
               const minDistance = [...distances].sort((a: number, b: number) => a-b)[0]
               const refIndex = distances.indexOf(minDistance)
@@ -1172,8 +1224,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
   }
 
   /**
-   * 刷新按钮触发
-   * @param local 是否允许从本地读取
+   * Triggered by the refresh button.
+   * @param local whether reading from the local cache is allowed
    * @returns
    */
   public async refreshReferences(panel: HTMLDivElement, local: boolean = true, silent: boolean = false) {
@@ -1190,16 +1242,19 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       throw new Error("Reference panel has no item context");
     }
 
-    // 最优先：本地缓存。参考文献列表定下来就不再变，而重跑一次的代价并不在 DOI 直连本身，
-    // 在于后面逐条补全元数据的上百个请求。local=false（手动刷新）才绕过。
+    // Highest priority: the local cache. A reference list does not change once
+    // settled, and the cost of redoing it is not in the direct-DOI call but in the
+    // hundreds of per-entry metadata requests that follow. Only local=false, i.e. a
+    // manual refresh, bypasses it.
     let fromCache = false
     const cached = local ? this.readReferencesCache(item) : undefined
     this.lastLoadDiagnostic = {
       at: new Date().toLocaleTimeString(),
       itemKey: item.key,
       itemTitle: String(item.getField("title") || "").slice(0, 60),
-      // 库视图和阅读器走的是同一个 refreshReferences，但两边行为不一致，
-      // 所以把上下文一起记下来——差异只可能出在这几个入参上。
+      // The library view and the reader both go through this same
+      // refreshReferences yet behave differently, so record the context too — the
+      // difference can only come from these few arguments.
       context: (panel as any)._referenceReader ? "reader" : "library",
       local, silent,
       cacheEnabled: this.isCacheEnabled("saveAPIReferences"),
@@ -1219,8 +1274,10 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       }
     }
 
-    // DOI 可查 OpenAlex/Crossref/S2；没有 DOI 时，刚补全的 S2 Paper ID 仍可直接查
-    // Semantic Scholar。两者都在时 Paper ID 是 S2 的精确入口，避免 DOI 映射到另一个版本。
+    // A DOI can query OpenAlex, Crossref, and S2; without one, a freshly enriched
+    // S2 Paper ID can still query Semantic Scholar directly. When both exist, the
+    // Paper ID is S2's exact entry point and avoids a DOI mapping to another
+    // version of the paper.
     const identifiers = readItemPaperIdentifiers(item)
     const itemDOI = identifiers.doi || ""
     const semanticScholarPaperId = identifiers.semanticScholarPaperId || ""
@@ -1233,8 +1290,9 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
         : itemDOI ? "DOI" : "Semantic Scholar Paper ID"
       popupWin?.createLine({ text: `Request references by ${lookupLabel}...`, type: "default" }).show()
       const result = await fetchReferencesByIdentifiers(itemDOI, semanticScholarPaperId)
-      // 三家各自返回了多少，悬停在计数上就能看到——条数偏少时才分得清是
-      // “这篇本来就引得少” 还是 “覆盖最全的那家挂了”。
+      // Hovering the count shows how many each of the three returned — which is
+      // what distinguishes "this paper simply cites little" from "the source with
+      // the best coverage failed" when the list looks short.
       this.lastLoadDiagnostic.engines = { ...referencesDiagnostics }
       label.title = [
         `OpenAlex: ${referencesDiagnostics.openAlex}`,
@@ -1271,13 +1329,15 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       popupWin?.startCloseTimer(3000)
     }
 
-    // 回退数据源：ZoMiner 抽取的参考文献（JSON 附件）。纯抽取工件 → 本地解析补全标题/作者。
+    // Fallback source: references extracted by ZoMiner into a JSON attachment. A
+    // pure extraction artifact, so title and authors come from local parsing.
     const zomRefs = references ? null : await readZoMinerReferences(item)
     if (zomRefs) {
       references = zomRefs.map((ref) => {
-        // ZoMiner 只给 raw 引文；标题/作者/年份先用本地解析补全（后续再由
-        // Crossref/OpenAlex 覆盖）。注意 ref 自带空的 title/authors 占位，
-        // 不能让它覆盖掉刚解析出来的结果。
+        // ZoMiner supplies only the raw citation; title, authors, and year come
+        // from local parsing first and are overwritten later by Crossref or
+        // OpenAlex. Note that ref carries empty title/authors placeholders, which
+        // must not overwrite what was just parsed.
         const parsed = this.utils.refText2Info(ref.text!)
         return {
           ...parsed,
@@ -1289,8 +1349,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
         }
       })
       panel.setAttribute("source", "ZoMiner");
-      // 自动加载（每次展开区块都会触发）不弹提示，否则点一次弹一次很吵；
-      // 只有手动点刷新才反馈。
+      // Auto-loading fires on every section expansion and shows no message, since
+      // one popup per click would be noisy; only a manual refresh gives feedback.
       if (!silent) {
         (new PanelStatus("[ZoMiner]"))
           .createLine({ text: `${references.length} references`, type: "success" })
@@ -1316,36 +1376,48 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     label.innerText = `${referenceNum} ${getString("relatedbox-number-label")}`;
 
     const source = panel.getAttribute("source") || "API";
-    // 先落一份未补全的盘。补全一批上百条要跑几十秒，而在库视图里点着条目一个个看是常态——
-    // 只在补全完成后才写缓存，等于最常见的路径下永远写不上，看着就是“缓存没生效”。
+    // Save an unresolved copy first. Resolving a batch of hundreds takes tens of
+    // seconds, while clicking through items one at a time in the library view is
+    // normal — writing the cache only after resolution completes would mean it is
+    // never written on the most common path, which looks like "the cache does
+    // nothing".
     if (!fromCache) {
       this.saveReferencesCache(item, source, finalReferences, false);
     }
-    // 缓存里已经是补全过的就到此为止；半成品缓存要接着把剩下的补完再覆盖。
+    // A cache entry that is already resolved is the end of it; a half-finished one
+    // continues with the remainder and then overwrites.
     if (fromCache && cached?.resolved) { return; }
-    // 不 await：阻塞会让区块一直空着；解析完一条就地更新一条。
+    // Not awaited: blocking would leave the section empty; each entry updates in
+    // place as it resolves.
     this.resolveReferences(panel, finalReferences)
-      // 只有整批都真的问到了 API 才标 resolved。有条目因为限流/断网没查成时保持
-      // 半成品状态，下次展开还会把剩下的补完——否则一次 429 就被永久固化。
+      // Marked resolved only when the whole batch really reached the API. If some
+      // entries failed to throttling or a dropped connection, it stays
+      // half-finished and the next expansion completes the rest — otherwise a
+      // single 429 would be frozen in permanently.
       .then((complete) => this.saveReferencesCache(item, source, finalReferences, complete))
       .catch((error) => ztoolkit.log("resolve references failed", error));
   }
 
   /**
-   * 用 Crossref/OpenAlex 把 raw 引文补成结构化元数据（DOI/标题/作者/期刊/年份/摘要/被引数）。
+   * Use Crossref and OpenAlex to turn raw citations into structured metadata:
+   * DOI, title, authors, venue, year, abstract, and citation count.
    *
-   * 直接原地改写 reference 对象：addRow 里的 `box.reference` 与这里指向同一个对象，
-   * 而悬浮窗和 “+” 导入都是在交互发生时才去读它，所以补完即生效，不用重建行。
-   * 这也是 “+” 能用起来的关键——它以 identifiers.DOI 为前提，而 raw 引文里通常没有 DOI。
+   * The reference objects are rewritten in place: `box.reference` in addRow points
+   * at the same object, and both the tooltip and the "+" import read it only when
+   * the interaction happens, so a completed lookup takes effect without rebuilding
+   * the row. That is also what makes "+" usable at all — it requires
+   * identifiers.DOI, and a raw citation usually has no DOI.
    */
   private async resolveReferences(panel: HTMLDivElement, references: ItemBaseInfo[]): Promise<boolean> {
     const pending = references
       .map((reference, index) => ({ reference, index }))
-      // 判据是“有没有标题”，不是“有没有 DOI”：
-      //   - 已有标题的（OpenAlex/S2 直连回来的）本来就是结构化的，再跑一轮模糊匹配
-      //     纯属浪费请求，还可能把对的覆盖成错的；
-      //   - Crossref 的 reference 里有不少是“只有 DOI 没有任何文字”的条目，那种必须
-      //     解析，否则列表里就是一行空白。resolveOne 见到 DOI 会走权威查询而非模糊匹配。
+      // The test is whether a title exists, not whether a DOI does:
+      //   - entries that already have one (returned directly by OpenAlex or S2) are
+      //     structured already, so another fuzzy-match round wastes requests and
+      //     could overwrite something correct with something wrong;
+      //   - Crossref references often contain entries with a DOI and no text at
+      //     all, which must be resolved or the list shows a blank line. Given a
+      //     DOI, resolveOne takes the authoritative lookup, not fuzzy matching.
       .filter(({ reference }) => !reference.title && (reference.text || reference.identifiers?.DOI));
     if (!pending.length) { return true; }
     const label = panel.querySelector("#reference-num") as HTMLSpanElement | null;
@@ -1362,9 +1434,11 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
         done += 1;
         const { reference } = pending[position];
         if (info) {
-          // 低置信结果是“猜的”，只允许参与展示。写 identifiers 就等于把它送进 “+”
-          // 的导入路径，而那条路会直接按 DOI 建条目——猜错就是导进一篇错的论文。
-          // 标题同理不能落库：没有 DOI 时导入会拿标题反查 DOI，一样会导错。
+          // A low-confidence result is a guess and may only be displayed. Writing
+          // identifiers would feed it into the "+" import path, which creates an
+          // item straight from the DOI — a wrong guess imports the wrong paper.
+          // The title must not be stored either: without a DOI, import looks one
+          // up from the title, with the same result.
           if (info.lowConfidence) {
             reference.lowConfidence = true;
             reference.abstract = info.abstract || reference.abstract;
@@ -1386,8 +1460,10 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
           reference.citations = info.citations ?? reference.citations;
           reference.url = info.url || reference.url;
           reference.source = info.source || reference.source;
-          // Crossref 常给出“只有 DOI 没有任何文字”的引用条目，建行时只能先摆一个
-          // 占位串。解析出真正的书目信息后要把那一行就地换掉，否则列表里永远是 DOI。
+          // Crossref often returns reference entries with a DOI and no text, so
+          // the row is built with a placeholder. Once the real bibliographic data
+          // resolves, that row has to be replaced in place, or the list shows the
+          // DOI forever.
           if (reference._placeholderText && info.title) {
             reference.text = [
               reference.authors?.length ? reference.authors.slice(0, 3).join(", ") : undefined,
@@ -1408,7 +1484,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     return failed === 0;
   }
 
-  /** 把某条 reference 对应的那一行文字换成最新的 text（行与对象通过 box.reference 关联）。 */
+  /** Replace a reference's row text with its current text; rows link to objects via box.reference. */
   private updateRowLabel(panel: HTMLDivElement, reference: ItemBaseInfo) {
     const boxes = [...panel.querySelectorAll(".reference-main-list .box")] as any[];
     const box = boxes.find((node) => node.reference === reference);
@@ -1499,7 +1575,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     }
     const sourceConfig = {
       arXiv: { color: "#b31b1b", tip: "arXiv is a free distribution service and an open-access archive for 2,186,475 scholarly articles in the fields of physics, mathematics, computer science, quantitative biology, quantitative finance, statistics, electrical engineering and systems science, and economics. Materials on this site are not peer-reviewed by arXiv." },
-      readpaper: { color: "#1f71e0", tip: "论文阅读平台ReadPaper共收录近2亿篇论文、2.7亿位作者、近3万所高校及研究机构，几乎涵盖了全人类所有学科。科研工作离不开论文的帮助，如何读懂论文，读好论文，这本身就是一个很大的命题，我们的使命是：“让天下没有难读的论文”" },
+      readpaper: { color: "#1f71e0", tip: "ReadPaper is a paper-reading platform indexing close to 200 million papers, 270 million authors, and nearly 30,000 universities and research institutions, covering virtually every academic discipline. Its stated mission is to make no paper hard to read." },
       semanticscholar: { color: "#1857b6", tip: "Semantic Scholar is an artificial intelligence–powered research tool for scientific literature developed at the Allen Institute for AI and publicly released in November 2015. It uses advances in natural language processing to provide summaries for scholarly papers. The Semantic Scholar team is actively researching the use of artificial-intelligence in natural language processing, machine learning, Human-Computer interaction, and information retrieval." },
       crossref: { color: "#89bf04", tip: "Crossref is a nonprofit association of approximately 2,000 voting member publishers who represent 4,300 societies and publishers, including both commercial and nonprofit organizations. Crossref includes publishers with varied business models, including those with both open access and subscription policies." },
       connectedpapers: { color: "#35999a", tip: "Connected Papers is a visual tool to help researchers and applied scientists find academic papers relevant to their field of work."},
@@ -1507,7 +1583,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       Zotero: { color: "#d63b3b", tip: "Zotero is a free, easy-to-use tool to help you collect, organize, cite, and share your research sources." }
     }
     for (let i = 0; i < coroutines.length; i++) {
-      // 不阻塞
+      // Non-blocking
       window.setTimeout(async () => {
         let info = await coroutines[i]
         if (!info) { return }
@@ -1519,9 +1595,9 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
             return { color: tagDefaultColor, text: tag }
           }
         }) as any || []
-        // 展示当前数据源tag
+        // Show a tag for the current data source
         if (info.source) { tags.push({ text: info.source, ...sourceConfig[info.source as keyof typeof sourceConfig], source: info.source }) }
-        // 展示可点击跳转链接tag
+        // Show clickable link tags
         if (info.identifiers.DOI) {
           let DOI = info.identifiers.DOI
           tags.push({ text: "DOI", color: sourceConfig.DOI.color, tip: DOI, url: info.url })
@@ -1531,10 +1607,10 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
           tags.push({ text: "arXiv", color: sourceConfig.arXiv.color, tip: arXiv, url: info.url })
         }
         if (reference._item) {
-          // 用本地Item更新数据
+          // Update from the local item
           tags.push({ text: "Zotero", color: sourceConfig.Zotero.color, tip: sourceConfig.Zotero.tip, item: reference._item })
         }
-        // 添加
+        // Add
         tipUI.addTip(
           this.utils.Html2Text(info.title!)!,
           tags,
@@ -1548,7 +1624,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
           according,
           i,
           prefIndex,
-          // 标题即链接：DOI 优先（能落到出版商正式页），退而求其次用数据源自带的 url。
+          // The title is the link: the DOI wins, since it lands on the publisher's
+          // official page; otherwise use whatever url the source supplied.
           info.identifiers.DOI
             ? `https://doi.org/${info.identifiers.DOI}`
             : (info.url || this.utils.identifiers2URL(info.identifiers) || undefined)
@@ -1566,27 +1643,27 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       notInLibarayOpacity = 1
     }
     let reference = references[refIndex]
-    // 非阻塞搜索
+    // Non-blocking search
     let refText: string
     if (addPrefix) {
       refText = `[${reference?.number || (refIndex + 1)}] ${reference.text}`
     } else {
       refText = reference.text!
     }
-    // 避免重复添加
+    // Avoid adding a duplicate row
     let toText = (s: string) => s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "") 
     if (
       [...node.querySelectorAll(".box label")].find((e: any) => toText(e.innerText) == toText(refText))
     ) {
       return
     }
-    // id描述
+    // Identifier description
     let idText = (
       reference.identifiers
       && Object.values(reference.identifiers).length > 0
       && Object.keys(reference.identifiers)[0] + ": " + Object.values(reference.identifiers)[0]
     ) || "Reference"
-    // 当前item
+    // Current item
     const contextPanel = node.closest(".zoference-section") as any
     let item = contextPanel?._referenceItem || this.utils.getItem()!
     let editTimer: number | undefined
@@ -1609,7 +1686,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
             listener: async (event: any) => {
               event.preventDefault()
               event.stopPropagation()
-              // ctrl点击跳转本地item/url
+              // ctrl-click jumps to the local item or the url
               if (event.ctrlKey || event.metaKey) {
                 window.clearTimeout(editTimer)
                 if (reference._item) {
@@ -1737,13 +1814,13 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       textarea.focus()
       label.parentNode!.insertBefore(textarea, label)
       let exitEdit = async () => {
-        // 界面恢复
+        // Restore the UI
         let inputText = textarea.value
         if (!inputText) { return }
         label.style.display = ""
         // textbox.style.display = "none"
         textarea.remove()
-        // 保存结果
+        // Save the result
         if (inputText == reference.text) { return }
         label.innerText = `[${refIndex + 1}] ${inputText}`;
         references[refIndex] = {
@@ -1825,9 +1902,9 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
         { closeTime: -1, closeOtherProgressWindows: true}))
         .createLine({ text: collapseText(reference.text!), type: "default" })
         .show()
-      // 检查本地
+      // Check the local library
       let refItem = reference._item || await this.utils.searchLibraryItem(reference)
-      // 禁用按钮
+      // Disable the button
       setState()
       if (refItem) {
         popupWin.changeHeadline("Existing Item")
@@ -1836,10 +1913,11 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
         let info: ItemBaseInfo = this.utils.refText2Info(reference.text!);
         // DOI or arXiv
         {
-          // DOI信息补全
+          // Fill in DOI information
           if (Object.keys(reference.identifiers).length == 0) {
-            // 解析层没能可靠地认出这条引文（匹配度低于 MIN_SCORE）。这里再拿那个
-            // 猜出来的标题去反查 DOI，只会把误差放大成一条错误的文库条目。
+            // The resolution layer could not identify this citation reliably (it
+            // scored below MIN_SCORE). Looking a DOI up from that guessed title
+            // would only amplify the error into a wrong library item.
             if (reference.lowConfidence) {
               setState("+");
               popupWin.changeHeadline("Uncertain match")
@@ -1870,7 +1948,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
           }
           // search DOI in local
           try {
-            // 目标文库跟着“正在读的这篇论文”走，而不是左侧栏当前选中的文库。
+            // The target library follows the paper being read, not whichever
+            // library is selected in the left pane.
             refItem = await this.utils.createItemByZotero(
               reference.identifiers,
               (collections || item.getCollections()),
@@ -1922,7 +2001,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
         }
       }, refIndex * 0)
     }
-    // 鼠标进入浮窗展示
+    // Show the tooltip when the mouse enters
     box.addEventListener("mouseenter", () => {
       if (!Zotero.Prefs.get(`${config.addonRef}.isShowTip`)) { return }
       box.classList.add("active")
@@ -1945,7 +2024,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       if (!tipUI) { return }
       const timeout = tipUI.removeTipAfterMillisecond
       tipUI.tipTimer = window.setTimeout(async () => {
-        // 监测是否连续一段时间内无active
+        // Watch for a continuous stretch with nothing active
         for (let i = 0; i < timeout / 2; i++) {
           if (rows.querySelector(".active")) { return }
           await Zotero.Promise.delay(1 / 1000)
@@ -1961,10 +2040,11 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       if (value == "+") {
         if (event.ctrlKey || event.metaKey) {
           let rect = box.getBoundingClientRect()
-          // 构建分类选择
+          // Build the collection picker
           let menuPopup = document.createElementNS("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul", 'menupopup') as XUL.MenuPopup;
           document.querySelector("#browser")!.append(menuPopup);
-          // 只列出当前论文所在文库的分类——列别的文库的分类，选了也存不进去。
+          // List only collections from the current paper's library: picking one
+          // from another library could not be saved anyway.
           let collections = Zotero.Collections.getByLibrary(item.libraryID);
           for (let col of collections) {
             let menuItem = Zotero.Utilities.Internal.createMenuForTarget(
@@ -1997,7 +2077,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     rows.append(box, label);
     let referenceNum = rows.childNodes.length
     if (addSearch && referenceNum && !node.querySelector("#zoference-search")) { this.addSearch(node) }
-    // 高度
+    // Height
     const relatedGrid = node.querySelector(".reference-grid") as HTMLDivElement
     relatedGrid.style.maxHeight = "60vh"
     return {box, label}

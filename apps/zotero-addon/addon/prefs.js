@@ -1,7 +1,7 @@
 pref("extensions.zotero.__addonRef__.enable", true);
 
-// 改名 UniZero 后从旧 addonRef（zoference / zoteroreference）搬过一次设置的标记，
-// 见 src/modules/migrate.ts。
+// Marks the one-time migration of settings from the pre-UniZero addonRefs
+// (zoference / zoteroreference); see src/modules/migrate.ts.
 pref("extensions.zotero.__addonRef__.legacyPrefsMigrated", false);
 
 pref("extensions.zotero.__addonRef__.autoRefresh", false);
@@ -25,30 +25,37 @@ pref("extensions.zotero.__addonRef__.hoverLink", true);
 pref("extensions.zotero.__addonRef__.arXivInfoIndex", 0);
 pref("extensions.zotero.__addonRef__.DOIInfoIndex", 0);
 pref("extensions.zotero.__addonRef__.TitleInfoIndex", 0);
-// 默认开：参考文献本身不变，而重取一次要跑上百个补全请求。
+// On by default: the references themselves never change, while re-fetching them
+// costs hundreds of enrichment requests.
 pref("extensions.zotero.__addonRef__.saveAPIReferences", true);
 pref("extensions.zotero.__addonRef__.saveCitations", true);
 
 pref("extensions.zotero.__addonRef__.notInLibarayOpacity", "1");
 
-// Semantic Scholar API key。匿名调用限到 ~1rps 且常 429；填了 key 配额高得多。
+// Semantic Scholar API key. Anonymous calls are capped near 1 rps and often 429;
+// a key raises the quota considerably.
 pref("extensions.zotero.__addonRef__.semanticScholar.apiKey", "");
 
 
-// ---- Paper runtime（本地 Python 服务）----
-// 从 ZoMiner 的 extensions.zominer.* 搬过一次的标记，见 src/runtime-client/settings.ts。
+// ---- Paper runtime (local Python service) ----
+// Marks the one-time migration from ZoMiner's extensions.zominer.*; see
+// src/runtime-client/settings.ts.
 pref("extensions.zotero.__addonRef__.legacyRuntimePrefsMigrated", false);
 
-// 留空则自动探测：按 PATH 逐个试，选第一个装了 mineru 的解释器。
+// Leave empty to auto-detect: try each interpreter on PATH and take the first one
+// with mineru installed.
 pref("extensions.zotero.__addonRef__.runtime.pythonPath", "");
-// 无默认值：runtime 尚未随插件分发，路径只能由用户指定。
+// No default: the runtime is not shipped with the add-on yet, so only the user can
+// supply this path.
 pref("extensions.zotero.__addonRef__.runtime.serverScript", "");
 pref("extensions.zotero.__addonRef__.runtime.port", 23300);
 pref("extensions.zotero.__addonRef__.runtime.autoStart", true);
-// 只影响插件自己启动的进程；用户手动跑的服务不受关闭 Zotero 影响。
+// Applies only to processes the add-on started itself; a service the user launched
+// manually is unaffected by closing Zotero.
 pref("extensions.zotero.__addonRef__.runtime.autoStopOnQuit", true);
 
-// 除链接式 MD 附件外，再往 Zotero storage 存一份只读副本（随 Zotero 同步）。
+// Alongside the linked MD attachment, keep a read-only copy in Zotero storage so it
+// travels with Zotero sync.
 pref("extensions.zotero.__addonRef__.conversion.mdSnapshot", true);
 
 

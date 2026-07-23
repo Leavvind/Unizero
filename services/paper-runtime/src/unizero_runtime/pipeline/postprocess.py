@@ -340,13 +340,17 @@ _TABLE_BLOCK = re.compile(r"<table\b.*?</table>", re.S | re.I)
 _TABLE_WRAP = re.compile(r"<html><body>\s*(<table\b.*?</table>)\s*</body></html>", re.S | re.I)
 
 
-_TBL_NOTE = "> [!warning] 复杂表格，建议对照原文"
-_TBL_OMIT = "> [!warning] 表格已省略（自动转换不可靠）— 见 PDF"
+_TBL_OMIT = "> [!warning] Table omitted (unreliable auto-conversion) — see PDF"
 _PLINK_RE = re.compile(r"\[p(\d+)\]\((zotero://[^)]+)\)")
+
+# Literal emitted by earlier versions, which annotated in Chinese. Kept verbatim
+# so previously generated Markdown is still recognised; never emitted any more.
+_LEGACY_TBL_NOTE = "> [!warning] 复杂表格，建议对照原文"
 
 # legacy annotation (warning note kept above a garbled HTML table) -> omit now
 _OLD_NOTE_TBL = re.compile(
-    re.escape(_TBL_NOTE) + r"(?P<rest>[^\n]*)\n+<table\b.*?</table>", re.S | re.I)
+    re.escape(_LEGACY_TBL_NOTE) + r"(?P<rest>[^\n]*)\n+<table\b.*?</table>",
+    re.S | re.I)
 
 
 def _omit_line(page: Optional[int], link: str = "") -> str:
@@ -358,8 +362,8 @@ def _omit_line(page: Optional[int], link: str = "") -> str:
 def _tbl_skip_line(page: Optional[int], link: str = "") -> str:
     """table_mode=none: every table is skipped by design (not a failure)."""
     if page is not None:
-        return f"📊 表格略 — 见 PDF p{page}" + (f" ⇱ {link}" if link else "")
-    return "📊 表格略 — 见 PDF"
+        return f"📊 Table skipped — see PDF p{page}" + (f" ⇱ {link}" if link else "")
+    return "📊 Table skipped — see PDF"
 
 
 def pass_tables(md: str, ctx: PostCtx) -> str:
@@ -584,11 +588,11 @@ def pass_references(md: str, ctx: PostCtx) -> str:
                     page = e["page_idx"] + 1
                 break
 
-    stub = "> References 已省略"
+    stub = "> References omitted"
     if page is not None and ctx.zotero_pdf_uri:
-        stub += f" — 见 PDF p{page} ⇱ [p{page}]({ctx.zotero_pdf_uri}?page={page})"
+        stub += f" — see PDF p{page} ⇱ [p{page}]({ctx.zotero_pdf_uri}?page={page})"
     elif page is not None:
-        stub += f" — 见 PDF p{page}"
+        stub += f" — see PDF p{page}"
 
     ctx.log(f"[references] removed {end - start} line(s)"
             + (f" (starts p{page})" if page else ""))

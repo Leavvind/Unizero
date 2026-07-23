@@ -101,9 +101,10 @@
   </groupbox>
 
   <!--
-    以下两组没有 preference= 绑定，改由 src/modules/prefs.ts 通过 getRuntimePref /
-    setRuntimePref 读写。这些键有类型（port 是整数）且已经有一套带类型的访问器，
-    再挂一条声明式写路径等于给同一批键开第二个写入口。
+    The two groups below have no preference= binding; src/modules/prefs.ts reads and
+    writes them through getRuntimePref / setRuntimePref instead. These keys are typed
+    (port is an integer) and already have typed accessors, so adding a declarative
+    write path would open a second way to write the same keys.
   -->
   <groupbox>
     <html:h2 data-l10n-id="caption-runtime"></html:h2>

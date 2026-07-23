@@ -150,8 +150,10 @@ class ZoMinerApplication:
                 return
             raise ServiceError(
                 "output_base_not_configured",
-                "Publish 目标目录是相对路径，但未配置默认输出基目录；"
-                "请在设置中填写基目录，或在模板 Publish 中使用绝对路径",
+                "The Publish destination is a relative path but no default "
+                "output base directory is configured; set a base directory in "
+                "settings, or use an absolute path in the template's Publish "
+                "module",
             )
 
     def _publish_directories(self, cfg: dict) -> list[Path]:
@@ -182,8 +184,9 @@ class ZoMinerApplication:
         if not directories:
             raise ServiceError(
                 "publish_destination_not_configured",
-                "没有可解析的 Publish 目录；请设置默认输出基目录，"
-                "或在模板 Publish 中使用绝对路径",
+                "No Publish directory could be resolved; set a default output "
+                "base directory, or use an absolute path in the template's "
+                "Publish module",
             )
         return directories
 
@@ -413,7 +416,7 @@ class ZoMinerApplication:
         if not routed_any:
             raise ServiceError(
                 "markdown_not_found",
-                f"no MD for citekey {citekey} — 先生成论文 MD",
+                f"no MD for citekey {citekey} — generate the paper MD first",
                 status_code=404,
             )
         return total

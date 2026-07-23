@@ -1,25 +1,31 @@
 /**
  * Paper runtime HTTP contract, v1.
  *
- * 这些类型描述的是 add-on 和 Python runtime 之间那条 localhost HTTP 边界，来源是
- * ZoMiner `paper_service/api.py` 当前实现的 `/api/v1`。它们是**契约**，不是内部模型：
- * 字段名保持服务端的 snake_case，不做“顺手美化”——改一个名字就等于换一个协议版本。
+ * These types describe the localhost HTTP boundary between the add-on and the
+ * Python runtime, taken from the `/api/v1` that ZoMiner's `paper_service/api.py`
+ * implements today. They are a **contract**, not an internal model: field names
+ * keep the server's snake_case and are never "tidied up in passing" — renaming one
+ * is the same as changing the protocol version.
  *
- * 长期归属是 packages/contracts（见 docs/PROJECT_STRUCTURE.md）。在把 schema 抽成语言
- * 中立定义之前，这里是 TypeScript 侧的唯一事实来源。
+ * Their long-term home is packages/contracts (see docs/PROJECT_STRUCTURE.md).
+ * Until the schema is extracted into a language-neutral definition, this file is
+ * the single source of truth on the TypeScript side.
  *
- * ⚠ **本文件是 `services/paper-runtime/src/unizero_runtime/contracts.py` 的手工镜像。**
- * 改任一侧必须同改另一侧。两边各自类型检查都是绿的——因为它们各自自洽——所以漂移只会
- * 在用户点下按钮的那一刻以 4xx 的形式暴露。Python 侧至少有 `tests/test_api_contract.py`
- * 把形状钉住，TS 侧没有等价物，这条注释就是它的替代品。
+ * ⚠ **This file is a hand-maintained mirror of
+ * `services/paper-runtime/src/unizero_runtime/contracts.py`.** A change on either
+ * side requires the same change on the other. Both sides type-check green on their
+ * own — because each is internally consistent — so drift only surfaces as a 4xx at
+ * the moment the user clicks the button. The Python side at least has
+ * `tests/test_api_contract.py` pinning the shape; the TS side has no equivalent,
+ * and this comment stands in for it.
  */
 
-/** 契约主版本。与服务端 `/health` 的 `api_version` 必须精确相等。 */
+/** Contract major version. Must equal the server's `/health` `api_version` exactly. */
 export const API_VERSION = "1";
 
 export const API_PREFIX = `/api/v${API_VERSION}`;
 
-/** 插件正常工作所必需的服务端能力；缺任何一个都直接判为不兼容。 */
+/** Server capabilities the add-on requires; a missing one means incompatible. */
 export const REQUIRED_CAPABILITIES = ["convert", "annotate", "jobs"] as const;
 
 export interface HealthResponse {
@@ -43,7 +49,7 @@ export interface TemplateSummary {
   version: number;
   description: string;
   builtin: boolean;
-  /** 用户覆盖了同 ID 的内置模板时为 true。 */
+  /** True when the user overrides a built-in template with the same ID. */
   customized: boolean;
   stages: string[];
   modules: unknown[];
@@ -90,10 +96,12 @@ export interface ConvertOptionsPatch {
 }
 
 /**
- * 转换请求。
+ * Conversion request.
  *
- * `pdf_path` 是 Zotero 附件在本机文件系统上的绝对路径——runtime 是独立进程，读不到
- * Zotero 的存储抽象，只能靠路径。这也是为什么这条边界只在 localhost 上成立。
+ * `pdf_path` is the Zotero attachment's absolute path on the local filesystem —
+ * the runtime is a separate process with no access to Zotero's storage
+ * abstraction, so a path is all it can use. That is also why this boundary only
+ * holds on localhost.
  */
 export interface ConvertRequest {
   pdf_path: string;
@@ -110,14 +118,14 @@ export interface ConvertRequest {
   /** Kept for compatibility with the original v1 endpoint. */
   workflow?: string;
   options?: ConvertOptionsPatch;
-  /** 独立附件（没有父条目）时缺省。 */
+  /** Absent for a standalone attachment, which has no parent item. */
   item_key?: string;
   title?: string;
   doi?: string;
   publication?: string;
   year?: string;
   authors?: string[];
-  /** 由 Better BibTeX 提供，未安装时缺省。 */
+  /** Supplied by Better BibTeX; absent when it is not installed. */
   citekey?: string;
 }
 
@@ -144,8 +152,9 @@ export interface JobState {
 }
 
 /**
- * 抽取工件：原始引文串 + 定位信息，不含解析后的元数据。
- * 标题/作者/年份的解析由 add-on 侧的 providers 完成，见 src/modules/zomReferences.ts。
+ * Extraction artifact: the raw citation string plus locating information, with no
+ * resolved metadata. Title/author/year resolution happens in the add-on's
+ * providers; see src/modules/zomReferences.ts.
  */
 export interface ExtractedReference {
   raw?: string;
@@ -177,14 +186,14 @@ export interface AnnotateResponse {
   md_path: string;
   injected: number;
   total: number;
-  /** 上一轮已经注入过、这次跳过的数量。注入是幂等的。 */
+  /** How many were injected in an earlier round and skipped here. Injection is idempotent. */
   already: number;
-  /** 在 Markdown 里找不到对应位置的批注。 */
+  /** Annotations with no matching location in the Markdown. */
   skipped: unknown[];
   unrouted: number;
 }
 
-/** 服务端统一错误体。 */
+/** The server's uniform error body. */
 export interface RuntimeErrorBody {
   error?: {
     code?: string;

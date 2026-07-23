@@ -1,14 +1,17 @@
 /**
- * 面板内状态条。
+ * In-panel status bar.
  *
- * 原先所有状态提示都走 Zotero 的 ProgressWindow，堆在主窗口右下角：操作发生在
- * 侧栏，反馈却出现在屏幕另一头，视线要来回跳，多条并发时还会盖住条目列表。
- * 这里把状态提示搬回 Reference 区块自己的顶部，紧贴标签栏下方。
+ * Every status message used to go through Zotero's ProgressWindow, stacking in the
+ * bottom-right of the main window: the action happened in the sidebar while the
+ * feedback appeared at the other end of the screen, forcing the eye back and
+ * forth, and several at once covered the item list. Status messages now sit at the
+ * top of the Reference section itself, just below the tab bar.
  *
- * 对外刻意保持和 ProgressWindowHelper 一样的链式 API（createLine / changeLine /
- * changeHeadline / show / startCloseTimer），调用点只需要换构造函数。
- * 找不到可见面板时（比如库视图里没展开区块）自动退回 ProgressWindow，
- * 否则提示会静默丢失。
+ * The public API deliberately mirrors ProgressWindowHelper's chained calls
+ * (createLine / changeLine / changeHeadline / show / startCloseTimer), so call
+ * sites only swap the constructor. With no visible panel — in the library view
+ * with the section collapsed, say — it falls back to ProgressWindow automatically,
+ * because otherwise the message would be silently lost.
  */
 
 const NS_XHTML = "http://www.w3.org/1999/xhtml";
@@ -31,13 +34,14 @@ interface StatusOptions {
   closeOtherProgressWindows?: boolean;
 }
 
-/** 取当前真正显示在用户眼前的那个 Reference 区块。 */
+/** Get the Reference section actually visible to the user right now. */
 function findVisiblePanel(win?: Window): HTMLElement | undefined {
   const doc = (win ?? (Zotero as any).getMainWindow?.())?.document
     ?? (typeof document !== "undefined" ? document : undefined);
   if (!doc) { return; }
   const panels = [...doc.querySelectorAll(".zoference-section")] as HTMLElement[];
-  // offsetParent 为 null 表示挂在隐藏的标签页里（阅读器每个 tab 各有一份 item pane）。
+  // A null offsetParent means it lives in a hidden tab; the reader gives every tab
+  // its own item pane.
   return panels.find((panel) => panel.isConnected && panel.offsetParent !== null)
     ?? panels.find((panel) => panel.isConnected);
 }
@@ -48,7 +52,10 @@ function create(doc: Document, tag: string, className?: string): HTMLElement {
   return element;
 }
 
-/** 状态条按需创建：区块会被 Zotero 反复重建，模板里写死反而更容易丢。 */
+/**
+ * The bar is created on demand: Zotero rebuilds the section repeatedly, so baking
+ * it into the template would only make it easier to lose.
+ */
 function ensureBar(panel: HTMLElement): HTMLElement {
   let bar = panel.querySelector(".reference-status") as HTMLElement | null;
   if (bar) { return bar; }
@@ -62,12 +69,13 @@ function ensureBar(panel: HTMLElement): HTMLElement {
   progress.append(create(doc, "div", "reference-status-progress-bar"));
   bar.append(progress);
   const tabs = panel.querySelector(".reference-tabs");
-  // 放在标签栏下方：两个标签页共用一条，切页不会让进行中的提示消失。
+  // Placed below the tab bar: both tabs share one bar, so switching tabs does not
+  // make an in-progress message disappear.
   if (tabs) { tabs.after(bar); } else { panel.prepend(bar); }
   return bar;
 }
 
-/** 当前正在显示的状态条，用来实现 closeOtherProgressWindows / 顶掉旧提示。 */
+/** The status bar currently on screen; backs closeOtherProgressWindows and displacement. */
 let active: PanelStatus | undefined;
 
 export class PanelStatus {
@@ -105,7 +113,8 @@ export class PanelStatus {
   show(closeTime?: number): this {
     const panel = findVisiblePanel(this.options.window);
     if (!panel) {
-      // 没有可见面板就退回原来的右下角弹窗，总比什么都不提示强。
+      // With no visible panel, fall back to the old bottom-right popup — better
+      // than showing nothing at all.
       this.fallback = new ztoolkit.ProgressWindow(this.headline, this.options);
       this.fallback.createLine(this.line).show(closeTime);
       return this;
@@ -113,7 +122,8 @@ export class PanelStatus {
     this.shown = true;
     this.claim(panel);
     const timeout = closeTime ?? this.options.closeTime ?? DEFAULT_CLOSE_TIME;
-    // closeTime <= 0 是“我自己管关闭”的约定（长任务用），沿用 ProgressWindow 的语义。
+    // closeTime <= 0 is the "I will close it myself" convention used by long
+    // tasks, carried over from ProgressWindow's semantics.
     if (timeout > 0) { this.startCloseTimer(timeout); }
     return this;
   }
@@ -130,7 +140,7 @@ export class PanelStatus {
     return this;
   }
 
-  /** 被别的提示顶掉：让出状态条，但保留“还活着”的身份。 */
+  /** Displaced by another message: give up the bar but stay alive. */
   private displace(): void {
     this.clearTimer();
     if (active === this) { active = undefined; }
@@ -146,7 +156,8 @@ export class PanelStatus {
       return;
     }
     if (active === this) { active = undefined; }
-    // 只在这条提示仍是自己渲染的内容时才收起，避免关掉别人刚写上去的提示。
+    // Only tear down while the bar still shows our own content, so we never close
+    // a message someone else just wrote.
     if (this.bar && (this.bar as any)._owner === this) {
       this.bar.remove();
     }
@@ -159,9 +170,10 @@ export class PanelStatus {
     this.closeTimer = undefined;
   }
 
-  /** 占用当前面板的状态条，顶掉上一条提示。 */
+  /** Take over the current panel's status bar, displacing the previous message. */
   private claim(panel: HTMLElement) {
-    // 顶掉别人时用 displace：对方若是仍在跑的长任务，后续消息还能抢回状态条。
+    // Displace rather than close: if the other message belongs to a long task
+    // still running, its later updates can reclaim the bar.
     if (active && active !== this) { active.displace(); }
     active = this;
     this.bar = ensureBar(panel);
@@ -169,8 +181,9 @@ export class PanelStatus {
   }
 
   private render() {
-    // 区块被 Zotero 重建（切条目、刷新列表）后原来的状态条就没了；长任务
-    // 后续的 changeLine 得能重新贴回去，否则“进行中”会中途哑掉、再无结果提示。
+    // Once Zotero rebuilds the section — on item switch or list refresh — the old
+    // bar is gone; a long task's later changeLine calls must be able to reattach,
+    // or "in progress" goes silent partway and no result is ever shown.
     if (this.shown && !this.fallback && !this.bar?.isConnected) {
       const panel = findVisiblePanel(this.options.window);
       if (panel) { this.claim(panel); return; }
@@ -195,13 +208,14 @@ export class PanelStatus {
 }
 
 /**
- * 建一条面板内状态提示。与 `new ztoolkit.ProgressWindow(...)` 调用方式一致。
+ * Create an in-panel status message. Called exactly like
+ * `new ztoolkit.ProgressWindow(...)`.
  */
 export function status(headline: string, options: StatusOptions = {}): PanelStatus {
   return new PanelStatus(headline, options);
 }
 
-/** 收起当前状态条（对应原来的 `Zotero.ProgressWindowSet.closeAll()`）。 */
+/** Dismiss the current status bar; the counterpart of `Zotero.ProgressWindowSet.closeAll()`. */
 export function closeStatus() {
   active?.close();
 }

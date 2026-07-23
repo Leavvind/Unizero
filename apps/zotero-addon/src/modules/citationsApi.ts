@@ -1,20 +1,28 @@
 /**
- * 引用本文的论文（Citations）。
+ * Papers that cite this one (Citations).
  *
- * 与 referencesApi 是同一枚硬币的两面：那边问“这篇文章引了谁”，这边问“谁引了这篇文章”。
+ * The other side of referencesApi's coin: that module asks who this paper cites,
+ * this one asks who cites this paper.
  *
- * 为什么不能像 references 那样“第一个非空结果胜出”——两个坑，都是实测踩出来的：
+ * Why "first non-empty result wins" — the rule references uses — does not work
+ * here, from two problems both found in practice:
  *
- *   1. **OpenAlex 会把同一篇论文拆成多条 work。** 例：Short- and Long-Horizon Behavioral
- *      Factors 在 OpenAlex 里既有 SSRN 工作论文版（W2779103412，被引 7），又有 RFS 发表版
- *      （W3010918279，被引 1）。条目上挂的是哪个 DOI，就只能看到那一半，于是面板显示
- *      “1 篇引用”。解决办法是按标题把重复 work 找齐，用 `cites:W1|W2` 求并集。
+ *   1. **OpenAlex splits one paper into several works.** For example, "Short- and
+ *      Long-Horizon Behavioral Factors" exists in OpenAlex both as the SSRN working
+ *      paper (W2779103412, cited 7) and as the RFS publication (W3010918279, cited
+ *      1). Whichever DOI the item carries, you see only that half, and the pane
+ *      reports "1 citation". The fix is to gather the duplicate works by title and
+ *      take the union with `cites:W1|W2`.
  *
- *   2. **两家的覆盖率差距可以是数量级的。** 同一篇论文 OpenAlex 并集后是 8，Semantic
- *      Scholar 是 287。谁多谁对（引用只会漏不会凭空多），所以两家都查，取多的那个，
- *      而不是谁先返回用谁。
+ *   2. **Coverage between the two sources can differ by an order of magnitude.**
+ *      For one paper OpenAlex gives 8 after the union while Semantic Scholar gives
+ *      287. The larger number is the right one — citations can be missed but never
+ *      invented — so both are queried and the larger wins, rather than whichever
+ *      answers first.
  *
- * 引用可能上千，全拉既慢又没意义；按被引数降序分页取，默认第一页就是“最重要的 N 篇”。
+ * A paper may have thousands of citations, and fetching all of them is both slow
+ * and pointless; pages are taken in descending citation count, so the first page is
+ * the N most important ones.
  */
 
 import {
@@ -24,7 +32,10 @@ import {
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
 
-/** 最近一次查询里两家各自的下场。UI 上 “0 篇引用” 分不出是没人引用还是两家都挂了。 */
+/**
+ * How each source fared in the last query. In the UI, "0 citations" cannot be told
+ * apart from "both sources failed".
+ */
 export const citationsDiagnostics: {
   doi?: string;
   semanticScholarPaperId?: string;
@@ -33,17 +44,20 @@ export const citationsDiagnostics: {
   semanticScholar?: string;
 } = {};
 
-/** 每页条数。按被引数降序，所以第一页是“最重要的 N 篇”而不是随机 N 篇。 */
+/**
+ * Items per page. Sorted by descending citation count, so the first page is the N
+ * most important papers rather than a random N.
+ */
 export const CITATIONS_PAGE_SIZE = 50;
 
 export interface CitationsResult {
   citations: ItemBaseInfo[];
-  /** 总被引数，通常远大于 citations.length。 */
+  /** Total citation count, usually far larger than citations.length. */
   total: number;
   source: "OpenAlex" | "Semantic Scholar";
-  /** 还有没有下一页，供 UI 决定是否显示“加载更多”。 */
+  /** Whether another page exists, so the UI can decide about "Load more". */
   hasMore: boolean;
-  /** 供翻页复用，省掉再解析一次 DOI→work ID。 */
+  /** Reused when paging, to avoid resolving DOI→work ID a second time. */
   openAlexFilter?: string;
 }
 
@@ -70,7 +84,8 @@ function fromOpenAlexWork(work: any, index: number): ItemBaseInfo {
 }
 
 async function fromOpenAlex(doi: string, page: number): Promise<CitationsResult | null> {
-  // 预印本/发表版是各自独立的 work，被引数分开算，得求并集。见 openAlexCluster.ts。
+  // A preprint and a published version are separate works with separate citation
+  // counts, so take the union. See openAlexCluster.ts.
   const cluster = await resolveOpenAlexCluster(doi);
   if (!cluster.length) { return null; }
   const filter = `cites:${cluster.map((work) => work.id).join("|")}`;
@@ -148,9 +163,10 @@ async function fromSemanticScholar(
 }
 
 /**
- * 取第一页引用。有 DOI 时两家都查；只有 Paper ID 时仍可查 S2。取**总数更大**的
- * 那家——引用只会漏不会凭空多，所以数大的那家覆盖更全。
- * 两家都空返回 null。
+ * Fetch the first page of citations. With a DOI both sources are queried; with
+ * only a Paper ID, S2 still is. The source with the **larger total** wins —
+ * citations can be missed but never invented, so the larger number means better
+ * coverage. Returns null when both come back empty.
  */
 export async function fetchCitationsByIdentifiers(
   rawDOI?: string,
@@ -172,8 +188,9 @@ export async function fetchCitationsByIdentifiers(
       citationsDiagnostics.openAlex = result ? `ok total=${result.total}` : "empty";
       return result;
     }).catch((error) => {
-      // 两家都失败时 UI 只会显示 “0”，和“真的没人引用”长得一模一样。
-      // 把各自的失败原因留在这儿，排查时才有得看。
+      // When both sources fail the UI shows "0", which looks exactly like "nobody
+      // cites this". Keeping each failure reason here is what makes the
+      // difference visible while debugging.
       citationsDiagnostics.openAlex = `error: ${String(error).slice(0, 200)}`;
       ztoolkit.log("[citationsApi] OpenAlex failed", error);
       return null;
@@ -198,12 +215,15 @@ export async function fetchCitationsByIdentifiers(
   return semanticscholar.total > openalex.total ? semanticscholar : openalex;
 }
 
-/** 兼容旧调用点；新 UI 应把条目上的 Semantic Scholar Paper ID 一并传入。 */
+/** Kept for older call sites; new UI should also pass the item's Semantic Scholar Paper ID. */
 export async function fetchCitationsByDOI(rawDOI: string): Promise<CitationsResult | null> {
   return fetchCitationsByIdentifiers(rawDOI);
 }
 
-/** 取后续页。沿用第一页选定的引擎，避免两家排序不同导致翻页时条目错乱或重复。 */
+/**
+ * Fetch a later page, staying with the source the first page chose: the two order
+ * results differently, and switching mid-way would scramble or duplicate entries.
+ */
 export async function fetchCitationsPage(
   rawDOI: string,
   page: number,
@@ -221,7 +241,8 @@ export async function fetchCitationsPage(
         : null;
     }
     if (!doi) { return null; }
-    // 第一页已经算过 work 簇，直接复用 filter，不用再解析一遍。
+    // The first page already computed the work cluster; reuse the filter instead
+    // of resolving it again.
     return openAlexFilter
       ? await fetchOpenAlexPage(openAlexFilter, page)
       : await fromOpenAlex(doi, page);
@@ -231,5 +252,5 @@ export async function fetchCitationsPage(
   }
 }
 
-/** 供设置页显示“key 已配置”状态。 */
+/** Lets the settings pane show whether a key is configured. */
 export { getSemanticScholarKey };

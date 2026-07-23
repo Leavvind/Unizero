@@ -1,13 +1,16 @@
 /**
- * Zotero ↔ paper runtime 的转换适配层。
+ * Conversion adapter between Zotero and the paper runtime.
  *
- * 端口自 ZoMiner `modules/zotero-adapter.js`，行为保持一致。
+ * Ported from ZoMiner's `modules/zotero-adapter.js`, with identical behaviour.
  *
- * 按 AGENTS.md 的约定，adapter 是 add-on 里唯一直接改动 Zotero 条目的地方；功能模块
- * 只描述"要转换什么"，由这里决定怎么落到附件和标签上。
+ * Per AGENTS.md, the adapter is the only place in the add-on that mutates Zotero
+ * items directly; feature modules only describe *what* to convert, and this file
+ * decides how that lands on attachments and tags.
  *
- * 产物的识别与覆盖已经不再依赖附件标题，见 artifactIdentity.ts。这里的标题常量只剩两个
- * 用途：新建产物时的显示名，以及认领迁移前旧产物时的判据。
+ * Recognising and overwriting artifacts no longer depends on attachment titles —
+ * see artifactIdentity.ts. The title constants here have only two remaining uses:
+ * the display name of a new artifact, and the criterion for adopting a
+ * pre-migration one.
  */
 
 import type { ConvertRequest, ExtractedReference, JobResult } from "../runtime-client/contracts";
@@ -19,20 +22,22 @@ import { libraryScope } from "./libraryScope";
 
 const GENERATED_TAG = "MD/generated";
 const MD_ATTACHMENT_TITLE = "ZoMiner MD";
-/** ZoMiner 更早版本用的标题，覆盖旧产物时仍需认得。 */
+/** Title used by earlier ZoMiner versions; still recognised when overwriting. */
 const LEGACY_ATTACHMENT_TITLE = "Academic MD";
-const MD_COPY_ATTACHMENT_TITLE = "ZoMiner MD 副本";
+const MD_COPY_ATTACHMENT_TITLE = "ZoMiner MD Copy";
+/** The Chinese title this add-on used before the interface was unified on English. */
+const LEGACY_MD_COPY_ATTACHMENT_TITLE = "ZoMiner MD 副本";
 const TABLES_ATTACHMENT_TITLE = "ZoMiner Tables";
 const REFS_ATTACHMENT_TITLE = "ZoMiner References";
 const REFS_SCHEMA = "zominer.references/1";
 
 export interface ConversionTarget {
-  /** 独立 PDF 附件没有父条目。 */
+  /** A standalone PDF attachment has no parent item. */
   parent: Zotero.Item | null;
   attachment: Zotero.Item;
-  /** 附件在本机的绝对路径，runtime 靠它读文件。 */
+  /** Absolute local path of the attachment; the runtime reads the file from it. */
   path: string;
-  /** 非主 PDF（补充材料）。影响产物标题后缀。 */
+  /** Not the main PDF (supplementary material). Affects the artifact title suffix. */
   isSupplement: boolean;
 }
 
@@ -47,7 +52,7 @@ function pdfAttachments(item: Zotero.Item): Zotero.Item[] {
   return pdfs;
 }
 
-/** 主 PDF = Zotero 认定的最佳附件；它不是 PDF 时退回第一个 PDF。 */
+/** Main PDF = Zotero's best attachment; falls back to the first PDF if that is not one. */
 async function mainPdfId(
   item: Zotero.Item,
   pdfs: Zotero.Item[],
@@ -59,10 +64,11 @@ async function mainPdfId(
 }
 
 /**
- * 把用户选中的条目摊平成待转换的 PDF 列表。
+ * Flatten the user's selection into the list of PDFs to convert.
  *
- * 选中父条目时会把它下面所有 PDF 都算上（含补充材料），选中附件时只算那一个。
- * 按 attachment.id 去重：同时选中父条目和它的附件是很常见的操作。
+ * Selecting a parent item includes every PDF under it (supplements included);
+ * selecting an attachment includes only that one. Deduplicated by attachment.id,
+ * because selecting both a parent and its attachment is very common.
  */
 export async function conversionTargets(
   items: Zotero.Item[],
@@ -79,7 +85,8 @@ export async function conversionTargets(
         seen.add(attachment.id);
         const path = await attachment.getFilePathAsync();
         if (!path) {
-          // 附件记录在、文件不在（没同步下来或被移动过）。
+          // The attachment record exists but the file does not (never synced
+          // down, or moved).
           ztoolkit.log(`attachment file missing: ${attachment.key}`);
           continue;
         }
@@ -112,7 +119,10 @@ export async function conversionTargets(
   return targets;
 }
 
-/** 把 Zotero 的元数据摊成 runtime 契约要的形状，供模板做 frontmatter 投影。 */
+/**
+ * Flatten Zotero metadata into the shape the runtime contract expects, so
+ * templates can project it into frontmatter.
+ */
 export function conversionPayload(
   target: ConversionTarget,
   templateId: string,
@@ -145,38 +155,43 @@ export function conversionPayload(
       : creator.lastName,
   );
 
-  // Better BibTeX 是可选依赖：装了就用它的 citekey，没装就不带这个字段。
+  // Better BibTeX is an optional dependency: use its citekey when installed,
+  // otherwise omit the field.
   try {
     const key = (Zotero as any).BetterBibTeX?.KeyManager?.get(parent.id);
     if (key && key.citationKey) { payload.citekey = key.citationKey; }
   } catch (error) {
-    // BBT 未安装或还没初始化完。
+    // BBT is not installed, or has not finished initialising.
   }
 
   return payload;
 }
 
 /**
- * 一次产物登记所需的上下文。
+ * Context for registering one round of artifacts.
  *
- * `source` 和 `wasConverted` 都是为了产物标识：前者区分同一条目下由不同 PDF 生成的
- * 同类产物，后者是认领旧产物时唯一的额外证据。
+ * `source` and `wasConverted` both serve artifact identity: the former
+ * distinguishes artifacts of the same kind produced from different PDFs under one
+ * item, the latter is the only extra evidence available when adopting a legacy
+ * artifact.
  */
 interface ArtifactContext {
   parent: Zotero.Item;
-  /** 源 PDF 附件的 key。 */
+  /** Key of the source PDF attachment. */
   source: string;
-  /** 本次转换**之前**这个条目就带着 GENERATED_TAG。 */
+  /** The item already carried GENERATED_TAG *before* this conversion. */
   wasConverted: boolean;
-  /** 多 PDF 时加在产物标题后的来源后缀。 */
+  /** Source suffix appended to artifact titles when an item has several PDFs. */
   suffix: string;
 }
 
 /**
- * 找出迁移前生成、尚未打标签的旧产物。
+ * Find pre-migration artifacts that were generated but never tagged.
  *
- * 只在条目此前就被转换过时才认——否则一个恰好叫 "ZoMiner MD" 的附件就是用户自己的
- * 文件，绝不能碰。这是"同名即删除"那条数据丢失路径被堵住的地方。
+ * Only accepted when the item had been converted before — otherwise an
+ * attachment that merely happens to be called "ZoMiner MD" is the user's own
+ * file and must not be touched. This is where the "same name means delete" data
+ * loss path is blocked.
  */
 function legacyArtifacts(
   context: ArtifactContext,
@@ -194,10 +209,13 @@ function legacyArtifacts(
 }
 
 /**
- * 链接式附件：Zotero 里只存路径，正文留在用户的 Markdown 库里。
+ * Linked attachment: Zotero stores only the path, while the text stays in the
+ * user's Markdown library.
  *
- * 这是"活文档"——用户会继续编辑它，所以绝不能覆盖内容，只维护链接。链接已经指向同一个
- * 文件就什么都不做；指向别处的同一份产物是上一次输出路径的残留，删掉重建。
+ * This is a living document — the user keeps editing it, so the content must
+ * never be overwritten; only the link is maintained. If the link already points
+ * at the same file, do nothing; an artifact of the same kind pointing elsewhere
+ * is a leftover from a previous output path, so delete and recreate it.
  */
 async function attachMarkdown(
   context: ArtifactContext,
@@ -205,7 +223,7 @@ async function attachMarkdown(
 ): Promise<void> {
   const title = MD_ATTACHMENT_TITLE + context.suffix;
   const legacyTitle = LEGACY_ATTACHMENT_TITLE + context.suffix;
-  // Windows 上同一路径可能以 / 或 \ 出现，比较前统一。
+  // On Windows the same path can appear with / or \, so normalise before comparing.
   const normalize = (value: string) => String(value || "").replace(/\//g, "\\");
 
   const candidates = [
@@ -225,12 +243,14 @@ async function attachMarkdown(
     stale.push(attachment);
   }
 
-  // 指向旧路径的同类产物一律清掉。旧实现只删到第一个路径命中为止，会在输出目录变过的
-  // 条目上留下永远清不掉的残链。
+  // Remove every artifact of this kind that points at an old path. The previous
+  // implementation stopped at the first path match, which left permanently
+  // unclearable dead links on items whose output directory had changed.
   for (const attachment of stale) { await attachment.eraseTx(); }
 
   if (current) {
-    // 可能是刚认出来的旧产物，补上标签和记录，下次就不必再靠标题。
+    // This may be a legacy artifact we just recognised: add the tag and record so
+    // the next run does not have to rely on the title.
     if (!isArtifact(current)) {
       await adoptArtifact(current, "markdown", context.source);
     }
@@ -248,8 +268,11 @@ async function attachMarkdown(
 }
 
 /**
- * 单向快照：把文件复制进 Zotero storage（随 Zotero 同步）。
- * Zotero 里的这份视为只读 —— 每次重新转换都会覆盖刷新。
+ * One-way snapshot: copy the file into Zotero storage, where it travels with
+ * Zotero sync. The copy in Zotero is read-only — every re-conversion overwrites it.
+ *
+ * `legacyTitles` names titles this artifact used to be created with, so untagged
+ * copies from older versions are still found and replaced instead of duplicated.
  */
 async function attachImportedCopy(
   context: ArtifactContext,
@@ -257,13 +280,14 @@ async function attachImportedCopy(
   path: string,
   title: string,
   contentType: string,
+  legacyTitles: string[] = [],
 ): Promise<void> {
   const imported = (attachment: Zotero.Item) =>
     !!attachment.isImportedAttachment?.();
 
   const candidates = [
     ...findArtifacts(context.parent, kind, context.source, title),
-    ...legacyArtifacts(context, [title], imported),
+    ...legacyArtifacts(context, [title, ...legacyTitles], imported),
   ];
   for (const attachment of candidates) { await attachment.eraseTx(); }
 
@@ -278,12 +302,15 @@ async function attachImportedCopy(
 }
 
 /**
- * 把抽取到的参考文献写成 JSON 附件（application/json），供 relations 功能离线读取。
+ * Write the extracted references as a JSON attachment (application/json) so the
+ * relations feature can read them offline.
  *
- * 内容是纯抽取工件（raw 引文 + 页码 + DOI/arXiv）；元数据解析由 add-on 的 provider
- * 侧完成，不回写这里。读取端见 src/modules/zomReferences.ts。
+ * The content is a pure extraction artifact (raw citation + page + DOI/arXiv);
+ * metadata resolution happens on the add-on's provider side and is never written
+ * back here. The reader is src/modules/zomReferences.ts.
  *
- * 计划是让转换 job 直接投递这些数据（见 docs/ROADMAP.md），届时这个附件降级为兼容产物。
+ * The plan is for the conversion job to deliver this data directly (see
+ * docs/ROADMAP.md), at which point this attachment becomes a compatibility artifact.
  */
 async function attachReferences(
   context: ArtifactContext,
@@ -298,7 +325,8 @@ async function attachReferences(
   }, null, 2);
 
   const temp = Zotero.getTempDirectory();
-  // 文件名带上源附件 key：同一条目的多个 PDF 并发转换时不能互相踩临时文件。
+  // The filename carries the source attachment key: concurrent conversions of
+  // several PDFs under one item must not clobber each other's temp file.
   temp.append(
     `unizero-references-${context.parent.libraryID}-` +
     `${context.parent.key}-${context.source}.json`,
@@ -311,7 +339,8 @@ async function attachReferences(
       context, "references", path, title, "application/json",
     );
   } finally {
-    // 临时文件必须清掉，哪怕导入失败——它带着完整的参考文献内容。
+    // The temp file must go even if the import failed — it carries the full
+    // reference content.
     try {
       await IOUtils.remove(path, { ignoreAbsent: true });
     } catch (error) {
@@ -321,9 +350,10 @@ async function attachReferences(
 }
 
 /**
- * 转换完成后登记产物。
+ * Register the artifacts once a conversion finishes.
  *
- * 每类产物都各自 try/catch：表格导出失败不该让已经转换好的 Markdown 也挂不上去。
+ * Each kind gets its own try/catch: a failed table export must not stop
+ * already-converted Markdown from being attached.
  */
 export async function markConverted(
   target: ConversionTarget,
@@ -333,8 +363,9 @@ export async function markConverted(
   const parent = target.parent;
   if (!parent) { return; }
 
-  // 必须在 addTag 之前读：加完标签再问就永远是 true，这条证据也就没了。认领旧产物时
-  // 它是"这份同名附件确实是我们生成的"的唯一佐证。
+  // Must be read before addTag: asking after tagging always answers true, which
+  // destroys the evidence. When adopting a legacy artifact it is the only proof
+  // that an identically named attachment really was generated by us.
   const wasConverted = parent.hasTag(GENERATED_TAG);
   parent.addTag(GENERATED_TAG);
   await parent.saveTx();
@@ -356,6 +387,7 @@ export async function markConverted(
         await attachImportedCopy(
           context, "markdown-copy", outcome.md_path,
           MD_COPY_ATTACHMENT_TITLE + context.suffix, "text/markdown",
+          [LEGACY_MD_COPY_ATTACHMENT_TITLE + context.suffix],
         );
       } catch (error) {
         ztoolkit.log(`md snapshot attach failed: ${error}`);

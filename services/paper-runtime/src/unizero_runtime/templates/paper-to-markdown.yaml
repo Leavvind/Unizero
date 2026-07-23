@@ -1,8 +1,8 @@
 schema_version: 1
 id: paper-to-markdown
-name: 生成论文 Markdown
+name: Generate paper Markdown
 version: 1
-description: 使用 MinerU 将 Zotero PDF 转换、清理并发布为 Markdown。
+description: Convert, clean up, and publish a Zotero PDF as Markdown using MinerU.
 modules:
   - id: enrich
     module: enrich.semantic-scholar

@@ -20,9 +20,11 @@ class LocalStorage {
     // The caller passes the add-on name, so preserve the old storage location
     // using nsIFile APIs that are still supported by Zotero.
     this.filename = this.pathFor(filename)
-    // 改名前的缓存分别叫 zoference.json / zoteroreference.json，里面是已抓好的参考文献；
-    // 读不到新文件就按从新到旧的顺序回退，省掉用户对整个文库重跑一遍解析。
-    // 写入始终落到新路径，旧文件留着不动。
+    // Before the rename, the cache was called zoference.json or
+    // zoteroreference.json and held already-fetched references. If the new file
+    // cannot be read, fall back through those from newest to oldest so the user
+    // does not have to re-resolve the whole library. Writes always go to the new
+    // path, and the old files are left untouched.
     try {
       this.cache = JSON.parse(await Zotero.File.getContentsAsync(this.filename) as string)
       ztoolkit.log(this.cache)

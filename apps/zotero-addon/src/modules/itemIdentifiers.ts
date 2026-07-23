@@ -1,9 +1,10 @@
 /**
- * Zotero 条目上的外部论文标识符。
+ * External paper identifiers on a Zotero item.
  *
- * DOI 可能在原生字段，也可能落在 Extra；Semantic Scholar Paper ID 没有 Zotero
- * 原生字段，只能约定写入 Extra。把读取规则放在一处，补全、References 和 Citations
- * 才不会出现“已经写入但另一个模块看不见”的情况。
+ * A DOI may sit in the native field or in Extra; a Semantic Scholar Paper ID has
+ * no native Zotero field and is written to Extra by convention. Keeping the read
+ * rules in one place is what stops enrichment, References, and Citations from
+ * disagreeing about an identifier that has already been written.
  */
 
 import { bareDOI } from "./scholarlyHttp";
@@ -28,7 +29,7 @@ export function getExtraValue(extra: string, aliases: readonly string[]): string
   return String(extra || "").match(pattern)?.[1]?.trim() || undefined;
 }
 
-/** 接受裸 SHA、PaperId: 前缀和 Semantic Scholar 论文页 URL。 */
+/** Accepts a bare SHA, a PaperId: prefix, and a Semantic Scholar paper page URL. */
 export function normalizeSemanticScholarPaperId(value?: string): string | undefined {
   const raw = String(value || "").trim();
   if (!raw) { return; }
@@ -41,9 +42,9 @@ export function normalizeSemanticScholarPaperId(value?: string): string | undefi
 export function readItemPaperIdentifiers(item: Zotero.Item): ItemPaperIdentifiers {
   const extra = String(item.getField("extra") || "");
   let doi = "";
-  try { doi = String(item.getField("DOI") || ""); } catch { /* 此类型没有 DOI 字段 */ }
+  try { doi = String(item.getField("DOI") || ""); } catch { /* this item type has no DOI field */ }
   if (!doi) {
-    try { doi = String(item.getExtraField("DOI") || ""); } catch { /* 未知 Extra 字段 */ }
+    try { doi = String(item.getExtraField("DOI") || ""); } catch { /* unknown Extra field */ }
   }
   doi ||= getExtraValue(extra, ["DOI"]) || "";
   return {
