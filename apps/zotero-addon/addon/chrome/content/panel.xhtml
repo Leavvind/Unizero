@@ -1,0 +1,467 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>UniZero 面板</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --fg: #202124;
+      --muted: #62666d;
+      --border: #d7d9de;
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --accent: #2563d9;
+      --accent-dark: #174da9;
+      --ok: #27833b;
+      --bad: #bc3827;
+      --warn: #946b00;
+      --soft: #edf3ff;
+      --soft-border: #c8d8fb;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body {
+      margin: 0;
+      min-width: 680px;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font: 14px/1.5 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    body { padding: 16px 18px 28px; }
+    h2 {
+      margin: 18px 0 8px;
+      color: #555a62;
+      font-size: 14px;
+      font-weight: 650;
+    }
+    .card {
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--card);
+    }
+    .row, .actions, .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .spacer { flex: 1; }
+    .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .dot.ok { background: var(--ok); }
+    .dot.bad { background: var(--bad); }
+    #status-text { font-weight: 650; }
+    #status-detail, .hint {
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    #status-detail { margin-top: 4px; }
+    button, input, textarea {
+      color: var(--fg) !important;
+      -moz-text-fill-color: var(--fg);
+      font: inherit;
+    }
+    button {
+      min-height: 32px;
+      padding: 4px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); background: var(--soft); }
+    button.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff !important;
+      -moz-text-fill-color: #fff;
+    }
+    button.primary:hover { border-color: var(--accent-dark); background: var(--accent-dark); }
+    button.danger { color: var(--bad) !important; -moz-text-fill-color: var(--bad); }
+    button:disabled { opacity: .45; cursor: default; }
+    input[type="text"], input[type="number"], textarea {
+      width: 100%;
+      min-height: 36px;
+      padding: 7px 9px;
+      border: 1px solid #c8cbd1;
+      border-radius: 6px;
+      background: #fff !important;
+      opacity: 1;
+    }
+    input::placeholder, textarea::placeholder {
+      color: #8a8f98 !important;
+      -moz-text-fill-color: #8a8f98;
+      opacity: 1;
+    }
+    input:focus, textarea:focus {
+      border-color: var(--accent);
+      outline: 2px solid #d9e5ff;
+      outline-offset: 0;
+    }
+    input[type="checkbox"], input[type="radio"] {
+      width: 17px;
+      height: 17px;
+      flex: 0 0 auto;
+      accent-color: var(--accent);
+    }
+    textarea { resize: vertical; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #ececef;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 650; }
+    td.status { white-space: nowrap; font-weight: 650; }
+    td.status.queued { color: var(--warn); }
+    td.status.running { color: var(--accent); }
+    td.status.done { color: var(--ok); }
+    td.status.failed { color: var(--bad); }
+    .actions { margin-top: 12px; }
+    .saved { color: var(--ok); font-size: 12px; opacity: 0; transition: opacity .3s; }
+    .saved.show { opacity: 1; }
+    .offline {
+      display: none;
+      margin-bottom: 10px;
+      padding: 7px 9px;
+      border: 1px solid #ead89f;
+      border-radius: 6px;
+      background: #fff8df;
+      color: var(--warn);
+      font-size: 12px;
+    }
+
+    .template-toolbar { align-items: flex-start; }
+    .template-tabs {
+      display: flex;
+      flex: 1 1 420px;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .template-tab { min-height: 34px; padding: 5px 13px; }
+    .template-tab.active {
+      border-color: var(--accent);
+      background: var(--soft);
+      color: var(--accent-dark) !important;
+      -moz-text-fill-color: var(--accent-dark);
+      font-weight: 650;
+    }
+    .template-meta {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .field-label, .setting-label {
+      display: block;
+      margin-bottom: 5px;
+      color: #4f545c;
+      font-size: 12.5px;
+      font-weight: 650;
+    }
+    .template-meta textarea { min-height: 72px; }
+    .template-layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+      gap: 14px;
+      margin-top: 14px;
+      min-height: 340px;
+    }
+    .pane {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fbfbfc;
+    }
+    .pane-title {
+      padding: 9px 11px;
+      border-bottom: 1px solid var(--border);
+      background: #f2f3f5;
+      color: #555a62;
+      font-size: 12.5px;
+      font-weight: 650;
+    }
+    #template-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      padding: 9px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 9px;
+      align-items: center;
+      padding: 9px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      cursor: pointer;
+    }
+    .step:hover { border-color: #aebbd2; }
+    .step.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .step-name { overflow: hidden; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .step-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+    .step-id { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .role-badge {
+      flex: 0 0 auto;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--accent-dark);
+      font-size: 10px;
+      font-weight: 650;
+    }
+    .step-buttons { display: flex; gap: 3px; }
+    .step-buttons button { min-width: 28px; min-height: 28px; padding: 1px 6px; }
+    .add-module { padding: 9px; border-top: 1px solid var(--border); }
+    .add-module-title { margin-bottom: 7px; color: var(--muted); font-size: 11.5px; }
+    .module-add-options { display: flex; gap: 6px; flex-wrap: wrap; }
+    .module-add-options button { min-height: 29px; padding: 3px 8px; font-size: 12px; }
+    #module-settings { padding: 14px; }
+    .module-description {
+      margin-bottom: 14px;
+      padding: 9px 11px;
+      border-left: 3px solid var(--soft-border);
+      background: #f7f9fd;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .settings-form { display: flex; flex-direction: column; gap: 13px; }
+    .setting-row { min-width: 0; }
+    .setting-help { margin-top: 5px; color: var(--muted); font-size: 11.5px; }
+    .setting-group {
+      padding: 12px;
+      border: 1px solid #dfe2e7;
+      border-radius: 7px;
+      background: #fff;
+    }
+    .setting-group-title { margin-bottom: 11px; color: #454a51; font-weight: 650; }
+    .choice-group { display: flex; gap: 7px; flex-wrap: wrap; }
+    .choice {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 34px;
+      padding: 5px 10px;
+      border: 1px solid #c8cbd1;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+    }
+    .choice.checked { border-color: var(--accent); background: var(--soft); color: var(--accent-dark); }
+    .toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; cursor: pointer; }
+    .resolved-path {
+      margin-top: 14px;
+      padding: 9px 11px;
+      border: 1px solid var(--soft-border);
+      border-radius: 7px;
+      background: var(--soft);
+      color: #3c4656;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    details.yaml { margin-top: 14px; }
+    details.yaml summary { color: #555a62; cursor: pointer; }
+    #template-yaml { min-height: 260px; margin-top: 9px; font: 12px/1.5 Consolas, monospace; }
+
+    .overlay {
+      position: fixed;
+      z-index: 1000;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(22, 27, 36, .42);
+    }
+    .settings-dialog {
+      width: min(780px, 100%);
+      max-height: calc(100vh - 48px);
+      overflow: auto;
+      border: 1px solid #bfc3ca;
+      border-radius: 10px;
+      background: var(--bg);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .28);
+    }
+    .dialog-head {
+      position: sticky;
+      z-index: 1;
+      top: 0;
+      display: flex;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+    }
+    .dialog-title { font-size: 16px; font-weight: 700; }
+    .dialog-body { padding: 14px; }
+    .setting-section {
+      margin-bottom: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .setting-section summary {
+      padding: 10px 13px;
+      color: #454a51;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .setting-section-content { padding: 4px 14px 14px; }
+    .form {
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr);
+      gap: 11px 13px;
+      align-items: center;
+    }
+    .form > label { color: #555a62; }
+    .checks { display: flex; gap: 18px; flex-wrap: wrap; }
+    .checks label { display: flex; align-items: center; gap: 6px; }
+    .path-help { grid-column: 2; margin-top: -6px; }
+
+    @media (max-width: 900px) {
+      .template-meta, .template-layout { grid-template-columns: 1fr; }
+      .template-layout { min-height: 0; }
+      .form { grid-template-columns: 1fr; }
+      .path-help { grid-column: 1; }
+    }
+  </style>
+  <script src="panel.js"></script>
+</head>
+<body>
+  <h2 style="margin-top:0">服务状态</h2>
+  <div class="card">
+    <div class="row">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">检查中…</span>
+      <span class="spacer"></span>
+      <button id="btn-settings">设置…</button>
+      <button id="btn-start" class="primary">启动服务</button>
+      <button id="btn-stop">停止服务</button>
+      <button id="btn-refresh">刷新</button>
+    </div>
+    <div id="status-detail"></div>
+  </div>
+
+  <h2>任务</h2>
+  <div class="card">
+    <div id="jobs-empty" class="hint">暂无任务（本次服务会话）</div>
+    <table id="jobs-table" style="display:none">
+      <thead><tr><th style="width:64px">时间</th><th>标题</th><th style="width:70px">状态</th><th>详情</th></tr></thead>
+      <tbody id="jobs-body"></tbody>
+    </table>
+  </div>
+
+  <h2>转换模板</h2>
+  <div class="card">
+    <div id="templates-offline" class="offline">服务未运行——启动后才能读取和编辑模板。</div>
+    <div class="toolbar template-toolbar">
+      <div id="template-tabs" class="template-tabs" role="tablist"></div>
+      <button id="btn-template-duplicate">复制模板</button>
+      <button id="btn-template-reset">恢复默认 / 删除</button>
+    </div>
+    <div class="hint" id="template-origin" style="margin-top:6px"></div>
+    <div id="template-editor">
+      <div class="template-meta">
+        <div>
+          <label class="field-label" for="template-name">模板名称</label>
+          <input type="text" id="template-name" placeholder="模板名称"/>
+        </div>
+        <div>
+          <label class="field-label" for="template-description">模板说明</label>
+          <textarea id="template-description" placeholder="模板说明"></textarea>
+        </div>
+      </div>
+      <div class="template-layout">
+        <div class="pane">
+          <div class="pane-title">执行模块</div>
+          <div id="template-steps"></div>
+          <div class="add-module">
+            <div class="add-module-title">可选模块 · 点击加入执行列表，执行列表中 × 撤回到这里</div>
+            <div id="module-add-options" class="module-add-options"></div>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="pane-title" id="settings-title">模块设置</div>
+          <div id="module-settings" class="hint">选择一个模块进行设置。</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btn-template-save" class="primary">保存模板</button>
+        <button id="btn-template-reload">重新读取</button>
+        <span class="saved" id="template-saved">已保存 ✓</span>
+        <span id="template-validation" class="hint"></span>
+      </div>
+      <details class="yaml">
+        <summary>高级：查看 / 编辑完整 YAML</summary>
+        <textarea id="template-yaml" spellcheck="false"></textarea>
+        <div class="actions">
+          <button id="btn-yaml-apply">应用 YAML</button>
+          <span class="hint">YAML 是模板的真实存储格式；GUI 与它编辑同一份数据。</span>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div id="settings-overlay" class="overlay" hidden="hidden">
+    <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
+      <div class="dialog-head">
+        <span class="dialog-title" id="settings-dialog-title">UniZero 设置</span>
+        <span class="spacer"></span>
+        <button id="btn-settings-close" aria-label="关闭设置">关闭</button>
+      </div>
+      <div class="dialog-body">
+        <details class="setting-section" open="open">
+          <summary>插件运行</summary>
+          <div class="setting-section-content">
+            <div class="form">
+              <label for="p-python">Python 路径</label><input type="text" id="p-python" placeholder="留空 = 自动检测"/>
+              <label for="p-script">server.py 路径</label><input type="text" id="p-script"/>
+              <label for="p-port">端口</label><input type="number" id="p-port" style="max-width:160px"/>
+              <label>行为</label>
+              <div class="checks">
+                <label><input type="checkbox" id="p-autostart"/>需要时自动启动</label>
+                <label><input type="checkbox" id="p-autostop"/>退出 Zotero 时停止</label>
+                <label><input type="checkbox" id="p-mdsnapshot"/>转换后把 MD 副本存入条目（随 Zotero 同步，重转覆盖）</label>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="btn-save-prefs" class="primary">保存插件设置</button>
+              <span class="saved" id="prefs-saved">已保存 ✓</span>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting-section">
+          <summary>服务目录</summary>
+          <div class="setting-section-content">
+            <div id="server-offline" class="offline">服务未运行——启动后才能保存服务目录。</div>
+            <div class="form">
+              <label for="s-output-root">默认输出基目录</label><input type="text" id="s-output-root" placeholder="例如 ~/Academic 或 D:\Academic"/>
+              <div class="hint path-help">仅用于解析 Publish 的相对目标目录；Publish 使用绝对路径时可以留空。</div>
+              <label for="s-work">临时工作目录</label><input type="text" id="s-work"/>
+            </div>
+            <div class="actions">
+              <button id="btn-save-server" class="primary">保存服务目录</button>
+              <button id="btn-reload-server">重新读取</button>
+              <span class="saved" id="server-saved">已保存 ✓</span>
+            </div>
+            <div class="hint" id="server-cfg-path" style="margin-top:7px"></div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

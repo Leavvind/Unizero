@@ -15,15 +15,20 @@ runtime, not one large process containing every concern.
 
 ## Project status
 
-**Phase 1 — the unified add-on shell has been migrated.**
+**Phase 2 — the add-on now carries both source projects' Zotero-facing features.**
 
-`apps/zotero-addon` now contains the Zoference add-on at behavior parity, renamed to the
-UniZero add-on ID, preference prefix, and global namespace, with compatibility readers
-for the older preference and cache names. It type-checks, builds, and packages an XPI.
+`apps/zotero-addon` contains the Zoference add-on (references, citations, metadata
+enrichment) and the ported ZoMiner capabilities (PDF conversion, annotation injection,
+runtime process management, template panel), under one add-on ID with compatibility
+readers for both projects' preference and cache names. It type-checks, builds, and
+packages an XPI.
 
-ZoMiner's Zotero-facing capabilities and its Python runtime have not been migrated yet.
-`services/paper-runtime`, `packages/contracts`, and `tests/contract` are still empty
-ownership directories.
+The Python runtime has not moved yet: the add-on drives ZoMiner's existing
+`paper_service` over its `/api/v1` contract. `services/paper-runtime`,
+`packages/contracts`, and `tests/contract` are still empty ownership directories.
+
+Neither phase has passed its manual Zotero check yet — see
+[Migration Plan](docs/MIGRATION.md).
 
 ## Architecture at a glance
 

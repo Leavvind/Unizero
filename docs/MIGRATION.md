@@ -105,24 +105,69 @@ the only thing this phase asserts.
 
 ## Phase 2 — ZoMiner add-on capability port
 
+Status: **code ported; manual Zotero check outstanding**
+
 Port the Zotero-facing parts of ZoMiner into the unified add-on without moving the
 Python runtime yet.
 
 Deliverables:
 
-- typed runtime API client and health negotiation;
-- runtime process management;
-- conversion and annotation commands;
-- conversion target and Zotero snapshot adapters;
-- template-management UI;
-- existing artifact attachment behavior.
+- typed runtime API client and health negotiation — `src/runtime-client/`;
+- runtime process management — `src/runtime-client/process.ts`;
+- conversion and annotation commands — `src/features/{conversion,annotations}/`;
+- conversion target and Zotero snapshot adapters — `src/zotero/`;
+- template-management UI — `src/ui/panel.ts` plus `addon/chrome/content/panel.*`;
+- existing artifact attachment behavior — preserved, including the legacy
+  `Academic MD` title and the `zominer.references/1` schema.
+
+### Structure
+
+New code follows the target layout in `PROJECT_STRUCTURE.md` rather than Zoference's
+flat `src/modules/`. The Zoference modules stay where they are until their own phases
+move them, so the two layouts coexist for now — this is expected, not drift.
+
+The panel dialog (`addon/chrome/content/panel.{xhtml,js}`) was migrated verbatim. It
+runs in its own window, is not part of the esbuild bundle, and touches the add-on only
+through a single injected `api` object. Rewriting 662 lines of DOM code in TypeScript
+would produce a diff nobody could check line by line against the original behavior.
+`src/ui/panel.ts` supplies that `api` object and is the only adapter needed.
+
+### Preference migration
+
+ZoMiner kept its preferences on the global branch at `extensions.zominer.*`, not under
+`extensions.zotero.*`. They are copied once into two namespaces that reflect ownership:
+
+| ZoMiner | UniZero |
+| --- | --- |
+| `extensions.zominer.pythonPath` | `extensions.zotero.unizero.runtime.pythonPath` |
+| `extensions.zominer.serverScript` | `extensions.zotero.unizero.runtime.serverScript` |
+| `extensions.zominer.port` | `extensions.zotero.unizero.runtime.port` |
+| `extensions.zominer.autoStart` | `extensions.zotero.unizero.runtime.autoStart` |
+| `extensions.zominer.autoStopOnQuit` | `extensions.zotero.unizero.runtime.autoStopOnQuit` |
+| `extensions.zominer.mdSnapshot` | `extensions.zotero.unizero.conversion.mdSnapshot` |
+
+`migrateLegacyRuntimePrefs()` is separate from `migrateLegacyPrefs()` because the two
+read different Prefs branches; merging them would tangle the branch handling. It copies
+only keys the user explicitly set, never overwrites an existing value, and enumerates
+key names explicitly so abandoned experimental keys are not inherited.
 
 Exit gate:
 
-- the unified XPI can drive the existing ZoMiner service;
-- conversion, table artifact, reference artifact, and annotation injection match the
-  source behavior;
-- the separate ZoMiner XPI is not required for the manual check.
+- [x] type check and production build pass;
+- [ ] the unified XPI can drive the existing ZoMiner service;
+- [ ] conversion, table artifact, reference artifact, and annotation injection match the
+      source behavior;
+- [ ] the separate ZoMiner XPI is not required for the manual check.
+
+### Deferred to later phases, deliberately
+
+- Artifacts are still identified by attachment title. Renaming an attachment in Zotero
+  still produces duplicates. Fixing it needs explicit artifact identity across the
+  add-on/runtime contract — Phase 4.
+- Annotation support is still limited to highlights and underlines with plain text —
+  Phase 6.
+- `library_id` defaults to `1` when absent, inherited from ZoMiner. Group libraries need
+  auditing before this is trusted — Phase 4.
 
 ## Phase 3 — Paper runtime migration
 

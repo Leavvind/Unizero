@@ -7,12 +7,20 @@ be treated as implemented behavior.
 
 ## Current phase
 
-UniZero has completed **Phase 1**: the Zoference add-on shell has been migrated into
-`apps/zotero-addon` at behavior parity and renamed to the UniZero identifiers.
+UniZero has ported both source projects' Zotero-facing code into `apps/zotero-addon`
+(**Phases 1 and 2**). Neither phase has passed its manual Zotero check; do not treat
+either as verified.
 
-No ZoMiner code has been migrated. `services/paper-runtime`, `packages/contracts`, and
-`tests/contract` are empty ownership directories. Phase 2 — porting ZoMiner's
-Zotero-facing capabilities against the existing ZoMiner service — is the next work.
+The Python runtime has not moved. The add-on talks to ZoMiner's existing `paper_service`
+over `/api/v1`. `services/paper-runtime`, `packages/contracts`, and `tests/contract` are
+empty ownership directories. Phase 3 — migrating `paper_service` at behavior parity — is
+the next work.
+
+Two source layouts coexist inside `src/` on purpose: Zoference's original flat
+`src/modules/`, and the target layout from `docs/PROJECT_STRUCTURE.md`
+(`runtime-client/`, `features/`, `zotero/`, `ui/`) used by Phase 2 code. New code goes in
+the target layout. Moving the Zoference modules is the business of their own phases, not
+an opportunistic cleanup.
 
 Do not add placeholder build scripts, fake packages, or speculative abstractions merely
 to make the target tree look complete.

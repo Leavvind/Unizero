@@ -35,5 +35,22 @@ pref("extensions.zotero.__addonRef__.notInLibarayOpacity", "1");
 pref("extensions.zotero.__addonRef__.semanticScholar.apiKey", "");
 
 
+// ---- Paper runtime（本地 Python 服务）----
+// 从 ZoMiner 的 extensions.zominer.* 搬过一次的标记，见 src/runtime-client/settings.ts。
+pref("extensions.zotero.__addonRef__.legacyRuntimePrefsMigrated", false);
+
+// 留空则自动探测：按 PATH 逐个试，选第一个装了 mineru 的解释器。
+pref("extensions.zotero.__addonRef__.runtime.pythonPath", "");
+// 无默认值：runtime 尚未随插件分发，路径只能由用户指定。
+pref("extensions.zotero.__addonRef__.runtime.serverScript", "");
+pref("extensions.zotero.__addonRef__.runtime.port", 23300);
+pref("extensions.zotero.__addonRef__.runtime.autoStart", true);
+// 只影响插件自己启动的进程；用户手动跑的服务不受关闭 Zotero 影响。
+pref("extensions.zotero.__addonRef__.runtime.autoStopOnQuit", true);
+
+// 除链接式 MD 附件外，再往 Zotero storage 存一份只读副本（随 Zotero 同步）。
+pref("extensions.zotero.__addonRef__.conversion.mdSnapshot", true);
+
+
 
 
