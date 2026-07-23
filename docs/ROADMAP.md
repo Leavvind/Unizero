@@ -29,35 +29,11 @@ at the top because each one is a claim the repository currently cannot support.
 - **Launch resolution from inside Zotero.** All three modes were verified from the
   command line, each honouring `--port` and writing to the expected runtime home. Not
   from inside Zotero.
-
-## Unified UI
-
-Settings currently live in two places, split by which project they came from rather than
-by anything a user would recognize:
-
-| Surface | Contents | Storage |
-| --- | --- | --- |
-| *Settings → Reference* | Semantic Scholar key, refresh, tips, related, save policy, match opacity | Zotero prefs |
-| *Tools → UniZero 面板 → 设置…* | Python path, server script, port, autostart, autostop, MD snapshot | Zotero prefs |
-| *Tools → UniZero 面板* | service status, jobs, template editor, service directories | live runtime |
-
-The pane is still labelled *Reference*, which is now inaccurate — it is the add-on's only
-preference pane and contains none of the runtime settings.
-
-The honest boundary is not "Zoference settings" versus "ZoMiner settings" but **local
-persistent configuration** versus **live runtime state**. The first belongs in Zotero's
-preference pane, where users look for settings and where `preference="…"` binding gives
-instant-apply for free. The second cannot go there: service directories are fetched from
-the runtime over HTTP and are unavailable when it is stopped, and a live job table is not
-a preference.
-
-Planned:
-
-- rename the preference pane to *UniZero* and absorb the runtime and conversion settings
-  into it;
-- keep the panel for what needs a running runtime — status, jobs, templates, service
-  directories — and drop its settings overlay;
-- one name across the Tools entry, the pane, and the panel title.
+- **The unified preference pane.** The runtime and conversion settings moved out of the
+  panel into *Settings → UniZero*, wired imperatively through `getRuntimePref` /
+  `setRuntimePref` rather than through XUL `preference=` binding. Each field needs one
+  round trip — change it, reopen the pane, confirm it stuck — and the port additionally
+  needs to reach a manually started runtime's `config.json`.
 
 ## Contracts
 
@@ -124,7 +100,8 @@ working.
   It is extracted incrementally, when that code is being touched for another reason —
   a dedicated refactor of an untested file that large is not worth the risk.
 - `addon/chrome/content/panel.js` is plain JavaScript outside the bundle and outside the
-  type checker. The unified-UI work above is the natural moment to reconsider that.
+  type checker. Moving the preferences out shrank it; the template editor is what remains
+  and is the part worth typing.
 
 ## Licensing
 

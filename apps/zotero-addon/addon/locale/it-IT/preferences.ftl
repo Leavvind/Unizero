@@ -54,6 +54,26 @@ notInLibarayOpacity-start = Abbina elementi e rendi gli elementi che non sono ne
 notInLibarayOpacity-end =
 
 caption-api = Fonti dati
-sourceOrder-note = I riferimenti vengono recuperati prima tramite DOI (OpenAlex → Crossref → Semantic Scholar). Senza DOI si ricade sull'estrazione ZoMiner.
+sourceOrder-note = I riferimenti vengono recuperati prima tramite DOI (OpenAlex → Crossref → Semantic Scholar). Senza DOI si ricade sui riferimenti estratti durante la conversione.
 semanticScholarApiKey = Chiave API Semantic Scholar
 semanticScholarApiKey-note = Facoltativa. Senza chiave le richieste sono limitate a circa 1 al secondo e falliscono spesso con 429.
+
+caption-runtime = Servizio locale
+runtime-note = La conversione dei PDF richiede il runtime Python locale. Una volta installato unizero-runtime, entrambi i percorsi possono restare vuoti.
+runtime-pythonPath = Percorso di Python
+runtime-pythonPath-input =
+  .placeholder = Vuoto = rilevamento automatico
+runtime-serverScript = Percorso di server.py
+runtime-serverScript-input =
+  .placeholder = Vuoto = cerca unizero-runtime installato
+runtime-port = Porta
+runtime-port-note = Ha effetto al prossimo avvio del servizio
+runtime-autoStart =
+  .label = Avvia il servizio automaticamente quando serve
+runtime-autoStopOnQuit =
+  .label = Ferma il servizio all'uscita di Zotero (solo quello avviato da questo componente)
+
+caption-conversion = Conversione
+conversion-mdSnapshot =
+  .label = Salva una copia Markdown sull'elemento dopo la conversione
+conversion-note = La copia si sincronizza con Zotero ed è leggibile su altri computer, al costo di essere sovrascritta a ogni riconversione.

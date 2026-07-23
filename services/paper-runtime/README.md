@@ -39,7 +39,7 @@ is installed: it finds a `PATH` interpreter that can import `unizero_runtime`, o
 `unizero-runtime` console script. See the resolution table in
 [`apps/zotero-addon/README.md`](../../apps/zotero-addon/README.md).
 
-Two cases still need a setting in the add-on panel:
+Two cases still need a setting, under *Settings → UniZero → 本地服务* in Zotero:
 
 - the virtualenv is not on `PATH` (this repo's `.venv` normally is not) — set
   *Python 路径* to `.venv/Scripts/pythonw.exe` (Windows) or `.venv/bin/python`;
@@ -58,7 +58,7 @@ All mutable state lives in one directory, resolved in this order:
 
 ```text
 <home>/
-├── config.json        # service configuration, editable from the add-on panel
+├── config.json        # service configuration, editable from the add-on panel while it runs
 ├── work/              # per-job scratch space, disposable
 ├── store/             # annotation injection records
 ├── user_templates/    # user template overrides

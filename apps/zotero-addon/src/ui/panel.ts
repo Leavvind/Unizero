@@ -1,30 +1,21 @@
 /**
- * UniZero 面板：服务状态、job 列表、运行时设置和模板编辑器。
+ * UniZero 面板：服务状态、job 列表、服务端目录和模板编辑器。
  *
  * 端口自 ZoMiner `modules/plugin.js` 的面板部分。
  *
  * 面板本体（addon/chrome/content/panel.{xhtml,js}）是**原样迁移**的：它运行在独立的
- * dialog 窗口里，不进 esbuild bundle，且只通过下面这个 api 对象与插件交互。把 662 行
+ * dialog 窗口里，不进 esbuild bundle，且只通过下面这个 api 对象与插件交互。把 600 多行
  * DOM 代码改写成 TypeScript 对行为没有任何好处，只会制造一个无法逐行核对的大 diff。
  *
- * 这里唯一的适配工作是把面板期望的扁平 getPref/setPref 映射到 UniZero 拆开的两组设置。
+ * 面板里**没有** Zotero 偏好设置。存在 Zotero prefs 里的项（Python 路径、端口、自动
+ * 启停、MD 副本）都在 设置 → UniZero 里，见 src/modules/prefs.ts。留在这儿的只有服务端
+ * 的 config.json——它得向 runtime 要，服务停着就读不到，放进偏好面板会得到一组时灵时
+ * 不灵的输入框。分界线是"存在哪、什么时候能读到"，不是"属于哪个功能"。
  */
 
 import { config } from "../../package.json";
 import { runtimeClient } from "../runtime-client/client";
-import {
-  RUNTIME_PREF_DEFAULTS,
-  getRuntimePref,
-  serviceURL,
-  setRuntimePref,
-  type RuntimeSettings,
-} from "../runtime-client/settings";
-import {
-  CONVERSION_PREF_DEFAULTS,
-  getConversionPref,
-  setConversionPref,
-  type ConversionSettings,
-} from "../features/conversion/settings";
+import { serviceURL } from "../runtime-client/settings";
 import { ensure, isStartedByPlugin, stop } from "../runtime-client/process";
 import { showError } from "./progress";
 
@@ -33,42 +24,10 @@ const PANEL_WINDOW_NAME = `${config.addonRef}-panel`;
 
 let panelWindow: Window | null = null;
 
-/**
- * 面板看到的是一份扁平的设置视图（ZoMiner 的原始形状），而 UniZero 内部按归属把
- * 它们拆成了 runtime 连接设置和转换设置。这两个函数负责在边界上转换。
- */
-type PanelPrefName = keyof RuntimeSettings | keyof ConversionSettings;
-
-const PANEL_PREF_DEFAULTS = {
-  ...RUNTIME_PREF_DEFAULTS,
-  ...CONVERSION_PREF_DEFAULTS,
-};
-
-function isConversionPref(name: PanelPrefName): name is keyof ConversionSettings {
-  return name in CONVERSION_PREF_DEFAULTS;
-}
-
-function getPanelPref(name: PanelPrefName): unknown {
-  return isConversionPref(name)
-    ? getConversionPref(name)
-    : getRuntimePref(name as keyof RuntimeSettings);
-}
-
-function setPanelPref(name: PanelPrefName, value: unknown): void {
-  if (isConversionPref(name)) {
-    setConversionPref(name, value as boolean);
-  } else {
-    setRuntimePref(name as keyof RuntimeSettings, value as never);
-  }
-}
-
 /** 面板通过 window.arguments[0].api 拿到的全部能力。 */
 function panelApi() {
   return {
     Zotero,
-    prefDefaults: PANEL_PREF_DEFAULTS,
-    getPref: (name: PanelPrefName) => getPanelPref(name),
-    setPref: (name: PanelPrefName, value: unknown) => setPanelPref(name, value),
     serviceURL: () => serviceURL(),
     client: runtimeClient,
     ensureService: () => ensure({ reportError: showError }),

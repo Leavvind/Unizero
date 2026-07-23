@@ -306,18 +306,6 @@
     }
     .dialog-title { font-size: 16px; font-weight: 700; }
     .dialog-body { padding: 14px; }
-    .setting-section {
-      margin-bottom: 10px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: #fff;
-    }
-    .setting-section summary {
-      padding: 10px 13px;
-      color: #454a51;
-      font-weight: 650;
-      cursor: pointer;
-    }
     .setting-section-content { padding: 4px 14px 14px; }
     .form {
       display: grid;
@@ -346,7 +334,7 @@
       <span class="dot" id="status-dot"></span>
       <span id="status-text">检查中…</span>
       <span class="spacer"></span>
-      <button id="btn-settings">设置…</button>
+      <button id="btn-settings">服务目录…</button>
       <button id="btn-start" class="primary">启动服务</button>
       <button id="btn-stop">停止服务</button>
       <button id="btn-refresh">刷新</button>
@@ -417,49 +405,30 @@
   <div id="settings-overlay" class="overlay" hidden="hidden">
     <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
       <div class="dialog-head">
-        <span class="dialog-title" id="settings-dialog-title">UniZero 设置</span>
+        <span class="dialog-title" id="settings-dialog-title">服务目录</span>
         <span class="spacer"></span>
-        <button id="btn-settings-close" aria-label="关闭设置">关闭</button>
+        <button id="btn-settings-close" aria-label="关闭">关闭</button>
       </div>
       <div class="dialog-body">
-        <details class="setting-section" open="open">
-          <summary>插件运行</summary>
-          <div class="setting-section-content">
-            <div class="form">
-              <label for="p-python">Python 路径</label><input type="text" id="p-python" placeholder="留空 = 自动检测"/>
-              <label for="p-script">server.py 路径</label><input type="text" id="p-script" placeholder="留空 = 自动查找已安装的 unizero-runtime"/>
-              <label for="p-port">端口</label><input type="number" id="p-port" style="max-width:160px"/>
-              <label>行为</label>
-              <div class="checks">
-                <label><input type="checkbox" id="p-autostart"/>需要时自动启动</label>
-                <label><input type="checkbox" id="p-autostop"/>退出 Zotero 时停止</label>
-                <label><input type="checkbox" id="p-mdsnapshot"/>转换后把 MD 副本存入条目（随 Zotero 同步，重转覆盖）</label>
-              </div>
-            </div>
-            <div class="actions">
-              <button id="btn-save-prefs" class="primary">保存插件设置</button>
-              <span class="saved" id="prefs-saved">已保存 ✓</span>
-            </div>
+        <!--
+          这里只放服务端配置：它存在 runtime 的 config.json 里，服务没跑就读不到，
+          所以进不了 Zotero 设置面板。Python 路径、端口、自动启停这些存在 Zotero
+          prefs 里的项已经搬到 设置 → UniZero。
+        -->
+        <div class="setting-section-content">
+          <div id="server-offline" class="offline">服务未运行——启动后才能读取和保存服务目录。</div>
+          <div class="form">
+            <label for="s-output-root">默认输出基目录</label><input type="text" id="s-output-root" placeholder="例如 ~/Academic 或 D:\Academic"/>
+            <div class="hint path-help">仅用于解析 Publish 的相对目标目录；Publish 使用绝对路径时可以留空。</div>
+            <label for="s-work">临时工作目录</label><input type="text" id="s-work"/>
           </div>
-        </details>
-
-        <details class="setting-section">
-          <summary>服务目录</summary>
-          <div class="setting-section-content">
-            <div id="server-offline" class="offline">服务未运行——启动后才能保存服务目录。</div>
-            <div class="form">
-              <label for="s-output-root">默认输出基目录</label><input type="text" id="s-output-root" placeholder="例如 ~/Academic 或 D:\Academic"/>
-              <div class="hint path-help">仅用于解析 Publish 的相对目标目录；Publish 使用绝对路径时可以留空。</div>
-              <label for="s-work">临时工作目录</label><input type="text" id="s-work"/>
-            </div>
-            <div class="actions">
-              <button id="btn-save-server" class="primary">保存服务目录</button>
-              <button id="btn-reload-server">重新读取</button>
-              <span class="saved" id="server-saved">已保存 ✓</span>
-            </div>
-            <div class="hint" id="server-cfg-path" style="margin-top:7px"></div>
+          <div class="actions">
+            <button id="btn-save-server" class="primary">保存服务目录</button>
+            <button id="btn-reload-server">重新读取</button>
+            <span class="saved" id="server-saved">已保存 ✓</span>
           </div>
-        </details>
+          <div class="hint" id="server-cfg-path" style="margin-top:7px"></div>
+        </div>
       </div>
     </div>
   </div>

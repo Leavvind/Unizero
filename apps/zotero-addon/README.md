@@ -20,8 +20,27 @@ Document features, which need the runtime:
 - annotation injection into generated Markdown;
 - Markdown, tables, and references artifact registration;
 - local runtime process management with Python auto-detection;
-- the panel under *Tools → UniZero 面板…* for service status, jobs, runtime settings,
-  and the template editor.
+- the panel under *Tools → UniZero 面板…* for service status, jobs, and the template
+  editor.
+
+## Where settings live
+
+Every Zotero preference is in one place, *Settings → UniZero*: data sources, refresh,
+tips, related, save policy, and matching, plus the local service (Python path, server
+script, port, autostart, autostop) and conversion (Markdown copy).
+
+The panel holds only what needs the runtime to be running — status, jobs, templates, and
+the service's own output and work directories, which live in its `config.json` and are
+fetched over HTTP.
+
+That is the boundary: **where a setting is stored and when it can be read**, not which
+feature it belongs to. Putting the service directories in the preference pane would give
+a group of inputs that are blank whenever the service is stopped.
+
+The runtime and conversion groups in the pane are wired in
+[`src/modules/prefs.ts`](src/modules/prefs.ts) rather than through XUL `preference=`
+bindings, so all writes keep going through the typed `setRuntimePref` /
+`setConversionPref` accessors instead of gaining a second path to the same keys.
 
 The add-on talks to [`services/paper-runtime`](../../services/paper-runtime) over
 `/api/v1`. It resolves how to launch it in this order, first match wins:

@@ -18,7 +18,6 @@ var Panel = {
   removedSettings: {},
 
   init() {
-    this.loadPrefsForm();
     document.getElementById("btn-start").addEventListener("click", () => this.onStart());
     document.getElementById("btn-stop").addEventListener("click", () => this.onStop());
     document.getElementById("btn-refresh").addEventListener("click", () => this.refresh());
@@ -30,7 +29,6 @@ var Panel = {
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.closeSettings();
     });
-    document.getElementById("btn-save-prefs").addEventListener("click", () => this.savePrefs());
     document.getElementById("btn-save-server").addEventListener("click", () => this.saveServerConfig());
     document.getElementById("btn-reload-server").addEventListener("click", () => {
       this.serverCfgLoaded = false;
@@ -60,6 +58,8 @@ var Panel = {
     return JSON.parse(JSON.stringify(value));
   },
 
+  // 这个浮层现在只放服务端目录（存在 runtime 的 config.json 里）。Zotero 偏好项都在
+  // 设置 → UniZero。元素 id 还叫 settings-*，是这个 dialog 的内部命名，没有对外含义。
   openSettings() {
     document.getElementById("settings-overlay").hidden = false;
     document.getElementById("btn-settings-close").focus();
@@ -172,27 +172,6 @@ var Panel = {
     this.serverCfgLoaded = false;
     this.templatesLoaded = false;
     this.refresh();
-  },
-
-  loadPrefsForm() {
-    document.getElementById("p-python").value = api.getPref("pythonPath") || "";
-    document.getElementById("p-script").value = api.getPref("serverScript") || "";
-    document.getElementById("p-port").value = api.getPref("port");
-    document.getElementById("p-autostart").checked = !!api.getPref("autoStart");
-    document.getElementById("p-autostop").checked = !!api.getPref("autoStopOnQuit");
-    document.getElementById("p-mdsnapshot").checked = !!api.getPref("mdSnapshot");
-  },
-
-  async savePrefs() {
-    api.setPref("pythonPath", document.getElementById("p-python").value.trim());
-    api.setPref("serverScript", document.getElementById("p-script").value.trim());
-    let port = parseInt(document.getElementById("p-port").value, 10) || 23300;
-    api.setPref("port", port);
-    api.setPref("autoStart", document.getElementById("p-autostart").checked);
-    api.setPref("autoStopOnQuit", document.getElementById("p-autostop").checked);
-    api.setPref("mdSnapshot", document.getElementById("p-mdsnapshot").checked);
-    if (this.online) try { await api.client.saveConfig({ port: port }); } catch (error) {}
-    this.flash("prefs-saved");
   },
 
   loadServerForm(config, path) {

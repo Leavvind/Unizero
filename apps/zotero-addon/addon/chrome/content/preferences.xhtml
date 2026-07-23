@@ -99,4 +99,41 @@
       <html:span style="margin: auto 0; margin-left: .5em;" data-l10n-id="notInLibarayOpacity-end"></html:span>
     </hbox>
   </groupbox>
+
+  <!--
+    以下两组没有 preference= 绑定，改由 src/modules/prefs.ts 通过 getRuntimePref /
+    setRuntimePref 读写。这些键有类型（port 是整数）且已经有一套带类型的访问器，
+    再挂一条声明式写路径等于给同一批键开第二个写入口。
+  -->
+  <groupbox>
+    <html:h2 data-l10n-id="caption-runtime"></html:h2>
+    <html:div style="margin-left: .7em; margin-bottom: .5em; opacity: .8;" data-l10n-id="runtime-note"></html:div>
+    <hbox style="margin: 4px 0; margin-left: .7em; align-items: center;">
+      <html:span style="margin: auto 0; margin-right: .5em; min-width: 7em;" data-l10n-id="runtime-pythonPath"></html:span>
+      <html:input style="width: 24em; margin: auto 0; height: 1em;" type="text"
+        id="__addonRef__-runtime-python-path" data-l10n-id="runtime-pythonPath-input">
+      </html:input>
+    </hbox>
+    <hbox style="margin: 4px 0; margin-left: .7em; align-items: center;">
+      <html:span style="margin: auto 0; margin-right: .5em; min-width: 7em;" data-l10n-id="runtime-serverScript"></html:span>
+      <html:input style="width: 24em; margin: auto 0; height: 1em;" type="text"
+        id="__addonRef__-runtime-server-script" data-l10n-id="runtime-serverScript-input">
+      </html:input>
+    </hbox>
+    <hbox style="margin: 4px 0; margin-left: .7em; align-items: center;">
+      <html:span style="margin: auto 0; margin-right: .5em; min-width: 7em;" data-l10n-id="runtime-port"></html:span>
+      <html:input style="width: 6em; margin: auto 0; height: 1em;" type="number" min="1" max="65535"
+        id="__addonRef__-runtime-port">
+      </html:input>
+      <html:span style="margin: auto 0; margin-left: .7em; opacity: .8;" data-l10n-id="runtime-port-note"></html:span>
+    </hbox>
+    <checkbox native="true" id="__addonRef__-runtime-auto-start" data-l10n-id="runtime-autoStart" />
+    <checkbox native="true" id="__addonRef__-runtime-auto-stop" data-l10n-id="runtime-autoStopOnQuit" />
+  </groupbox>
+
+  <groupbox>
+    <html:h2 data-l10n-id="caption-conversion"></html:h2>
+    <checkbox native="true" id="__addonRef__-conversion-md-snapshot" data-l10n-id="conversion-mdSnapshot" />
+    <html:div style="margin-left: .7em; margin-top: .3em; opacity: .8;" data-l10n-id="conversion-note"></html:div>
+  </groupbox>
 </vbox>
