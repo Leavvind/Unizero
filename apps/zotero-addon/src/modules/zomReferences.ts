@@ -10,7 +10,7 @@
  *
  * 附件的 JSON 契约（`schema: "zominer.references/N"`）现在仍是转换产出的写入格式，
  * 也就是说这是抽取结果到达插件的**唯一**路径。计划是让转换任务直接返回参考文献，
- * 在那之前这个读取路径必须保持可用，见 docs/COMPATIBILITY.md。
+ * 在那之前这个读取路径必须保持可用，见 docs/LEGACY_SUPPORT.md。
  */
 
 const REFS_ATTACHMENT_TITLE = "ZoMiner References";

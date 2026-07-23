@@ -3,8 +3,8 @@
 UniZero is licensed under the GNU Affero General Public License, version 3 or later.
 The full license text is in [LICENSE](LICENSE).
 
-This file records the provenance of the code UniZero is assembled from, as required by
-AGPL-3.0 sections 4 and 5. Keep it accurate as further code is migrated.
+This file records code provenance and third-party attribution as required by AGPL-3.0
+sections 4 and 5. Keep it accurate when code ownership or bundled dependencies change.
 
 ## apps/zotero-addon
 
@@ -45,8 +45,9 @@ redistributed with this program and remains under the terms of each provider.
 
 ## services/paper-runtime
 
-Not yet migrated. The source is ZoMiner's `paper_service`
-(https://github.com/Leavvind/ZoMiner), Copyright (C) 2025–2026 Thehone1.
+The runtime implementation originated in ZoMiner's `paper_service`
+(https://github.com/Leavvind/ZoMiner), Copyright (C) 2025–2026 Thehone1, and now lives
+under `services/paper-runtime`.
 
 `paper_service` is original work distributed as a separate process that communicates
 with the add-on over a versioned localhost HTTP contract, so it is not a derivative of

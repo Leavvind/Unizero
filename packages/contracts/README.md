@@ -1,18 +1,18 @@
 # Contracts
 
-This directory owns language-neutral compatibility contracts shared by the TypeScript
-add-on and Python paper runtime.
+Language-neutral contracts shared by the Zotero add-on and paper runtime.
 
-Current contents:
+```text
+http/v1.schema.json  Canonical HTTP v1 fields, requiredness, and capabilities
+examples/            Synthetic payloads used by both language checks
+```
 
-- `http/v1.schema.json`: canonical request/response fields, requiredness, API version,
-  and required capabilities;
-- `examples/`: synthetic payloads validated by the Python models.
+Change the schema first, then update the TypeScript and Pydantic mirrors in the same
+change.
 
-Contracts are public compatibility surfaces. Do not place add-on or runtime
-implementation logic here, and do not add placeholder files merely to make the directory
-look occupied.
+Verification:
 
-`npm run check` compares the TypeScript interfaces with the canonical schema.
-`services/paper-runtime/tests/test_shared_contract.py` compares the Pydantic models and
-validates the shared examples. Artifact envelopes and legacy fixtures remain planned.
+- `apps/zotero-addon`: `npm run check`
+- `services/paper-runtime`: `.venv/Scripts/python.exe -m pytest`
+
+Keep implementation logic and real Zotero library data out of this package.
