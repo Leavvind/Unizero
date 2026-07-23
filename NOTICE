@@ -1,0 +1,52 @@
+# UniZero — Copyright and Attribution Notices
+
+UniZero is licensed under the GNU Affero General Public License, version 3 or later.
+The full license text is in [LICENSE](LICENSE).
+
+This file records the provenance of the code UniZero is assembled from, as required by
+AGPL-3.0 sections 4 and 5. Keep it accurate as further code is migrated.
+
+## apps/zotero-addon
+
+Derived from **Zoference** (https://github.com/Leavvind/Zoference),
+Copyright (C) 2024–2026 Leavvind.
+
+Zoference is itself a modified version of **zotero-reference**
+(https://github.com/MuiseDestiny/zotero-reference), Copyright (C) 2022–2024 Polygon
+(MuiseDestiny), licensed under AGPL-3.0-or-later.
+
+UniZero therefore inherits the AGPL-3.0-or-later obligations of both projects. This
+license cannot be changed unilaterally: the upstream copyright holders' terms carry
+forward into every derivative, including this one.
+
+Modified for UniZero by Leavvind, 2026.
+
+### Bundled and referenced components
+
+- **zotero-plugin-toolkit** (https://github.com/windingwind/zotero-plugin-toolkit) —
+  MIT, bundled as a runtime dependency.
+- **zotero-plugin-template** (https://github.com/windingwind/zotero-plugin-template) —
+  MIT, origin of the build scripts under `apps/zotero-addon/scripts/` and the
+  `__placeholder__` templating in `addon/`.
+- **zotero-types** (https://github.com/windingwind/zotero-types) — MIT, development-time
+  type definitions only.
+
+### Data sources
+
+The add-on queries OpenAlex, Crossref, Semantic Scholar, and arXiv. Their data is not
+redistributed with this program and remains under the terms of each provider.
+
+## services/paper-runtime
+
+Not yet migrated. The source is ZoMiner's `paper_service`
+(https://github.com/Leavvind/ZoMiner), Copyright (C) 2025–2026 Leavvind.
+
+`paper_service` is original work distributed as a separate process that communicates
+with the add-on over a versioned localhost HTTP contract. Its license has not yet been
+declared. See [docs/MIGRATION.md](docs/MIGRATION.md).
+
+## Source distribution obligation
+
+The AGPL requires that anyone who receives this program — including users who interact
+with it over a network — can obtain the corresponding source code. If you distribute a
+built `.xpi`, publish this repository alongside it.
