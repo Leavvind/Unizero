@@ -26,11 +26,32 @@ From ZoMiner:
 - the panel under *Tools → UniZero 面板…* for service status, jobs, runtime settings,
   and the template editor.
 
-The Python runtime itself has not been migrated. The add-on talks to ZoMiner's existing
-`paper_service` over `/api/v1`; point it at your `server.py` in the panel. Migration
-lands in Phase 3 — see [`../../docs/MIGRATION.md`](../../docs/MIGRATION.md).
+The add-on talks to [`services/paper-runtime`](../../services/paper-runtime) over
+`/api/v1`. It resolves how to launch it in this order, first match wins:
 
-Neither phase has passed its manual Zotero check yet.
+| Order | Condition | Command |
+| --- | --- | --- |
+| 1 | *server.py 路径* is set | `<python> <script> --port N` |
+| 2 | *Python 路径* is set | `<python> -m unizero_runtime --port N` |
+| 3 | a `python` on `PATH` can import `unizero_runtime` | `<python> -m unizero_runtime --port N` |
+| 4 | `unizero-runtime` is on `PATH` | `unizero-runtime --port N` |
+
+So both path settings are optional once the runtime is installed. Explicit settings
+always beat discovery — a ZoMiner user whose migrated `serverScript` points at the old
+`paper_service/server.py` keeps running that, and clears the setting to move over.
+
+Order 3 precedes 4 because on Windows it can select `pythonw.exe`, while pip's
+`unizero-runtime.exe` is a console program and leaves a terminal window open.
+
+The port is passed on the command line rather than left to the runtime's `config.json`:
+when each side reads its own port, the service comes up fine and the add-on waits
+forever on a health check that will never answer.
+
+Resolution lives in [`src/runtime-client/launch.ts`](src/runtime-client/launch.ts); it
+also mirrors the runtime-home rules from the Python side's `paths.py` so a crashed
+startup can still be explained from `server.log`.
+
+No phase has passed its manual Zotero check yet.
 
 ## Source layout
 

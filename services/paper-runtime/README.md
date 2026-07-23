@@ -37,9 +37,19 @@ python -m unizero_runtime
 Useful flags: `--home` to pick a state directory, `--port` to override the configured
 port, `--no-log-file` to keep output on the console instead of `server.log`.
 
-The add-on launches the runtime itself. Point its *server.py 路径* setting at
-[`scripts/server.py`](scripts/server.py) — that file exists so the add-on's interpreter
-auto-detection resolves this directory's `.venv`; read its docstring before moving it.
+The add-on launches the runtime itself and needs no path configuration once this package
+is installed: it finds a `PATH` interpreter that can import `unizero_runtime`, or the
+`unizero-runtime` console script. See the resolution table in
+[`apps/zotero-addon/README.md`](../../apps/zotero-addon/README.md).
+
+Two cases still need a setting in the add-on panel:
+
+- the virtualenv is not on `PATH` (this repo's `.venv` normally is not) — set
+  *Python 路径* to `.venv/Scripts/pythonw.exe` (Windows) or `.venv/bin/python`;
+- you want a specific script — set *server.py 路径* to
+  [`scripts/server.py`](scripts/server.py). That file exists so the add-on's older
+  interpreter auto-detection resolves this directory's `.venv`; read its docstring
+  before moving it.
 
 ## Runtime home
 

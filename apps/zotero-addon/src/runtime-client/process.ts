@@ -1,182 +1,41 @@
 /**
  * Paper runtime 的本地进程管理。
  *
- * 端口自 ZoMiner `modules/service.js`，行为保持一致。
- *
- * 这里的复杂度几乎全部来自一件事：**找到一个装了依赖的 Python**。用户机器上通常有好
- * 几个解释器（系统的、Windows Store 的、conda 的、项目 venv 的），只有装了 mineru 的
- * 那个能跑起来，而选错的表现是"服务启动后立刻退出"——一个非常难自助排查的症状。
+ * 端口自 ZoMiner `modules/service.js`。启动命令的选择已经拆到 launch.ts —— ZoMiner 只
+ * 有 `<python> <server.py>` 一种形态，现在有三种。
  */
 
 import { runtimeClient } from "./client";
-import { getRuntimePref } from "./settings";
+import { getRuntimePref, servicePort } from "./settings";
+import { resolveLaunchPlan, runtimeHome, type LaunchPlan } from "./launch";
 import type { HealthResponse } from "./contracts";
 
 /** 启动后等待健康检查通过的上限。MinerU 首次加载模型很慢，60s 不算宽裕。 */
 const STARTUP_TIMEOUT_S = 60;
 
-/** 探测某个解释器是否装了依赖时的超时，秒。 */
-const PROBE_TIMEOUT_S = 3;
-
 let process: any = null;
 let startedByPlugin = false;
-let lastPythonPath = "";
-
-function localFile(path: string): any {
-  const file = Components.classes["@mozilla.org/file/local;1"]
-    .createInstance(Components.interfaces.nsIFile);
-  file.initWithPath(path);
-  return file;
-}
-
-function environmentVariable(name: string): string {
-  const environment = Components.classes["@mozilla.org/process/environment;1"]
-    .getService(Components.interfaces.nsIEnvironment);
-  return environment.get(name) || "";
-}
-
-/**
- * 用候选解释器跑一句 import 探测。
- *
- * 比"文件存在"强得多的判据：PATH 上第一个 python 往往不是装了 mineru 的那个，
- * 而两者在文件系统层面看起来完全一样。
- */
-function pythonHasDeps(pythonFile: any): boolean {
-  try {
-    const probe = Components.classes["@mozilla.org/process/util;1"]
-      .createInstance(Components.interfaces.nsIProcess);
-    probe.init(pythonFile);
-    const code =
-      "import importlib.util as u,sys;" +
-      "sys.exit(0 if all(u.find_spec(m) for m in " +
-      "('fastapi','uvicorn','pydantic','mineru')) else 3)";
-    probe.run(true, ["-c", code], PROBE_TIMEOUT_S);
-    return probe.exitValue === 0;
-  } catch (error) {
-    return false;
-  }
-}
-
-function existingFiles(paths: string[]): any[] {
-  const found: any[] = [];
-  for (const candidate of paths) {
-    try {
-      const file = localFile(candidate);
-      if (file.exists() && file.isFile()) { found.push(file); }
-    } catch (error) {
-      // 路径语法在当前平台上非法，跳过。
-    }
-  }
-  return found;
-}
-
-function findPythonUnix(script: string): any {
-  const candidates: string[] = [];
-  // 优先项目虚拟环境：server.py 位于 <repo>/paper_service/，venv 在 <repo>/.venv/
-  if (script) {
-    const repoRoot = script.replace(/[\\/][^\\/]*[\\/][^\\/]*$/, "");
-    candidates.push(`${repoRoot}/.venv/bin/python`);
-    candidates.push(`${repoRoot}/.venv/bin/python3`);
-  }
-  for (let directory of environmentVariable("PATH").split(":")) {
-    directory = directory.trim();
-    if (!directory) { continue; }
-    candidates.push(`${directory}/python3`);
-    candidates.push(`${directory}/python`);
-  }
-
-  const existing = existingFiles(candidates);
-  for (const file of existing) {
-    if (pythonHasDeps(file)) {
-      ztoolkit.log(`auto-selected python (deps ok): ${file.path}`);
-      return file;
-    }
-  }
-  // 一个都没装全依赖时仍返回第一个：让服务真的启动一次，失败信息比"找不到 Python"具体。
-  return existing.length ? existing[0] : null;
-}
-
-function findPythonWindows(): any {
-  const candidates: string[] = [];
-  for (let directory of environmentVariable("PATH").split(";")) {
-    directory = directory.trim();
-    // WindowsApps 里的是应用商店占位符，运行它只会弹出商店页面。
-    if (!directory || /WindowsApps/i.test(directory)) { continue; }
-    for (const name of ["pythonw.exe", "python.exe"]) {
-      candidates.push(`${directory}\\${name}`);
-    }
-  }
-
-  const existing = existingFiles(candidates);
-  for (const file of existing) {
-    if (pythonHasDeps(file)) {
-      ztoolkit.log(`auto-selected python (deps ok): ${file.path}`);
-      return file;
-    }
-  }
-  return existing.length ? existing[0] : null;
-}
-
-function findPython(script: string): any {
-  const preferred = String(getRuntimePref("pythonPath") || "").trim();
-  if (preferred) {
-    const candidates: string[] = [];
-    // 用户填的是 python.exe 时优先换成 pythonw.exe：前者会常驻一个黑色控制台窗口。
-    if (/python\.exe$/i.test(preferred)) {
-      candidates.push(preferred.replace(/python\.exe$/i, "pythonw.exe"));
-    }
-    candidates.push(preferred);
-    const existing = existingFiles(candidates);
-    return existing.length ? existing[0] : null;
-  }
-
-  return Zotero.isWin ? findPythonWindows() : findPythonUnix(script);
-}
-
-function resolveServerScript(): string {
-  let script = String(getRuntimePref("serverScript") || "").trim();
-  if (!script) {
-    throw new Error("未配置 server.py 路径（工具 → UniZero 面板 → 运行时设置）");
-  }
-  // macOS/Linux 下常见手误：从别处粘贴绝对路径时漏了开头的 "/"
-  if (!Zotero.isWin && /^Users\//.test(script)) { script = `/${script}`; }
-  return script;
-}
+let lastPlan: LaunchPlan | null = null;
 
 function startProcess(): void {
-  const script = resolveServerScript();
-  let scriptFile: any;
-  try {
-    scriptFile = localFile(script);
-  } catch (error) {
-    throw new Error(`server.py 路径无效: ${script}`);
-  }
-  if (!scriptFile.exists()) {
-    throw new Error(
-      `server.py 不存在: ${script}\n` +
-      "请在 工具 → UniZero 面板 → 运行时设置 中修改 server.py 路径",
-    );
-  }
-
-  const python = findPython(script);
-  if (!python) {
-    throw new Error("找不到 Python（请在 UniZero 面板中设置 Python 路径）");
-  }
+  // 端口显式传给子进程，而不是让它自己读 config.json：两边各读各的时，服务会在
+  // 一个端口上正常运行，而 add-on 在另一个端口上永远等不到健康检查通过。
+  const plan = resolveLaunchPlan(servicePort());
 
   const child = Components.classes["@mozilla.org/process/util;1"]
     .createInstance(Components.interfaces.nsIProcess);
-  child.init(python);
+  child.init(plan.executable);
   // runw 避免 Windows 上弹控制台窗口；Unix 上没有这个区分。
   if (Zotero.isWin) {
-    child.runw(false, [script], 1);
+    child.runw(false, plan.args, plan.args.length);
   } else {
-    child.run(false, [script], 1);
+    child.run(false, plan.args, plan.args.length);
   }
 
   process = child;
   startedByPlugin = true;
-  lastPythonPath = python.path;
-  ztoolkit.log(`runtime spawned: ${python.path} ${script}`);
+  lastPlan = plan;
+  ztoolkit.log(`runtime spawned [${plan.mode}]: ${plan.description}`);
 }
 
 /** 健康检查，失败返回 null——调用方关心的是"能不能用"，不是失败原因。 */
@@ -193,20 +52,29 @@ export async function health(): Promise<HealthResponse | null> {
  *
  * 进程启动后立刻退出时，唯一的诊断信息就在这个文件里；不读出来用户只能看到
  * "服务启动后立即退出"，等于没说。
+ *
+ * 两个候选位置都试：新 runtime 写在 runtime home 下，而 ZoMiner 的旧 server.py 写在
+ * 脚本旁边。猜错位置的代价正好是这个函数存在的意义全部丢失。
  */
 async function readLogTail(maxLines = 15): Promise<string> {
-  try {
-    const script = resolveServerScript();
-    const directory = script.replace(/[\\/][^\\/]*$/, "");
-    const path = directory + (Zotero.isWin ? "\\" : "/") + "server.log";
-    if (!(await IOUtils.exists(path))) { return ""; }
-    const contents = await Zotero.File.getContentsAsync(path);
-    const lines = String(contents).replace(/\s+$/, "").split(/\r?\n/);
-    return lines.slice(-maxLines).join("\n");
-  } catch (error) {
-    ztoolkit.log(`readLogTail failed: ${error}`);
-    return "";
+  const separator = Zotero.isWin ? "\\" : "/";
+  const candidates = [runtimeHome() + separator + "server.log"];
+  if (lastPlan?.scriptPath) {
+    const directory = lastPlan.scriptPath.replace(/[\\/][^\\/]*$/, "");
+    candidates.push(directory + separator + "server.log");
   }
+
+  for (const path of candidates) {
+    try {
+      if (!(await IOUtils.exists(path))) { continue; }
+      const contents = await Zotero.File.getContentsAsync(path);
+      const lines = String(contents).replace(/\s+$/, "").split(/\r?\n/);
+      return `${path}\n${lines.slice(-maxLines).join("\n")}`;
+    } catch (error) {
+      ztoolkit.log(`readLogTail failed for ${path}: ${error}`);
+    }
+  }
+  return "";
 }
 
 export interface EnsureOptions {
@@ -225,7 +93,7 @@ export async function ensure({ reportError }: EnsureOptions): Promise<boolean> {
 
   if (!getRuntimePref("autoStart")) {
     reportError(
-      "本地转换服务未启动。\n请运行: python paper_service/server.py\n" +
+      "本地转换服务未启动。\n请运行: unizero-runtime\n" +
       "（或在 UniZero 面板中开启自动启动）",
     );
     return false;
@@ -257,10 +125,11 @@ export async function ensure({ reportError }: EnsureOptions): Promise<boolean> {
     if (process && !process.isRunning) {
       progress.close();
       const tail = await readLogTail();
-      let message = `转换服务启动后立即退出。\nPython: ${lastPythonPath}\n`;
+      let message = "转换服务启动后立即退出。\n";
+      message += `启动方式[${lastPlan?.mode}]: ${lastPlan?.description}\n`;
       message += tail
         ? `\nserver.log 末尾：\n${tail}`
-        : "\n请确认该 Python 已安装 fastapi、uvicorn、pydantic 和 mineru。";
+        : "\n请确认该 Python 已安装 unizero-runtime 及其依赖（含 mineru）。";
       reportError(message);
       process = null;
       startedByPlugin = false;
@@ -269,7 +138,11 @@ export async function ensure({ reportError }: EnsureOptions): Promise<boolean> {
   }
 
   progress.close();
-  reportError(`转换服务启动超时（${STARTUP_TIMEOUT_S}s）。请查看 server.log 排查。`);
+  reportError(
+    `转换服务启动超时（${STARTUP_TIMEOUT_S}s）。\n` +
+    `启动方式[${lastPlan?.mode}]: ${lastPlan?.description}\n` +
+    `请查看 ${runtimeHome()} 下的 server.log。`,
+  );
   return false;
 }
 

@@ -243,6 +243,23 @@ The remaining two need MinerU on a real PDF and a running Zotero. The test suite
 deliberately does not fake them: a mocked conversion would assert that the mocks agree
 with each other, not that artifacts are unchanged.
 
+### Follow-up: launch resolution and port authority
+
+Packaging the runtime made two of ZoMiner's manual settings unnecessary, so
+`runtime-client/launch.ts` now resolves the launch command instead of requiring
+`<python> <server.py>`. The order and its rationale are documented in
+`apps/zotero-addon/README.md`; the rule that matters for compatibility is that an
+explicitly configured `serverScript` or `pythonPath` always beats discovery, so a
+migrated ZoMiner user keeps running the server they configured.
+
+The port is now passed to the child process rather than read independently from
+`config.json` on the runtime side. The two values could disagree, and the symptom was
+a service that runs correctly while the add-on waits out its 60-second health check.
+
+Verified from the command line for all three launch modes — module, console script, and
+legacy script — each honouring `--port` and writing to the expected runtime home. Not
+yet verified from inside Zotero.
+
 ## Phase 4 — Contracts and artifact integration
 
 Replace implicit cross-feature coupling with explicit contracts.

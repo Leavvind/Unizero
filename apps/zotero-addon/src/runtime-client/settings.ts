@@ -17,7 +17,11 @@ const DEFAULT_PORT = 23300;
 export interface RuntimeSettings {
   /** Python 解释器绝对路径；留空则自动探测。 */
   pythonPath: string;
-  /** paper runtime 的 server.py 绝对路径。没有默认值，必须由用户配置。 */
+  /**
+   * server.py 绝对路径。**可选**——留空时按 launch.ts 的顺序自动查找已安装的 runtime。
+   *
+   * 填了就一定用它（含从 ZoMiner 迁移过来、指向旧 paper_service/server.py 的情况）。
+   */
   serverScript: string;
   port: number;
   autoStart: boolean;
@@ -50,10 +54,14 @@ export function setRuntimePref<K extends keyof RuntimeSettings>(
   Zotero.Prefs.set(PREFIX + name, value as string | number | boolean, true);
 }
 
-/** runtime 只监听回环地址；端口非法时退回默认值而不是抛错。 */
+/** 端口非法时退回默认值而不是抛错。启动进程和拼 URL 必须用同一个值。 */
+export function servicePort(): number {
+  return parseInt(String(read("port")), 10) || DEFAULT_PORT;
+}
+
+/** runtime 只监听回环地址。 */
 export function serviceURL(): string {
-  const port = parseInt(String(read("port")), 10) || DEFAULT_PORT;
-  return `http://127.0.0.1:${port}`;
+  return `http://127.0.0.1:${servicePort()}`;
 }
 
 const DONE_PREF = `${config.addonRef}.legacyRuntimePrefsMigrated`;
