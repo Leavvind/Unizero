@@ -1,0 +1,70 @@
+schema_version: 1
+id: paper-to-markdown
+name: 生成论文 Markdown
+version: 1
+description: 使用 MinerU 将 Zotero PDF 转换、清理并发布为 Markdown。
+modules:
+  - id: enrich
+    module: enrich.semantic-scholar
+    enabled: true
+    settings: {}
+
+  - id: extract
+    module: extract.mineru
+    enabled: true
+    settings:
+      execution: local
+      backend: pipeline
+      ocr_mode: auto
+      language: auto
+      enable_formula: true
+      enable_table: true
+      chunking:
+        enabled: true
+        threshold_pages: 200
+        chunk_size: 50
+
+  - id: page-links
+    module: transform.zotero-page-links
+    enabled: true
+    settings: {}
+
+  - id: references
+    module: transform.references
+    enabled: true
+    settings:
+      warn_if_empty: true
+
+  - id: markdown-cleanup
+    module: transform.markdown-cleanup
+    enabled: true
+    settings:
+      images_mode: none
+      table_mode: none
+      strip_repeated_lines: false
+      strip_references: true
+      table_vlm: false
+
+  - id: tables-export
+    module: export.zotero-tables
+    enabled: true
+    settings:
+      include_figures: false
+
+  - id: frontmatter
+    module: transform.frontmatter
+    enabled: true
+    settings:
+      tags:
+        - paper
+      extra: {}
+
+  - id: publish
+    module: publish.markdown-directory
+    enabled: true
+    settings:
+      destination: 20_Papers
+      filename: "{{ title }}.md"
+      attachments_directory: attachments
+      copy_referenced_only: true
+      existing_file: overwrite

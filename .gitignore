@@ -45,3 +45,6 @@ services/paper-runtime/*.log
 tmp/
 *.preview.md
 
+
+# Paper runtime state (see services/paper-runtime/src/unizero_runtime/paths.py)
+services/paper-runtime/.tmp-home/

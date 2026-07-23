@@ -30,8 +30,11 @@ UniZero/
 │       │   ├── application/       # Jobs and use-case orchestration
 │       │   ├── pipeline/          # Registry, templates, and pipeline steps
 │       │   ├── providers/         # MinerU, PDF, filesystem, publishing
-│       │   └── artifacts/         # Artifact creation and runtime index
-│       ├── templates/
+│       │   ├── artifacts/         # Artifact creation and runtime index (Phase 4)
+│       │   ├── templates/         # Built-in conversion templates (package data)
+│       │   ├── contracts.py       # Request/response models shared by api and application
+│       │   ├── paths.py           # Runtime home resolution
+│       │   └── composition.py     # Wiring; nothing constructed at import time
 │       ├── scripts/
 │       ├── tests/
 │       └── pyproject.toml
@@ -81,6 +84,14 @@ one product. It owns:
 The runtime is not required for metadata and relations features. Keeping that boundary
 allows the add-on to start quickly and avoids shipping Python implementation concerns
 into Zotero's Firefox sandbox.
+
+### Runtime state is not part of the tree above
+
+Built-in templates live inside the package because they ship with the code and must be
+replaced on upgrade. Everything mutable — `config.json`, `work/`, `store/`,
+`user_templates/`, `server.log` — lives in a runtime home outside the repository,
+resolved by `paths.py`. Nothing writable may be derived from `__file__`: an installed
+package directory can be read-only and is replaced wholesale on upgrade.
 
 ## Why contracts are a package
 

@@ -171,22 +171,77 @@ Exit gate:
 
 ## Phase 3 — Paper runtime migration
 
+Status: **migrated; end-to-end conversion check outstanding**
+
 Move `paper_service` into `services/paper-runtime` at behavior parity.
 
 Deliverables:
 
-- real Python package layout and dependency configuration;
-- existing `/api/v1` compatibility;
-- built-in templates and user-template discovery;
+- real Python package layout and dependency configuration — `src/unizero_runtime/`,
+  hatchling, `unizero-runtime` console script;
+- existing `/api/v1` compatibility — unchanged, verified by `tests/test_api_contract.py`;
+- built-in templates and user-template discovery — built-ins are package data, user
+  overrides live in the runtime home;
 - tests for workflow validation, reference extraction, frontmatter, and annotation
-  idempotency;
-- clean handling of runtime store, work, and config paths.
+  idempotency — 43 tests;
+- clean handling of runtime store, work, and config paths — see below.
+
+### Module mapping
+
+| ZoMiner | UniZero |
+| --- | --- |
+| `contracts.py` | `contracts.py` (package root) |
+| `api.py` | `api/app.py` |
+| `application.py` | `application/service.py` |
+| `jobs.py`, `config.py` | `application/jobs.py`, `application/config.py` |
+| `annotate.py` | `application/annotations.py` |
+| `pipeline.py` | `pipeline/steps.py` |
+| `workflow.py`, `postprocess.py` | `pipeline/workflow.py`, `pipeline/postprocess.py` |
+| `template_store.py` | `pipeline/templates.py` |
+| `s2.py` | `providers/semantic_scholar.py` |
+| `references.py`, `tables_export.py`, `table_vlm.py` | `providers/` |
+| `server.py` | `__main__.py` plus `scripts/server.py` launcher |
+| `migrate_flat.py`, `reprocess.py` | `scripts/` |
+
+`contracts.py` sits at the package root rather than under `api/` so that `application/`
+does not have to import from the transport layer to see the request models.
+
+### Runtime state moved out of the source tree
+
+The one intentional behavior change. ZoMiner derived `config.json`, `work/`, `store/`
+and `user_templates/` from `__file__`, so all runtime state lived inside the checkout.
+That stops working once the package is installed: the code directory may be read-only,
+and an upgrade replaces it.
+
+`paths.py` resolves a single runtime home from `$UNIZERO_RUNTIME_HOME`, falling back to
+the platform's user-data directory. Built-in templates stay package data, since they
+ship with the code and should be replaced on upgrade.
+
+Compatibility for existing ZoMiner users is a one-line action rather than a migration:
+point `UNIZERO_RUNTIME_HOME` at the old `paper_service` directory. The layout inside is
+identical, so existing config, work, store and user templates are adopted as they are.
+`tests/test_paths.py` covers this.
+
+### Import-time side effects removed
+
+ZoMiner built its config store, template store, application and job manager as
+module-level singletons in `api.py`. Importing the transport module therefore created
+directories, started the worker thread, and shelled out to `mineru --version`, which is
+why the service had no tests. Wiring moved to `composition.py`; `asgi.py` keeps a
+module-level `app` for the uvicorn command line, where an import side effect is exactly
+what the caller asked for.
 
 Exit gate:
 
-- runtime tests pass;
-- existing conversion fixtures produce equivalent artifacts;
-- the unified add-on can start, query, and stop the migrated runtime.
+- [x] runtime tests pass — 43 passed;
+- [x] the runtime boots, reports the capabilities the add-on requires, and serves
+      templates from package data;
+- [ ] existing conversion fixtures produce equivalent artifacts;
+- [ ] the unified add-on can start, query, and stop the migrated runtime.
+
+The remaining two need MinerU on a real PDF and a running Zotero. The test suite
+deliberately does not fake them: a mocked conversion would assert that the mocks agree
+with each other, not that artifacts are unchanged.
 
 ## Phase 4 — Contracts and artifact integration
 
