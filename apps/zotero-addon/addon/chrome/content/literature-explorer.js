@@ -542,9 +542,9 @@ var LiteratureExplorer = {
     let filtered = this.filterGraph(which, data);
     let counts = LiteratureGraph.setData(view, filtered, this.graphLayout);
     LiteratureGraph.resize(view);
-    // Persist the collection board's layout once it settles: it is the surface
-    // worth reopening in the same shape. Ego graphs are transient by nature.
-    if (which === "collection") this.scheduleLayoutSave(view);
+    // Both surfaces now draw the same library graph, so either may contribute the
+    // coordinates the other reopens with.
+    this.scheduleLayoutSave(which, view);
 
     let s = this.strings;
     let hidden = (data.nodes || []).length - counts.nodes;
@@ -571,8 +571,14 @@ var LiteratureExplorer = {
         : s.relationEmpty);
     }
     if (refit) {
-      // Fit after the simulation has had a moment to spread the nodes out.
-      window.setTimeout(() => LiteratureGraph.zoomToFit(view), 620);
+      // Fit after the simulation has had a moment to spread the nodes out; an ego
+      // view then pulls its focal paper to the middle.
+      window.setTimeout(() => {
+        LiteratureGraph.zoomToFit(view);
+        if (which === "detail") {
+          window.setTimeout(() => LiteratureGraph.centerOnFocus(view), 460);
+        }
+      }, 620);
     }
   },
 
@@ -628,9 +634,10 @@ var LiteratureExplorer = {
    * Registered once per view; the engine fires this on every settle, so the file
    * tracks the arrangement the user last saw, including nodes they dragged.
    */
-  scheduleLayoutSave(view) {
-    if (this._layoutHooked || !api.saveGraphLayout) return;
-    this._layoutHooked = true;
+  scheduleLayoutSave(which, view) {
+    this._layoutHooked = this._layoutHooked || {};
+    if (this._layoutHooked[which] || !api.saveGraphLayout) return;
+    this._layoutHooked[which] = true;
     LiteratureGraph.onSettled(view, () => {
       let positions = LiteratureGraph.snapshotPositions(view);
       if (!Object.keys(positions).length) return;

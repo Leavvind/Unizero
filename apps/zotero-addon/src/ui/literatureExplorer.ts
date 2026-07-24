@@ -231,7 +231,11 @@ function explorerApi() {
     },
     egoGraph: async (itemKey: string) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
-      return explorerViews.getLiteratureEgoGraph(contextItem(itemKey));
+      // Same scope as the overview board, so both surfaces show one graph.
+      return explorerViews.getLiteratureEgoGraph(
+        contextItem(itemKey),
+        explorerContext?.scope,
+      );
     },
     // Layout coordinates are a rendering convenience, so they are stored per
     // library and reused as the simulation's starting point across sessions.

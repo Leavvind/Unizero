@@ -14,6 +14,26 @@
 
 "use strict";
 
+/**
+ * A d3-force that pulls every node gently toward the origin.
+ *
+ * Written by hand because force-graph bundles d3-force but does not re-export its
+ * force factories. The shape (a function of alpha, with an `initialize` hook) is
+ * the whole contract d3 asks of a custom force.
+ */
+function containForce(strength) {
+  var nodes = [];
+  function force(alpha) {
+    for (var i = 0; i < nodes.length; i += 1) {
+      var node = nodes[i];
+      node.vx -= node.x * strength * alpha;
+      node.vy -= node.y * strength * alpha;
+    }
+  }
+  force.initialize = function (suppliedNodes) { nodes = suppliedNodes; };
+  return force;
+}
+
 var LiteratureGraph = {
   /**
    * Node radius and colour read from data, per the design's visual encoding:
@@ -120,6 +140,10 @@ var LiteratureGraph = {
 
     graph
       .backgroundColor(this.background(view))
+      // Node painting depends on external state (hover, selection, neighbours),
+      // which the redraw loop cannot detect. Left on, the canvas stops repainting
+      // once the engine settles and every interaction looks dead.
+      .autoPauseRedraw(false)
       .nodeId("id")
       .nodeRelSize(1)
       .nodeVal(function (node) { return self.radius(view, node); })
@@ -155,7 +179,13 @@ var LiteratureGraph = {
         container.style.cursor = node ? "pointer" : "default";
         if (view.options.onHover) { view.options.onHover(node || null); }
       })
-      .onNodeClick(function (node) {
+      .onNodeClick(function (node, event) {
+        // force-graph has no double-click event, so the click count off the
+        // MouseEvent is what separates "select" from "open".
+        if (node && event && event.detail >= 2) {
+          if (view.options.onOpen) { view.options.onOpen(node); }
+          return;
+        }
         // Select and recentre; deliberately NOT an open.
         self.select(view, node ? node.id : null);
         if (node) { graph.centerAt(node.x, node.y, 420); }
@@ -174,11 +204,11 @@ var LiteratureGraph = {
         node.fy = node.y;
       });
 
-    if (graph.onNodeDoubleClick) {
-      graph.onNodeDoubleClick(function (node) {
-        if (node && view.options.onOpen) { view.options.onOpen(node); }
-      });
-    }
+    // Papers with no connections have nothing pulling them back, so charge alone
+    // pushes them past the horizon — and zoom-to-fit then shrinks the real cluster
+    // to a dot. A weak pull toward the origin keeps them in a loose orbit, the way
+    // orphan notes sit around the edge of a graph view.
+    graph.d3Force("contain", containForce(0.06));
 
     // Coupling should pull related papers together; citation links stay looser so
     // the layout reflects similarity rather than pure reference direction.
@@ -404,12 +434,37 @@ var LiteratureGraph = {
     if (width > 0 && height > 0) { view.graph.width(width).height(height); }
   },
 
+  /**
+   * Frame the connected core rather than the full extent.
+   *
+   * Fitting everything lets a handful of unconnected papers on the rim decide the
+   * zoom, leaving the part worth reading a few pixels wide. Orphans stay on the
+   * canvas — they are simply not what the view is scaled to.
+   */
   zoomToFit(view, milliseconds, padding) {
     if (!view.graph) { return; }
+    var connected = view.data && view.data.nodes.some(function (node) {
+      return node.degree > 0;
+    });
     try {
-      view.graph.zoomToFit(milliseconds === undefined ? 420 : milliseconds,
-        padding === undefined ? 34 : padding);
+      view.graph.zoomToFit(
+        milliseconds === undefined ? 420 : milliseconds,
+        padding === undefined ? 42 : padding,
+        function (node) { return connected ? node.degree > 0 : true; },
+      );
     } catch (error) { /* nothing laid out yet */ }
+  },
+
+  /** Bring the focal paper of an ego view to the middle of the canvas. */
+  centerOnFocus(view, milliseconds) {
+    if (!view || !view.graph || !view.centerId) { return; }
+    var focus = view.data.nodes.find(function (node) {
+      return node.id === view.centerId;
+    });
+    if (!focus || typeof focus.x !== "number") { return; }
+    try {
+      view.graph.centerAt(focus.x, focus.y, milliseconds === undefined ? 500 : milliseconds);
+    } catch (error) { /* not laid out yet */ }
   },
 
   destroy(view) {

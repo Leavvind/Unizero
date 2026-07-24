@@ -37,11 +37,22 @@ Explorer 现为两视图（见 `addon/chrome/content/literature-explorer.xhtml`�
 | 目标 | 落点 | 角色 |
 |---|---|---|
 | 全库总览图（Obsidian 式） | `#collection-view` 加 **Graph⇄Table** 模式切换 | 图为主视图，表降为**可折叠的管理面** |
-| 单篇 Ego 图（Connected Papers 式） | `#detail-view` 新增 **Graph** 标签（置于 References 之前或并列） | 以选中 Paper 为中心的库内邻域图 |
+| 单篇 Ego 图（Connected Papers 式） | `#detail-view` 新增 **Graph** 标签（置于 References 之前或并列） | **同一张库内图，居中在选中 Paper 上** |
+
+> Ego 视图**不裁成 1 跳邻域**：与焦点没有直接边的论文，可能通过某篇有边的论文只隔一步，砍掉就把这层结构丢了。
+> 因此详情页画的是同一张图，只是标记并居中焦点。`uniConnection.egoGraph`（1 跳查询）保留且仍有单测，
+> 但当前 UI 未使用 —— 留给将来可能的「仅 1 跳」开关。
 
 ---
 
 ## 3. 交互模型（Obsidian 三段式，别让单击直接跳转）
+
+> **实现注意（踩过的坑）**
+> - force-graph **没有 `onNodeDoubleClick`**。双击靠 `onNodeClick(node, event)` 里的 `event.detail >= 2` 判定。
+> - 必须 `autoPauseRedraw(false)`。节点绘制依赖 hover/选中等**外部状态**，默认的暂停重绘会在引擎停下后冻结画布，
+>   表现为「所有交互都失效」。
+> - 孤立节点（无边）会被斥力推到天边，`zoomToFit` 随后把真正的簇缩成一个点。需要一个弱的向心 `containForce`，
+>   并让 `zoomToFit` 只框选 `degree > 0` 的节点。
 
 - **hover**：高亮邻居子图 + 浮出预览卡——**复用现有 `.row-preview`**（xhtml 里已有样式与逻辑）。
 - **单击**：选中节点 + 图重心平移到它（recenter）；与表格选中双向同步。

@@ -688,33 +688,35 @@ export default class Views {
     return { scope: { libraryID: scope.libraryID }, nodes, edges };
   }
 
-  /** One paper's in-library neighbourhood, enriched the same way. */
+  /**
+   * The same graph, centred on one paper.
+   *
+   * Deliberately not the 1-hop neighbourhood: a paper with no direct edge to the
+   * focus can still sit one step away through a paper that does, and cutting the
+   * graph down to immediate neighbours throws exactly that structure away. The
+   * focal paper is marked and the view centres on it instead.
+   */
   public async getLiteratureEgoGraph(
     item: Zotero.Item,
+    scope?: LiteratureCollectionScope,
   ): Promise<LiteratureGraphView> {
-    const graph = await uniConnection.egoGraph(item, {
-      couplingLimit: EXPLORER_COUPLING_LIMIT,
-    });
-    const nodes: LiteratureGraphNode[] = [];
-    for (const node of graph.nodes) {
-      const resolved = Zotero.Items.getByLibraryAndKey(
-        item.libraryID,
-        node.itemKey,
-      ) as Zotero.Item | false;
-      // A node whose item vanished between index and render is dropped rather
-      // than drawn as an unopenable ghost.
-      if (!resolved || resolved.deleted) { continue; }
-      nodes.push(this.graphNode(node, resolved));
+    const graph = await this.getLiteratureGraph(
+      scope || { libraryID: item.libraryID, name: "" },
+    );
+    const center = `${item.libraryID}:${item.key}`;
+    let nodes = graph.nodes.map((node) => (node.id === center
+      ? { ...node, isCenter: true }
+      : node));
+    // Opening a paper that the Collection filter excludes must still show it.
+    if (!nodes.some((node) => node.id === center)) {
+      nodes = nodes.concat({
+        ...this.graphNode(
+          { id: center, itemKey: item.key, degree: 0, isCenter: true },
+          item,
+        ),
+      });
     }
-    const present = new Set(nodes.map((entry) => entry.id));
-    return {
-      scope: { libraryID: item.libraryID },
-      nodes,
-      edges: graph.edges.filter(
-        (edge) => present.has(edge.source) && present.has(edge.target),
-      ),
-      center: graph.center,
-    };
+    return { ...graph, nodes, center };
   }
 
   /**
