@@ -2,6 +2,7 @@ import { config } from "../../package.json";
 import MetadataEnrichment from "../modules/metadataEnrichment";
 import { registerPrefs } from "../modules/prefs";
 import Views from "../modules/views";
+import { uniConnectionSync } from "../modules/uniConnectionSync";
 import { startInBackground, stopOnShutdown } from "../runtime-client/process";
 import { noteServiceFailure } from "../ui/notices";
 import {
@@ -32,6 +33,8 @@ const relations: FeatureModule = {
         openLiteratureExplorer(mainWindow, item, kind, views!));
       await views.onInit(win);
       Zotero[config.addonInstance].views = views;
+      uniConnectionSync.register();
+      addon.api.uniConnectionSync = uniConnectionSync;
       try {
         await registerPrefs();
       } catch (error) {
@@ -44,6 +47,8 @@ const relations: FeatureModule = {
     views.setExplorerOpener((mainWindow, item, kind) =>
       openLiteratureExplorer(mainWindow, item, kind, views!));
     views.onWindowLoad(win);
+    uniConnectionSync.register();
+    addon.api.uniConnectionSync = uniConnectionSync;
     registerLiteratureExplorerMenus(win, (mainWindow) =>
       openLiteratureExplorerForCollection(mainWindow, views!));
   },
@@ -53,9 +58,13 @@ const relations: FeatureModule = {
     closeLiteratureExplorerForOwner(win);
   },
   onShutdown() {
+    uniConnectionSync.unregister();
     closeLiteratureExplorer();
     unregisterLiteratureExplorerMenusAll();
     Zotero[config.addonInstance]?.views?.onDestroy?.();
+  },
+  onAppShutdown() {
+    uniConnectionSync.unregister();
   },
 };
 

@@ -74,6 +74,7 @@ var LiteratureExplorer = {
     document.getElementById("collection-head-references").textContent = s.references;
     document.getElementById("collection-head-citations").textContent = s.citations;
     document.getElementById("tab-references").textContent = s.references;
+    document.getElementById("tab-relation").textContent = s.relation;
     document.getElementById("tab-citations").textContent = s.citations;
     document.getElementById("label-search").textContent = s.searchLabel;
     document.getElementById("label-source").textContent = s.sourceFilterLabel;
@@ -141,6 +142,7 @@ var LiteratureExplorer = {
       ["original", this.strings.originalOrder],
       ["influential", this.strings.influentialFirst],
       ["cited", this.strings.mostCited],
+      ["shared", this.strings.mostShared],
       ["newest", this.strings.newest],
     ], "original", rerender("order"));
   },
@@ -599,6 +601,37 @@ var LiteratureExplorer = {
     this.dropdowns.source.setOptions(options, preferred);
   },
 
+  configureKindPresentation() {
+    let relation = this.kind === "relation";
+    let detail = document.getElementById("detail-view");
+    detail.classList.toggle("relation-mode", relation);
+
+    let sourceField = document.getElementById("filter-source").closest(".filter-field");
+    let libraryField = document.getElementById("filter-library").closest(".filter-field");
+    let influenceField = document.getElementById("filter-influence")
+      .closest(".filter-field");
+    if (sourceField) {
+      let hasSources = Boolean(
+        this.snapshot &&
+        (this.snapshot.sources || []).some((source) => source.status !== "skipped"),
+      );
+      sourceField.hidden = relation || !hasSources;
+    }
+    if (libraryField) libraryField.hidden = relation;
+    if (influenceField) influenceField.hidden = relation;
+    if (relation) {
+      document.getElementById("publication-level-field").hidden = true;
+    }
+
+    document.getElementById("head-citations").textContent = relation
+      ? this.strings.relationColumn
+      : this.strings.citationsColumn;
+    document.getElementById("head-influence").textContent = relation
+      ? this.strings.sharedColumn
+      : this.strings.influenceColumn;
+    document.getElementById("head-source").textContent = this.strings.sourceColumn;
+  },
+
   sourceOptionLabel(source) {
     if (String(source.status || "").indexOf("error") === 0) {
       return source.name + " · " + this.strings.error;
@@ -678,7 +711,7 @@ var LiteratureExplorer = {
 
   configureSort(reset) {
     let next = reset
-      ? (this.kind === "references" ? "original" : "influential")
+      ? (this.kind === "citations" ? "influential" : "original")
       : this.filters.order;
     this.filters.order = next;
     this.dropdowns.order.setValue(next);
@@ -691,6 +724,7 @@ var LiteratureExplorer = {
     this.showView("detail");
     if (changedItem) this.resetFilters();
     this.configureSort(true);
+    this.configureKindPresentation();
     let known = this.collectionSnapshot && this.collectionSnapshot.items
       .find((item) => item.itemKey === itemKey);
     document.getElementById("paper-title").textContent =
@@ -702,6 +736,7 @@ var LiteratureExplorer = {
     if (this.busy || kind === this.kind || !this.activeItemKey) return;
     this.kind = kind;
     this.configureSort(true);
+    this.configureKindPresentation();
     await this.load(false);
   },
 
@@ -724,10 +759,12 @@ var LiteratureExplorer = {
       document.getElementById("paper-title").textContent = this.snapshot.seed.title;
       this.configureSources();
       this.configurePublicationLevels();
+      this.configureKindPresentation();
       this.render();
     } catch (error) {
       this.snapshot = null;
       this.configurePublicationLevels();
+      this.configureKindPresentation();
       this.setStatus(this.strings.error + ": " + String(error), true);
       this.render();
     } finally {
@@ -746,6 +783,7 @@ var LiteratureExplorer = {
       this.syncCollectionRelationStatus();
       this.configureSources();
       this.configurePublicationLevels();
+      this.configureKindPresentation();
       this.render();
     } catch (error) {
       this.setStatus(this.strings.error + ": " + String(error), true);
@@ -774,6 +812,10 @@ var LiteratureExplorer = {
   startProgress(kind, onlySource) {
     let bar = document.getElementById("progress");
     if (!bar) return;
+    if (kind === "relation") {
+      this.stopProgress();
+      return;
+    }
     let keys = onlySource
       ? [onlySource]
       : (kind === "references"
@@ -824,6 +866,7 @@ var LiteratureExplorer = {
   },
 
   syncCollectionRelationStatus() {
+    if (this.kind === "relation") return;
     if (!this.collectionSnapshot || !this.snapshot || !this.activeItemKey) return;
     let paper = this.collectionSnapshot.items
       .find((item) => item.itemKey === this.activeItemKey);
@@ -840,10 +883,14 @@ var LiteratureExplorer = {
     if (!this.snapshot) return [];
     let query = document.getElementById("search").value.trim().toLocaleLowerCase();
     let years = this.selectedYearRange();
+    let relation = this.kind === "relation";
     let items = this.activeEntries().filter((item) => {
-      if (this.filters.library === "in" && !item.membership.inLibrary) return false;
-      if (this.filters.library === "out" && item.membership.inLibrary) return false;
-      if (this.filters.influence === "influential" && item.isInfluential !== true) {
+      if (!relation && this.filters.library === "in" &&
+          !item.membership.inLibrary) return false;
+      if (!relation && this.filters.library === "out" &&
+          item.membership.inLibrary) return false;
+      if (!relation && this.filters.influence === "influential" &&
+          item.isInfluential !== true) {
         return false;
       }
       if (this.filters.publicationType !== "all" &&
@@ -874,6 +921,13 @@ var LiteratureExplorer = {
     });
     let sort = this.filters.order;
     return items.slice().sort((left, right) => {
+      if (sort === "shared") {
+        return Number(right.sharedReferences || 0) -
+            Number(left.sharedReferences || 0) ||
+          Number((right.relationTypes || []).includes("cites")) -
+            Number((left.relationTypes || []).includes("cites")) ||
+          Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0);
+      }
       if (sort === "influential") {
         return Number(!!right.isInfluential) - Number(!!left.isInfluential) ||
           Number(right.influentialCitationCount || 0) -
@@ -894,6 +948,7 @@ var LiteratureExplorer = {
 
   render() {
     this.cancelRowPreview();
+    this.configureKindPresentation();
     document.querySelectorAll(".tab").forEach((tab) => {
       tab.classList.toggle("active", tab.dataset.kind === this.kind);
     });
@@ -905,7 +960,10 @@ var LiteratureExplorer = {
       return;
     }
     if (!items.length) {
-      this.renderEmpty(rows, this.strings.empty, 6);
+      let message = this.kind === "relation" && this.snapshot.total === 0
+        ? this.strings.relationEmpty
+        : this.strings.empty;
+      this.renderEmpty(rows, message, 6);
     } else {
       items.forEach((item) => rows.append(this.renderRow(item)));
     }
@@ -924,7 +982,7 @@ var LiteratureExplorer = {
       total = source ? source.total : shown;
       label = source ? source.name : this.activeSource;
     }
-    let breakdown = (this.snapshot.sources || [])
+    let breakdown = this.kind === "relation" ? "" : (this.snapshot.sources || [])
       .filter((source) => source.status !== "skipped")
       .map((source) => {
         // A restricted or failed source contributes 0, but "S2 0" reads like the
@@ -938,9 +996,9 @@ var LiteratureExplorer = {
     let counts = shown === loaded
       ? `${loaded}/${total}`
       : `${shown} / ${loaded}/${total}`;
-    this.setStatus(
-      `${counts} · ${label}` + (breakdown ? ` · ${breakdown}` : ""),
-    );
+    this.setStatus(`${counts} · ${
+      this.kind === "relation" ? this.strings.relationSource : label
+    }` + (breakdown ? ` · ${breakdown}` : ""));
     // Combined "Load more" pages every source at once; a single-source view only
     // shows what has already been fetched, so it hides the button.
     document.getElementById("load-more").hidden =
@@ -972,8 +1030,14 @@ var LiteratureExplorer = {
     let title = document.createElement("button");
     title.className = "paper-link";
     title.textContent = item.title || item.text || "Untitled";
-    title.title = this.strings.open;
-    title.addEventListener("click", () => api.launchURL(this.paperURL(item)));
+    title.title = this.kind === "relation" ? this.strings.select : this.strings.open;
+    title.addEventListener("click", () => {
+      if (this.kind === "relation") {
+        api.selectItem(item.membership.itemID);
+      } else {
+        api.launchURL(this.paperURL(item));
+      }
+    });
     let meta = document.createElement("div");
     meta.className = "paper-meta";
     meta.textContent = (item.authors || []).slice(0, 4).join(", ") ||
@@ -982,6 +1046,21 @@ var LiteratureExplorer = {
     row.append(titleCell);
 
     row.append(this.cell(item.year || "—", "numeric"));
+    if (this.kind === "relation") {
+      let relation = document.createElement("td");
+      let badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = this.relationLabel(item);
+      relation.append(badge);
+      row.append(relation);
+      row.append(this.cell(
+        item.sharedReferences
+          ? new Intl.NumberFormat().format(item.sharedReferences)
+          : "—",
+        "numeric",
+      ));
+      row.append(this.cell(this.strings.relationSource, "source"));
+    } else {
     row.append(this.cell(
       item.citationCount == null
         ? "—"
@@ -1011,6 +1090,7 @@ var LiteratureExplorer = {
     }
     row.append(influence);
     row.append(this.cell(item.source || "—", "source"));
+    }
 
     let library = document.createElement("td");
     library.className = "library";
@@ -1038,6 +1118,15 @@ var LiteratureExplorer = {
     library.append(action);
     row.append(library);
     return row;
+  },
+
+  relationLabel(item) {
+    let types = item.relationTypes || [];
+    let cites = types.includes("cites");
+    let coupled = types.includes("coupled");
+    if (cites && coupled) return this.strings.relationBoth;
+    if (cites) return this.strings.relationCites;
+    return this.strings.relationCoupled;
   },
 
   cell(text, className) {
@@ -1126,11 +1215,18 @@ var LiteratureExplorer = {
       tags.append(tag);
     };
     if (item.source) addTag(item.source);
-    if (item.citationCount != null) {
+    if (this.kind === "relation") {
+      addTag(this.relationLabel(item));
+      if (item.sharedReferences) {
+        addTag(new Intl.NumberFormat().format(item.sharedReferences) + " " +
+          this.strings.sharedColumn, true);
+      }
+    }
+    if (this.kind !== "relation" && item.citationCount != null) {
       addTag(new Intl.NumberFormat().format(item.citationCount) + " " +
         this.strings.citationsColumn, true);
     }
-    if (item.isInfluential) {
+    if (this.kind !== "relation" && item.isInfluential) {
       let label = this.strings.influential;
       if (item.intents && item.intents.length) label += " · " + item.intents.join(", ");
       addTag(label);

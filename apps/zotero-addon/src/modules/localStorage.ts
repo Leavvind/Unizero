@@ -144,6 +144,38 @@ class LocalStorage {
     return shard.records[key];
   }
 
+  /**
+   * Read one record straight from its shard without admitting that shard to the
+   * resident LRU.
+   *
+   * Whole-library derived indexes use this path: cycling hundreds of items through
+   * `load()` would evict the small working set kept for the item pane. A pending
+   * write for this item is awaited first so a build started immediately after a
+   * save cannot observe the previous file contents.
+   */
+  async readRecordDirect(item: LibraryScopedItem, key: string): Promise<any> {
+    await this.lock.promise;
+    const scopedKey = libraryItemIdentity(item);
+    const pending = this.writes.get(scopedKey);
+    if (pending) {
+      try {
+        await pending;
+      } catch {
+        // The direct read below is still useful after a failed write: it returns
+        // the last complete shard, or a normal cache miss.
+      }
+    }
+    try {
+      const shard = JSON.parse(await IOUtils.readUTF8(this.pathFor(item)) as string);
+      return shard?.records?.[key];
+    } catch (error) {
+      if (!isMissingFile(error)) {
+        ztoolkit.log(`cache shard unreadable for ${scopedKey}: ${error}`);
+      }
+      return undefined;
+    }
+  }
+
   // --------------------------------------------------------------- Writing
 
   async set(item: LibraryScopedItem, key: string, value: any): Promise<void> {
@@ -360,3 +392,6 @@ function isMissingFile(error: any): boolean {
 }
 
 export default LocalStorage
+
+/** One cache instance shared by Views and whole-library derived readers. */
+export const localStorage = new LocalStorage(config.addonRef);

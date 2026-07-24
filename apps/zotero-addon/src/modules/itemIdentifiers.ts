@@ -33,6 +33,7 @@ export const CITATION_COUNT_ALIASES = [
 
 export interface ItemPaperIdentifiers {
   doi?: string;
+  arxiv?: string;
   semanticScholarPaperId?: string;
   citations?: number;
 }
@@ -53,6 +54,25 @@ export function normalizeSemanticScholarPaperId(value?: string): string | undefi
   return (urlMatch?.[1] || raw.replace(/^paperid\s*:\s*/i, "")).trim() || undefined;
 }
 
+/**
+ * Accept an arXiv ID, an `arXiv:` value, or a normal abs/pdf URL. Version suffixes
+ * are removed here as well as in edgeIdentity so every consumer sees the same
+ * underlying work rather than a particular upload.
+ */
+export function normalizeArxivId(value?: string): string | undefined {
+  const raw = String(value || "").trim();
+  if (!raw) { return; }
+  const urlMatch = raw.match(
+    /arxiv\.org\/(?:abs|pdf)\/([^?#\s]+?)(?:\.pdf)?(?:[?#]|$)/i,
+  );
+  const candidate = String(urlMatch?.[1] || raw)
+    .trim()
+    .replace(/^arxiv[:\s]*/i, "")
+    .replace(/\.pdf$/i, "")
+    .replace(/v\d+$/i, "");
+  return candidate || undefined;
+}
+
 export function readItemPaperIdentifiers(item: Zotero.Item): ItemPaperIdentifiers {
   const extra = String(item.getField("extra") || "");
   let doi = "";
@@ -61,9 +81,16 @@ export function readItemPaperIdentifiers(item: Zotero.Item): ItemPaperIdentifier
     try { doi = String(item.getExtraField("DOI") || ""); } catch { /* unknown Extra field */ }
   }
   doi ||= getExtraValue(extra, ["DOI"]) || "";
+  let url = "";
+  try { url = String(item.getField("url") || ""); } catch { /* this item type has no URL */ }
+  const arxiv = normalizeArxivId(
+    getExtraValue(extra, ["arXiv", "arXiv ID"]) ||
+    (/arxiv\.org\/(?:abs|pdf)\//i.test(url) ? url : undefined),
+  );
   const citations = Number(getExtraValue(extra, CITATION_COUNT_ALIASES));
   return {
     doi: doi ? bareDOI(doi) : undefined,
+    arxiv,
     semanticScholarPaperId: normalizeSemanticScholarPaperId(
       getExtraValue(extra, S2_ID_ALIASES),
     ),

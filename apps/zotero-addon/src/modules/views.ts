@@ -2,7 +2,7 @@ import { config, version } from "../../package.json";
 import { initLocale, getString } from "../utils/locale";
 import TipUI from "./tip";
 import Utils from "./utils";
-import LocalStorge from "./localStorage";
+import { localStorage } from "./localStorage";
 import { readZoMinerReferences, findReferencesAttachment } from "./zomReferences";
 import {
   fetchReferencesByIdentifiers,
@@ -25,6 +25,16 @@ import { PanelStatus } from "./status";
 import { readItemPaperIdentifiers } from "./itemIdentifiers";
 import { forPersistence } from "./edgeIdentity";
 import {
+  CACHE_KEY_CITATIONS,
+  CACHE_KEY_REFERENCES,
+  cacheMatchesIdentifiers,
+  makeReferencesCache,
+  persistRelationSources,
+  type CitationsCache,
+  type ReferencesCache,
+} from "./literatureCache";
+import { uniConnection } from "./uniConnection";
+import {
   invalidateLibraryMembership,
   previewEntries,
   resolveLibraryMembership,
@@ -40,20 +50,12 @@ import {
 } from "./literatureRelations";
 import { createDiscoveredPaper } from "../zotero/literatureItemAdapter";
 import {
+  literatureCandidateFromItem,
   literatureItemsInScope,
   literaturePaperMetadata,
 } from "../zotero/literatureCollectionAdapter";
-const localStorage = new LocalStorge(config.addonRef);
-
-/**
- * Cache keys. They carry a version because the cache holds fully resolved
- * structured entries: once the fields are extended, an old record survives
- * silently as something that looks complete but is missing fields — harder to
- * diagnose than a cache miss.
- */
-const CACHE_KEY_REFERENCES = "References-Resolved-v4";
-const CACHE_KEY_CITATIONS = "Citations-v4";
 const SECTION_PREVIEW_LIMIT = 5;
+const EXPLORER_COUPLING_LIMIT = 50;
 
 /**
  * Collapse a provider's free-text diagnostic ("ok count=12", "error: HTTP 429",
@@ -77,38 +79,6 @@ type ExplorerOpener = (
   item: Zotero.Item,
   kind: LiteratureRelationKind,
 ) => void;
-
-interface ReferencesCache {
-  savedAt: number;
-  source: string;
-  /** Identifiers at save time; a change in either means the old list may no
-   *  longer belong to this paper. */
-  doi: string;
-  semanticScholarPaperId?: string;
-  /** Whether metadata resolution finished. False means this was written ahead of
-   *  resolution and reading it back should continue where it left off. */
-  resolved: boolean;
-  /** The merged, deduplicated list rendered everywhere. */
-  references: ItemBaseInfo[];
-  /** Each engine's raw list, kept so the explorer can show and refresh sources
-   *  individually and re-merge without re-querying the others. */
-  perSource?: RelationSourceResult[];
-}
-
-interface CitationsCache {
-  savedAt: number;
-  doi: string;
-  semanticScholarPaperId?: string;
-  source: string;
-  openAlexFilter?: string;
-  page: number;
-  loaded: number;
-  total: number;
-  /** The merged, deduplicated list across the loaded pages. */
-  all: ItemBaseInfo[];
-  /** Each engine's raw list and paging state, for per-source refresh/load-more. */
-  perSource?: RelationSourceResult[];
-}
 
 export default class Views {
   public utils!: Utils;
@@ -324,7 +294,9 @@ export default class Views {
       lastCitationsLoad: this.lastCitationsDiagnostic,
       citationsEngines: citationsDiagnostics,
       referencesEngines: referencesDiagnostics,
+      connectionSync: addon.api.uniConnectionSync?.diagnostics(),
     });
+    addon.api.uniConnection = uniConnection;
     const itemPaneManager = (Zotero as any).ItemPaneManager;
     if (!itemPaneManager?.registerSection) {
       throw new Error("Zotero.ItemPaneManager.registerSection is unavailable");
@@ -440,26 +412,10 @@ export default class Views {
     const cached = localStorage.get(item, CACHE_KEY_REFERENCES) as ReferencesCache | undefined;
     if (!cached?.references?.length) { return; }
     const identifiers = readItemPaperIdentifiers(item);
-    if ((cached.doi || "").toLowerCase() !== (identifiers.doi || "").toLowerCase() ||
-        (cached.semanticScholarPaperId || "").toLowerCase() !==
-          (identifiers.semanticScholarPaperId || "").toLowerCase()) {
+    if (!cacheMatchesIdentifiers(cached, identifiers)) {
       return;
     }
     return cached;
-  }
-
-  /**
-   * Strip live Zotero items out of the per-source lists before they can be written
-   * to disk. Membership resolution stamps `_item` onto entries in place, and that
-   * object cannot be serialised.
-   */
-  private persistableSources(
-    perSource?: RelationSourceResult[],
-  ): RelationSourceResult[] | undefined {
-    return perSource?.map((entry) => ({
-      ...entry,
-      entries: forPersistence(entry.entries, entry.name),
-    }));
   }
 
   private saveReferencesCache(
@@ -470,21 +426,20 @@ export default class Views {
     perSource?: RelationSourceResult[],
   ) {
     if (!references.length) { return; }
-    const identifiers = readItemPaperIdentifiers(item);
-    const payload: ReferencesCache = {
-      savedAt: Date.now(),
+    const payload = makeReferencesCache(
+      item,
       source,
-      doi: identifiers.doi || "",
-      semanticScholarPaperId: identifiers.semanticScholarPaperId,
+      references,
       resolved,
-      references: forPersistence(references, source),
-      perSource: this.persistableSources(perSource),
-    };
+      perSource,
+    );
     this.explorerReferences.set(this.explorerKey(item), payload);
     if (!this.isCacheEnabled("saveAPIReferences")) { return; }
-    localStorage.set(item, CACHE_KEY_REFERENCES, payload).catch(
-      (error) => ztoolkit.log("save references cache failed", error),
-    );
+    localStorage.set(item, CACHE_KEY_REFERENCES, payload)
+      // A cache write is not a Zotero item mutation and therefore emits no item
+      // notification. Refresh a resident graph explicitly after the bytes land.
+      .then(() => uniConnection.ingestItem(item, false))
+      .catch((error) => ztoolkit.log("save references cache failed", error));
     if (this.lastLoadDiagnostic) {
       this.lastLoadDiagnostic.savedAt = new Date().toLocaleTimeString();
       this.lastLoadDiagnostic.savedResolved = resolved;
@@ -497,9 +452,7 @@ export default class Views {
     const identifiers = readItemPaperIdentifiers(item);
     const cached = localStorage.get(item, CACHE_KEY_CITATIONS) as CitationsCache | undefined;
     if (!cached?.all?.length ||
-        (cached.doi || "").toLowerCase() !== (identifiers.doi || "").toLowerCase() ||
-        (cached.semanticScholarPaperId || "").toLowerCase() !==
-          (identifiers.semanticScholarPaperId || "").toLowerCase()) {
+        !cacheMatchesIdentifiers(cached, identifiers)) {
       return;
     }
     return cached;
@@ -513,7 +466,7 @@ export default class Views {
       ...state,
       savedAt: Date.now(),
       all: forPersistence(state.all, state.source),
-      perSource: this.persistableSources(state.perSource),
+      perSource: persistRelationSources(state.perSource),
     }).catch(
       (error) => ztoolkit.log("save citations cache failed", error),
     );
@@ -667,6 +620,7 @@ export default class Views {
   public relationProgress(
     kind: LiteratureRelationKind,
   ): { key: RelationSourceKey; status: string }[] {
+    if (kind === "relation") { return []; }
     const diagnostics: Partial<Record<RelationSourceKey, string | undefined>> =
       kind === "references"
         ? {
@@ -717,6 +671,9 @@ export default class Views {
     kind: LiteratureRelationKind,
     refresh = false,
   ): Promise<LiteratureSnapshot> {
+    if (kind === "relation") {
+      return this.getUniConnectionSnapshot(item, refresh);
+    }
     await localStorage.load(item);
     const key = this.explorerKey(item);
     const identifiers = readItemPaperIdentifiers(item);
@@ -822,6 +779,96 @@ export default class Views {
     );
   }
 
+  /**
+   * Read-only projection of the derived library graph.
+   *
+   * The normal path reuses the lazily built in-memory index. Refresh explicitly
+   * rebuilds that index from existing References-Resolved-v4 shards, and neither
+   * path fetches providers or writes cache records.
+   */
+  private async getUniConnectionSnapshot(
+    item: Zotero.Item,
+    rebuild: boolean,
+  ): Promise<LiteratureSnapshot> {
+    if (rebuild) { await uniConnection.build(item.libraryID); }
+    const [relations, coupling] = await Promise.all([
+      uniConnection.relationsOf(item),
+      uniConnection.coupledWith(item, EXPLORER_COUPLING_LIMIT),
+    ]);
+    const prefix = `${item.libraryID}:`;
+    const matches = new Map<
+      string,
+      { zoteroItem: Zotero.Item; cites: boolean; shared: number }
+    >();
+    const resolveItem = (scopedKey: string): Zotero.Item | undefined => {
+      if (!scopedKey.startsWith(prefix)) { return; }
+      const itemKey = scopedKey.slice(prefix.length);
+      if (!itemKey) { return; }
+      const candidate = Zotero.Items.getByLibraryAndKey(
+        item.libraryID,
+        itemKey,
+      ) as Zotero.Item | false;
+      if (!candidate || candidate.deleted || !candidate.isRegularItem?.()) {
+        return;
+      }
+      return candidate;
+    };
+
+    for (const relation of relations) {
+      const zoteroItem = resolveItem(relation.scopedKey);
+      if (zoteroItem) {
+        matches.set(relation.scopedKey, { zoteroItem, cites: true, shared: 0 });
+      }
+    }
+    for (const hit of coupling) {
+      const zoteroItem = resolveItem(hit.scopedKey);
+      if (!zoteroItem) { continue; }
+      const existing = matches.get(hit.scopedKey);
+      if (existing) {
+        existing.shared = hit.shared;
+      } else {
+        matches.set(hit.scopedKey, {
+          zoteroItem,
+          cites: false,
+          shared: hit.shared,
+        });
+      }
+    }
+
+    const items = [...matches.values()]
+      .sort((left, right) =>
+        Number(right.cites) - Number(left.cites) ||
+        right.shared - left.shared ||
+        String(left.zoteroItem.getField("title") || "").localeCompare(
+          String(right.zoteroItem.getField("title") || ""),
+        ))
+      .map((match, sourceOrder) => ({
+        ...literatureCandidateFromItem(match.zoteroItem),
+        sourceOrder,
+        relationTypes: [
+          ...(match.cites ? ["cites" as const] : []),
+          ...(match.shared > 0 ? ["coupled" as const] : []),
+        ],
+        sharedReferences: match.shared,
+      }));
+
+    return {
+      kind: "relation",
+      seed: {
+        libraryID: item.libraryID,
+        itemKey: item.key,
+        title: String(item.getField("title") || ""),
+      },
+      source: "UniConnection",
+      total: items.length,
+      loaded: items.length,
+      hasMore: false,
+      items,
+      sources: [],
+      bySource: {},
+    };
+  }
+
   /** Combined "load more" is exhausted only when no source has another page. */
   private citationsHasMore(state: CitationsCache): boolean {
     if (state.perSource?.length) { return state.perSource.some((entry) => entry.hasMore); }
@@ -911,6 +958,9 @@ export default class Views {
     kind: LiteratureRelationKind,
     sourceKey: RelationSourceKey,
   ): Promise<LiteratureSnapshot> {
+    if (kind === "relation") {
+      throw new Error("Relation is a local derived view and has no provider source");
+    }
     await localStorage.load(item);
     const key = this.explorerKey(item);
     const identifiers = readItemPaperIdentifiers(item);

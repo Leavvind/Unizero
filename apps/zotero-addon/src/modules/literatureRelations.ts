@@ -2,7 +2,8 @@ import { edgeIdentity } from "./edgeIdentity";
 import { readItemPaperIdentifiers } from "./itemIdentifiers";
 import type { RelationSourceKey } from "./mergeRelations";
 
-export type LiteratureRelationKind = "references" | "citations";
+export type LiteratureRelationKind = "references" | "relation" | "citations";
+export type LiteratureLibraryRelation = "cites" | "coupled";
 
 /** One provider's contribution to a relation, as the explorer's source picker sees it. */
 export interface LiteratureSourceView {
@@ -38,6 +39,10 @@ export interface LiteratureCandidate {
   contexts?: string[];
   sourceOrder?: number;
   source?: string;
+  /** Derived library-only relationships shown by the Relation explorer tab. */
+  relationTypes?: LiteratureLibraryRelation[];
+  /** Number of distinct cached references shared with the seed paper. */
+  sharedReferences?: number;
   membership: LibraryMembership;
 }
 

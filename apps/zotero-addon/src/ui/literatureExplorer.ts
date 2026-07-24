@@ -1,5 +1,5 @@
 /**
- * Bridge for the independent References/Citations browser.
+ * Bridge for the independent References/Relation/Citations browser.
  *
  * The XHTML/JS window is intentionally a thin view. Provider calls, cache policy,
  * library scoping, and Zotero mutations stay in Views/application code and cross
@@ -86,6 +86,7 @@ function strings() {
       "Open References and Citations",
     ),
     references: read("tab-references-label", "References"),
+    relation: read("tab-relation-label", "Relation"),
     citations: read("tab-citations-label", "Citations"),
     search: read("literature-search-placeholder", "Search title or author"),
     searchLabel: read("literature-filter-search-label", "Search"),
@@ -123,6 +124,10 @@ function strings() {
     originalOrder: read("literature-sort-original-label", "Original order"),
     influentialFirst: read("literature-sort-influential-label", "Influential first"),
     mostCited: read("literature-sort-cited-label", "Most cited"),
+    mostShared: read(
+      "literature-sort-shared-label",
+      "Most shared references",
+    ),
     newest: read("literature-sort-newest-label", "Newest"),
     titleColumn: read("literature-column-title-label", "Title"),
     yearColumn: read("literature-column-year-label", "Year"),
@@ -130,6 +135,31 @@ function strings() {
     influenceColumn: read("literature-column-influence-label", "Influence"),
     libraryColumn: read("literature-column-library-label", "Library"),
     sourceColumn: read("literature-column-source-label", "Source"),
+    relationColumn: read("literature-column-relation-label", "Relationship"),
+    sharedColumn: read(
+      "literature-column-shared-label",
+      "Shared references",
+    ),
+    relationCites: read(
+      "literature-relation-cites-label",
+      "Cites this paper",
+    ),
+    relationCoupled: read(
+      "literature-relation-coupled-label",
+      "Bibliographic coupling",
+    ),
+    relationBoth: read(
+      "literature-relation-both-label",
+      "Cites + coupled",
+    ),
+    relationSource: read(
+      "literature-relation-source-label",
+      "Library graph",
+    ),
+    relationEmpty: read(
+      "literature-relation-empty-label",
+      "No library citations or bibliographic coupling found",
+    ),
     refresh: read("relatedbox-refresh-label", "Refresh"),
     loadMore: read("citationsbox-more-label", "Load more"),
     loading: read("literature-loading-label", "Loading…"),

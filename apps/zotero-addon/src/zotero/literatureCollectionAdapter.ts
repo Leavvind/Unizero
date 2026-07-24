@@ -7,9 +7,11 @@
  */
 
 import type {
+  LiteratureCandidate,
   LiteratureCollectionPaper,
   LiteratureCollectionScope,
 } from "../modules/literatureRelations";
+import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
 
 const MARKDOWN_TAGS = new Set(["unizero:markdown", "unizero:markdown-copy"]);
 
@@ -117,5 +119,64 @@ export function literaturePaperMetadata(
     publicationTitle: String(item.getField("publicationTitle") || "") || undefined,
     hasPDF: hasPdfAttachment(item),
     hasMarkdown: hasMarkdownAttachment(item),
+  };
+}
+
+function itemField(item: Zotero.Item, field: string): string {
+  try {
+    return String(item.getField(field as any) || "");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Project one canonical Zotero item into the explorer's row shape.
+ *
+ * Relation candidates are never provider discoveries: membership is therefore
+ * always true and the numeric item ID is retained so both the title and status
+ * control can select the real item in Zotero.
+ */
+export function literatureCandidateFromItem(
+  item: Zotero.Item,
+): LiteratureCandidate {
+  const identifiers = readItemPaperIdentifiers(item);
+  const date = itemField(item, "date");
+  const year = date.match(/\b(?:1[5-9]|20|21)\d{2}\b/)?.[0];
+  const authors = item.getCreators()
+    .map((creator) => {
+      const firstName = String(creator.firstName || "").trim();
+      const lastName = String(creator.lastName || "").trim();
+      return [firstName, lastName].filter(Boolean).join(" ");
+    })
+    .filter(Boolean);
+  let type = "";
+  try {
+    type = Zotero.ItemTypes.getName(
+      Number(item.getField("itemTypeID" as any)),
+    ) || "";
+  } catch { /* item type is presentation-only metadata */ }
+
+  return {
+    identifiers: {
+      DOI: identifiers.doi,
+      arXiv: identifiers.arxiv,
+      paperID: identifiers.semanticScholarPaperId,
+    },
+    title: itemField(item, "title"),
+    authors,
+    year,
+    type: type || undefined,
+    text: itemField(item, "title"),
+    url: itemField(item, "url") || undefined,
+    primaryVenue: itemField(item, "publicationTitle") || undefined,
+    abstract: itemField(item, "abstractNote") || undefined,
+    citationCount: identifiers.citations,
+    source: "UniConnection",
+    membership: {
+      inLibrary: true,
+      libraryID: item.libraryID,
+      itemID: item.id,
+    },
   };
 }

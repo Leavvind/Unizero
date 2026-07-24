@@ -222,6 +222,13 @@
     th.influence-col { width: 11%; }
     th.source-col { width: 11%; }
     th.library-col { width: 11%; text-align: center; }
+    #detail-view.relation-mode th.title-col { width: 57%; }
+    #detail-view.relation-mode th.year-col { width: 8%; }
+    #detail-view.relation-mode th.citations-col { width: 15%; }
+    #detail-view.relation-mode th.influence-col { width: 11%; }
+    #detail-view.relation-mode th.library-col { width: 9%; }
+    #detail-view.relation-mode th.source-col,
+    #detail-view.relation-mode td.source { display: none; }
     .collection-table th.title-col { width: 34%; }
     .collection-table th.creator-col { width: 20%; }
     .collection-table th.year-col { width: 7%; }
@@ -507,6 +514,7 @@
   <section class="view" id="detail-view" hidden="hidden">
     <nav class="tabs" aria-label="Relation type">
       <button class="tab" id="tab-references" data-kind="references"></button>
+      <button class="tab" id="tab-relation" data-kind="relation"></button>
       <button class="tab" id="tab-citations" data-kind="citations"></button>
     </nav>
 

@@ -1,5 +1,7 @@
 import type { ColumnOptions, DialogHelper } from "zotero-plugin-toolkit";
 import hooks from "./hooks";
+import type { UniConnection } from "./modules/uniConnection";
+import type { UniConnectionSync } from "./modules/uniConnectionSync";
 import { createZToolkit } from "./utils/ztoolkit";
 
 class Addon {
@@ -27,7 +29,10 @@ class Addon {
   // Lifecycle hooks
   public hooks: typeof hooks;
   // APIs
-  public api: object;
+  public api: {
+    uniConnection?: UniConnection;
+    uniConnectionSync?: UniConnectionSync;
+  };
 
   constructor() {
     this.data = {
