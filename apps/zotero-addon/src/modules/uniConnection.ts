@@ -31,6 +31,46 @@ export interface CouplingHit {
   shared: number;
 }
 
+export interface GraphNode {
+  id: ScopedItemKey;
+  itemKey: string;
+  /** Incident edge count (cites + coupling); for node sizing and decluttering. */
+  degree: number;
+  /** Only in an ego graph: the focal paper. */
+  isCenter?: boolean;
+  // Metadata (title/year/citations/hasPDF/hasMarkdown) is filled by the Views
+  // layer from the live Zotero item — UniConnection reads no item fields here.
+}
+
+export interface GraphEdge {
+  source: ScopedItemKey;
+  target: ScopedItemKey;
+  type: "cites" | "coupled";
+  /** cites = 1; coupled = shared-reference count. */
+  weight: number;
+  directed: boolean;
+}
+
+export interface LiteratureGraph {
+  scope: { libraryID: number };
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  /** Present for an ego graph. */
+  center?: ScopedItemKey;
+}
+
+export interface GraphOptions {
+  /** Skip references shared by more than this many library items (dense, uninformative). */
+  couplingHubCap?: number;
+  /** Drop coupling edges below this shared-reference count. */
+  couplingMinWeight?: number;
+}
+
+export interface EgoGraphOptions {
+  /** Cap on coupled peers around the focal paper. */
+  couplingLimit?: number;
+}
+
 export interface UniConnectionStats {
   items: number;
   edges: number;
@@ -66,6 +106,10 @@ interface LibraryIndex {
 
 const READ_BATCH_SIZE = 32;
 const DEFAULT_COUPLING_LIMIT = 20;
+/** References shared by more items than this form a dense, uninformative clique. */
+const COUPLING_HUB_CAP = 200;
+/** Minimum shared-reference count for a coupling edge to be emitted. */
+const COUPLING_MIN_WEIGHT = 1;
 
 function emptyIndex(libraryID: number): LibraryIndex {
   return {
@@ -100,6 +144,11 @@ function libraryIDFromScopedKey(scopedKey: ScopedItemKey): number | undefined {
   if (separator <= 0) { return; }
   const libraryID = Number(scopedKey.slice(0, separator));
   return Number.isFinite(libraryID) ? libraryID : undefined;
+}
+
+function itemKeyOf(scopedKey: ScopedItemKey): string {
+  const separator = scopedKey.indexOf(":");
+  return separator >= 0 ? scopedKey.slice(separator + 1) : scopedKey;
 }
 
 function isReferencesCache(value: unknown): value is ReferencesCache {
@@ -261,6 +310,140 @@ export class UniConnection {
       .sort((left, right) =>
         right.shared - left.shared || left.scopedKey.localeCompare(right.scopedKey))
       .slice(0, safeLimit);
+  }
+
+  /**
+   * Query C: the whole-library graph — every item as a node, plus intra-library
+   * `cites` edges and `coupled` (shared-reference) edges. Topology only; the Views
+   * layer enriches each node with title/year/citation metadata from the live
+   * Zotero item, which this module deliberately never reads.
+   */
+  public async libraryGraph(
+    libraryID: number,
+    options: GraphOptions = {},
+  ): Promise<LiteratureGraph> {
+    const index = await this.indexFor(libraryID);
+    const nodes = new Map<ScopedItemKey, GraphNode>();
+    const ensure = (id: ScopedItemKey): GraphNode => {
+      let node = nodes.get(id);
+      if (!node) {
+        node = { id, itemKey: itemKeyOf(id), degree: 0 };
+        nodes.set(id, node);
+      }
+      return node;
+    };
+    for (const id of index.items) { ensure(id); }
+
+    const edges: GraphEdge[] = [];
+    for (const [source, forward] of index.forward) {
+      for (const edge of forward) {
+        const target = index.edgeOwner.get(edge);
+        if (!target || target === source) { continue; }
+        edges.push({ source, target, type: "cites", weight: 1, directed: true });
+        ensure(source).degree += 1;
+        ensure(target).degree += 1;
+      }
+    }
+
+    this.collectCouplingEdges(index, options, (source, target, weight) => {
+      edges.push({ source, target, type: "coupled", weight, directed: false });
+      ensure(source).degree += 1;
+      ensure(target).degree += 1;
+    });
+
+    return { scope: { libraryID }, nodes: [...nodes.values()], edges };
+  }
+
+  /**
+   * Query D: the in-library neighbourhood of one paper — its citers, the library
+   * papers it cites, and its top coupled peers. One hop, no out-of-library nodes.
+   */
+  public async egoGraph(
+    item: Zotero.Item,
+    options: EgoGraphOptions = {},
+  ): Promise<LiteratureGraph> {
+    const index = await this.indexFor(item.libraryID);
+    const center = libraryItemIdentity(item);
+    const nodes = new Map<ScopedItemKey, GraphNode>();
+    const ensure = (id: ScopedItemKey): GraphNode => {
+      let node = nodes.get(id);
+      if (!node) {
+        node = { id, itemKey: itemKeyOf(id), degree: 0 };
+        nodes.set(id, node);
+      }
+      return node;
+    };
+    ensure(center).isCenter = true;
+
+    const edges: GraphEdge[] = [];
+    const addCite = (source: ScopedItemKey, target: ScopedItemKey): void => {
+      if (source === target) { return; }
+      edges.push({ source, target, type: "cites", weight: 1, directed: true });
+      ensure(source).degree += 1;
+      ensure(target).degree += 1;
+    };
+
+    const self = index.selfEdge.get(center) || itemEdge(item);
+    if (self) {
+      for (const citer of index.inverted.get(self) || []) {
+        if (citer !== center) { addCite(citer, center); }
+      }
+    }
+    for (const edge of index.forward.get(center) || []) {
+      const target = index.edgeOwner.get(edge);
+      if (target && target !== center) { addCite(center, target); }
+    }
+
+    const limit = options.couplingLimit ?? DEFAULT_COUPLING_LIMIT;
+    for (const hit of await this.coupledWith(item, limit)) {
+      ensure(hit.scopedKey);
+      edges.push({
+        source: center,
+        target: hit.scopedKey,
+        type: "coupled",
+        weight: hit.shared,
+        directed: false,
+      });
+      ensure(center).degree += 1;
+      ensure(hit.scopedKey).degree += 1;
+    }
+
+    return {
+      scope: { libraryID: item.libraryID },
+      nodes: [...nodes.values()],
+      edges,
+      center,
+    };
+  }
+
+  /**
+   * Emit shared-reference (coupling) pairs, honouring the hub cap and minimum
+   * weight. Spans all endpoints, including out-of-library ones — two library papers
+   * can be coupled through a reference neither of them is.
+   */
+  private collectCouplingEdges(
+    index: LibraryIndex,
+    options: GraphOptions,
+    emit: (source: ScopedItemKey, target: ScopedItemKey, weight: number) => void,
+  ): void {
+    const hubCap = options.couplingHubCap ?? COUPLING_HUB_CAP;
+    const minWeight = options.couplingMinWeight ?? COUPLING_MIN_WEIGHT;
+    const weights = new Map<string, number>();
+    for (const citing of index.inverted.values()) {
+      if (citing.size < 2 || citing.size > hubCap) { continue; }
+      const members = [...citing].sort();
+      for (let i = 0; i < members.length; i += 1) {
+        for (let j = i + 1; j < members.length; j += 1) {
+          const pair = `${members[i]} ${members[j]}`;
+          weights.set(pair, (weights.get(pair) || 0) + 1);
+        }
+      }
+    }
+    for (const [pair, weight] of weights) {
+      if (weight < minWeight) { continue; }
+      const [source, target] = pair.split(" ");
+      emit(source, target, weight);
+    }
   }
 
   /** Current in-memory diagnostics; an unbuilt library reports an empty index. */
