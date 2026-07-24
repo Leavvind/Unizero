@@ -69,6 +69,7 @@ function strings() {
       "No regular items in this Collection",
     ),
     loaded: read("literature-loaded-label", "Loaded"),
+    refreshHint: read("literature-loaded-refresh-hint", "Right-click to refresh"),
     loadReferences: read(
       "literature-load-references-label",
       "Load references",
@@ -184,10 +185,14 @@ function explorerApi() {
         candidate,
       );
     },
-    loadRelation: async (itemKey: string, kind: LiteratureRelationKind) => {
+    loadRelation: async (
+      itemKey: string,
+      kind: LiteratureRelationKind,
+      refresh = false,
+    ) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
       const item = contextItem(itemKey);
-      await explorerViews.getLiteratureSnapshot(item, kind);
+      await explorerViews.getLiteratureSnapshot(item, kind, refresh);
       return explorerViews.getLiteratureCollectionPaper(item);
     },
     // Live per-source progress for the in-window indicator; a plain synchronous read

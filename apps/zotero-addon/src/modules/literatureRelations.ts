@@ -70,6 +70,8 @@ export interface LiteratureLoadStatus {
   loaded: boolean;
   count: number;
   total: number;
+  /** When this relation was last fetched/saved (epoch ms); undefined if never loaded. */
+  savedAt?: number;
 }
 
 export interface LiteratureCollectionPaper {

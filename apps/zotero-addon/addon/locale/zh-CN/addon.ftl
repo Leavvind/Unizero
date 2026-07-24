@@ -28,6 +28,7 @@ literature-column-date-added-label = 添加日期
 literature-column-markdown-label = Markdown
 literature-collection-empty-label = 当前文献集中没有常规文献
 literature-loaded-label = 已加载
+literature-loaded-refresh-hint = 右键刷新
 literature-load-references-label = 加载参考文献
 literature-load-citations-label = 加载被引用文献
 literature-generate-markdown-label = 生成 Markdown

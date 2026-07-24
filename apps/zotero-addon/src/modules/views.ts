@@ -620,6 +620,7 @@ export default class Views {
         loaded: Boolean(state),
         count: state?.references.length || 0,
         total: state?.references.length || 0,
+        savedAt: state?.savedAt,
       };
     }
     const state = this.readCitationsCache(item) || this.explorerCitations.get(key);
@@ -627,6 +628,7 @@ export default class Views {
       loaded: Boolean(state),
       count: state?.loaded || state?.all.length || 0,
       total: state?.total || 0,
+      savedAt: state?.savedAt,
     };
   }
 
@@ -770,6 +772,11 @@ export default class Views {
           );
         }
       }
+      // Upgrade Crossref "DOI-only" rows to real bibliographic data. The item-pane
+      // box does this through resolveReferences; the explorer path returns records
+      // instead of mutating rows, so without this those entries display a bare DOI
+      // forever. No-op once the placeholders are filled, so reopening is cheap.
+      await this.fillReferencePlaceholders(item, state);
       return this.buildCombinedSnapshot(
         item,
         kind,
@@ -2036,6 +2043,80 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       .then((complete) =>
         this.saveReferencesCache(item, source, finalReferences, complete, sectionPerSource))
       .catch((error) => ztoolkit.log("resolve references failed", error));
+  }
+
+  /**
+   * Fill Crossref "DOI-only" reference rows for the independent Explorer.
+   *
+   * Some publishers hand Crossref a reference carrying a DOI but no title, so
+   * fromCrossrefReference builds the row with a `DOI: …` placeholder. The item-pane
+   * box upgrades these through {@link resolveReferences}; the Explorer takes the
+   * getLiteratureSnapshot data path, which returns records rather than mutating live
+   * rows, so without this the row shows a bare DOI forever.
+   *
+   * Scope is deliberately narrow — only entries that already carry a DOI but no
+   * title. Given a DOI, resolveOne takes the authoritative lookup, not fuzzy
+   * matching, so this is a couple of requests per entry with no request storm and no
+   * risk of matching the wrong paper. Raw text-only entries (e.g. ZoMiner) are left
+   * alone; they already carry a parsed label. Note the merged list's placeholder
+   * entries lose the `_placeholderText` flag in composeGroup, so detection is by the
+   * shape (no title, has DOI) rather than the flag.
+   */
+  private async fillReferencePlaceholders(
+    item: Zotero.Item,
+    state: ReferencesCache,
+  ): Promise<void> {
+    const pending = state.references
+      .map((reference, index) => ({ reference, index }))
+      .filter(({ reference }) => !reference.title && reference.identifiers?.DOI);
+    if (!pending.length) { return; }
+    let changed = false;
+    await resolveMany(
+      pending.map(({ reference }) => ({
+        raw: reference.text || "",
+        identifiers: reference.identifiers,
+      })),
+      (position, info) => {
+        // A low-confidence guess or a titleless result leaves the placeholder as it
+        // was; only a confident, titled match is worth writing over the DOI row.
+        if (!info || info.lowConfidence || !info.title) { return; }
+        const { reference } = pending[position];
+        if (info.identifiers.DOI) {
+          reference.identifiers = { ...reference.identifiers, DOI: info.identifiers.DOI };
+        }
+        reference.title = info.title;
+        reference.authors = info.authors?.length ? info.authors : reference.authors;
+        reference.year = info.year || reference.year;
+        reference.primaryVenue = info.primaryVenue || reference.primaryVenue;
+        reference.abstract = info.abstract || reference.abstract;
+        reference.citations = info.citations ?? reference.citations;
+        reference.url = info.url || reference.url;
+        reference.source = info.source || reference.source;
+        // The row still holds the "DOI: …" placeholder text; rebuild it from the
+        // resolved fields so any label reading `text` no longer shows a bare DOI.
+        if (reference._placeholderText || /^DOI:\s/i.test(reference.text || "")) {
+          reference.text = [
+            reference.authors?.length ? reference.authors.slice(0, 3).join(", ") : undefined,
+            reference.year,
+            reference.title,
+            reference.primaryVenue,
+          ].filter(Boolean).join(". ");
+          delete reference._placeholderText;
+        }
+        changed = true;
+      },
+    );
+    // Persist so the enrichment survives the session; unchanged runs (nothing
+    // resolved) skip the write to avoid needless cache churn and a bumped savedAt.
+    if (changed) {
+      this.saveReferencesCache(
+        item,
+        state.source,
+        state.references,
+        state.resolved,
+        state.perSource,
+      );
+    }
   }
 
   /**

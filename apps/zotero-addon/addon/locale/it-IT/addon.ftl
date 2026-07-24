@@ -28,6 +28,7 @@ literature-column-date-added-label = Data di aggiunta
 literature-column-markdown-label = Markdown
 literature-collection-empty-label = Nessun elemento bibliografico nella collezione
 literature-loaded-label = Caricato
+literature-loaded-refresh-hint = Clic destro per aggiornare
 literature-load-references-label = Carica riferimenti
 literature-load-citations-label = Carica citazioni
 literature-generate-markdown-label = Genera Markdown

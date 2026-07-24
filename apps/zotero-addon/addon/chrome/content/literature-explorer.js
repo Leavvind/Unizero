@@ -462,8 +462,15 @@ var LiteratureExplorer = {
     if (status.loaded) {
       let count = status.total || status.count;
       button.textContent = `✓ ${new Intl.NumberFormat().format(count)}`;
-      button.title = this.strings.loaded;
+      button.title = this.loadedTooltip(status);
       button.addEventListener("click", () => this.showDetail(item.itemKey, kind));
+      // Right-click re-fetches from the providers, so a stale or partial load can be
+      // refreshed in place. Kept off left-click, which stays the far more common
+      // "open detail" and must not spend API calls (or trip rate limits) by accident.
+      button.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        this.refreshCollectionRelation(button, item, kind);
+      });
     } else {
       button.textContent = "↻";
       button.title = kind === "references"
@@ -474,6 +481,36 @@ var LiteratureExplorer = {
     }
     cell.append(button);
     return cell;
+  },
+
+  /** Tooltip for a loaded badge: "Loaded · <when> · <right-click hint>". */
+  loadedTooltip(status) {
+    let when = this.formatTimestamp(status && status.savedAt);
+    let base = when ? `${this.strings.loaded} · ${when}` : this.strings.loaded;
+    return this.strings.refreshHint ? `${base} · ${this.strings.refreshHint}` : base;
+  },
+
+  formatTimestamp(value) {
+    if (!value) return "";
+    let date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleString();
+  },
+
+  async refreshCollectionRelation(button, item, kind) {
+    if (button.disabled) return;
+    button.disabled = true;
+    let previous = button.textContent;
+    button.textContent = "…";
+    try {
+      let updated = await api.loadRelation(item.itemKey, kind, true);
+      Object.assign(item, updated);
+      this.renderCollection();
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = previous;
+      this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+    }
   },
 
   async runCollectionAction(button, item, action) {
@@ -795,6 +832,7 @@ var LiteratureExplorer = {
       loaded: true,
       count: this.snapshot.loaded,
       total: this.snapshot.total,
+      savedAt: Date.now(),
     };
   },
 
