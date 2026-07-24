@@ -21,6 +21,11 @@ var LiteratureExplorer = {
   busy: false,
   /** "combined" or a RelationSourceKey — which source's list the table shows. */
   activeSource: "combined",
+  /** "graph" or "table" — which surface leads the collection overview. */
+  collectionMode: "graph",
+  /** Live force-graph views, created lazily on first use. */
+  graphs: { collection: null, detail: null },
+  graphLoaded: { collection: false, detail: null },
   dropdowns: {},
   filters: {
     library: "all",
@@ -33,6 +38,7 @@ var LiteratureExplorer = {
   init() {
     this.applyStrings();
     this.configureControls();
+    this.setCollectionMode(this.collectionMode);
     document.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", () => this.switchKind(tab.dataset.kind));
     });
@@ -54,6 +60,17 @@ var LiteratureExplorer = {
       detailScroll.addEventListener("scroll", () => this.cancelRowPreview());
     }
     window.addEventListener("blur", () => this.cancelRowPreview());
+    document.getElementById("collection-mode-graph")
+      .addEventListener("click", () => this.setCollectionMode("graph"));
+    document.getElementById("collection-mode-table")
+      .addEventListener("click", () => this.setCollectionMode("table"));
+    // Canvas size is not derivable from CSS alone; force-graph needs explicit
+    // pixel dimensions, so every layout change has to be pushed into it.
+    window.addEventListener("resize", () => this.resizeGraphs());
+    // The graph hover card anchors to the pointer rather than to a table row.
+    window.addEventListener("mousemove", (event) => {
+      this._pointer = { x: event.clientX, y: event.clientY };
+    });
     this.reloadContext();
   },
 
@@ -73,6 +90,12 @@ var LiteratureExplorer = {
     document.getElementById("collection-head-markdown").textContent = s.markdownColumn;
     document.getElementById("collection-head-references").textContent = s.references;
     document.getElementById("collection-head-citations").textContent = s.citations;
+    document.getElementById("tab-graph").textContent = s.graphTab;
+    document.getElementById("collection-mode-graph").textContent = s.graphView;
+    document.getElementById("collection-mode-table").textContent = s.tableView;
+    document.getElementById("collection-table-summary").textContent = s.tableView;
+    document.getElementById("collection-graph-empty").textContent = s.graphEmpty;
+    document.getElementById("detail-graph-empty").textContent = s.graphEmpty;
     document.getElementById("tab-references").textContent = s.references;
     document.getElementById("tab-relation").textContent = s.relation;
     document.getElementById("tab-citations").textContent = s.citations;
@@ -313,6 +336,8 @@ var LiteratureExplorer = {
       this.context && this.context.scope ? this.context.scope.name :
         this.strings.collectionOverview;
     this.setCollectionStatus(this.strings.loading);
+    // An explicit refresh should rebuild the board as well as the table.
+    this.graphLoaded.collection = false;
     try {
       this.collectionSnapshot = await api.collectionSnapshot();
       document.getElementById("paper-title").textContent =
@@ -382,6 +407,192 @@ var LiteratureExplorer = {
         String(left.title || "").localeCompare(String(right.title || "")));
   },
 
+  // ------------------------------------------------------------------ Graph
+
+  setCollectionMode(mode) {
+    this.collectionMode = mode;
+    document.getElementById("collection-view")
+      .classList.toggle("table-mode", mode === "table");
+    document.getElementById("collection-mode-graph")
+      .classList.toggle("active", mode === "graph");
+    document.getElementById("collection-mode-table")
+      .classList.toggle("active", mode === "table");
+    // Collapsed by default in graph mode: the table is the management surface,
+    // not the main view.
+    document.getElementById("collection-table-panel").open = mode === "table";
+    if (mode === "graph") {
+      this.loadCollectionGraph();
+      this.resizeGraphs();
+    }
+  },
+
+  /**
+   * Build a graph view on demand.
+   *
+   * Creating it eagerly would start a force simulation for a surface the user may
+   * never open, and force-graph needs a laid-out container to size its canvas.
+   */
+  ensureGraph(which) {
+    if (this.graphs[which]) return this.graphs[which];
+    let containerId = which === "collection" ? "collection-graph" : "detail-graph";
+    let container = document.getElementById(containerId);
+    if (!container || typeof LiteratureGraph === "undefined") return null;
+    try {
+      this.graphs[which] = LiteratureGraph.create(container, {
+        onHover: (node) => this.onGraphHover(which, node),
+        onSelect: (node) => this.onGraphSelect(which, node),
+        onOpen: (node) => this.onGraphOpen(node),
+        onContext: (node) => this.onGraphOpen(node),
+      });
+    } catch (error) {
+      this.setGraphEmpty(which, this.strings.error + ": " + String(error));
+      return null;
+    }
+    LiteratureGraph.resize(this.graphs[which]);
+    return this.graphs[which];
+  },
+
+  async loadCollectionGraph(force) {
+    // The graph is scoped to the same Collection as the table, so it waits for the
+    // overview snapshot rather than racing it.
+    if (!this.collectionSnapshot) return;
+    if (this.graphLoaded.collection && !force) {
+      this.resizeGraphs();
+      return;
+    }
+    let view = this.ensureGraph("collection");
+    if (!view || !api.graph) return;
+    this.graphLoaded.collection = true;
+    try {
+      let data = await api.graph();
+      this.applyGraphData("collection", data);
+    } catch (error) {
+      this.graphLoaded.collection = false;
+      this.setGraphEmpty("collection", this.strings.error + ": " + String(error));
+    }
+  },
+
+  async loadDetailGraph(force) {
+    if (!this.activeItemKey || !api.egoGraph) return;
+    if (this.graphLoaded.detail === this.activeItemKey && !force) {
+      this.resizeGraphs();
+      return;
+    }
+    let view = this.ensureGraph("detail");
+    if (!view) return;
+    this.graphLoaded.detail = this.activeItemKey;
+    this.setStatus(this.strings.loading);
+    try {
+      let data = await api.egoGraph(this.activeItemKey);
+      this.applyGraphData("detail", data);
+    } catch (error) {
+      this.graphLoaded.detail = null;
+      this.setStatus(this.strings.error + ": " + String(error), true);
+      this.setGraphEmpty("detail", this.strings.error + ": " + String(error));
+    }
+  },
+
+  applyGraphData(which, data) {
+    let view = this.graphs[which];
+    if (!view) return;
+    let counts = LiteratureGraph.setData(view, data);
+    LiteratureGraph.resize(view);
+    let overlay = document.getElementById(which + "-graph-overlay");
+    let s = this.strings;
+    if (overlay) {
+      overlay.replaceChildren();
+      let summary = document.createElement("span");
+      summary.textContent = counts.nodes + " " + s.graphNodes + " · " +
+        counts.links + " " + s.graphEdges;
+      overlay.append(summary, this.graphLegend("cites"), this.graphLegend("coupled"));
+      let hint = document.createElement("span");
+      hint.textContent = s.graphOpenHint;
+      overlay.append(hint);
+    }
+    let empty = document.getElementById(which + "-graph-empty");
+    if (empty) {
+      empty.textContent = s.graphEmpty;
+      empty.hidden = counts.nodes > 0;
+    }
+    if (which === "detail") {
+      this.setStatus(counts.nodes
+        ? counts.nodes + " " + s.graphNodes + " · " + counts.links + " " + s.graphEdges
+        : s.relationEmpty);
+    }
+    // Fit after the simulation has had a moment to spread the nodes out.
+    window.setTimeout(() => LiteratureGraph.zoomToFit(view), 620);
+  },
+
+  graphLegend(type) {
+    let wrap = document.createElement("span");
+    wrap.className = "graph-legend";
+    let swatch = document.createElement("span");
+    swatch.className = "graph-swatch" + (type === "coupled" ? " coupled" : "");
+    let label = document.createElement("span");
+    label.textContent = type === "coupled"
+      ? this.strings.graphLegendCoupled
+      : this.strings.graphLegendCites;
+    wrap.append(swatch, label);
+    return wrap;
+  },
+
+  setGraphEmpty(which, message) {
+    let empty = document.getElementById(which + "-graph-empty");
+    if (!empty) return;
+    empty.textContent = message;
+    empty.hidden = false;
+  },
+
+  resizeGraphs() {
+    ["collection", "detail"].forEach((which) => {
+      if (this.graphs[which]) LiteratureGraph.resize(this.graphs[which]);
+    });
+  },
+
+  /** Reuse the table's hover card so both surfaces describe a paper identically. */
+  onGraphHover(which, node) {
+    this.cancelRowPreview();
+    if (!node) return;
+    // showRowPreview anchors to a rect; on canvas the meaningful anchor is the
+    // pointer, so hand it a zero-size rect there instead of the whole container.
+    let point = this._pointer || { x: 0, y: 0 };
+    this.showRowPreview(this.graphNodeToItem(node), {
+      getBoundingClientRect: () => ({
+        left: point.x, right: point.x, top: point.y, bottom: point.y,
+        width: 0, height: 0,
+      }),
+    });
+  },
+
+  onGraphSelect(which, node) {
+    if (which !== "collection" || !node) return;
+    // Keep the management table in step with the board.
+    let row = document.querySelector(
+      '#collection-rows tr[data-item-key="' + node.itemKey + '"]',
+    );
+    if (row && row.scrollIntoView) {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  },
+
+  onGraphOpen(node) {
+    if (!node) return;
+    this.showDetail(node.itemKey, "references");
+  },
+
+  /** Shape a graph node like a table row so the shared preview card can render it. */
+  graphNodeToItem(node) {
+    return {
+      title: node.title,
+      authors: node.creators || [],
+      creators: node.creators || [],
+      year: node.year,
+      primaryVenue: node.publicationTitle,
+      publicationTitle: node.publicationTitle,
+      membership: { inLibrary: true, itemID: node.itemID },
+    };
+  },
+
   renderCollection() {
     let rows = document.getElementById("collection-rows");
     rows.replaceChildren();
@@ -402,10 +613,13 @@ var LiteratureExplorer = {
       `${items.length}/${this.collectionSnapshot.items.length} · ` +
       this.collectionSnapshot.scope.name,
     );
+    if (this.collectionMode === "graph") this.loadCollectionGraph();
   },
 
   renderCollectionRow(item) {
     let row = document.createElement("tr");
+    // Lets the graph scroll its selected paper into view in the table.
+    row.dataset.itemKey = item.itemKey;
 
     let titleCell = document.createElement("td");
     let title = document.createElement("button");
@@ -603,8 +817,15 @@ var LiteratureExplorer = {
 
   configureKindPresentation() {
     let relation = this.kind === "relation";
+    let graph = this.kind === "graph";
     let detail = document.getElementById("detail-view");
     detail.classList.toggle("relation-mode", relation);
+    detail.classList.toggle("graph-mode", graph);
+    document.getElementById("detail-graph-wrap").hidden = !graph;
+    document.querySelectorAll("#detail-view .tab").forEach((tab) => {
+      tab.classList.toggle("active", tab.dataset.kind === this.kind);
+    });
+    if (graph) { return; }
 
     let sourceField = document.getElementById("filter-source").closest(".filter-field");
     let libraryField = document.getElementById("filter-library").closest(".filter-field");
@@ -742,6 +963,13 @@ var LiteratureExplorer = {
 
   async load(refresh) {
     if (this.busy || !this.activeItemKey) return;
+    // The graph tab is a different surface entirely: it reads the derived library
+    // graph rather than a provider snapshot, so it skips sources and paging.
+    if (this.kind === "graph") {
+      this.configureKindPresentation();
+      await this.loadDetailGraph(Boolean(refresh));
+      return;
+    }
     // A full (re)load lands on the combined view; the source picker is repopulated
     // from the fresh snapshot below.
     this.activeSource = "combined";
@@ -948,10 +1176,8 @@ var LiteratureExplorer = {
 
   render() {
     this.cancelRowPreview();
+    // configureKindPresentation also syncs the active tab.
     this.configureKindPresentation();
-    document.querySelectorAll(".tab").forEach((tab) => {
-      tab.classList.toggle("active", tab.dataset.kind === this.kind);
-    });
     let rows = document.getElementById("rows");
     rows.replaceChildren();
     let items = this.visibleItems();

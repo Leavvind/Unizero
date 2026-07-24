@@ -43,6 +43,8 @@ import {
   type LiteratureCollectionPaper,
   type LiteratureCollectionScope,
   type LiteratureCollectionSnapshot,
+  type LiteratureGraphNode,
+  type LiteratureGraphView,
   type LiteratureLoadStatus,
   type LiteratureRelationKind,
   type LiteratureSnapshot,
@@ -657,6 +659,82 @@ export default class Views {
       ));
     }
     return { scope, items: papers };
+  }
+
+  /**
+   * Whole-library graph for the explorer's overview.
+   *
+   * UniConnection supplies topology for the entire library; a Collection scope
+   * then narrows it to that Collection's papers, dropping edges whose other end
+   * falls outside. Metadata comes from literaturePaperMetadata, the same helper
+   * behind the collection table, so a node and its row always agree.
+   */
+  public async getLiteratureGraph(
+    scope: LiteratureCollectionScope,
+  ): Promise<LiteratureGraphView> {
+    const graph = await uniConnection.libraryGraph(scope.libraryID);
+    const items = await literatureItemsInScope(scope);
+    const byScopedKey = new Map<string, Zotero.Item>();
+    for (const item of items) {
+      byScopedKey.set(`${item.libraryID}:${item.key}`, item);
+    }
+    const nodes = graph.nodes
+      .filter((node) => byScopedKey.has(node.id))
+      .map((node) => this.graphNode(node, byScopedKey.get(node.id)!));
+    const present = new Set(nodes.map((node) => node.id));
+    const edges = graph.edges.filter(
+      (edge) => present.has(edge.source) && present.has(edge.target),
+    );
+    return { scope: { libraryID: scope.libraryID }, nodes, edges };
+  }
+
+  /** One paper's in-library neighbourhood, enriched the same way. */
+  public async getLiteratureEgoGraph(
+    item: Zotero.Item,
+  ): Promise<LiteratureGraphView> {
+    const graph = await uniConnection.egoGraph(item, {
+      couplingLimit: EXPLORER_COUPLING_LIMIT,
+    });
+    const nodes: LiteratureGraphNode[] = [];
+    for (const node of graph.nodes) {
+      const resolved = Zotero.Items.getByLibraryAndKey(
+        item.libraryID,
+        node.itemKey,
+      ) as Zotero.Item | false;
+      // A node whose item vanished between index and render is dropped rather
+      // than drawn as an unopenable ghost.
+      if (!resolved || resolved.deleted) { continue; }
+      nodes.push(this.graphNode(node, resolved));
+    }
+    const present = new Set(nodes.map((entry) => entry.id));
+    return {
+      scope: { libraryID: item.libraryID },
+      nodes,
+      edges: graph.edges.filter(
+        (edge) => present.has(edge.source) && present.has(edge.target),
+      ),
+      center: graph.center,
+    };
+  }
+
+  private graphNode(
+    node: { id: string; itemKey: string; degree: number; isCenter?: boolean },
+    item: Zotero.Item,
+  ): LiteratureGraphNode {
+    const metadata = literaturePaperMetadata(item);
+    return {
+      id: node.id,
+      itemKey: node.itemKey,
+      itemID: metadata.itemID,
+      degree: node.degree,
+      isCenter: node.isCenter,
+      title: metadata.title,
+      creators: metadata.creators,
+      year: metadata.year,
+      publicationTitle: metadata.publicationTitle,
+      hasPDF: metadata.hasPDF,
+      hasMarkdown: metadata.hasMarkdown,
+    };
   }
 
   /**

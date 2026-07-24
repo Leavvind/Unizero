@@ -71,6 +71,43 @@ export interface LiteratureCollectionScope {
   name: string;
 }
 
+/**
+ * A graph node as the explorer renders it: UniConnection's topology plus the
+ * Zotero metadata the view needs for labels, sizing, and colouring. The graph
+ * module owns the first half and deliberately reads no item fields; Views fills
+ * the second half from the same helpers the collection table uses, so a node and
+ * its table row can never disagree.
+ */
+export interface LiteratureGraphNode {
+  id: string;
+  itemKey: string;
+  itemID?: number;
+  degree: number;
+  isCenter?: boolean;
+  title: string;
+  creators: string[];
+  year?: string;
+  publicationTitle?: string;
+  hasPDF: boolean;
+  hasMarkdown: boolean;
+}
+
+export interface LiteratureGraphEdge {
+  source: string;
+  target: string;
+  type: "cites" | "coupled";
+  weight: number;
+  directed: boolean;
+}
+
+export interface LiteratureGraphView {
+  scope: { libraryID: number };
+  nodes: LiteratureGraphNode[];
+  edges: LiteratureGraphEdge[];
+  /** Present for an ego graph: the focal paper's scoped key. */
+  center?: string;
+}
+
 export interface LiteratureLoadStatus {
   loaded: boolean;
   count: number;

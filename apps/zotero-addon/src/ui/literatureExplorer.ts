@@ -160,6 +160,24 @@ function strings() {
       "literature-relation-empty-label",
       "No library citations or bibliographic coupling found",
     ),
+    graphTab: read("literature-graph-tab-label", "Graph"),
+    graphView: read("literature-graph-view-label", "Graph"),
+    tableView: read("literature-table-view-label", "Table"),
+    graphEmpty: read(
+      "literature-graph-empty-label",
+      "No connections yet — load References for more papers to grow the graph",
+    ),
+    graphLegendCites: read("literature-graph-legend-cites-label", "Cites"),
+    graphLegendCoupled: read(
+      "literature-graph-legend-coupled-label",
+      "Shared references",
+    ),
+    graphNodes: read("literature-graph-nodes-label", "papers"),
+    graphEdges: read("literature-graph-edges-label", "connections"),
+    graphOpenHint: read(
+      "literature-graph-open-hint-label",
+      "Double-click a paper to open it",
+    ),
     refresh: read("relatedbox-refresh-label", "Refresh"),
     loadMore: read("citationsbox-more-label", "Load more"),
     loading: read("literature-loading-label", "Loading…"),
@@ -193,6 +211,18 @@ function explorerApi() {
       explorerContext!.itemKey = itemKey;
       explorerContext!.kind = kind;
       return explorerViews.getLiteratureSnapshot(contextItem(itemKey), kind, refresh);
+    },
+    // Derived library graph for the overview. Read-only: it neither fetches from
+    // providers nor writes cache records, so calling it is always cheap after the
+    // first (index-building) call.
+    graph: async () => {
+      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerContext) { throw new Error("Literature Explorer has no scope"); }
+      return explorerViews.getLiteratureGraph(explorerContext.scope);
+    },
+    egoGraph: async (itemKey: string) => {
+      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      return explorerViews.getLiteratureEgoGraph(contextItem(itemKey));
     },
     loadMoreCitations: async (itemKey: string) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }

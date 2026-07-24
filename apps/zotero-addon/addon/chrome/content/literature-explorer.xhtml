@@ -387,6 +387,108 @@
       color: var(--orange);
     }
     .progress-pill.skipped { opacity: .5; }
+    /* ---------------------------------------------------------------- Graph */
+    .graph-wrap {
+      position: relative;
+      overflow: hidden;
+      height: calc(100vh - 250px);
+      min-height: 380px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--card);
+    }
+    #collection-view .graph-wrap { height: calc(100vh - 205px); }
+    .graph-canvas { width: 100%; height: 100%; }
+    .graph-overlay {
+      position: absolute;
+      z-index: 3;
+      top: 9px;
+      left: 11px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 9px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--card) 86%, transparent);
+      color: var(--muted);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      pointer-events: none;
+    }
+    .graph-legend {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .graph-swatch {
+      display: inline-block;
+      width: 15px;
+      height: 0;
+      border-top: 2px solid var(--muted);
+    }
+    .graph-swatch.coupled { border-top-color: var(--accent); }
+    .graph-empty {
+      position: absolute;
+      z-index: 2;
+      top: 50%;
+      left: 50%;
+      width: min(420px, 82%);
+      color: var(--muted);
+      text-align: center;
+      transform: translate(-50%, -50%);
+    }
+    .view-toggle {
+      display: inline-flex;
+      flex: none;
+      gap: 0;
+    }
+    .view-toggle button {
+      border-radius: 0;
+      font-size: 12px;
+    }
+    .view-toggle button:first-child { border-radius: 6px 0 0 6px; }
+    .view-toggle button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+    .view-toggle button.active {
+      z-index: 1;
+      border-color: var(--accent);
+      background: var(--soft);
+      color: var(--accent);
+      font-weight: 700;
+    }
+    /* The table becomes a collapsible management surface once the graph leads. */
+    .table-panel > summary {
+      padding: 7px 10px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      list-style: none;
+      user-select: none;
+    }
+    .table-panel > summary::-webkit-details-marker { display: none; }
+    .table-panel > summary::before {
+      display: inline-block;
+      margin-right: 6px;
+      content: "▸";
+    }
+    .table-panel[open] > summary::before { content: "▾"; }
+    .table-panel > summary:hover { color: var(--accent); }
+    .table-panel[open] .table-wrap { max-height: 320px; min-height: 0; }
+
+    /* The Graph tab replaces the table surface entirely. */
+    #detail-view.graph-mode .toolbar,
+    #detail-view.graph-mode .table-wrap,
+    #detail-view.graph-mode .footer,
+    #detail-view.graph-mode .progress { display: none !important; }
+    /* Table mode hides the board and lets the table reclaim the full height. */
+    #collection-view.table-mode .graph-wrap { display: none; }
+    #collection-view.table-mode .table-panel > summary { display: none; }
+    #collection-view.table-mode .table-panel .table-wrap {
+      max-height: calc(100vh - 165px);
+      min-height: 420px;
+    }
+
     /* Floating preview card shown on row hover. */
     .row-preview {
       position: fixed;
@@ -472,6 +574,10 @@
       .collection-table th.title-col { width: 55%; }
     }
   </style>
+  <!-- Vendored force-graph (MIT, self-contained UMD → window.ForceGraph). Bundled
+       locally because the explorer must work offline and cannot reach a CDN. -->
+  <script src="vendor/force-graph.min.js"></script>
+  <script src="literature-graph.js"></script>
   <script src="literature-explorer.js"></script>
 </head>
 <body>
@@ -490,9 +596,22 @@
           for="collection-search"></label>
         <input id="collection-search" type="search"/>
       </div>
+      <div class="view-toggle" id="collection-view-toggle">
+        <button id="collection-mode-graph" class="active"></button>
+        <button id="collection-mode-table"></button>
+      </div>
       <button id="collection-refresh"></button>
     </div>
     <div class="status" id="collection-status" role="status"></div>
+
+    <div class="graph-wrap" id="collection-graph-wrap">
+      <div class="graph-canvas" id="collection-graph"></div>
+      <div class="graph-overlay" id="collection-graph-overlay"></div>
+      <div class="graph-empty" id="collection-graph-empty" hidden="hidden"></div>
+    </div>
+
+    <details class="table-panel" id="collection-table-panel">
+      <summary id="collection-table-summary"></summary>
     <div class="table-wrap">
       <table class="collection-table">
         <thead>
@@ -509,14 +628,22 @@
         <tbody id="collection-rows"></tbody>
       </table>
     </div>
+    </details>
   </section>
 
   <section class="view" id="detail-view" hidden="hidden">
     <nav class="tabs" aria-label="Relation type">
+      <button class="tab" id="tab-graph" data-kind="graph"></button>
       <button class="tab" id="tab-references" data-kind="references"></button>
       <button class="tab" id="tab-relation" data-kind="relation"></button>
       <button class="tab" id="tab-citations" data-kind="citations"></button>
     </nav>
+
+    <div class="graph-wrap" id="detail-graph-wrap" hidden="hidden">
+      <div class="graph-canvas" id="detail-graph"></div>
+      <div class="graph-overlay" id="detail-graph-overlay"></div>
+      <div class="graph-empty" id="detail-graph-empty" hidden="hidden"></div>
+    </div>
 
     <div class="toolbar">
       <div class="filter-field search-field">

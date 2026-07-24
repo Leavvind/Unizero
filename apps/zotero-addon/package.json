@@ -55,6 +55,7 @@
     "concurrently": "^7.6.0",
     "cross-env": "^7.0.3",
     "esbuild": "^0.17.7",
+    "force-graph": "^1.51.4",
     "minimist": "^1.2.8",
     "release-it": "^20.2.1",
     "replace-in-file": "^6.3.5",
