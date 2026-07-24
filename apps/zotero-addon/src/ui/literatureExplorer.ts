@@ -178,6 +178,15 @@ function strings() {
       "literature-graph-open-hint-label",
       "Double-click a paper to open it",
     ),
+    graphLinksLabel: read("literature-graph-links-label", "Links"),
+    graphLinksAll: read("literature-graph-links-all-label", "All"),
+    graphLinksCites: read("literature-graph-links-cites-label", "Citations only"),
+    graphLinksCoupled: read(
+      "literature-graph-links-coupled-label",
+      "Shared refs only",
+    ),
+    graphMinShared: read("literature-graph-min-shared-label", "Min shared"),
+    graphHidden: read("literature-graph-hidden-label", "hidden"),
     refresh: read("relatedbox-refresh-label", "Refresh"),
     loadMore: read("citationsbox-more-label", "Load more"),
     loading: read("literature-loading-label", "Loading…"),
@@ -223,6 +232,19 @@ function explorerApi() {
     egoGraph: async (itemKey: string) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
       return explorerViews.getLiteratureEgoGraph(contextItem(itemKey));
+    },
+    // Layout coordinates are a rendering convenience, so they are stored per
+    // library and reused as the simulation's starting point across sessions.
+    graphLayout: async () => {
+      if (!explorerViews || !explorerContext) { return {}; }
+      return explorerViews.getGraphLayout(explorerContext.scope.libraryID);
+    },
+    saveGraphLayout: async (positions: Record<string, number[]>) => {
+      if (!explorerViews || !explorerContext) { return; }
+      return explorerViews.saveGraphLayout(
+        explorerContext.scope.libraryID,
+        positions,
+      );
     },
     loadMoreCitations: async (itemKey: string) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }

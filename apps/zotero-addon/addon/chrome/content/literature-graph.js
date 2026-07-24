@@ -317,10 +317,17 @@ var LiteratureGraph = {
     return title.length > 28 ? title.slice(0, 27) + "…" : title;
   },
 
-  setData(view, graphData) {
+  setData(view, graphData, layout) {
     var self = this;
+    var seeded = 0;
     var nodes = (graphData.nodes || []).map(function (node) {
+      // A saved coordinate is only a starting point — the simulation still runs,
+      // so a stale or partial layout converges instead of misplacing anything.
+      var saved = layout && layout[node.id];
+      if (saved && saved.length === 2) { seeded += 1; }
       return {
+        x: saved ? saved[0] : undefined,
+        y: saved ? saved[1] : undefined,
         id: node.id,
         itemKey: node.itemKey,
         itemID: node.itemID,
@@ -356,8 +363,34 @@ var LiteratureGraph = {
     view.hoverId = null;
     view.neighbours = new Set();
 
+    // A mostly-seeded graph only needs to relax, not to lay itself out from
+    // scratch; a cold one gets the full simulation.
+    var warm = nodes.length > 0 && seeded >= nodes.length * 0.6;
+    if (view.graph.d3AlphaDecay) { view.graph.d3AlphaDecay(warm ? 0.06 : 0.0228); }
+    if (view.graph.cooldownTicks) { view.graph.cooldownTicks(warm ? 60 : Infinity); }
+
     view.graph.graphData(view.data);
-    return { nodes: nodes.length, links: links.length };
+    return { nodes: nodes.length, links: links.length, warm: warm };
+  },
+
+  /** Current coordinates, for persisting the layout. */
+  snapshotPositions(view) {
+    var positions = {};
+    if (!view || !view.data) { return positions; }
+    view.data.nodes.forEach(function (node) {
+      if (typeof node.x === "number" && typeof node.y === "number") {
+        // Rounded: sub-pixel precision is noise in a file that is only a seed.
+        positions[node.id] = [Math.round(node.x * 10) / 10,
+          Math.round(node.y * 10) / 10];
+      }
+    });
+    return positions;
+  },
+
+  /** Run a callback once the simulation settles. */
+  onSettled(view, callback) {
+    if (!view || !view.graph || !view.graph.onEngineStop) { return; }
+    view.graph.onEngineStop(function () { callback(); });
   },
 
   select(view, nodeId) {

@@ -26,6 +26,12 @@ var LiteratureExplorer = {
   /** Live force-graph views, created lazily on first use. */
   graphs: { collection: null, detail: null },
   graphLoaded: { collection: false, detail: null },
+  /** Unfiltered graphs as returned by the API; filters derive views from these. */
+  graphData: { collection: null, detail: null },
+  /** Graph-only filters, shared by the board and the management table. */
+  graphFilters: { links: "all", minShared: 1 },
+  /** Saved node coordinates for this library, seeded into the simulation. */
+  graphLayout: null,
   dropdowns: {},
   filters: {
     library: "all",
@@ -94,6 +100,8 @@ var LiteratureExplorer = {
     document.getElementById("collection-mode-graph").textContent = s.graphView;
     document.getElementById("collection-mode-table").textContent = s.tableView;
     document.getElementById("collection-table-summary").textContent = s.tableView;
+    document.getElementById("label-collection-links").textContent = s.graphLinksLabel;
+    document.getElementById("label-collection-shared").textContent = s.graphMinShared;
     document.getElementById("collection-graph-empty").textContent = s.graphEmpty;
     document.getElementById("detail-graph-empty").textContent = s.graphEmpty;
     document.getElementById("tab-references").textContent = s.references;
@@ -161,6 +169,20 @@ var LiteratureExplorer = {
       "all",
       rerender("publicationLevel"),
     );
+    this.dropdowns.collectionLinks = this.createDropdown("filter-collection-links", [
+      ["all", this.strings.graphLinksAll],
+      ["cites", this.strings.graphLinksCites],
+      ["coupled", this.strings.graphLinksCoupled],
+    ], "all", (value) => {
+      this.graphFilters.links = value;
+      this.applyGraphFilters();
+    });
+    document.getElementById("collection-min-shared")
+      .addEventListener("input", (event) => {
+        let value = Number.parseInt(event.target.value, 10);
+        this.graphFilters.minShared = Number.isFinite(value) && value > 0 ? value : 1;
+        this.applyGraphFilters();
+      });
     this.dropdowns.order = this.createDropdown("sort", [
       ["original", this.strings.originalOrder],
       ["influential", this.strings.influentialFirst],
@@ -464,7 +486,7 @@ var LiteratureExplorer = {
     if (!view || !api.graph) return;
     this.graphLoaded.collection = true;
     try {
-      let data = await api.graph();
+      let [data] = await Promise.all([api.graph(), this.ensureGraphLayout()]);
       this.applyGraphData("collection", data);
     } catch (error) {
       this.graphLoaded.collection = false;
@@ -483,7 +505,10 @@ var LiteratureExplorer = {
     this.graphLoaded.detail = this.activeItemKey;
     this.setStatus(this.strings.loading);
     try {
-      let data = await api.egoGraph(this.activeItemKey);
+      let [data] = await Promise.all([
+        api.egoGraph(this.activeItemKey),
+        this.ensureGraphLayout(),
+      ]);
       this.applyGraphData("detail", data);
     } catch (error) {
       this.graphLoaded.detail = null;
@@ -493,17 +518,43 @@ var LiteratureExplorer = {
   },
 
   applyGraphData(which, data) {
+    this.graphData[which] = data;
+    this.renderGraph(which, true);
+  },
+
+  /** Re-derive both graphs from their raw data after a filter change. */
+  applyGraphFilters() {
+    ["collection", "detail"].forEach((which) => {
+      if (this.graphData[which] && this.graphs[which]) this.renderGraph(which, false);
+    });
+  },
+
+  /**
+   * Project the raw graph through the active filters and push it to the canvas.
+   *
+   * The collection board additionally honours the overview's search box, so the
+   * board and the management table always describe the same set of papers.
+   */
+  renderGraph(which, refit) {
     let view = this.graphs[which];
-    if (!view) return;
-    let counts = LiteratureGraph.setData(view, data);
+    let data = this.graphData[which];
+    if (!view || !data) return;
+    let filtered = this.filterGraph(which, data);
+    let counts = LiteratureGraph.setData(view, filtered, this.graphLayout);
     LiteratureGraph.resize(view);
-    let overlay = document.getElementById(which + "-graph-overlay");
+    // Persist the collection board's layout once it settles: it is the surface
+    // worth reopening in the same shape. Ego graphs are transient by nature.
+    if (which === "collection") this.scheduleLayoutSave(view);
+
     let s = this.strings;
+    let hidden = (data.nodes || []).length - counts.nodes;
+    let overlay = document.getElementById(which + "-graph-overlay");
     if (overlay) {
       overlay.replaceChildren();
       let summary = document.createElement("span");
       summary.textContent = counts.nodes + " " + s.graphNodes + " · " +
-        counts.links + " " + s.graphEdges;
+        counts.links + " " + s.graphEdges +
+        (hidden > 0 ? " · " + hidden + " " + s.graphHidden : "");
       overlay.append(summary, this.graphLegend("cites"), this.graphLegend("coupled"));
       let hint = document.createElement("span");
       hint.textContent = s.graphOpenHint;
@@ -519,8 +570,76 @@ var LiteratureExplorer = {
         ? counts.nodes + " " + s.graphNodes + " · " + counts.links + " " + s.graphEdges
         : s.relationEmpty);
     }
-    // Fit after the simulation has had a moment to spread the nodes out.
-    window.setTimeout(() => LiteratureGraph.zoomToFit(view), 620);
+    if (refit) {
+      // Fit after the simulation has had a moment to spread the nodes out.
+      window.setTimeout(() => LiteratureGraph.zoomToFit(view), 620);
+    }
+  },
+
+  filterGraph(which, data) {
+    let links = this.graphFilters.links;
+    let minShared = this.graphFilters.minShared;
+    let allowed = null;
+    if (which === "collection") {
+      // Same predicate as the table, so the two surfaces cannot disagree.
+      allowed = new Set(this.visibleCollectionItems().map((item) => item.itemKey));
+    }
+    let nodes = (data.nodes || []).filter(
+      (node) => !allowed || allowed.has(node.itemKey) || node.id === data.center,
+    );
+    let present = new Set(nodes.map((node) => node.id));
+    let edges = (data.edges || []).filter((edge) => {
+      if (!present.has(edge.source) || !present.has(edge.target)) return false;
+      if (links === "cites" && edge.type !== "cites") return false;
+      if (links === "coupled" && edge.type !== "coupled") return false;
+      if (edge.type === "coupled" && Number(edge.weight || 1) < minShared) return false;
+      return true;
+    });
+    // Degree describes what is actually drawn, so node sizes track the filters.
+    let degrees = new Map();
+    edges.forEach((edge) => {
+      degrees.set(edge.source, (degrees.get(edge.source) || 0) + 1);
+      degrees.set(edge.target, (degrees.get(edge.target) || 0) + 1);
+    });
+    return {
+      scope: data.scope,
+      center: data.center,
+      nodes: nodes.map((node) => Object.assign({}, node, {
+        degree: degrees.get(node.id) || 0,
+      })),
+      edges: edges,
+    };
+  },
+
+  /** Read the stored layout once per session; a miss is a normal cold start. */
+  async ensureGraphLayout() {
+    if (this.graphLayout || !api.graphLayout) return this.graphLayout || {};
+    try {
+      this.graphLayout = await api.graphLayout();
+    } catch (error) {
+      this.graphLayout = {};
+    }
+    return this.graphLayout;
+  },
+
+  /**
+   * Save the board's coordinates after the simulation stops.
+   *
+   * Registered once per view; the engine fires this on every settle, so the file
+   * tracks the arrangement the user last saw, including nodes they dragged.
+   */
+  scheduleLayoutSave(view) {
+    if (this._layoutHooked || !api.saveGraphLayout) return;
+    this._layoutHooked = true;
+    LiteratureGraph.onSettled(view, () => {
+      let positions = LiteratureGraph.snapshotPositions(view);
+      if (!Object.keys(positions).length) return;
+      // Merge so filtered-out papers keep the position they last had.
+      this.graphLayout = Object.assign({}, this.graphLayout, positions);
+      api.saveGraphLayout(this.graphLayout).catch(() => {
+        // Layout is disposable; a failed write costs one simulation next time.
+      });
+    });
   },
 
   graphLegend(type) {
@@ -613,7 +732,14 @@ var LiteratureExplorer = {
       `${items.length}/${this.collectionSnapshot.items.length} · ` +
       this.collectionSnapshot.scope.name,
     );
-    if (this.collectionMode === "graph") this.loadCollectionGraph();
+    if (this.collectionMode !== "graph") return;
+    // The board follows the same search box as the table: re-filter when the
+    // graph is already loaded, otherwise fetch it once.
+    if (this.graphData.collection) {
+      this.renderGraph("collection", false);
+    } else {
+      this.loadCollectionGraph();
+    }
   },
 
   renderCollectionRow(item) {

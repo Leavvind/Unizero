@@ -5,9 +5,14 @@
 > 一句话：**给 Literature Explorer 加图视图——全库总览图（Obsidian 手感）+ 单篇 Ego 图（Connected Papers 手感），
 > 数据全部从已有的 UniConnection 索引派生，渲染用本地打包的 force-graph。**
 >
-> **状态**：数据层 `libraryGraph` / `egoGraph` **已实现并通过单测**
-> （[uniConnection.ts](../apps/zotero-addon/src/modules/uniConnection.ts) + `tests/uniConnectionGraph.test.ts`）。
-> 剩余从 §9 第 2 步接手：vendored force-graph + 两个视图 + `api`/`views` 接线（节点元数据富化在 Views 层，见 §5.1）。
+> **状态：§9 第 1–4 步全部完成**，待真机验证手感。
+> - 数据层 `libraryGraph` / `egoGraph` + 单测（`tests/uniConnectionGraph.test.ts`）
+> - vendored force-graph + [literature-graph.js](../apps/zotero-addon/addon/chrome/content/literature-graph.js) 渲染门面
+> - 全库总览图（Graph⇄Table 切换，表格降为可折叠管理面）+ 详情页 Ego 图标签
+> - 收尾：图/表筛选联动（搜索框、连线类型、最小共同参考数）、布局坐标持久化
+>
+> 布局落盘在 `<dataDir>/unizero/graph/<libraryID>.json`，**刻意放在分片树之外** —— 那里的文件按 item 键入并会被
+> `sweep()` 在条目消失时删除，布局放进去会每次启动被清掉。
 
 ---
 
@@ -175,6 +180,6 @@ export interface LiteratureGraph {
 ## 11. 明确不做 / 延后
 
 - ❌ 库外 ghost 发现节点（Connected Papers 式「你没有的论文」）——本期不做，未来复用 References/Citations 缓存再加。
-- ⏳ 布局坐标持久化：首版可每次重跑，列为 polish。
+- ✅ 布局坐标持久化：已实现（见文首状态）。种子式恢复——存的坐标只作模拟起点，过期或残缺也会自行收敛，因此不做校验。
 - ⏳ WebGL 渲染器：仅当上千节点不够顺滑时替换；数据层已解耦以便低成本切换。
 - ⏳ 2 跳及以上 Ego 图：首版仅 1 跳。

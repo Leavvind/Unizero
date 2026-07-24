@@ -717,6 +717,29 @@ export default class Views {
     };
   }
 
+  /**
+   * Saved force-layout coordinates for a library's graph.
+   *
+   * Purely a starting position for the simulation: a stale or partial layout
+   * settles into the right shape anyway, so this is never validated against the
+   * current graph.
+   */
+  public async getGraphLayout(libraryID: number): Promise<Record<string, number[]>> {
+    const payload = await localStorage.readGraphLayout(libraryID);
+    const positions = payload?.positions;
+    return positions && typeof positions === "object" ? positions : {};
+  }
+
+  public async saveGraphLayout(
+    libraryID: number,
+    positions: Record<string, number[]>,
+  ): Promise<void> {
+    await localStorage.writeGraphLayout(libraryID, {
+      savedAt: Date.now(),
+      positions,
+    });
+  }
+
   private graphNode(
     node: { id: string; itemKey: string; degree: number; isCenter?: boolean },
     item: Zotero.Item,

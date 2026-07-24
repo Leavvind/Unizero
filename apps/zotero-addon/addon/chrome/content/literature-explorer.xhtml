@@ -179,6 +179,10 @@
       margin-bottom: 10px;
     }
     .collection-toolbar .search-field { max-width: 520px; }
+    .collection-toolbar .graph-filter { flex: 0 0 auto; width: 150px; }
+    .collection-toolbar .shared-field { width: 92px; }
+    /* Graph-only controls have no meaning once the table leads. */
+    #collection-view.table-mode .graph-filter { display: none; }
     .view[hidden] { display: none !important; }
     .status {
       min-height: 22px;
@@ -595,6 +599,14 @@
         <label class="filter-label" id="label-collection-search"
           for="collection-search"></label>
         <input id="collection-search" type="search"/>
+      </div>
+      <div class="filter-field graph-filter" id="collection-links-field">
+        <div class="filter-label" id="label-collection-links"></div>
+        <div id="filter-collection-links"></div>
+      </div>
+      <div class="filter-field graph-filter shared-field" id="collection-shared-field">
+        <div class="filter-label" id="label-collection-shared"></div>
+        <input id="collection-min-shared" type="number" min="1" step="1" value="1"/>
       </div>
       <div class="view-toggle" id="collection-view-toggle">
         <button id="collection-mode-graph" class="active"></button>

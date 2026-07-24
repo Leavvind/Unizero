@@ -68,6 +68,8 @@ function emptyShard(item: LibraryScopedItem): Shard {
 class LocalStorage {
   /** Root of the shard tree; surfaced by UniZeroDebug(). */
   public directory!: string;
+  /** The add-on's data directory: parent of both the shard tree and graph layouts. */
+  public root!: string;
   public lock: any;
   /** Resident shards, most-recently-used last (Map preserves insertion order). */
   private resident = new Map<string, Shard>();
@@ -81,7 +83,8 @@ class LocalStorage {
 
   private async init(name: string) {
     try {
-      this.directory = PathUtils.join(dataDirectory(), name, "cache");
+      this.root = PathUtils.join(dataDirectory(), name);
+      this.directory = PathUtils.join(this.root, "cache");
       await IOUtils.makeDirectory(this.directory, {
         createAncestors: true,
         ignoreExisting: true,
@@ -173,6 +176,48 @@ class LocalStorage {
         ztoolkit.log(`cache shard unreadable for ${scopedKey}: ${error}`);
       }
       return undefined;
+    }
+  }
+
+  // ------------------------------------------------------- Library-wide records
+
+  /**
+   * Graph layout coordinates, one file per library.
+   *
+   * Deliberately outside the shard tree: those files are keyed by item and swept
+   * when their item disappears, which would delete a layout on every startup.
+   * Layout is also disposable — a miss costs one force simulation, never data —
+   * so it is read and written best-effort and never blocks a render.
+   */
+  private layoutPath(libraryID: number): string {
+    return PathUtils.join(this.root, "graph", `${libraryID}.json`);
+  }
+
+  async readGraphLayout(libraryID: number): Promise<any> {
+    await this.lock.promise;
+    try {
+      return JSON.parse(await IOUtils.readUTF8(this.layoutPath(libraryID)) as string);
+    } catch (error) {
+      if (!isMissingFile(error)) {
+        ztoolkit.log(`graph layout unreadable for ${libraryID}: ${error}`);
+      }
+      return undefined;
+    }
+  }
+
+  async writeGraphLayout(libraryID: number, payload: any): Promise<void> {
+    await this.lock.promise;
+    try {
+      // Inside the try: a failed init leaves no root, and a missing layout must
+      // stay a silent miss rather than break the caller's render.
+      const path = this.layoutPath(libraryID);
+      await IOUtils.makeDirectory(PathUtils.parent(path)!, {
+        createAncestors: true,
+        ignoreExisting: true,
+      });
+      await IOUtils.writeUTF8(path, JSON.stringify(payload), { tmpPath: `${path}.tmp` });
+    } catch (error) {
+      ztoolkit.log(`graph layout unwritable for ${libraryID}: ${error}`);
     }
   }
 
