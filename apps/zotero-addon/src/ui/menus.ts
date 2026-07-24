@@ -15,16 +15,20 @@ import { convertSelected } from "../features/conversion/commands";
 import { annotateSelected } from "../features/annotations/commands";
 import { ensure } from "../runtime-client/process";
 import { runtimeClient } from "../runtime-client/client";
+import { getString } from "../utils/locale";
 import { showError } from "./progress";
 import { noteConversionFailure, noteServiceFailure } from "./notices";
 
 const MENU_CONVERT = `${config.addonRef}-convert-menu`;
 const MENU_ANNOTATE = `${config.addonRef}-annotate-menuitem`;
 const MENU_PANEL = `${config.addonRef}-panel-menuitem`;
+const MENU_LITERATURE = `${config.addonRef}-literature-menuitem`;
+const MENU_LITERATURE_TOOLS = `${config.addonRef}-literature-tools-menuitem`;
+const MENU_LITERATURE_COLLECTION = `${config.addonRef}-literature-collection`;
 const MENU_SEPARATOR = `${config.addonRef}-itemmenu-separator`;
 
 /** The add-on's item-menu commands, in the order they appear at the bottom. */
-const ITEM_MENU_COMMANDS = [MENU_CONVERT, MENU_ANNOTATE];
+const ITEM_MENU_COMMANDS = [MENU_LITERATURE, MENU_CONVERT, MENU_ANNOTATE];
 
 /**
  * Fallback template used when the service is unavailable or the template list
@@ -34,12 +38,14 @@ const FALLBACK_TEMPLATE_ID = "paper-to-markdown";
 const FALLBACK_TEMPLATE_NAME = "Generate paper Markdown";
 
 type OpenPanel = (mainWindow: Window) => void;
+type OpenLiteratureExplorer = (mainWindow: Window) => void;
 
 /**
  * Item-menu ordering listeners, one per main window, so unregistration can remove
  * exactly what registration added (AGENTS.md invariant 8).
  */
 const orderListeners = new WeakMap<Window, EventListener>();
+let registeredLiteratureCollectionMenuID: string | undefined;
 
 /**
  * Put this add-on's entries, behind a separator, at the bottom of the item menu.
@@ -198,6 +204,67 @@ export function registerAnnotationMenu(mainWindow: Window): void {
   ensureItemMenuOrdering(mainWindow);
 }
 
+/**
+ * Collection workbench contribution.
+ *
+ * It appears in both the item context menu and Tools: the context entry is the
+ * fast path while reading a Collection, and Tools keeps this core view reachable
+ * when the Collection is empty and there is no item to right-click.
+ */
+export function registerLiteratureExplorerMenus(
+  mainWindow: Window,
+  openExplorer: OpenLiteratureExplorer,
+): void {
+  const document = mainWindow.document;
+  (mainWindow as any).MozXULElement?.insertFTLIfNeeded?.(
+    `${config.addonRef}-addon.ftl`,
+  );
+  const label = getString("literature-explorer-menu-label") ||
+    "Literature Explorer…";
+  const itemMenu = document.getElementById("zotero-itemmenu");
+  if (itemMenu && !document.getElementById(MENU_LITERATURE)) {
+    const itemEntry = (document as any).createXULElement("menuitem");
+    itemEntry.id = MENU_LITERATURE;
+    itemEntry.setAttribute("label", label);
+    itemEntry.addEventListener("command", () => openExplorer(mainWindow));
+    itemMenu.appendChild(itemEntry);
+  }
+
+  const toolsMenu = document.getElementById("menu_ToolsPopup");
+  if (toolsMenu && !document.getElementById(MENU_LITERATURE_TOOLS)) {
+    const toolsEntry = (document as any).createXULElement("menuitem");
+    toolsEntry.id = MENU_LITERATURE_TOOLS;
+    toolsEntry.setAttribute("label", label);
+    toolsEntry.addEventListener("command", () => openExplorer(mainWindow));
+    toolsMenu.appendChild(toolsEntry);
+  }
+
+  const menuManager = (Zotero as any).MenuManager;
+  if (!registeredLiteratureCollectionMenuID && menuManager?.registerMenu) {
+    registeredLiteratureCollectionMenuID = menuManager.registerMenu({
+      menuID: MENU_LITERATURE_COLLECTION,
+      pluginID: config.addonID,
+      target: "main/library/collection",
+      menus: [{
+        menuType: "menuitem",
+        l10nID: `${config.addonRef}-literature-explorer-menu-label`,
+        onShowing: (_event: Event, context: any) => {
+          const row = context.collectionTreeRow;
+          context.setVisible(Boolean(
+            row?.isCollection?.() || row?.isLibrary?.() || row?.isGroup?.(),
+          ));
+        },
+        onCommand: (event: Event) => {
+          const target = event.currentTarget as Element | null;
+          const win = target?.ownerDocument?.defaultView || Zotero.getMainWindow();
+          if (win) { openExplorer(win); }
+        },
+      }],
+    });
+  }
+  ensureItemMenuOrdering(mainWindow);
+}
+
 export function unregisterConversionMenus(mainWindow: Window): void {
   for (const id of [MENU_CONVERT, MENU_PANEL]) {
     const element = mainWindow.document.getElementById(id);
@@ -209,4 +276,18 @@ export function unregisterConversionMenus(mainWindow: Window): void {
 export function unregisterAnnotationMenu(mainWindow: Window): void {
   mainWindow.document.getElementById(MENU_ANNOTATE)?.remove();
   releaseItemMenuOrdering(mainWindow);
+}
+
+export function unregisterLiteratureExplorerMenus(mainWindow: Window): void {
+  mainWindow.document.getElementById(MENU_LITERATURE)?.remove();
+  mainWindow.document.getElementById(MENU_LITERATURE_TOOLS)?.remove();
+  releaseItemMenuOrdering(mainWindow);
+}
+
+export function unregisterLiteratureExplorerMenusAll(): void {
+  if (!registeredLiteratureCollectionMenuID) { return; }
+  (Zotero as any).MenuManager?.unregisterMenu?.(
+    registeredLiteratureCollectionMenuID,
+  );
+  registeredLiteratureCollectionMenuID = undefined;
 }

@@ -7,10 +7,19 @@ import { noteServiceFailure } from "../ui/notices";
 import {
   registerAnnotationMenu,
   registerConversionMenus,
+  registerLiteratureExplorerMenus,
   unregisterAnnotationMenu,
   unregisterConversionMenus,
+  unregisterLiteratureExplorerMenus,
+  unregisterLiteratureExplorerMenusAll,
 } from "../ui/menus";
 import { closePanel, closePanelForOwner, openPanel } from "../ui/panel";
+import {
+  closeLiteratureExplorer,
+  closeLiteratureExplorerForOwner,
+  openLiteratureExplorer,
+  openLiteratureExplorerForCollection,
+} from "../ui/literatureExplorer";
 import { FeatureRegistry, type FeatureModule } from "./featureRegistry";
 
 const relations: FeatureModule = {
@@ -19,6 +28,8 @@ const relations: FeatureModule = {
     let views = Zotero[config.addonInstance]?.views as Views | undefined;
     if (!views) {
       views = new Views();
+      views.setExplorerOpener((mainWindow, item, kind) =>
+        openLiteratureExplorer(mainWindow, item, kind, views!));
       await views.onInit(win);
       Zotero[config.addonInstance].views = views;
       try {
@@ -26,14 +37,24 @@ const relations: FeatureModule = {
       } catch (error) {
         Zotero.logError(error as Error);
       }
+      registerLiteratureExplorerMenus(win, (mainWindow) =>
+        openLiteratureExplorerForCollection(mainWindow, views!));
       return;
     }
+    views.setExplorerOpener((mainWindow, item, kind) =>
+      openLiteratureExplorer(mainWindow, item, kind, views!));
     views.onWindowLoad(win);
+    registerLiteratureExplorerMenus(win, (mainWindow) =>
+      openLiteratureExplorerForCollection(mainWindow, views!));
   },
   onWindowUnload(win) {
+    unregisterLiteratureExplorerMenus(win);
     Zotero[config.addonInstance]?.views?.onWindowUnload?.(win);
+    closeLiteratureExplorerForOwner(win);
   },
   onShutdown() {
+    closeLiteratureExplorer();
+    unregisterLiteratureExplorerMenusAll();
     Zotero[config.addonInstance]?.views?.onDestroy?.();
   },
 };

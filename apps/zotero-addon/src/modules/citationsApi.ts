@@ -31,6 +31,7 @@ import {
 } from "./scholarlyHttp";
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
+import { edgeIdentity } from "./edgeIdentity";
 
 /**
  * How each source fared in the last query. In the UI, "0 citations" cannot be told
@@ -61,6 +62,38 @@ export interface CitationsResult {
   openAlexFilter?: string;
 }
 
+function fromOpenAlexPublicationType(work: any): string {
+  const workType = String(work?.type || "").toLocaleLowerCase();
+  const sourceType = String(
+    work?.primary_location?.source?.type || "",
+  ).toLocaleLowerCase();
+  if (workType === "preprint") { return "preprint"; }
+  if (sourceType === "conference" || workType.includes("proceeding")) {
+    return "conferencePaper";
+  }
+  if (workType.includes("book")) { return "bookSection"; }
+  return "journalArticle";
+}
+
+function fromSemanticScholarPublicationType(
+  paper: any,
+  arxiv?: string,
+  doi?: string,
+): string {
+  const types = Array.isArray(paper?.publicationTypes)
+    ? paper.publicationTypes.map((value: unknown) =>
+      String(value).toLocaleLowerCase())
+    : [];
+  if (arxiv && !doi) { return "preprint"; }
+  if (types.some((value: string) => value.includes("conference"))) {
+    return "conferencePaper";
+  }
+  if (types.some((value: string) => value.includes("book"))) {
+    return "bookSection";
+  }
+  return "journalArticle";
+}
+
 const OPENALEX_SELECT = "id,doi,display_name,authorships,publication_year,primary_location," +
   "abstract_inverted_index,cited_by_count,type";
 
@@ -76,7 +109,7 @@ function fromOpenAlexWork(work: any, index: number): ItemBaseInfo {
     citations: typeof work?.cited_by_count === "number" ? work.cited_by_count : undefined,
     url: doi ? `https://doi.org/${doi}` : work?.id,
     number: index + 1,
-    type: work?.type === "preprint" ? "preprint" : "journalArticle",
+    type: fromOpenAlexPublicationType(work),
     source: "OpenAlex",
   };
   info.text = composeText(info);
@@ -120,7 +153,9 @@ async function fromSemanticScholar(
   identifier: string,
   page: number,
 ): Promise<CitationsResult | null> {
-  const fields = "externalIds,title,authors,year,venue,abstract,citationCount,url";
+  const fields =
+    "externalIds,title,authors,year,venue,abstract,citationCount," +
+    "influentialCitationCount,publicationTypes,url";
   const offset = (page - 1) * CITATIONS_PAGE_SIZE;
   const data = await getSemanticScholarJSONStrict(
     `https://api.semanticscholar.org/graph/v1/paper/` +
@@ -148,10 +183,18 @@ async function fromSemanticScholar(
         primaryVenue: paper.venue || undefined,
         abstract: paper.abstract || undefined,
         citations: typeof paper.citationCount === "number" ? paper.citationCount : undefined,
+        influentialCitationCount: typeof paper.influentialCitationCount === "number"
+          ? paper.influentialCitationCount
+          : undefined,
         url: citingDOI ? `https://doi.org/${citingDOI}` : paper.url,
         number: offset + index + 1,
-        type: arxiv && !citingDOI ? "preprint" : "journalArticle",
+        type: fromSemanticScholarPublicationType(paper, arxiv, citingDOI),
         source: "Semantic Scholar",
+        isInfluential: typeof entry.isInfluential === "boolean"
+          ? entry.isInfluential
+          : undefined,
+        intents: Array.isArray(entry.intents) ? entry.intents : undefined,
+        contexts: Array.isArray(entry.contexts) ? entry.contexts : undefined,
       };
       info.text = composeText(info);
       return info;
@@ -212,7 +255,23 @@ export async function fetchCitationsByIdentifiers(
   ]);
   if (!openalex) { return semanticscholar; }
   if (!semanticscholar) { return openalex; }
-  return semanticscholar.total > openalex.total ? semanticscholar : openalex;
+  const best = semanticscholar.total > openalex.total ? semanticscholar : openalex;
+  if (best === openalex) {
+    const edgeByIdentity = new Map(
+      semanticscholar.citations
+        .map((entry) => [edgeIdentity(entry), entry] as const)
+        .filter(([identity]) => Boolean(identity)),
+    );
+    for (const entry of best.citations) {
+      const identity = edgeIdentity(entry);
+      const edge = identity ? edgeByIdentity.get(identity) : undefined;
+      if (!edge) { continue; }
+      entry.isInfluential = edge.isInfluential;
+      entry.intents = edge.intents;
+      entry.contexts = edge.contexts;
+    }
+  }
+  return best;
 }
 
 /** Kept for older call sites; new UI should also pass the item's Semantic Scholar Paper ID. */

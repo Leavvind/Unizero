@@ -7,8 +7,13 @@ paper runtime.
 ## Capabilities
 
 - metadata candidate lookup and identifier updates;
-- References and Citations item-pane views;
-- importing and relating discovered works;
+- compact References and Citations item-pane previews plus a Collection-level
+  Literature Explorer, available from item/Collection context menus and Tools;
+- Collection paper status for Markdown conversion and cached References/Citations,
+  with per-paper quick actions and relation drill-down;
+- filtering discovered works by library status, influence, year, publication type, and
+  order, plus importing missing papers into the current library;
+- relating discovered works;
 - PDF conversion commands and generated-artifact registration;
 - annotation export and Markdown injection;
 - runtime lifecycle, jobs, service notices, and templates.
@@ -32,8 +37,9 @@ New Zotero mutations belong in `src/zotero`; new command orchestration belongs i
 `src/features`. Do not rewrite `src/modules` as a single refactor. Extract a focused
 responsibility when a feature change needs it.
 
-`addon/chrome/content/panel.js` is plain JavaScript outside the TypeScript bundle. It
-currently implements the runtime-backed template editor and requires manual testing.
+`addon/chrome/content/panel.js` and `literature-explorer.js` are plain JavaScript outside
+the TypeScript bundle. They implement the runtime-backed template editor and the
+Collection workbench/relation-browser view respectively, and require manual testing.
 
 ## Runtime connection
 

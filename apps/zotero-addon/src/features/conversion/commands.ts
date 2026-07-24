@@ -63,18 +63,20 @@ function targetTitle(target: {
 }
 
 /**
- * Convert the currently selected items.
+ * Convert an explicit set of items.
  *
  * Processed one at a time rather than concurrently: the runtime is a single
  * worker anyway, so concurrent submissions only queue up. One failure does not stop
- * the batch.
+ * the batch. Taking explicit items lets adapters such as Literature Explorer reuse
+ * the command without changing Zotero's current selection as an implementation
+ * detail.
  */
-export async function convertSelected(
+export async function convertItems(
   mainWindow: Window,
+  items: Zotero.Item[],
   templateId: string,
   templateName?: string,
 ): Promise<void> {
-  const items = (mainWindow as any).ZoteroPane.getSelectedItems() as Zotero.Item[];
   if (!items.length) { return; }
 
   // Opened before anything can go wrong, because the panel is now the only place
@@ -112,4 +114,14 @@ export async function convertSelected(
       noteConversionFailure(String(error), title);
     }
   }
+}
+
+/** Convert the items selected in Zotero's main item tree. */
+export async function convertSelected(
+  mainWindow: Window,
+  templateId: string,
+  templateName?: string,
+): Promise<void> {
+  const items = (mainWindow as any).ZoteroPane.getSelectedItems() as Zotero.Item[];
+  await convertItems(mainWindow, items, templateId, templateName);
 }

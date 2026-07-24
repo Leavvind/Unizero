@@ -224,9 +224,9 @@ class Utils {
     }
   }
 
-  public async searchItem(info: ItemBaseInfo) {
+  public async searchItem(info: ItemBaseInfo, libraryID?: number) {
     if (!info) { return }
-    let s = new Zotero.Search;
+    let s = new Zotero.Search(libraryID ? { libraryID } : undefined);
     // @ts-ignore
     s.addCondition("joinMode", "any");
     if (info.identifiers.DOI) {
@@ -256,17 +256,20 @@ class Utils {
    * @param info 
    * @returns 
    */
-  public async searchLibraryItem(info: ItemBaseInfo): Promise<Zotero.Item | undefined> {
+  public async searchLibraryItem(
+    info: ItemBaseInfo,
+    libraryID: number = Zotero.Libraries.userLibraryID,
+  ): Promise<Zotero.Item | undefined> {
     await Zotero.Promise.delay(0)
-    const key = JSON.stringify(info.identifiers) + info.text + "library-item"
+    const key = `${libraryID}:` + JSON.stringify(info.identifiers) + info.text + "library-item"
     if (key in this.cache) {
       info._item = this.cache[key]
       return this.cache[key]
     } else {
       // Brute-force search; this can be slow.
-      let items: Zotero.Item[] = await Zotero.Items.getAll(1);
+      let items: Zotero.Item[] = await Zotero.Items.getAll(libraryID);
       let getPureText = (s: string) => (this.cache["getPureText" + s] ??= s.toLowerCase().match(/[0-9a-z\u4e00-\u9fa5]+/g)?.join("")!)
-      let item = await this.searchItem(info) || items.filter(i => (
+      let item = await this.searchItem(info, libraryID) || items.filter(i => (
         i.isRegularItem() &&
         i.getField("title") &&
         ["journalArtical", "preprint", "book"].indexOf(i.itemType) != -1

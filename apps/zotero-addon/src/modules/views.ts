@@ -14,6 +14,23 @@ import { resolveMany } from "./resolve";
 import { PanelStatus } from "./status";
 import { readItemPaperIdentifiers } from "./itemIdentifiers";
 import { forPersistence } from "./edgeIdentity";
+import {
+  previewEntries,
+  resolveLibraryMembership,
+  toLiteratureCandidate,
+  type LiteratureCandidate,
+  type LiteratureCollectionPaper,
+  type LiteratureCollectionScope,
+  type LiteratureCollectionSnapshot,
+  type LiteratureLoadStatus,
+  type LiteratureRelationKind,
+  type LiteratureSnapshot,
+} from "./literatureRelations";
+import { createDiscoveredPaper } from "../zotero/literatureItemAdapter";
+import {
+  literatureItemsInScope,
+  literaturePaperMetadata,
+} from "../zotero/literatureCollectionAdapter";
 const localStorage = new LocalStorge(config.addonRef);
 
 /**
@@ -22,8 +39,15 @@ const localStorage = new LocalStorge(config.addonRef);
  * silently as something that looks complete but is missing fields — harder to
  * diagnose than a cache miss.
  */
-const CACHE_KEY_REFERENCES = "References-Resolved-v1";
-const CACHE_KEY_CITATIONS = "Citations-v1";
+const CACHE_KEY_REFERENCES = "References-Resolved-v3";
+const CACHE_KEY_CITATIONS = "Citations-v3";
+const SECTION_PREVIEW_LIMIT = 5;
+
+type ExplorerOpener = (
+  mainWindow: Window,
+  item: Zotero.Item,
+  kind: LiteratureRelationKind,
+) => void;
 
 interface ReferencesCache {
   savedAt: number;
@@ -61,9 +85,16 @@ export default class Views {
   private lastLoadDiagnostic: any = null;
   /** The same, for the Citations route. */
   private lastCitationsDiagnostic: any = null;
+  private explorerOpener?: ExplorerOpener;
+  private explorerReferences = new Map<string, ReferencesCache>();
+  private explorerCitations = new Map<string, CitationsCache>();
   constructor() {
     initLocale();
     this.utils = new Utils()
+  }
+
+  public setExplorerOpener(opener: ExplorerOpener): void {
+    this.explorerOpener = opener;
   }
 
   public onWindowLoad(win: Window): void {
@@ -99,16 +130,30 @@ export default class Views {
           .zoference-section .reference-grid {
             display: grid;
             align-items: center;
-            overflow-y: auto;
+            overflow: hidden;
           }
-          .zoference-section .reference-recommendations {
-            margin-top: 12px;
-            padding-top: 8px;
-            border-top: 1px solid var(--material-border, #d8d8d8);
+          .zoference-section .box[data-library-state="in"] {
+            border-left: 3px solid var(--accent-green, #57ab5a);
+            background: color-mix(in srgb, var(--accent-green, #57ab5a) 10%, transparent);
+            opacity: 1 !important;
           }
-          .zoference-section .recommendations-title {
-            padding: 0 8px 6px;
+          .zoference-section .box[data-library-state="out"] {
+            border-left: 3px solid var(--accent-orange, #d29922);
+            background: color-mix(in srgb, var(--accent-orange, #d29922) 7%, transparent);
+          }
+          .zoference-section .literature-open {
+            display: block;
+            margin: 8px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: center;
             font-weight: 600;
+            color: var(--accent-blue, #2f6fca);
+            background: var(--fill-quinary, rgb(128 128 128 / 10%));
+          }
+          .zoference-section .literature-open:hover {
+            background: var(--fill-quarternary, rgb(128 128 128 / 20%));
           }
           .zoference-section .reference-tabs {
             display: flex;
@@ -318,7 +363,6 @@ export default class Views {
           if (tabType === "reader" && reader && referencesPane.getAttribute("isAutoLoaded") !== "true") {
             await this.maybeAutoRefresh(referencesPane, parentItem, reader);
           }
-          await this.loadingRelated(referencesPane, parentItem);
         } catch (error) {
           ztoolkit.log("Reference section async render failed", error);
         }
@@ -374,7 +418,6 @@ export default class Views {
     references: ItemBaseInfo[],
     resolved: boolean,
   ) {
-    if (!this.isCacheEnabled("saveAPIReferences")) { return; }
     if (!references.length) { return; }
     const identifiers = readItemPaperIdentifiers(item);
     const payload: ReferencesCache = {
@@ -385,6 +428,8 @@ export default class Views {
       resolved,
       references: forPersistence(references, source),
     };
+    this.explorerReferences.set(this.explorerKey(item), payload);
+    if (!this.isCacheEnabled("saveAPIReferences")) { return; }
     localStorage.set(item, CACHE_KEY_REFERENCES, payload).catch(
       (error) => ztoolkit.log("save references cache failed", error),
     );
@@ -395,11 +440,23 @@ export default class Views {
     }
   }
 
-  private saveCitationsCache(pane: HTMLDivElement) {
+  private readCitationsCache(item: Zotero.Item): CitationsCache | undefined {
     if (!this.isCacheEnabled("saveCitations")) { return; }
-    const item = (pane as any)._referenceItem as Zotero.Item;
-    const state = (pane as any)._citationsState as CitationsCache | undefined;
-    if (!item || !state?.all?.length) { return; }
+    const identifiers = readItemPaperIdentifiers(item);
+    const cached = localStorage.get(item, CACHE_KEY_CITATIONS) as CitationsCache | undefined;
+    if (!cached?.all?.length ||
+        (cached.doi || "").toLowerCase() !== (identifiers.doi || "").toLowerCase() ||
+        (cached.semanticScholarPaperId || "").toLowerCase() !==
+          (identifiers.semanticScholarPaperId || "").toLowerCase()) {
+      return;
+    }
+    return cached;
+  }
+
+  private persistCitationsCache(item: Zotero.Item, state: CitationsCache): void {
+    if (!state.all.length) { return; }
+    this.explorerCitations.set(this.explorerKey(item), state);
+    if (!this.isCacheEnabled("saveCitations")) { return; }
     localStorage.set(item, CACHE_KEY_CITATIONS, {
       ...state,
       savedAt: Date.now(),
@@ -409,21 +466,20 @@ export default class Views {
     );
   }
 
+  private saveCitationsCache(pane: HTMLDivElement) {
+    const item = (pane as any)._referenceItem as Zotero.Item;
+    const state = (pane as any)._citationsState as CitationsCache | undefined;
+    if (!item || !state?.all?.length) { return; }
+    this.persistCitationsCache(item, state);
+  }
+
   /** Restore the whole Citations tab from cache, paging progress included. True on a hit. */
   private restoreCitationsFromCache(pane: HTMLDivElement): boolean {
     if (!this.isCacheEnabled("saveCitations")) { return false; }
     const item = (pane as any)._referenceItem as Zotero.Item;
     if (!item) { return false; }
-    const identifiers = readItemPaperIdentifiers(item);
-    const cached = localStorage.get(item, CACHE_KEY_CITATIONS) as CitationsCache | undefined;
-    // A change in either identifier invalidates the cache; otherwise correcting a
-    // DOI or Paper ID would keep showing the previous paper's list.
-    if (!cached?.all?.length ||
-        (cached.doi || "").toLowerCase() !== (identifiers.doi || "").toLowerCase() ||
-        (cached.semanticScholarPaperId || "").toLowerCase() !==
-          (identifiers.semanticScholarPaperId || "").toLowerCase()) {
-      return false;
-    }
+    const cached = this.readCitationsCache(item);
+    if (!cached) { return false; }
     (pane as any)._citationsState = { ...cached };
     pane.setAttribute("source", cached.source);
     const list = pane.querySelector(".reference-main-list .reference-grid") as HTMLDivElement;
@@ -431,8 +487,264 @@ export default class Views {
     this.appendCitationRows(pane, cached.all);
     this.updateCitationsLabel(pane);
     const moreButton = pane.querySelector("#citations-more-button") as HTMLElement;
-    this.setHidden(moreButton, cached.loaded >= cached.total);
+    if (moreButton) { this.setHidden(moreButton, cached.loaded >= cached.total); }
     return true;
+  }
+
+  private explorerKey(item: Zotero.Item): string {
+    return `${item.libraryID}:${item.key}`;
+  }
+
+  private async buildLiteratureSnapshot(
+    item: Zotero.Item,
+    kind: LiteratureRelationKind,
+    entries: ItemBaseInfo[],
+    source: string,
+    total: number,
+    hasMore: boolean,
+  ): Promise<LiteratureSnapshot> {
+    const memberships = await resolveLibraryMembership(item.libraryID, entries);
+    return {
+      kind,
+      seed: {
+        libraryID: item.libraryID,
+        itemKey: item.key,
+        title: String(item.getField("title") || ""),
+      },
+      source,
+      total,
+      loaded: entries.length,
+      hasMore,
+      items: entries.map((entry) =>
+        toLiteratureCandidate(entry, item.libraryID, memberships.get(entry))),
+    };
+  }
+
+  private relationLoadStatus(
+    item: Zotero.Item,
+    kind: LiteratureRelationKind,
+  ): LiteratureLoadStatus {
+    const key = this.explorerKey(item);
+    if (kind === "references") {
+      const state = this.readReferencesCache(item) || this.explorerReferences.get(key);
+      return {
+        loaded: Boolean(state),
+        count: state?.references.length || 0,
+        total: state?.references.length || 0,
+      };
+    }
+    const state = this.readCitationsCache(item) || this.explorerCitations.get(key);
+    return {
+      loaded: Boolean(state),
+      count: state?.loaded || state?.all.length || 0,
+      total: state?.total || 0,
+    };
+  }
+
+  public async getLiteratureCollectionPaper(
+    item: Zotero.Item,
+  ): Promise<LiteratureCollectionPaper> {
+    await localStorage.load(item);
+    return {
+      ...literaturePaperMetadata(item),
+      references: this.relationLoadStatus(item, "references"),
+      citations: this.relationLoadStatus(item, "citations"),
+    };
+  }
+
+  /**
+   * Collection overview for the independent explorer. This is deliberately a
+   * status-only read: opening the workbench does not fetch scholarly-provider
+   * data or start conversions for every paper in a Collection.
+   */
+  public async getLiteratureCollectionSnapshot(
+    scope: LiteratureCollectionScope,
+  ): Promise<LiteratureCollectionSnapshot> {
+    const items = await literatureItemsInScope(scope);
+    const papers: LiteratureCollectionPaper[] = [];
+    // Loading in small batches avoids opening hundreds of cache files at once for
+    // a large library while still keeping the initial overview responsive.
+    for (let offset = 0; offset < items.length; offset += 16) {
+      papers.push(...await Promise.all(
+        items.slice(offset, offset + 16)
+          .map((item) => this.getLiteratureCollectionPaper(item)),
+      ));
+    }
+    return { scope, items: papers };
+  }
+
+  /**
+   * Shared data entry point for the item-pane preview and the independent
+   * Literature Explorer. It reads the same per-item shards as the section; when a
+   * shard is missing it fetches through the established providers and writes the
+   * normal cache shape, so opening the large view never creates a parallel source
+   * of truth.
+   */
+  public async getLiteratureSnapshot(
+    item: Zotero.Item,
+    kind: LiteratureRelationKind,
+    refresh = false,
+  ): Promise<LiteratureSnapshot> {
+    await localStorage.load(item);
+    const key = this.explorerKey(item);
+    const identifiers = readItemPaperIdentifiers(item);
+
+    if (kind === "references") {
+      let state = refresh
+        ? undefined
+        : (this.readReferencesCache(item) || this.explorerReferences.get(key));
+      if (!state) {
+        const result = await fetchReferencesByIdentifiers(
+          identifiers.doi,
+          identifiers.semanticScholarPaperId,
+        );
+        let references = result?.references || [];
+        let source = result?.source || "none";
+        if (!references.length) {
+          const extracted = await readZoMinerReferences(item);
+          if (extracted?.length) {
+            references = extracted.map((reference) => {
+              const parsed = this.utils.refText2Info(reference.text || "");
+              return {
+                ...parsed,
+                ...reference,
+                title: reference.title || parsed.title,
+                authors: reference.authors?.length ? reference.authors : parsed.authors,
+                year: reference.year || parsed.year,
+                identifiers: {
+                  ...this.utils.getIdentifiers(reference.text || ""),
+                  ...reference.identifiers,
+                },
+              };
+            });
+            source = "ZoMiner";
+          }
+        }
+        state = {
+          savedAt: Date.now(),
+          source,
+          doi: identifiers.doi || "",
+          semanticScholarPaperId: identifiers.semanticScholarPaperId,
+          resolved: true,
+          references,
+        };
+        this.explorerReferences.set(key, state);
+        if (state.references.length) {
+          this.saveReferencesCache(item, state.source, state.references, state.resolved);
+        }
+      }
+      return this.buildLiteratureSnapshot(
+        item,
+        kind,
+        state.references,
+        state.source,
+        state.references.length,
+        false,
+      );
+    }
+
+    let state = refresh
+      ? undefined
+      : (this.readCitationsCache(item) || this.explorerCitations.get(key));
+    if (!state) {
+      const result = await fetchCitationsByIdentifiers(
+        identifiers.doi,
+        identifiers.semanticScholarPaperId,
+      );
+      state = {
+        savedAt: Date.now(),
+        doi: identifiers.doi || "",
+        semanticScholarPaperId: identifiers.semanticScholarPaperId,
+        source: result?.source || "OpenAlex",
+        openAlexFilter: result?.openAlexFilter,
+        page: result ? 1 : 0,
+        loaded: result?.citations.length || 0,
+        total: result?.total || 0,
+        all: result?.citations || [],
+      };
+      this.explorerCitations.set(key, state);
+      if (state.all.length) { this.persistCitationsCache(item, state); }
+    }
+    return this.buildLiteratureSnapshot(
+      item,
+      kind,
+      state.all,
+      state.source,
+      state.total,
+      state.loaded < state.total,
+    );
+  }
+
+  public async loadMoreLiteratureCitations(item: Zotero.Item): Promise<LiteratureSnapshot> {
+    await localStorage.load(item);
+    const key = this.explorerKey(item);
+    let state = this.readCitationsCache(item) || this.explorerCitations.get(key);
+    if (!state) {
+      return this.getLiteratureSnapshot(item, "citations");
+    }
+    if (state.loaded < state.total) {
+      const result = await fetchCitationsPage(
+        state.doi,
+        state.page + 1,
+        state.source,
+        state.openAlexFilter,
+        state.semanticScholarPaperId,
+      );
+      if (result?.citations.length) {
+        state = {
+          ...state,
+          page: state.page + 1,
+          loaded: state.loaded + result.citations.length,
+          all: [...state.all, ...result.citations],
+        };
+        this.explorerCitations.set(key, state);
+        this.persistCitationsCache(item, state);
+      }
+    }
+    return this.buildLiteratureSnapshot(
+      item,
+      "citations",
+      state.all,
+      state.source,
+      state.total,
+      state.loaded < state.total,
+    );
+  }
+
+  public async addLiteratureCandidateToLibrary(
+    seed: Zotero.Item,
+    candidate: LiteratureCandidate,
+  ): Promise<LiteratureCandidate["membership"]> {
+    const entry: ItemBaseInfo = {
+      identifiers: { ...(candidate.identifiers || {}) },
+      title: candidate.title,
+      authors: [...(candidate.authors || [])],
+      year: candidate.year,
+      type: candidate.type || "journalArticle",
+      text: candidate.text || candidate.title,
+      url: candidate.url,
+      primaryVenue: candidate.primaryVenue,
+      abstract: candidate.abstract,
+      citations: candidate.citationCount,
+    };
+    const existing = (await resolveLibraryMembership(seed.libraryID, [entry])).get(entry);
+    if (existing) {
+      return { inLibrary: true, libraryID: seed.libraryID, itemID: existing.id };
+    }
+
+    const created = await createDiscoveredPaper(seed, {
+      identifiers: {
+        DOI: entry.identifiers.DOI,
+        arXiv: entry.identifiers.arXiv,
+      },
+      title: entry.title || entry.text || "Untitled",
+      authors: entry.authors,
+      year: entry.year,
+      type: entry.type,
+      url: entry.url,
+      abstract: entry.abstract,
+    });
+    return { inLibrary: true, libraryID: seed.libraryID, itemID: created.id };
   }
 
   /**
@@ -459,7 +771,7 @@ export default class Views {
     const list = pane.querySelector(".reference-main-list .reference-grid") as HTMLDivElement;
     list.querySelectorAll("*").forEach((element) => element.remove());
     const moreButton = pane.querySelector("#citations-more-button") as HTMLElement;
-    this.setHidden(moreButton, true);
+    if (moreButton) { this.setHidden(moreButton, true); }
 
     const identifiers = readItemPaperIdentifiers(item);
     const doi = identifiers.doi || "";
@@ -546,7 +858,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       return;
     }
     this.lastCitationsDiagnostic.stage = "rendered";
-    this.setHidden(moreButton, !result.hasMore);
+    if (moreButton) { this.setHidden(moreButton, !result.hasMore); }
     this.saveCitationsCache(pane);
 
     if (!silent) {
@@ -566,8 +878,10 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     const state = (pane as any)._citationsState;
     if (!state) { return; }
     const moreButton = pane.querySelector("#citations-more-button") as HTMLElement;
-    moreButton.style.pointerEvents = "none";
-    moreButton.style.opacity = "0.5";
+    if (moreButton) {
+      moreButton.style.pointerEvents = "none";
+      moreButton.style.opacity = "0.5";
+    }
     try {
       const result = await fetchCitationsPage(
         state.doi,
@@ -577,7 +891,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
         state.semanticScholarPaperId,
       );
       if (!result?.citations.length) {
-        this.setHidden(moreButton, true);
+        if (moreButton) { this.setHidden(moreButton, true); }
         return;
       }
       state.page += 1;
@@ -585,13 +899,15 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       state.all.push(...result.citations);
       this.appendCitationRows(pane, result.citations);
       this.updateCitationsLabel(pane);
-      this.setHidden(moreButton, !result.hasMore);
+      if (moreButton) { this.setHidden(moreButton, !result.hasMore); }
       // Persist after every page: reopening the section on page 5 should not send
       // the user back to page 1.
       this.saveCitationsCache(pane);
     } finally {
-      moreButton.style.pointerEvents = "";
-      moreButton.style.opacity = "";
+      if (moreButton) {
+        moreButton.style.pointerEvents = "";
+        moreButton.style.opacity = "";
+      }
     }
   }
 
@@ -605,15 +921,19 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
   private appendCitationRows(pane: HTMLDivElement, page: ItemBaseInfo[]) {
     const state = (pane as any)._citationsState;
     const container = pane.querySelector(".reference-main-list") as HTMLDivElement;
-    const offset = state.all.length - page.length;
-    page.forEach((citation, index) => {
-      const row = this.addRow(container, state.all, offset + index);
+    const grid = container.querySelector(".reference-grid") as HTMLDivElement;
+    grid.replaceChildren();
+    const preview = previewEntries(state.all, SECTION_PREVIEW_LIMIT);
+    preview.forEach((citation, index) => {
+      const row = this.addRow(container, preview, index, true, false, false);
       if (row) {
         // @ts-ignore addRow binds this when it builds the row; rebind explicitly in
         // case addRow took its deduplication branch.
         row.box.reference = citation;
       }
     });
+    const item = (pane as any)._referenceItem as Zotero.Item | undefined;
+    if (item) { void this.markSectionLibraryState(container, preview, item); }
   }
 
   /** Show the count as "loaded/total", so it is clear this is the top pages, not everything. */
@@ -691,10 +1011,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
             <div id="refresh-button" class="reference-button">${getString("relatedbox-refresh-label")}</div>
           </div>
           <div class="grid reference-grid"></div>
-        </div>
-        <div class="reference-recommendations" hidden="hidden">
-          <div class="recommendations-title">${getString("relatedbox-recommended-label")}</div>
-          <div class="grid reference-grid"></div>
+          <div class="literature-open" data-kind="references" role="button" tabindex="0">${getString("literature-open-references-label") || "View all references ⤢"}</div>
         </div>
       </div>
       <div class="reference-tab-pane is-hidden" data-tab="citations" hidden="hidden">
@@ -704,7 +1021,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
             <div id="citations-refresh-button" class="reference-button">${getString("relatedbox-refresh-label")}</div>
           </div>
           <div class="grid reference-grid"></div>
-          <div id="citations-more-button" class="reference-button citations-more">${getString("citationsbox-more-label")}</div>
+          <div class="literature-open" data-kind="citations" role="button" tabindex="0">${getString("literature-open-citations-label") || "View all citations ⤢"}</div>
         </div>
       </div>` : `<div class="reference-empty-state"></div>`;
     body.append(panel);
@@ -715,9 +1032,6 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     panel.querySelectorAll(".reference-button").forEach(
       (element) => this.styleAsButton(element as HTMLElement),
     );
-    // "Load more" starts hidden: a div has no default styling for the hidden
-    // attribute to rely on, so it has to be turned off explicitly.
-    this.setHidden(panel.querySelector("#citations-more-button") as HTMLElement, true);
     const referencesPane = this.getPane(panel, "references");
     const citationsPane = this.getPane(panel, "citations");
     // Each tab holds its own item context: the refresh* methods only look at their
@@ -780,9 +1094,22 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     citationsRefresh.addEventListener("click", async () => {
       await this.refreshCitations(citationsPane, false, false);
     });
-    const citationsMore = citationsPane.querySelector("#citations-more-button") as HTMLElement;
-    citationsMore.addEventListener("click", async () => {
-      await this.loadMoreCitations(citationsPane);
+    panel.querySelectorAll(".literature-open").forEach((element) => {
+      const open = () => {
+        const kind = (element as HTMLElement).dataset.kind as LiteratureRelationKind;
+        const mainWindow = panel.ownerDocument.defaultView as Window | null;
+        if (mainWindow && this.explorerOpener) {
+          this.explorerOpener(mainWindow, item, kind);
+        }
+      };
+      element.addEventListener("click", open);
+      element.addEventListener("keydown", (event: Event) => {
+        const keyboard = event as KeyboardEvent;
+        if (keyboard.key === "Enter" || keyboard.key === " ") {
+          keyboard.preventDefault();
+          open();
+        }
+      });
     });
   }
 
@@ -1378,11 +1705,15 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     const referenceNum = finalReferences.length
     // @ts-ignore
     panel.references = finalReferences
-    finalReferences.forEach(async (reference: ItemBaseInfo, refIndex: number) => {
+    const preview = previewEntries(finalReferences, SECTION_PREVIEW_LIMIT);
+    preview.forEach((reference: ItemBaseInfo, refIndex: number) => {
       let { box } = this.addRow(
         panel.querySelector(".reference-main-list") as HTMLDivElement,
-        finalReferences,
+        preview,
         refIndex,
+        true,
+        false,
+        false,
       )!;
       // @ts-ignore
       box.reference = reference
@@ -1390,6 +1721,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     })
 
     label.innerText = `${referenceNum} ${getString("relatedbox-number-label")}`;
+    void this.markSectionLibraryState(panel, preview, item);
 
     const source = panel.getAttribute("source") || "API";
     // Save an unresolved copy first. Resolving a batch of hundreds takes tens of
@@ -1651,7 +1983,30 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     return tipUI
   }
 
-  public addRow(node: HTMLDivElement, references: ItemBaseInfo[], refIndex: number, addPrefix: boolean = true, addSearch: boolean = true) {
+  private async markSectionLibraryState(
+    node: HTMLDivElement,
+    entries: ItemBaseInfo[],
+    item: Zotero.Item,
+  ): Promise<void> {
+    const memberships = await resolveLibraryMembership(item.libraryID, entries);
+    const boxes = [...node.querySelectorAll(".reference-grid .box")] as HTMLElement[];
+    boxes.forEach((box, index) => {
+      const localItem = memberships.get(entries[index]);
+      box.dataset.libraryState = localItem ? "in" : "out";
+      box.title = localItem
+        ? getString("literature-in-library-label") || "In Library"
+        : getString("literature-not-in-library-label") || "Not in Library";
+    });
+  }
+
+  public addRow(
+    node: HTMLDivElement,
+    references: ItemBaseInfo[],
+    refIndex: number,
+    addPrefix: boolean = true,
+    addSearch: boolean = true,
+    showRelationAction: boolean = true,
+  ) {
     let notInLibarayOpacity: string|number = Zotero.Prefs.get(`${config.addonRef}.notInLibarayOpacity`) as string
     if (/[\d\.]+/.test(notInLibarayOpacity)) {
       notInLibarayOpacity = Number(notInLibarayOpacity);
@@ -1706,9 +2061,9 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
                 if (reference._item) {
                   return this.utils.selectItemInLibrary(reference._item)
                 } else {
-                  let item = await this.utils.searchLibraryItem(reference)
-                  if (item) {
-                    return this.utils.selectItemInLibrary(item)
+                  const localItem = await this.utils.searchLibraryItem(reference, item.libraryID)
+                  if (localItem) {
+                    return this.utils.selectItemInLibrary(localItem)
                   }
                 }
                 let URL = reference.url
@@ -1846,7 +2201,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
         .createLine({ text: collapseText(reference.text!), type: "default" })
         .show()
       // Check the local library
-      let refItem = reference._item || await this.utils.searchLibraryItem(reference)
+      let refItem = reference._item || await this.utils.searchLibraryItem(reference, item.libraryID)
       // Disable the button
       setState()
       if (refItem) {
@@ -1938,7 +2293,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     let timer: undefined | number, tipUI: TipUI;
     if (notInLibarayOpacity < 1) {
       window.setTimeout(async () => {
-        const refItem = reference._item || await this.utils.searchLibraryItem(reference) as Zotero.Item
+        const refItem = reference._item ||
+          await this.utils.searchLibraryItem(reference, item.libraryID) as Zotero.Item
         if (refItem) {
           updateRowByItem(refItem)
         }
@@ -2017,7 +2373,11 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
 
     const rows = node.querySelector(".reference-grid")!
 
-    rows.append(box, label);
+    if (showRelationAction) {
+      rows.append(box, label);
+    } else {
+      rows.append(box);
+    }
     let referenceNum = rows.childNodes.length
     if (addSearch && referenceNum && !node.querySelector("#zoference-search")) { this.addSearch(node) }
     // Height

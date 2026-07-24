@@ -27,6 +27,7 @@ import {
 } from "./scholarlyHttp";
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
+import { edgeIdentity } from "./edgeIdentity";
 
 /** Maximum number of IDs one OpenAlex filter query can carry. */
 const OPENALEX_BATCH = 50;
@@ -51,6 +52,38 @@ export interface ReferencesResult {
   source: "OpenAlex" | "Crossref" | "Semantic Scholar";
 }
 
+function fromOpenAlexPublicationType(work: any): string {
+  const workType = String(work?.type || "").toLocaleLowerCase();
+  const sourceType = String(
+    work?.primary_location?.source?.type || "",
+  ).toLocaleLowerCase();
+  if (workType === "preprint") { return "preprint"; }
+  if (sourceType === "conference" || workType.includes("proceeding")) {
+    return "conferencePaper";
+  }
+  if (workType.includes("book")) { return "bookSection"; }
+  return "journalArticle";
+}
+
+function fromSemanticScholarPublicationType(
+  paper: any,
+  arxiv?: string,
+  doi?: string,
+): string {
+  const types = Array.isArray(paper?.publicationTypes)
+    ? paper.publicationTypes.map((value: unknown) =>
+      String(value).toLocaleLowerCase())
+    : [];
+  if (arxiv && !doi) { return "preprint"; }
+  if (types.some((value: string) => value.includes("conference"))) {
+    return "conferencePaper";
+  }
+  if (types.some((value: string) => value.includes("book"))) {
+    return "bookSection";
+  }
+  return "journalArticle";
+}
+
 function fromOpenAlexWork(work: any, index: number): ItemBaseInfo {
   const doi = work?.doi ? bareDOI(work.doi) : undefined;
   const authors = (work?.authorships || [])
@@ -66,7 +99,7 @@ function fromOpenAlexWork(work: any, index: number): ItemBaseInfo {
     citations: typeof work?.cited_by_count === "number" ? work.cited_by_count : undefined,
     url: doi ? `https://doi.org/${doi}` : work?.id,
     number: index + 1,
-    type: work?.type === "preprint" ? "preprint" : "journalArticle",
+    type: fromOpenAlexPublicationType(work),
     source: "OpenAlex",
   };
   info.text = composeText(info);
@@ -188,7 +221,9 @@ async function fromCrossref(doi: string): Promise<ItemBaseInfo[] | null> {
 }
 
 async function fromSemanticScholar(identifier: string): Promise<ItemBaseInfo[] | null> {
-  const fields = "externalIds,title,authors,year,venue,abstract,citationCount,url";
+  const fields =
+    "externalIds,title,authors,year,venue,abstract,citationCount," +
+    "influentialCitationCount,publicationTypes,url";
   const data = await getSemanticScholarJSONStrict(
     `https://api.semanticscholar.org/graph/v1/paper/` +
     `${encodeSemanticScholarPaperIdentifier(identifier)}` +
@@ -213,10 +248,18 @@ async function fromSemanticScholar(identifier: string): Promise<ItemBaseInfo[] |
         primaryVenue: paper.venue || undefined,
         abstract: paper.abstract || undefined,
         citations: typeof paper.citationCount === "number" ? paper.citationCount : undefined,
+        influentialCitationCount: typeof paper.influentialCitationCount === "number"
+          ? paper.influentialCitationCount
+          : undefined,
         url: refDOI ? `https://doi.org/${refDOI}` : paper.url,
         number: index + 1,
-        type: arxiv && !refDOI ? "preprint" : "journalArticle",
+        type: fromSemanticScholarPublicationType(paper, arxiv, refDOI),
         source: "Semantic Scholar",
+        isInfluential: typeof entry.isInfluential === "boolean"
+          ? entry.isInfluential
+          : undefined,
+        intents: Array.isArray(entry.intents) ? entry.intents : undefined,
+        contexts: Array.isArray(entry.contexts) ? entry.contexts : undefined,
       };
       info.text = composeText(info);
       return info;
@@ -291,6 +334,27 @@ export async function fetchReferencesByIdentifiers(
   let best: ReferencesResult | null = null;
   for (const result of results) {
     if (result && (!best || result.references.length > best.references.length)) { best = result; }
+  }
+  // Coverage still decides which list wins, but Semantic Scholar's citation-edge
+  // signals are orthogonal metadata. Merge them into an OpenAlex/Crossref winner
+  // where an identifier overlaps instead of throwing away either the longer list
+  // or the influence/intent information.
+  const semanticScholar = results.find((result) => result?.source === "Semantic Scholar");
+  if (best && semanticScholar && best !== semanticScholar) {
+    const edgeByIdentity = new Map(
+      semanticScholar.references
+        .map((entry) => [edgeIdentity(entry), entry] as const)
+        .filter(([identity]) => Boolean(identity)),
+    );
+    for (const entry of best.references) {
+      const identity = edgeIdentity(entry);
+      const edge = identity ? edgeByIdentity.get(identity) : undefined;
+      if (!edge) { continue; }
+      entry.isInfluential = edge.isInfluential;
+      entry.intents = edge.intents;
+      entry.contexts = edge.contexts;
+      entry.influentialCitationCount ??= edge.influentialCitationCount;
+    }
   }
   referencesDiagnostics.chosen = best ? `${best.source} (${best.references.length})` : "none";
   return best;

@@ -1,0 +1,181 @@
+import { edgeIdentity } from "./edgeIdentity";
+import { readItemPaperIdentifiers } from "./itemIdentifiers";
+
+export type LiteratureRelationKind = "references" | "citations";
+
+export interface LibraryMembership {
+  inLibrary: boolean;
+  libraryID: number;
+  itemID?: number;
+}
+
+export interface LiteratureCandidate {
+  identifiers: ItemBaseInfo["identifiers"];
+  title: string;
+  authors: string[];
+  year?: string;
+  type?: string;
+  text?: string;
+  url?: string;
+  primaryVenue?: string;
+  publicationLevel?: string;
+  abstract?: string;
+  citationCount?: number;
+  influentialCitationCount?: number;
+  isInfluential?: boolean;
+  intents?: string[];
+  contexts?: string[];
+  sourceOrder?: number;
+  source?: string;
+  membership: LibraryMembership;
+}
+
+export interface LiteratureSnapshot {
+  kind: LiteratureRelationKind;
+  seed: {
+    libraryID: number;
+    itemKey: string;
+    title: string;
+  };
+  source: string;
+  total: number;
+  loaded: number;
+  hasMore: boolean;
+  items: LiteratureCandidate[];
+}
+
+export interface LiteratureCollectionScope {
+  libraryID: number;
+  collectionID?: number;
+  name: string;
+}
+
+export interface LiteratureLoadStatus {
+  loaded: boolean;
+  count: number;
+  total: number;
+}
+
+export interface LiteratureCollectionPaper {
+  libraryID: number;
+  itemID: number;
+  itemKey: string;
+  title: string;
+  creators: string[];
+  year?: string;
+  dateAdded: string;
+  publicationTitle?: string;
+  hasPDF: boolean;
+  hasMarkdown: boolean;
+  references: LiteratureLoadStatus;
+  citations: LiteratureLoadStatus;
+}
+
+export interface LiteratureCollectionSnapshot {
+  scope: LiteratureCollectionScope;
+  items: LiteratureCollectionPaper[];
+}
+
+function normalTitle(value: unknown): string {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/**
+ * Resolve membership in the seed paper's library in one pass.
+ *
+ * Membership is deliberately derived from Zotero every time the explorer opens.
+ * Provider caches are long lived, while users can add or remove a paper at any
+ * moment. Keeping the two states separate prevents a stale API shard from claiming
+ * that an item is still absent after the user has imported it.
+ */
+export async function resolveLibraryMembership(
+  libraryID: number,
+  entries: ItemBaseInfo[],
+): Promise<Map<ItemBaseInfo, Zotero.Item | undefined>> {
+  const result = new Map<ItemBaseInfo, Zotero.Item | undefined>();
+  const items = (await Zotero.Items.getAll(libraryID))
+    .filter((item: Zotero.Item) => item.isRegularItem?.());
+  const byIdentity = new Map<string, Zotero.Item>();
+  const byTitle = new Map<string, Zotero.Item>();
+
+  for (const item of items) {
+    const identifiers = readItemPaperIdentifiers(item);
+    if (identifiers.doi) {
+      byIdentity.set(`doi:${identifiers.doi.toLowerCase()}`, item);
+    }
+    if (identifiers.semanticScholarPaperId) {
+      byIdentity.set(`s2:${identifiers.semanticScholarPaperId.toLowerCase()}`, item);
+    }
+    const title = normalTitle(item.getField("title"));
+    if (title.length >= 12 && !byTitle.has(title)) {
+      byTitle.set(title, item);
+    }
+  }
+
+  for (const entry of entries) {
+    const identity = edgeIdentity(entry);
+    const title = normalTitle(entry.title || entry.text);
+    const match = (identity && byIdentity.get(identity)) ||
+      (title.length >= 12 ? byTitle.get(title) : undefined);
+    if (match) { entry._item = match; }
+    result.set(entry, match);
+  }
+  return result;
+}
+
+export function toLiteratureCandidate(
+  entry: ItemBaseInfo,
+  libraryID: number,
+  item?: Zotero.Item,
+): LiteratureCandidate {
+  return {
+    identifiers: { ...(entry.identifiers || {}) },
+    title: String(entry.title || entry.text || ""),
+    authors: Array.isArray(entry.authors) ? [...entry.authors] : [],
+    year: entry.year ? String(entry.year) : undefined,
+    type: entry.type,
+    text: entry.text,
+    url: entry.url,
+    primaryVenue: entry.primaryVenue,
+    publicationLevel: entry.publicationLevel,
+    abstract: entry.abstract,
+    citationCount: typeof entry.citations === "number" ? entry.citations : undefined,
+    influentialCitationCount: typeof entry.influentialCitationCount === "number"
+      ? entry.influentialCitationCount
+      : undefined,
+    isInfluential: typeof entry.isInfluential === "boolean" ? entry.isInfluential : undefined,
+    intents: Array.isArray(entry.intents) ? [...entry.intents] : undefined,
+    contexts: Array.isArray(entry.contexts) ? [...entry.contexts] : undefined,
+    sourceOrder: typeof entry.number === "number" ? entry.number : undefined,
+    source: entry.source || entry.producedBy,
+    membership: {
+      inLibrary: Boolean(item),
+      libraryID,
+      itemID: item?.id,
+    },
+  };
+}
+
+/**
+ * The narrow section needs a stable, explainable preview rather than a second
+ * ranking model. Influential edges lead; global citation count breaks ties; the
+ * source order is the final deterministic fallback.
+ */
+export function previewEntries(entries: ItemBaseInfo[], limit = 5): ItemBaseInfo[] {
+  return [...entries]
+    .sort((left, right) => {
+      const influential = Number(Boolean(right.isInfluential)) - Number(Boolean(left.isInfluential));
+      if (influential) { return influential; }
+      const influentialCount = Number(right.influentialCitationCount || 0) -
+        Number(left.influentialCitationCount || 0);
+      if (influentialCount) { return influentialCount; }
+      const citations = Number(right.citations || 0) - Number(left.citations || 0);
+      if (citations) { return citations; }
+      return Number(left.number || Number.MAX_SAFE_INTEGER) -
+        Number(right.number || Number.MAX_SAFE_INTEGER);
+    })
+    .slice(0, limit);
+}

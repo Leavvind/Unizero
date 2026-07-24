@@ -6,7 +6,9 @@ READMEs and `docs/ARCHITECTURE.md`.
 ## Verification
 
 - Run the full add-on smoke check in Zotero: startup, shutdown, metadata review,
-  References, Citations, conversion, artifact registration, and annotation injection.
+  References/Citations previews, Literature Explorer Collection/item context-menu
+  entry, Collection status/quick actions, relation filtering and current-library
+  import, conversion, artifact registration, and annotation injection.
 - Verify two-window cleanup: closing one main window must not remove the other window's
   pane or menus.
 - Verify personal and group-library conversion with same-title items and repeated runs.
@@ -39,6 +41,8 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Product work
 
+- Integrate an explicit, provider-backed publication ranking before exposing the
+  Literature Explorer's Publication Level filter; do not infer rank from venue names.
 - Let metadata review resolve conflicts field by field, rather than accepting or
   rejecting a candidate paper whole.
 - Carry provider provenance and retrieval time for volatile scholarly data — the
