@@ -7,7 +7,10 @@
     "addonID": "unizero@leavvind",
     "addonRef": "unizero",
     "addonInstance": "UniZero",
-    "legacyAddonRefs": ["zoference", "zoteroreference"],
+    "legacyAddonRefs": [
+      "zoference",
+      "zoteroreference"
+    ],
     "contactEmail": "j45rbnr8p4@privaterelay.appleid.com",
     "releasepage": "https://github.com/Leavvind/Unizero/releases/latest/download/unizero.xpi",
     "updaterdf": "https://raw.githubusercontent.com/Leavvind/Unizero/main/update.json"
@@ -28,7 +31,9 @@
     "reload": "npm run build-dev && node scripts/reload.mjs",
     "watch": "chokidar \"src/**\" \"addon/**\" -c \"npm run reload\"",
     "release": "release-it",
-    "update-deps": "npm update --save"
+    "update-deps": "npm update --save",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "repository": {
     "type": "git",
@@ -54,6 +59,7 @@
     "release-it": "^20.2.1",
     "replace-in-file": "^6.3.5",
     "typescript": "^4.9.5",
+    "vitest": "^1.6.1",
     "zotero-types": "^1.0.9"
   }
 }
