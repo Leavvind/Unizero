@@ -4,12 +4,22 @@ import TipUI from "./tip";
 import Utils from "./utils";
 import LocalStorge from "./localStorage";
 import { readZoMinerReferences, findReferencesAttachment } from "./zomReferences";
-import { fetchReferencesByIdentifiers, referencesDiagnostics } from "./referencesApi";
+import {
+  fetchReferencesByIdentifiers,
+  fetchReferenceSource,
+  referencesDiagnostics,
+} from "./referencesApi";
 import {
   fetchCitationsByIdentifiers,
   fetchCitationsPage,
+  fetchCitationSource,
   citationsDiagnostics,
 } from "./citationsApi";
+import {
+  mergeRelationSources,
+  type RelationSourceKey,
+  type RelationSourceResult,
+} from "./mergeRelations";
 import { resolveMany } from "./resolve";
 import { PanelStatus } from "./status";
 import { readItemPaperIdentifiers } from "./itemIdentifiers";
@@ -26,6 +36,7 @@ import {
   type LiteratureLoadStatus,
   type LiteratureRelationKind,
   type LiteratureSnapshot,
+  type LiteratureSourceView,
 } from "./literatureRelations";
 import { createDiscoveredPaper } from "../zotero/literatureItemAdapter";
 import {
@@ -40,9 +51,26 @@ const localStorage = new LocalStorge(config.addonRef);
  * silently as something that looks complete but is missing fields — harder to
  * diagnose than a cache miss.
  */
-const CACHE_KEY_REFERENCES = "References-Resolved-v3";
-const CACHE_KEY_CITATIONS = "Citations-v3";
+const CACHE_KEY_REFERENCES = "References-Resolved-v4";
+const CACHE_KEY_CITATIONS = "Citations-v4";
 const SECTION_PREVIEW_LIMIT = 5;
+
+/**
+ * Collapse a provider's free-text diagnostic ("ok count=12", "error: HTTP 429",
+ * "skipped (no DOI)") into one of the fixed states the explorer's progress pills
+ * render. Anything unrecognised — including the empty pre-fetch state — reads as
+ * still pending.
+ */
+function normalizeProgress(status: string | undefined): string {
+  const value = String(status || "").toLowerCase();
+  if (!value || value === "pending") { return "pending"; }
+  if (value.startsWith("ok")) { return "ok"; }
+  if (value === "empty") { return "empty"; }
+  if (value === "restricted" || value === "unavailable") { return "restricted"; }
+  if (value.startsWith("error")) { return "error"; }
+  if (value.startsWith("skipped")) { return "skipped"; }
+  return "pending";
+}
 
 type ExplorerOpener = (
   mainWindow: Window,
@@ -60,19 +88,26 @@ interface ReferencesCache {
   /** Whether metadata resolution finished. False means this was written ahead of
    *  resolution and reading it back should continue where it left off. */
   resolved: boolean;
+  /** The merged, deduplicated list rendered everywhere. */
   references: ItemBaseInfo[];
+  /** Each engine's raw list, kept so the explorer can show and refresh sources
+   *  individually and re-merge without re-querying the others. */
+  perSource?: RelationSourceResult[];
 }
 
 interface CitationsCache {
   savedAt: number;
   doi: string;
   semanticScholarPaperId?: string;
-  source: "OpenAlex" | "Semantic Scholar";
+  source: string;
   openAlexFilter?: string;
   page: number;
   loaded: number;
   total: number;
+  /** The merged, deduplicated list across the loaded pages. */
   all: ItemBaseInfo[];
+  /** Each engine's raw list and paging state, for per-source refresh/load-more. */
+  perSource?: RelationSourceResult[];
 }
 
 export default class Views {
@@ -413,11 +448,26 @@ export default class Views {
     return cached;
   }
 
+  /**
+   * Strip live Zotero items out of the per-source lists before they can be written
+   * to disk. Membership resolution stamps `_item` onto entries in place, and that
+   * object cannot be serialised.
+   */
+  private persistableSources(
+    perSource?: RelationSourceResult[],
+  ): RelationSourceResult[] | undefined {
+    return perSource?.map((entry) => ({
+      ...entry,
+      entries: forPersistence(entry.entries, entry.name),
+    }));
+  }
+
   private saveReferencesCache(
     item: Zotero.Item,
     source: string,
     references: ItemBaseInfo[],
     resolved: boolean,
+    perSource?: RelationSourceResult[],
   ) {
     if (!references.length) { return; }
     const identifiers = readItemPaperIdentifiers(item);
@@ -428,6 +478,7 @@ export default class Views {
       semanticScholarPaperId: identifiers.semanticScholarPaperId,
       resolved,
       references: forPersistence(references, source),
+      perSource: this.persistableSources(perSource),
     };
     this.explorerReferences.set(this.explorerKey(item), payload);
     if (!this.isCacheEnabled("saveAPIReferences")) { return; }
@@ -462,6 +513,7 @@ export default class Views {
       ...state,
       savedAt: Date.now(),
       all: forPersistence(state.all, state.source),
+      perSource: this.persistableSources(state.perSource),
     }).catch(
       (error) => ztoolkit.log("save citations cache failed", error),
     );
@@ -496,15 +548,50 @@ export default class Views {
     return `${item.libraryID}:${item.key}`;
   }
 
-  private async buildLiteratureSnapshot(
+  private async candidatesWithMembership(
+    libraryID: number,
+    entries: ItemBaseInfo[],
+  ): Promise<LiteratureCandidate[]> {
+    // The library index is memoised, so resolving each source's list separately is
+    // cheap CPU on one shared scan rather than one query per list.
+    const memberships = await resolveLibraryMembership(libraryID, entries);
+    return entries.map((entry) =>
+      toLiteratureCandidate(entry, libraryID, memberships.get(entry)));
+  }
+
+  /**
+   * Assemble the snapshot the explorer renders: the merged list plus each source's
+   * own list and a summary row for the source picker. `perSource` is empty for
+   * legacy shards written before the multi-source cache; the picker then offers
+   * only the combined view until the next refresh repopulates it.
+   */
+  private async buildCombinedSnapshot(
     item: Zotero.Item,
     kind: LiteratureRelationKind,
-    entries: ItemBaseInfo[],
-    source: string,
+    merged: ItemBaseInfo[],
+    perSource: RelationSourceResult[],
     total: number,
     hasMore: boolean,
+    source: string,
   ): Promise<LiteratureSnapshot> {
-    const memberships = await resolveLibraryMembership(item.libraryID, entries);
+    const bySource: Partial<Record<RelationSourceKey, LiteratureCandidate[]>> = {};
+    const sources: LiteratureSourceView[] = [];
+    for (const entry of perSource) {
+      if (entry.entries.length) {
+        bySource[entry.key] = await this.candidatesWithMembership(
+          item.libraryID,
+          entry.entries,
+        );
+      }
+      sources.push({
+        key: entry.key,
+        name: entry.name,
+        status: entry.status,
+        count: entry.entries.length,
+        total: entry.total,
+        hasMore: Boolean(entry.hasMore),
+      });
+    }
     return {
       kind,
       seed: {
@@ -514,10 +601,11 @@ export default class Views {
       },
       source,
       total,
-      loaded: entries.length,
+      loaded: merged.length,
       hasMore,
-      items: entries.map((entry) =>
-        toLiteratureCandidate(entry, item.libraryID, memberships.get(entry))),
+      items: await this.candidatesWithMembership(item.libraryID, merged),
+      sources,
+      bySource,
     };
   }
 
@@ -551,6 +639,47 @@ export default class Views {
       references: this.relationLoadStatus(item, "references"),
       citations: this.relationLoadStatus(item, "citations"),
     };
+  }
+
+  /**
+   * Cache-only re-read of both relations' loaded state, for the explorer to refresh
+   * a collection row without re-probing metadata/PDF/Markdown. Catches loads made
+   * elsewhere (the item pane, an earlier session) that the overview snapshot missed.
+   */
+  public async relationStatuses(
+    item: Zotero.Item,
+  ): Promise<{ references: LiteratureLoadStatus; citations: LiteratureLoadStatus }> {
+    await localStorage.load(item);
+    return {
+      references: this.relationLoadStatus(item, "references"),
+      citations: this.relationLoadStatus(item, "citations"),
+    };
+  }
+
+  /**
+   * A live snapshot of how each source is faring in the most recent fetch, read
+   * straight from the diagnostics the providers update as they resolve. The explorer
+   * polls this while a load is in flight to show per-source progress. Statuses are
+   * normalised to a small vocabulary the view can render without parsing free text.
+   */
+  public relationProgress(
+    kind: LiteratureRelationKind,
+  ): { key: RelationSourceKey; status: string }[] {
+    const diagnostics: Partial<Record<RelationSourceKey, string | undefined>> =
+      kind === "references"
+        ? {
+          openAlex: referencesDiagnostics.openAlex,
+          crossref: referencesDiagnostics.crossref,
+          semanticScholar: referencesDiagnostics.semanticScholar,
+        }
+        : {
+          openAlex: citationsDiagnostics.openAlex,
+          semanticScholar: citationsDiagnostics.semanticScholar,
+        };
+    const order: RelationSourceKey[] = kind === "references"
+      ? ["openAlex", "crossref", "semanticScholar"]
+      : ["openAlex", "semanticScholar"];
+    return order.map((key) => ({ key, status: normalizeProgress(diagnostics[key]) }));
   }
 
   /**
@@ -628,19 +757,27 @@ export default class Views {
           semanticScholarPaperId: identifiers.semanticScholarPaperId,
           resolved: true,
           references,
+          perSource: result?.perSource,
         };
         this.explorerReferences.set(key, state);
         if (state.references.length) {
-          this.saveReferencesCache(item, state.source, state.references, state.resolved);
+          this.saveReferencesCache(
+            item,
+            state.source,
+            state.references,
+            state.resolved,
+            state.perSource,
+          );
         }
       }
-      return this.buildLiteratureSnapshot(
+      return this.buildCombinedSnapshot(
         item,
         kind,
         state.references,
-        state.source,
+        state.perSource || [],
         state.references.length,
         false,
+        state.source,
       );
     }
 
@@ -662,18 +799,26 @@ export default class Views {
         loaded: result?.citations.length || 0,
         total: result?.total || 0,
         all: result?.citations || [],
+        perSource: result?.perSource,
       };
       this.explorerCitations.set(key, state);
       if (state.all.length) { this.persistCitationsCache(item, state); }
     }
-    return this.buildLiteratureSnapshot(
+    return this.buildCombinedSnapshot(
       item,
       kind,
       state.all,
-      state.source,
+      state.perSource || [],
       state.total,
-      state.loaded < state.total,
+      this.citationsHasMore(state),
+      state.source,
     );
+  }
+
+  /** Combined "load more" is exhausted only when no source has another page. */
+  private citationsHasMore(state: CitationsCache): boolean {
+    if (state.perSource?.length) { return state.perSource.some((entry) => entry.hasMore); }
+    return state.loaded < state.total;
   }
 
   public async loadMoreLiteratureCitations(item: Zotero.Item): Promise<LiteratureSnapshot> {
@@ -683,7 +828,42 @@ export default class Views {
     if (!state) {
       return this.getLiteratureSnapshot(item, "citations");
     }
-    if (state.loaded < state.total) {
+    if (state.perSource?.length) {
+      // Advance every source that still has pages, then re-merge so the combined
+      // order and dedup stay consistent as new pages arrive.
+      const captured = state;
+      const advanced = await Promise.all(state.perSource.map(async (entry) => {
+        if (!entry.hasMore) { return entry; }
+        const next = await fetchCitationSource(
+          entry.key,
+          captured.doi,
+          captured.semanticScholarPaperId,
+          (entry.page || 1) + 1,
+          entry.openAlexFilter,
+        );
+        if (!next.entries.length) { return { ...entry, hasMore: false }; }
+        return {
+          ...entry,
+          entries: [...entry.entries, ...next.entries],
+          page: next.page ?? (entry.page || 1) + 1,
+          total: next.total || entry.total,
+          hasMore: Boolean(next.hasMore),
+          openAlexFilter: next.openAlexFilter || entry.openAlexFilter,
+        };
+      }));
+      const merged = mergeRelationSources(advanced, ["openAlex", "semanticScholar"]);
+      state = {
+        ...state,
+        perSource: advanced,
+        all: merged,
+        loaded: merged.length,
+        total: Math.max(state.total, ...advanced.map((entry) => entry.total)),
+        page: Math.max(0, ...advanced.map((entry) => entry.page || 0)),
+      };
+      this.explorerCitations.set(key, state);
+      this.persistCitationsCache(item, state);
+    } else if (state.loaded < state.total) {
+      // Legacy single-source shard without per-source paging.
       const result = await fetchCitationsPage(
         state.doi,
         state.page + 1,
@@ -702,14 +882,116 @@ export default class Views {
         this.persistCitationsCache(item, state);
       }
     }
-    return this.buildLiteratureSnapshot(
+    return this.buildCombinedSnapshot(
       item,
       "citations",
       state.all,
-      state.source,
+      state.perSource || [],
       state.total,
-      state.loaded < state.total,
+      this.citationsHasMore(state),
+      state.source,
     );
+  }
+
+  /**
+   * Re-query one provider and fold the fresh list back into the combined view,
+   * leaving the other sources untouched. This is the per-source Refresh in the
+   * explorer: a flaky Crossref response can be retried without paying for OpenAlex
+   * and Semantic Scholar again.
+   */
+  public async refreshLiteratureSource(
+    item: Zotero.Item,
+    kind: LiteratureRelationKind,
+    sourceKey: RelationSourceKey,
+  ): Promise<LiteratureSnapshot> {
+    await localStorage.load(item);
+    const key = this.explorerKey(item);
+    const identifiers = readItemPaperIdentifiers(item);
+
+    if (kind === "references") {
+      const previous = this.readReferencesCache(item) || this.explorerReferences.get(key);
+      const fresh = await fetchReferenceSource(
+        sourceKey,
+        identifiers.doi,
+        identifiers.semanticScholarPaperId,
+      );
+      const perSource = this.replaceSource(previous?.perSource, fresh);
+      const references = mergeRelationSources(perSource, [
+        "crossref",
+        "openAlex",
+        "semanticScholar",
+      ]);
+      const next: ReferencesCache = {
+        savedAt: Date.now(),
+        source: this.combinedSourceName(perSource),
+        doi: identifiers.doi || "",
+        semanticScholarPaperId: identifiers.semanticScholarPaperId,
+        resolved: true,
+        references,
+        perSource,
+      };
+      this.explorerReferences.set(key, next);
+      if (references.length) {
+        this.saveReferencesCache(item, next.source, references, true, perSource);
+      }
+      return this.buildCombinedSnapshot(
+        item,
+        kind,
+        references,
+        perSource,
+        references.length,
+        false,
+        next.source,
+      );
+    }
+
+    const previous = this.readCitationsCache(item) || this.explorerCitations.get(key);
+    const fresh = await fetchCitationSource(
+      sourceKey,
+      identifiers.doi,
+      identifiers.semanticScholarPaperId,
+    );
+    const perSource = this.replaceSource(previous?.perSource, fresh);
+    const all = mergeRelationSources(perSource, ["openAlex", "semanticScholar"]);
+    const next: CitationsCache = {
+      savedAt: Date.now(),
+      doi: identifiers.doi || "",
+      semanticScholarPaperId: identifiers.semanticScholarPaperId,
+      source: this.combinedSourceName(perSource),
+      openAlexFilter: perSource.find((entry) => entry.key === "openAlex")?.openAlexFilter,
+      page: Math.max(0, ...perSource.map((entry) => entry.page || 0)),
+      loaded: all.length,
+      total: Math.max(0, ...perSource.map((entry) => entry.total)),
+      all,
+      perSource,
+    };
+    this.explorerCitations.set(key, next);
+    if (all.length) { this.persistCitationsCache(item, next); }
+    return this.buildCombinedSnapshot(
+      item,
+      "citations",
+      all,
+      perSource,
+      next.total,
+      this.citationsHasMore(next),
+      next.source,
+    );
+  }
+
+  /** Swap one source's result into a per-source list, keeping a stable order. */
+  private replaceSource(
+    existing: RelationSourceResult[] | undefined,
+    fresh: RelationSourceResult,
+  ): RelationSourceResult[] {
+    const order: RelationSourceKey[] = ["openAlex", "crossref", "semanticScholar"];
+    const list = (existing || []).filter((entry) => entry.key !== fresh.key);
+    list.push(fresh);
+    return list.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+  }
+
+  private combinedSourceName(perSource: RelationSourceResult[]): string {
+    const contributing = perSource.filter((entry) => entry.entries.length);
+    return contributing.length > 1 ? "Combined" : (contributing[0]?.name || "none");
   }
 
   public async addLiteratureCandidateToLibrary(
@@ -847,6 +1129,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       loaded: result.citations.length,
       total: result.total,
       all: [...result.citations],
+      perSource: result.perSource,
     };
     pane.setAttribute("source", result.source);
     try {
@@ -1580,6 +1863,9 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     panel.querySelectorAll("#zoference-search").forEach(e => e.remove());
 
     let references: ItemBaseInfo[] | undefined
+    // Captured from the multi-source fetch so the section's cache write keeps the
+    // per-source breakdown, letting the explorer open with its source picker ready.
+    let sectionPerSource: RelationSourceResult[] | undefined
     let item = (panel as any)._referenceItem || this.utils.getItem() as Zotero.Item
     if (!item) {
       throw new Error("Reference panel has no item context");
@@ -1654,6 +1940,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       ].filter(([, status]) => String(status || "").startsWith("error:"))
       if (result) {
         references = result.references
+        sectionPerSource = result.perSource
         panel.setAttribute("source", result.source)
         popupWin?.changeHeadline(`[${result.source}]`)
         popupWin?.changeLine({
@@ -1734,7 +2021,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     // never written on the most common path, which looks like "the cache does
     // nothing".
     if (!fromCache) {
-      this.saveReferencesCache(item, source, finalReferences, false);
+      this.saveReferencesCache(item, source, finalReferences, false, sectionPerSource);
     }
     // A cache entry that is already resolved is the end of it; a half-finished one
     // continues with the remainder and then overwrites.
@@ -1746,7 +2033,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       // entries failed to throttling or a dropped connection, it stays
       // half-finished and the next expansion completes the rest — otherwise a
       // single 429 would be frozen in permanently.
-      .then((complete) => this.saveReferencesCache(item, source, finalReferences, complete))
+      .then((complete) =>
+        this.saveReferencesCache(item, source, finalReferences, complete, sectionPerSource))
       .catch((error) => ztoolkit.log("resolve references failed", error));
   }
 

@@ -27,11 +27,18 @@ import {
 } from "./scholarlyHttp";
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
-import { edgeIdentity } from "./edgeIdentity";
 import {
   fromOpenAlexPublicationType,
   fromSemanticScholarPublicationType,
 } from "./publicationType";
+import {
+  mergeRelationSources,
+  RELATION_SOURCE_NAME,
+  RELATION_STATUS_UNAVAILABLE,
+  RelationUnavailableError,
+  type RelationSourceKey,
+  type RelationSourceResult,
+} from "./mergeRelations";
 
 /** Maximum number of IDs one OpenAlex filter query can carry. */
 const OPENALEX_BATCH = 50;
@@ -51,9 +58,13 @@ export const referencesDiagnostics: {
 } = {};
 
 export interface ReferencesResult {
+  /** The merged, deduplicated list when more than one source answered. */
   references: ItemBaseInfo[];
-  /** Which engine matched, shown in the sidebar's source badge and messages. */
-  source: "OpenAlex" | "Crossref" | "Semantic Scholar";
+  /** "Combined" for a merge, otherwise the single engine that matched. */
+  source: string;
+  /** Each engine's raw contribution, so the explorer can show and refresh them
+   *  individually. Absent on the legacy single-source paths. */
+  perSource?: RelationSourceResult[];
 }
 
 function fromOpenAlexWork(work: any, index: number): ItemBaseInfo {
@@ -205,6 +216,13 @@ async function fromSemanticScholar(identifier: string): Promise<ItemBaseInfo[] |
     `/references?fields=${fields}&limit=1000`,
     "referencesApi",
   );
+  // S2 answers `{ data: null, citedPaperInfo|citingPaperInfo: {…} }` when the
+  // publisher has elided the reference list from the API — the request succeeded,
+  // but the list will never come. That is not an empty paper; flag it so the UI can
+  // say "restricted" instead of a misleading 0. (A genuinely empty list is `[]`.)
+  if (data && data.data === null && (data.citedPaperInfo || data.citingPaperInfo)) {
+    throw new RelationUnavailableError("publisher restricted");
+  }
   const list = (data?.data || [])
     .map((entry: any, index: number) => {
       const paper = entry?.citedPaper;
@@ -279,60 +297,95 @@ export async function fetchReferencesByIdentifiers(
     : "skipped (no Paper ID or DOI)";
   if (!doi && !semanticScholarIdentifier) { return null; }
 
-  const run = async (
-    source: ReferencesResult["source"],
-    key: "openAlex" | "crossref" | "semanticScholar",
-    engine: () => Promise<ItemBaseInfo[] | null>,
-  ): Promise<ReferencesResult | null> => {
-    referencesDiagnostics[key] = "pending";
-    try {
-      const references = await engine();
-      referencesDiagnostics[key] = references?.length ? `ok count=${references.length}` : "empty";
-      return references?.length ? { references, source } : null;
-    } catch (error) {
-      referencesDiagnostics[key] = `error: ${String(error).slice(0, 200)}`;
-      ztoolkit.log(`[referencesApi] ${source} failed`, error);
-      return null;
-    }
-  };
-
-  const results = await Promise.all([
-    doi ? run("OpenAlex", "openAlex", () => fromOpenAlex(doi)) : Promise.resolve(null),
-    doi ? run("Crossref", "crossref", () => fromCrossref(doi)) : Promise.resolve(null),
-    semanticScholarIdentifier
-      ? run("Semantic Scholar", "semanticScholar", () => fromSemanticScholar(semanticScholarIdentifier))
-      : Promise.resolve(null),
+  const perSource = await Promise.all([
+    runReferenceSource("openAlex", doi ? () => fromOpenAlex(doi) : null),
+    runReferenceSource("crossref", doi ? () => fromCrossref(doi) : null),
+    runReferenceSource(
+      "semanticScholar",
+      semanticScholarIdentifier
+        ? () => fromSemanticScholar(semanticScholarIdentifier)
+        : null,
+    ),
   ]);
-  // Only a strictly larger count switches source: on a tie, keep the OpenAlex →
-  // Crossref → Semantic Scholar preference, since the earlier ones return more
-  // structured metadata and leave the resolve pass less to fill in.
-  let best: ReferencesResult | null = null;
-  for (const result of results) {
-    if (result && (!best || result.references.length > best.references.length)) { best = result; }
+
+  // Crossref leads the ordering because it reflects the paper's own reference list;
+  // the union then fills each entry's metadata and influence from the other engines.
+  const references = mergeRelationSources(perSource, [
+    "crossref",
+    "openAlex",
+    "semanticScholar",
+  ]);
+  if (!references.length) {
+    referencesDiagnostics.chosen = "none";
+    return null;
   }
-  // Coverage still decides which list wins, but Semantic Scholar's citation-edge
-  // signals are orthogonal metadata. Merge them into an OpenAlex/Crossref winner
-  // where an identifier overlaps instead of throwing away either the longer list
-  // or the influence/intent information.
-  const semanticScholar = results.find((result) => result?.source === "Semantic Scholar");
-  if (best && semanticScholar && best !== semanticScholar) {
-    const edgeByIdentity = new Map(
-      semanticScholar.references
-        .map((entry) => [edgeIdentity(entry), entry] as const)
-        .filter(([identity]) => Boolean(identity)),
-    );
-    for (const entry of best.references) {
-      const identity = edgeIdentity(entry);
-      const edge = identity ? edgeByIdentity.get(identity) : undefined;
-      if (!edge) { continue; }
-      entry.isInfluential = edge.isInfluential;
-      entry.intents = edge.intents;
-      entry.contexts = edge.contexts;
-      entry.influentialCitationCount ??= edge.influentialCitationCount;
+  const contributing = perSource.filter((source) => source.entries.length);
+  const source = contributing.length > 1 ? "Combined" : contributing[0].name;
+  referencesDiagnostics.chosen = `${source} (${references.length})`;
+  return { references, source, perSource };
+}
+
+/** Run one reference engine into a source result, recording status either way. */
+async function runReferenceSource(
+  key: RelationSourceKey,
+  engine: (() => Promise<ItemBaseInfo[] | null>) | null,
+): Promise<RelationSourceResult> {
+  const name = RELATION_SOURCE_NAME[key];
+  if (!engine) {
+    referencesDiagnostics[key] = "skipped";
+    return { key, name, entries: [], total: 0, status: "skipped" };
+  }
+  referencesDiagnostics[key] = "pending";
+  try {
+    const entries = (await engine()) || [];
+    referencesDiagnostics[key] = entries.length ? `ok count=${entries.length}` : "empty";
+    return {
+      key,
+      name,
+      entries,
+      total: entries.length,
+      status: entries.length ? "ok" : "empty",
+    };
+  } catch (error) {
+    if (error instanceof RelationUnavailableError) {
+      // Restricted at the provider, not a failure — do not alarm the user or count
+      // it among the "N sources failed" tallies.
+      referencesDiagnostics[key] = "restricted";
+      return { key, name, entries: [], total: 0, status: RELATION_STATUS_UNAVAILABLE };
     }
+    referencesDiagnostics[key] = `error: ${String(error).slice(0, 200)}`;
+    ztoolkit.log(`[referencesApi] ${name} failed`, error);
+    return {
+      key,
+      name,
+      entries: [],
+      total: 0,
+      status: `error: ${String(error).slice(0, 160)}`,
+    };
   }
-  referencesDiagnostics.chosen = best ? `${best.source} (${best.references.length})` : "none";
-  return best;
+}
+
+/** Fetch a single reference source, for the explorer's per-source refresh. */
+export async function fetchReferenceSource(
+  key: RelationSourceKey,
+  rawDOI?: string,
+  rawSemanticScholarPaperId?: string,
+): Promise<RelationSourceResult> {
+  const doi = bareDOI(rawDOI || "");
+  const semanticScholarPaperId = String(rawSemanticScholarPaperId || "").trim();
+  const semanticScholarIdentifier = semanticScholarPaperId || (doi ? `DOI:${doi}` : "");
+  if (key === "openAlex") {
+    return runReferenceSource("openAlex", doi ? () => fromOpenAlex(doi) : null);
+  }
+  if (key === "crossref") {
+    return runReferenceSource("crossref", doi ? () => fromCrossref(doi) : null);
+  }
+  return runReferenceSource(
+    "semanticScholar",
+    semanticScholarIdentifier
+      ? () => fromSemanticScholar(semanticScholarIdentifier)
+      : null,
+  );
 }
 
 /** Kept for older call sites; new UI should also pass the item's Semantic Scholar Paper ID. */

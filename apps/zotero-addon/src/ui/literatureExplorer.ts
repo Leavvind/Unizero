@@ -15,6 +15,7 @@ import {
   type LiteratureCollectionScope,
   type LiteratureRelationKind,
 } from "../modules/literatureRelations";
+import type { RelationSourceKey } from "../modules/mergeRelations";
 import { getString } from "../utils/locale";
 import { selectedLiteratureScope } from "../zotero/literatureCollectionAdapter";
 
@@ -87,6 +88,11 @@ function strings() {
     citations: read("tab-citations-label", "Citations"),
     search: read("literature-search-placeholder", "Search title or author"),
     searchLabel: read("literature-filter-search-label", "Search"),
+    sourceFilterLabel: read("literature-source-filter-label", "Source"),
+    combinedSource: read("literature-source-combined-label", "Combined"),
+    refreshSource: read("literature-refresh-source-label", "Refresh this source"),
+    restricted: read("literature-source-restricted-label", "Restricted"),
+    noAbstract: read("literature-no-abstract-label", "No abstract available"),
     libraryStatusLabel: read("literature-library-status-label", "Library Status"),
     allLibrary: read("literature-library-all-label", "All"),
     inLibrary: read("literature-in-library-label", "In"),
@@ -161,6 +167,16 @@ function explorerApi() {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
       return explorerViews.loadMoreLiteratureCitations(contextItem(itemKey));
     },
+    refreshSource: async (
+      itemKey: string,
+      kind: LiteratureRelationKind,
+      sourceKey: RelationSourceKey,
+    ) => {
+      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      explorerContext!.itemKey = itemKey;
+      explorerContext!.kind = kind;
+      return explorerViews.refreshLiteratureSource(contextItem(itemKey), kind, sourceKey);
+    },
     addToLibrary: async (itemKey: string, candidate: LiteratureCandidate) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
       return explorerViews.addLiteratureCandidateToLibrary(
@@ -173,6 +189,27 @@ function explorerApi() {
       const item = contextItem(itemKey);
       await explorerViews.getLiteratureSnapshot(item, kind);
       return explorerViews.getLiteratureCollectionPaper(item);
+    },
+    // Live per-source progress for the in-window indicator; a plain synchronous read
+    // of the providers' diagnostics, safe to poll while a load is in flight.
+    relationProgress: (kind: LiteratureRelationKind) =>
+      explorerViews ? explorerViews.relationProgress(kind) : [],
+    // Cache-only re-probe of the given papers' loaded state, so returning to the
+    // collection view reflects anything loaded meanwhile (item pane, prior session).
+    refreshCollectionStatuses: async (itemKeys: string[]) => {
+      if (!explorerViews || !explorerContext) { return {}; }
+      const libraryID = explorerContext.scope.libraryID;
+      const out: Record<
+        string,
+        Awaited<ReturnType<Views["relationStatuses"]>>
+      > = {};
+      for (const key of itemKeys) {
+        const item = Zotero.Items.getByLibraryAndKey(libraryID, key) as
+          | Zotero.Item
+          | false;
+        if (item) { out[key] = await explorerViews.relationStatuses(item); }
+      }
+      return out;
     },
     convertItem: async (itemKey: string) => {
       if (!explorerOwner || !explorerViews) {

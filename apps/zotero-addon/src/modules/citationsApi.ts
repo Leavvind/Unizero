@@ -31,11 +31,16 @@ import {
 } from "./scholarlyHttp";
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
-import { edgeIdentity } from "./edgeIdentity";
 import {
   fromOpenAlexPublicationType,
   fromSemanticScholarPublicationType,
 } from "./publicationType";
+import {
+  mergeRelationSources,
+  RELATION_SOURCE_NAME,
+  type RelationSourceKey,
+  type RelationSourceResult,
+} from "./mergeRelations";
 
 /**
  * How each source fared in the last query. In the UI, "0 citations" cannot be told
@@ -56,14 +61,19 @@ export const citationsDiagnostics: {
 export const CITATIONS_PAGE_SIZE = 50;
 
 export interface CitationsResult {
+  /** The merged, deduplicated first page when both sources answered. */
   citations: ItemBaseInfo[];
   /** Total citation count, usually far larger than citations.length. */
   total: number;
-  source: "OpenAlex" | "Semantic Scholar";
+  /** "Combined" for a merge, otherwise the single engine that matched. */
+  source: string;
   /** Whether another page exists, so the UI can decide about "Load more". */
   hasMore: boolean;
   /** Reused when paging, to avoid resolving DOI→work ID a second time. */
   openAlexFilter?: string;
+  /** Each engine's raw contribution, so the explorer can show and refresh them
+   *  individually. Absent on the legacy single-source paths. */
+  perSource?: RelationSourceResult[];
 }
 
 const OPENALEX_SELECT ="id,doi,display_name,authorships,publication_year,primary_location," +
@@ -201,52 +211,103 @@ export async function fetchCitationsByIdentifiers(
     ? "pending"
     : "skipped (no Paper ID or DOI)";
   if (!doi && !semanticScholarIdentifier) { return null; }
-  const openAlexPromise = doi
-    ? fromOpenAlex(doi, 1).then((result) => {
-      citationsDiagnostics.openAlex = result ? `ok total=${result.total}` : "empty";
-      return result;
-    }).catch((error) => {
-      // When both sources fail the UI shows "0", which looks exactly like "nobody
-      // cites this". Keeping each failure reason here is what makes the
-      // difference visible while debugging.
-      citationsDiagnostics.openAlex = `error: ${String(error).slice(0, 200)}`;
-      ztoolkit.log("[citationsApi] OpenAlex failed", error);
-      return null;
-    })
-    : Promise.resolve(null);
-  const semanticScholarPromise = semanticScholarIdentifier
-    ? fromSemanticScholar(semanticScholarIdentifier, 1).then((result) => {
-      citationsDiagnostics.semanticScholar = result ? `ok total=${result.total}` : "empty";
-      return result;
-    }).catch((error) => {
-      citationsDiagnostics.semanticScholar = `error: ${String(error).slice(0, 200)}`;
-      ztoolkit.log("[citationsApi] Semantic Scholar failed", error);
-      return null;
-    })
-    : Promise.resolve(null);
-  const [openalex, semanticscholar] = await Promise.all([
-    openAlexPromise,
-    semanticScholarPromise,
+  const perSource = await Promise.all([
+    runCitationSource("openAlex", doi ? () => fromOpenAlex(doi, 1) : null),
+    runCitationSource(
+      "semanticScholar",
+      semanticScholarIdentifier
+        ? () => fromSemanticScholar(semanticScholarIdentifier, 1)
+        : null,
+    ),
   ]);
-  if (!openalex) { return semanticscholar; }
-  if (!semanticscholar) { return openalex; }
-  const best = semanticscholar.total > openalex.total ? semanticscholar : openalex;
-  if (best === openalex) {
-    const edgeByIdentity = new Map(
-      semanticscholar.citations
-        .map((entry) => [edgeIdentity(entry), entry] as const)
-        .filter(([identity]) => Boolean(identity)),
-    );
-    for (const entry of best.citations) {
-      const identity = edgeIdentity(entry);
-      const edge = identity ? edgeByIdentity.get(identity) : undefined;
-      if (!edge) { continue; }
-      entry.isInfluential = edge.isInfluential;
-      entry.intents = edge.intents;
-      entry.contexts = edge.contexts;
-    }
+  const citations = mergeRelationSources(perSource, ["openAlex", "semanticScholar"]);
+  if (!citations.length) { return null; }
+  const contributing = perSource.filter((source) => source.entries.length);
+  const source = contributing.length > 1 ? "Combined" : contributing[0].name;
+  const total = Math.max(0, ...perSource.map((entry) => entry.total));
+  const hasMore = perSource.some((entry) => entry.hasMore);
+  const openAlexFilter = perSource.find((entry) => entry.key === "openAlex")
+    ?.openAlexFilter;
+  return { citations, total, source, hasMore, openAlexFilter, perSource };
+}
+
+/** Run one citation engine into a source result, recording status and paging. */
+async function runCitationSource(
+  key: RelationSourceKey,
+  engine: (() => Promise<CitationsResult | null>) | null,
+  page = 1,
+): Promise<RelationSourceResult> {
+  const name = RELATION_SOURCE_NAME[key];
+  const diagKey = key === "openAlex" ? "openAlex" : "semanticScholar";
+  if (!engine) {
+    citationsDiagnostics[diagKey] = "skipped";
+    return { key, name, entries: [], total: 0, status: "skipped", page: 0, hasMore: false };
   }
-  return best;
+  citationsDiagnostics[diagKey] = "pending";
+  try {
+    const result = await engine();
+    citationsDiagnostics[diagKey] = result ? `ok total=${result.total}` : "empty";
+    if (!result) {
+      return { key, name, entries: [], total: 0, status: "empty", page: 0, hasMore: false };
+    }
+    return {
+      key,
+      name,
+      entries: result.citations,
+      total: result.total,
+      status: result.citations.length ? "ok" : "empty",
+      page,
+      hasMore: result.hasMore,
+      openAlexFilter: result.openAlexFilter,
+    };
+  } catch (error) {
+    citationsDiagnostics[diagKey] = `error: ${String(error).slice(0, 200)}`;
+    ztoolkit.log(`[citationsApi] ${name} failed`, error);
+    return {
+      key,
+      name,
+      entries: [],
+      total: 0,
+      status: `error: ${String(error).slice(0, 160)}`,
+      page: 0,
+      hasMore: false,
+    };
+  }
+}
+
+/**
+ * Fetch one citation source at a given page, for the explorer's per-source refresh
+ * and combined "load more". Reuses a known OpenAlex filter to skip re-resolving the
+ * work cluster.
+ */
+export async function fetchCitationSource(
+  key: RelationSourceKey,
+  rawDOI?: string,
+  rawSemanticScholarPaperId?: string,
+  page = 1,
+  openAlexFilter?: string,
+): Promise<RelationSourceResult> {
+  const doi = bareDOI(rawDOI || "");
+  const semanticScholarPaperId = String(rawSemanticScholarPaperId || "").trim();
+  const semanticScholarIdentifier = semanticScholarPaperId || (doi ? `DOI:${doi}` : "");
+  if (key === "openAlex") {
+    return runCitationSource(
+      "openAlex",
+      doi
+        ? () => (openAlexFilter
+          ? fetchOpenAlexPage(openAlexFilter, page)
+          : fromOpenAlex(doi, page))
+        : null,
+      page,
+    );
+  }
+  return runCitationSource(
+    "semanticScholar",
+    semanticScholarIdentifier
+      ? () => fromSemanticScholar(semanticScholarIdentifier, page)
+      : null,
+    page,
+  );
 }
 
 /** Kept for older call sites; new UI should also pass the item's Semantic Scholar Paper ID. */

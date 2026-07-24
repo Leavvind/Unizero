@@ -19,6 +19,8 @@ var LiteratureExplorer = {
   kind: "references",
   snapshot: null,
   busy: false,
+  /** "combined" or a RelationSourceKey — which source's list the table shows. */
+  activeSource: "combined",
   dropdowns: {},
   filters: {
     library: "all",
@@ -43,8 +45,15 @@ var LiteratureExplorer = {
     document.getElementById("search").addEventListener("input", () => this.render());
     document.getElementById("year-from").addEventListener("input", () => this.render());
     document.getElementById("year-to").addEventListener("input", () => this.render());
-    document.getElementById("refresh").addEventListener("click", () => this.load(true));
+    document.getElementById("refresh").addEventListener("click", () => this.refreshActive());
     document.getElementById("load-more").addEventListener("click", () => this.loadMore());
+    // The hover card is fixed-positioned, so dismiss it whenever the table scrolls
+    // out from under it or the window loses focus.
+    let detailScroll = document.querySelector("#detail-view .table-wrap");
+    if (detailScroll) {
+      detailScroll.addEventListener("scroll", () => this.cancelRowPreview());
+    }
+    window.addEventListener("blur", () => this.cancelRowPreview());
     this.reloadContext();
   },
 
@@ -67,6 +76,7 @@ var LiteratureExplorer = {
     document.getElementById("tab-references").textContent = s.references;
     document.getElementById("tab-citations").textContent = s.citations;
     document.getElementById("label-search").textContent = s.searchLabel;
+    document.getElementById("label-source").textContent = s.sourceFilterLabel;
     document.getElementById("label-library").textContent = s.libraryStatusLabel;
     document.getElementById("label-influence").textContent = s.influenceLabel;
     document.getElementById("label-year").textContent = s.yearLabel;
@@ -93,6 +103,12 @@ var LiteratureExplorer = {
       this.filters[name] = value;
       this.render();
     };
+    this.dropdowns.source = this.createDropdown(
+      "filter-source",
+      [["combined", this.strings.combinedSource]],
+      "combined",
+      (value) => this.selectSource(value),
+    );
     this.dropdowns.library = this.createDropdown("filter-library", [
       ["all", this.strings.allLibrary],
       ["in", this.strings.inLibrary],
@@ -319,6 +335,30 @@ var LiteratureExplorer = {
     document.getElementById("paper-title").textContent =
       this.collectionSnapshot.scope.name;
     this.renderCollection();
+    // Pick up anything loaded since the overview was built — a detail visit here, or
+    // the item pane / a prior session — so the badges stop lying about "not loaded".
+    this.refreshCollectionStatuses();
+  },
+
+  async refreshCollectionStatuses() {
+    if (!this.collectionSnapshot || !api.refreshCollectionStatuses) return;
+    let keys = this.collectionSnapshot.items.map((item) => item.itemKey);
+    if (!keys.length) return;
+    try {
+      let statuses = await api.refreshCollectionStatuses(keys);
+      if (!this.collectionSnapshot) return;
+      let changed = false;
+      this.collectionSnapshot.items.forEach((item) => {
+        let next = statuses[item.itemKey];
+        if (!next) return;
+        item.references = next.references;
+        item.citations = next.citations;
+        changed = true;
+      });
+      if (changed && this.mode === "collection") this.renderCollection();
+    } catch (error) {
+      // Best-effort: a status refresh failure must not disrupt the overview.
+    }
   },
 
   visibleCollectionItems() {
@@ -465,6 +505,9 @@ var LiteratureExplorer = {
   },
 
   resetFilters() {
+    this.activeSource = "combined";
+    this.dropdowns.source.setValue("combined");
+    document.getElementById("refresh").title = "";
     this.filters.library = "all";
     this.filters.influence = "all";
     this.filters.publicationType = "all";
@@ -500,6 +543,77 @@ var LiteratureExplorer = {
         .concat(levels.map((level) => [level, level])),
       preferred,
     );
+  },
+
+  configureSources() {
+    let sources = (this.snapshot && this.snapshot.sources) || [];
+    // A "skipped" source was never queried (the paper lacks that identifier), so it
+    // is not offered; a failed or empty one stays listed so it can be retried.
+    let usable = sources.filter((source) => source.status !== "skipped");
+    let field = document.getElementById("filter-source").closest(".filter-field");
+    if (field) field.hidden = usable.length === 0;
+    let options = [["combined", this.strings.combinedSource]].concat(
+      usable.map((source) => [source.key, this.sourceOptionLabel(source)]),
+    );
+    let preferred = options.some((option) => option[0] === this.activeSource)
+      ? this.activeSource
+      : "combined";
+    this.activeSource = preferred;
+    this.dropdowns.source.setOptions(options, preferred);
+  },
+
+  sourceOptionLabel(source) {
+    if (String(source.status || "").indexOf("error") === 0) {
+      return source.name + " · " + this.strings.error;
+    }
+    if (source.status === "unavailable") {
+      return source.name + " · " + this.strings.restricted;
+    }
+    let count = source.total && source.total !== source.count
+      ? source.count + "/" + new Intl.NumberFormat().format(source.total)
+      : new Intl.NumberFormat().format(source.count);
+    return source.name + " (" + count + ")";
+  },
+
+  sourceCode(key) {
+    return { openAlex: "OA", crossref: "CR", semanticScholar: "S2" }[key] || key;
+  },
+
+  selectSource(value) {
+    this.activeSource = value;
+    document.getElementById("refresh").title =
+      value === "combined" ? "" : this.strings.refreshSource;
+    this.render();
+  },
+
+  activeEntries() {
+    if (!this.snapshot) return [];
+    if (this.activeSource === "combined") return this.snapshot.items;
+    return (this.snapshot.bySource && this.snapshot.bySource[this.activeSource]) || [];
+  },
+
+  async refreshActive() {
+    if (this.busy || !this.activeItemKey) return;
+    if (this.activeSource === "combined") {
+      await this.load(true);
+      return;
+    }
+    let sourceKey = this.activeSource;
+    this.setBusy(true);
+    this.setStatus(this.strings.loading);
+    this.startProgress(this.kind, sourceKey);
+    try {
+      this.snapshot = await api.refreshSource(this.activeItemKey, this.kind, sourceKey);
+      this.syncCollectionRelationStatus();
+      this.configureSources();
+      this.configurePublicationLevels();
+      this.render();
+    } catch (error) {
+      this.setStatus(this.strings.error + ": " + String(error), true);
+    } finally {
+      this.stopProgress();
+      this.setBusy(false);
+    }
   },
 
   publicationType(item) {
@@ -556,8 +670,13 @@ var LiteratureExplorer = {
 
   async load(refresh) {
     if (this.busy || !this.activeItemKey) return;
+    // A full (re)load lands on the combined view; the source picker is repopulated
+    // from the fresh snapshot below.
+    this.activeSource = "combined";
+    document.getElementById("refresh").title = "";
     this.setBusy(true);
     this.setStatus(this.strings.loading);
+    this.startProgress(this.kind);
     try {
       this.snapshot = await api.snapshot(
         this.activeItemKey,
@@ -566,6 +685,7 @@ var LiteratureExplorer = {
       );
       this.syncCollectionRelationStatus();
       document.getElementById("paper-title").textContent = this.snapshot.seed.title;
+      this.configureSources();
       this.configurePublicationLevels();
       this.render();
     } catch (error) {
@@ -574,6 +694,7 @@ var LiteratureExplorer = {
       this.setStatus(this.strings.error + ": " + String(error), true);
       this.render();
     } finally {
+      this.stopProgress();
       this.setBusy(false);
     }
   },
@@ -582,14 +703,17 @@ var LiteratureExplorer = {
     if (this.busy || this.kind !== "citations" || !this.activeItemKey) return;
     this.setBusy(true);
     this.setStatus(this.strings.loading);
+    this.startProgress(this.kind);
     try {
       this.snapshot = await api.loadMoreCitations(this.activeItemKey);
       this.syncCollectionRelationStatus();
+      this.configureSources();
       this.configurePublicationLevels();
       this.render();
     } catch (error) {
       this.setStatus(this.strings.error + ": " + String(error), true);
     } finally {
+      this.stopProgress();
       this.setBusy(false);
     }
   },
@@ -604,6 +728,62 @@ var LiteratureExplorer = {
     let status = document.getElementById("status");
     status.textContent = text || "";
     status.classList.toggle("error", !!error);
+  },
+
+  /**
+   * Show the in-window progress bar and poll the backend for per-source status while
+   * a fetch is in flight. `onlySource` narrows the pills to a single-source refresh.
+   */
+  startProgress(kind, onlySource) {
+    let bar = document.getElementById("progress");
+    if (!bar) return;
+    let keys = onlySource
+      ? [onlySource]
+      : (kind === "references"
+        ? ["openAlex", "crossref", "semanticScholar"]
+        : ["openAlex", "semanticScholar"]);
+    bar.hidden = false;
+    this.renderProgress(keys.map((key) => ({ key, status: "pending" })));
+    let poll = () => {
+      let all = (api.relationProgress && api.relationProgress(kind)) || [];
+      let filtered = all.filter((entry) => keys.includes(entry.key));
+      this.renderProgress(filtered.length
+        ? filtered
+        : keys.map((key) => ({ key, status: "pending" })));
+    };
+    this._progressTimer = window.setInterval(poll, 220);
+  },
+
+  stopProgress() {
+    if (this._progressTimer) {
+      window.clearInterval(this._progressTimer);
+      this._progressTimer = null;
+    }
+    let bar = document.getElementById("progress");
+    if (bar) bar.hidden = true;
+  },
+
+  renderProgress(list) {
+    let host = document.getElementById("progress-sources");
+    if (!host) return;
+    host.replaceChildren();
+    list.forEach((entry) => {
+      let pill = document.createElement("span");
+      pill.className = "progress-pill " + (entry.status || "pending");
+      pill.textContent = this.sourceCode(entry.key) + " " + this.progressGlyph(entry.status);
+      host.append(pill);
+    });
+  },
+
+  progressGlyph(status) {
+    return {
+      pending: "…",
+      ok: "✓",
+      empty: "∅",
+      error: "✕",
+      restricted: "⚠",
+      skipped: "–",
+    }[status] || "…";
   },
 
   syncCollectionRelationStatus() {
@@ -622,7 +802,7 @@ var LiteratureExplorer = {
     if (!this.snapshot) return [];
     let query = document.getElementById("search").value.trim().toLocaleLowerCase();
     let years = this.selectedYearRange();
-    let items = this.snapshot.items.filter((item) => {
+    let items = this.activeEntries().filter((item) => {
       if (this.filters.library === "in" && !item.membership.inLibrary) return false;
       if (this.filters.library === "out" && item.membership.inLibrary) return false;
       if (this.filters.influence === "influential" && item.isInfluential !== true) {
@@ -675,6 +855,7 @@ var LiteratureExplorer = {
   },
 
   render() {
+    this.cancelRowPreview();
     document.querySelectorAll(".tab").forEach((tab) => {
       tab.classList.toggle("active", tab.dataset.kind === this.kind);
     });
@@ -691,15 +872,43 @@ var LiteratureExplorer = {
       items.forEach((item) => rows.append(this.renderRow(item)));
     }
     let shown = items.length;
-    let loaded = this.snapshot.loaded;
-    let total = this.snapshot.total;
+    let loaded;
+    let total;
+    let label;
+    if (this.activeSource === "combined") {
+      loaded = this.snapshot.loaded;
+      total = this.snapshot.total;
+      label = this.snapshot.source;
+    } else {
+      let source = (this.snapshot.sources || [])
+        .find((entry) => entry.key === this.activeSource);
+      loaded = source ? source.count : shown;
+      total = source ? source.total : shown;
+      label = source ? source.name : this.activeSource;
+    }
+    let breakdown = (this.snapshot.sources || [])
+      .filter((source) => source.status !== "skipped")
+      .map((source) => {
+        // A restricted or failed source contributes 0, but "S2 0" reads like the
+        // paper simply has none; a glyph says why it is zero instead.
+        let mark = source.status === "unavailable" ? "⚠"
+          : String(source.status || "").indexOf("error") === 0 ? "✕"
+            : source.count;
+        return `${this.sourceCode(source.key)} ${mark}`;
+      })
+      .join(" / ");
+    let counts = shown === loaded
+      ? `${loaded}/${total}`
+      : `${shown} / ${loaded}/${total}`;
     this.setStatus(
-      shown === loaded
-        ? `${loaded}/${total} · ${this.snapshot.source}`
-        : `${shown} / ${loaded}/${total} · ${this.snapshot.source}`,
+      `${counts} · ${label}` + (breakdown ? ` · ${breakdown}` : ""),
     );
+    // Combined "Load more" pages every source at once; a single-source view only
+    // shows what has already been fetched, so it hides the button.
     document.getElementById("load-more").hidden =
-      this.kind !== "citations" || !this.snapshot.hasMore;
+      this.activeSource !== "combined" ||
+      this.kind !== "citations" ||
+      !this.snapshot.hasMore;
   },
 
   renderEmpty(rows, message, columnCount) {
@@ -718,6 +927,8 @@ var LiteratureExplorer = {
   renderRow(item) {
     let row = document.createElement("tr");
     row.className = item.membership.inLibrary ? "in-library" : "not-in-library";
+    row.addEventListener("mouseenter", () => this.scheduleRowPreview(item, row));
+    row.addEventListener("mouseleave", () => this.cancelRowPreview());
 
     let titleCell = document.createElement("td");
     let title = document.createElement("button");
@@ -796,6 +1007,111 @@ var LiteratureExplorer = {
     cell.textContent = text;
     if (className) cell.className = className;
     return cell;
+  },
+
+  ensurePreview() {
+    if (this._preview) return this._preview;
+    let el = document.createElement("div");
+    el.className = "row-preview";
+    el.hidden = true;
+    document.body.append(el);
+    this._preview = el;
+    return el;
+  },
+
+  scheduleRowPreview(item, row) {
+    this.cancelRowPreview();
+    // A short delay keeps the card from flickering as the pointer crosses rows.
+    this._previewTimer = window.setTimeout(() => this.showRowPreview(item, row), 320);
+  },
+
+  cancelRowPreview() {
+    if (this._previewTimer) {
+      window.clearTimeout(this._previewTimer);
+      this._previewTimer = null;
+    }
+    if (this._preview) this._preview.hidden = true;
+  },
+
+  showRowPreview(item, row) {
+    let el = this.ensurePreview();
+    el.replaceChildren(this.buildPreviewContent(item));
+    el.hidden = false;
+    // Measure after content is in, then prefer the right of the row, fall back to the
+    // left, and clamp inside the viewport.
+    let rect = row.getBoundingClientRect();
+    let pw = el.offsetWidth;
+    let ph = el.offsetHeight;
+    let margin = 12;
+    let left = rect.right + 10;
+    if (left + pw > window.innerWidth - margin) left = rect.left - pw - 10;
+    if (left < margin) left = Math.max(margin, window.innerWidth - pw - margin);
+    let top = rect.top;
+    if (top + ph > window.innerHeight - margin) {
+      top = Math.max(margin, window.innerHeight - ph - margin);
+    }
+    if (top < margin) top = margin;
+    el.style.left = left + "px";
+    el.style.top = top + "px";
+  },
+
+  buildPreviewContent(item) {
+    let frag = document.createDocumentFragment();
+
+    let title = document.createElement("div");
+    title.className = "row-preview-title";
+    title.textContent = item.title || item.text || "Untitled";
+    frag.append(title);
+
+    let authors = (item.authors || []).join(", ");
+    if (authors) {
+      let line = document.createElement("div");
+      line.className = "row-preview-meta";
+      line.textContent = authors;
+      frag.append(line);
+    }
+    let venueBits = [item.primaryVenue, item.year, item.type].filter(Boolean);
+    if (venueBits.length) {
+      let line = document.createElement("div");
+      line.className = "row-preview-meta";
+      line.textContent = venueBits.join(" · ");
+      frag.append(line);
+    }
+
+    let tags = document.createElement("div");
+    tags.className = "row-preview-tags";
+    let addTag = (text, muted) => {
+      if (!text) return;
+      let tag = document.createElement("span");
+      tag.className = "row-preview-tag" + (muted ? " muted" : "");
+      tag.textContent = text;
+      tags.append(tag);
+    };
+    if (item.source) addTag(item.source);
+    if (item.citationCount != null) {
+      addTag(new Intl.NumberFormat().format(item.citationCount) + " " +
+        this.strings.citationsColumn, true);
+    }
+    if (item.isInfluential) {
+      let label = this.strings.influential;
+      if (item.intents && item.intents.length) label += " · " + item.intents.join(", ");
+      addTag(label);
+    } else if (item.influentialCitationCount) {
+      addTag(new Intl.NumberFormat().format(item.influentialCitationCount) + " " +
+        this.strings.influential, true);
+    }
+    let ids = item.identifiers || {};
+    if (ids.DOI) addTag("DOI " + ids.DOI, true);
+    else if (ids.arXiv) addTag("arXiv " + ids.arXiv, true);
+    else if (ids.paperID) addTag("Semantic Scholar", true);
+    if (tags.children.length) frag.append(tags);
+
+    let abstract = document.createElement("div");
+    let text = String(item.abstract || "").trim();
+    abstract.className = "row-preview-abstract" + (text ? "" : " empty");
+    abstract.textContent = text || this.strings.noAbstract;
+    frag.append(abstract);
+    return frag;
   },
 
   paperURL(item) {

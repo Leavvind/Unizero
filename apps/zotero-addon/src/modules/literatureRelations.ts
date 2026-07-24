@@ -1,7 +1,18 @@
 import { edgeIdentity } from "./edgeIdentity";
 import { readItemPaperIdentifiers } from "./itemIdentifiers";
+import type { RelationSourceKey } from "./mergeRelations";
 
 export type LiteratureRelationKind = "references" | "citations";
+
+/** One provider's contribution to a relation, as the explorer's source picker sees it. */
+export interface LiteratureSourceView {
+  key: RelationSourceKey;
+  name: string;
+  status: string;
+  count: number;
+  total: number;
+  hasMore: boolean;
+}
 
 export interface LibraryMembership {
   inLibrary: boolean;
@@ -41,7 +52,12 @@ export interface LiteratureSnapshot {
   total: number;
   loaded: number;
   hasMore: boolean;
+  /** The merged, deduplicated list — what the "Combined" source shows. */
   items: LiteratureCandidate[];
+  /** Per-source summary for the source picker; empty when no breakdown exists. */
+  sources: LiteratureSourceView[];
+  /** Each source's own candidate list, so switching sources needs no round trip. */
+  bySource: Partial<Record<RelationSourceKey, LiteratureCandidate[]>>;
 }
 
 export interface LiteratureCollectionScope {

@@ -65,27 +65,66 @@ export async function getJSON(
   }
 }
 
+/** Total attempts (one initial + retries) for a throttled or flaky S2 request. */
+const SEMANTIC_SCHOLAR_MAX_ATTEMPTS = 3;
+
+/** Pull the HTTP status out of whatever shape the request layer threw. */
+function httpErrorStatus(error: any): number {
+  return Number(error?.status ?? error?.xmlhttp?.status ?? 0) || 0;
+}
+
+/** Honour a Retry-After header when S2 sends one, capped so a bad value can't stall. */
+function retryAfterMs(error: any): number | undefined {
+  const header = error?.xmlhttp?.getResponseHeader?.("Retry-After");
+  if (!header) { return undefined; }
+  const seconds = Number(header);
+  return Number.isFinite(seconds) ? Math.min(Math.max(seconds, 0) * 1000, 15_000) : undefined;
+}
+
 /**
  * The strict variant for Semantic Scholar: HTTP failures are thrown to the caller,
  * which is what lets References and Citations tell "429 or network failure" apart
  * from "the request succeeded and the list really is empty".
+ *
+ * S2's public quota is one shared bucket, so a 429 is common and usually transient —
+ * a competing app drained the second's allowance. Rather than surfacing that to the
+ * user as "Could not load", a 429 (or a transient 5xx) is retried with backoff, each
+ * attempt still passing through the 1 RPS gate. Only a non-retriable status (404,
+ * malformed request) or the last attempt actually throws.
  */
 export async function getSemanticScholarJSONStrict(url: string, tag?: string): Promise<any> {
-  await waitForSemanticScholarTurn();
   const key = getSemanticScholarKey();
-  try {
-    const res = await Zotero.HTTP.request("GET", url, {
-      responseType: "json",
-      headers: key ? { "x-api-key": key } : undefined,
-    });
-    if (res?.status !== 200) {
-      throw new Error(`Semantic Scholar HTTP ${res?.status || "unknown"}`);
+  let lastError: any;
+  for (let attempt = 1; attempt <= SEMANTIC_SCHOLAR_MAX_ATTEMPTS; attempt++) {
+    await waitForSemanticScholarTurn();
+    try {
+      const res = await Zotero.HTTP.request("GET", url, {
+        responseType: "json",
+        headers: key ? { "x-api-key": key } : undefined,
+      });
+      if (res?.status !== 200) {
+        throw new Error(`Semantic Scholar HTTP ${res?.status || "unknown"}`);
+      }
+      return res.response;
+    } catch (error) {
+      lastError = error;
+      const status = httpErrorStatus(error);
+      const retriable = status === 429 || (status >= 500 && status < 600);
+      if (!retriable || attempt === SEMANTIC_SCHOLAR_MAX_ATTEMPTS) {
+        ztoolkit.log(`[${tag || "semanticscholar"}] request failed`, url, error);
+        throw error;
+      }
+      const backoff = retryAfterMs(error) ??
+        SEMANTIC_SCHOLAR_INTERVAL_MS * Math.pow(2, attempt - 1);
+      ztoolkit.log(
+        `[${tag || "semanticscholar"}] HTTP ${status}, retry ${attempt}/` +
+        `${SEMANTIC_SCHOLAR_MAX_ATTEMPTS - 1} in ${backoff}ms`,
+        url,
+      );
+      await Zotero.Promise.delay(backoff);
     }
-    return res.response;
-  } catch (error) {
-    ztoolkit.log(`[${tag || "semanticscholar"}] request failed`, url, error);
-    throw error;
   }
+  throw lastError;
 }
 
 /** Metadata search may fail and fall through to Crossref, so the soft variant stays. */
