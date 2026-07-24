@@ -83,19 +83,41 @@ function normalTitle(value: unknown): string {
     .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
+interface LibraryMembershipIndex {
+  byIdentity: Map<string, Zotero.Item>;
+  byTitle: Map<string, Zotero.Item>;
+}
+
 /**
- * Resolve membership in the seed paper's library in one pass.
- *
- * Membership is deliberately derived from Zotero every time the explorer opens.
- * Provider caches are long lived, while users can add or remove a paper at any
- * moment. Keeping the two states separate prevents a stale API shard from claiming
- * that an item is still absent after the user has imported it.
+ * A full library scan and index rebuild is the expensive part of membership
+ * resolution, and the explorer resolves membership repeatedly within one session
+ * (snapshot plus section marking for a view, then again as the user clicks through
+ * papers). The index is memoised per library for a short window so those bursts
+ * reuse one scan, while the TTL still lets outside edits surface on their own.
+ * Our own imports call {@link invalidateLibraryMembership} so a freshly added
+ * paper is never reported as absent.
  */
-export async function resolveLibraryMembership(
+const MEMBERSHIP_INDEX_TTL_MS = 10_000;
+const membershipIndexCache = new Map<
+  number,
+  { builtAt: number; index: LibraryMembershipIndex }
+>();
+
+export function invalidateLibraryMembership(libraryID?: number): void {
+  if (libraryID === undefined) {
+    membershipIndexCache.clear();
+  } else {
+    membershipIndexCache.delete(libraryID);
+  }
+}
+
+async function libraryMembershipIndex(
   libraryID: number,
-  entries: ItemBaseInfo[],
-): Promise<Map<ItemBaseInfo, Zotero.Item | undefined>> {
-  const result = new Map<ItemBaseInfo, Zotero.Item | undefined>();
+): Promise<LibraryMembershipIndex> {
+  const cached = membershipIndexCache.get(libraryID);
+  if (cached && Date.now() - cached.builtAt < MEMBERSHIP_INDEX_TTL_MS) {
+    return cached.index;
+  }
   const items = (await Zotero.Items.getAll(libraryID))
     .filter((item: Zotero.Item) => item.isRegularItem?.());
   const byIdentity = new Map<string, Zotero.Item>();
@@ -114,6 +136,27 @@ export async function resolveLibraryMembership(
       byTitle.set(title, item);
     }
   }
+
+  const index = { byIdentity, byTitle };
+  membershipIndexCache.set(libraryID, { builtAt: Date.now(), index });
+  return index;
+}
+
+/**
+ * Resolve membership in the seed paper's library in one pass.
+ *
+ * Membership is deliberately derived from Zotero rather than provider caches:
+ * those are long lived, while users can add or remove a paper at any moment.
+ * Keeping the two states separate prevents a stale API shard from claiming that an
+ * item is still absent after the user has imported it. The underlying library
+ * index is memoised — see {@link libraryMembershipIndex}.
+ */
+export async function resolveLibraryMembership(
+  libraryID: number,
+  entries: ItemBaseInfo[],
+): Promise<Map<ItemBaseInfo, Zotero.Item | undefined>> {
+  const result = new Map<ItemBaseInfo, Zotero.Item | undefined>();
+  const { byIdentity, byTitle } = await libraryMembershipIndex(libraryID);
 
   for (const entry of entries) {
     const identity = edgeIdentity(entry);

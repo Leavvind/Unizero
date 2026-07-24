@@ -32,6 +32,10 @@ import {
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
 import { edgeIdentity } from "./edgeIdentity";
+import {
+  fromOpenAlexPublicationType,
+  fromSemanticScholarPublicationType,
+} from "./publicationType";
 
 /**
  * How each source fared in the last query. In the UI, "0 citations" cannot be told
@@ -62,39 +66,7 @@ export interface CitationsResult {
   openAlexFilter?: string;
 }
 
-function fromOpenAlexPublicationType(work: any): string {
-  const workType = String(work?.type || "").toLocaleLowerCase();
-  const sourceType = String(
-    work?.primary_location?.source?.type || "",
-  ).toLocaleLowerCase();
-  if (workType === "preprint") { return "preprint"; }
-  if (sourceType === "conference" || workType.includes("proceeding")) {
-    return "conferencePaper";
-  }
-  if (workType.includes("book")) { return "bookSection"; }
-  return "journalArticle";
-}
-
-function fromSemanticScholarPublicationType(
-  paper: any,
-  arxiv?: string,
-  doi?: string,
-): string {
-  const types = Array.isArray(paper?.publicationTypes)
-    ? paper.publicationTypes.map((value: unknown) =>
-      String(value).toLocaleLowerCase())
-    : [];
-  if (arxiv && !doi) { return "preprint"; }
-  if (types.some((value: string) => value.includes("conference"))) {
-    return "conferencePaper";
-  }
-  if (types.some((value: string) => value.includes("book"))) {
-    return "bookSection";
-  }
-  return "journalArticle";
-}
-
-const OPENALEX_SELECT = "id,doi,display_name,authorships,publication_year,primary_location," +
+const OPENALEX_SELECT ="id,doi,display_name,authorships,publication_year,primary_location," +
   "abstract_inverted_index,cited_by_count,type";
 
 function fromOpenAlexWork(work: any, index: number): ItemBaseInfo {
@@ -153,9 +125,12 @@ async function fromSemanticScholar(
   identifier: string,
   page: number,
 ): Promise<CitationsResult | null> {
+  // isInfluential/intents/contexts are citation-edge fields: S2 only returns them
+  // when they are requested explicitly, so they must sit in `fields` alongside the
+  // paper-level fields that get nested under citingPaper.
   const fields =
     "externalIds,title,authors,year,venue,abstract,citationCount," +
-    "influentialCitationCount,publicationTypes,url";
+    "influentialCitationCount,publicationTypes,url,isInfluential,intents,contexts";
   const offset = (page - 1) * CITATIONS_PAGE_SIZE;
   const data = await getSemanticScholarJSONStrict(
     `https://api.semanticscholar.org/graph/v1/paper/` +

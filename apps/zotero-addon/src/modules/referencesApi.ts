@@ -28,6 +28,10 @@ import {
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
 import { edgeIdentity } from "./edgeIdentity";
+import {
+  fromOpenAlexPublicationType,
+  fromSemanticScholarPublicationType,
+} from "./publicationType";
 
 /** Maximum number of IDs one OpenAlex filter query can carry. */
 const OPENALEX_BATCH = 50;
@@ -50,38 +54,6 @@ export interface ReferencesResult {
   references: ItemBaseInfo[];
   /** Which engine matched, shown in the sidebar's source badge and messages. */
   source: "OpenAlex" | "Crossref" | "Semantic Scholar";
-}
-
-function fromOpenAlexPublicationType(work: any): string {
-  const workType = String(work?.type || "").toLocaleLowerCase();
-  const sourceType = String(
-    work?.primary_location?.source?.type || "",
-  ).toLocaleLowerCase();
-  if (workType === "preprint") { return "preprint"; }
-  if (sourceType === "conference" || workType.includes("proceeding")) {
-    return "conferencePaper";
-  }
-  if (workType.includes("book")) { return "bookSection"; }
-  return "journalArticle";
-}
-
-function fromSemanticScholarPublicationType(
-  paper: any,
-  arxiv?: string,
-  doi?: string,
-): string {
-  const types = Array.isArray(paper?.publicationTypes)
-    ? paper.publicationTypes.map((value: unknown) =>
-      String(value).toLocaleLowerCase())
-    : [];
-  if (arxiv && !doi) { return "preprint"; }
-  if (types.some((value: string) => value.includes("conference"))) {
-    return "conferencePaper";
-  }
-  if (types.some((value: string) => value.includes("book"))) {
-    return "bookSection";
-  }
-  return "journalArticle";
 }
 
 function fromOpenAlexWork(work: any, index: number): ItemBaseInfo {
@@ -221,9 +193,12 @@ async function fromCrossref(doi: string): Promise<ItemBaseInfo[] | null> {
 }
 
 async function fromSemanticScholar(identifier: string): Promise<ItemBaseInfo[] | null> {
+  // isInfluential/intents/contexts are citation-edge fields: S2 only returns them
+  // when they are requested explicitly, so they must sit in `fields` alongside the
+  // paper-level fields that get nested under citedPaper.
   const fields =
     "externalIds,title,authors,year,venue,abstract,citationCount," +
-    "influentialCitationCount,publicationTypes,url";
+    "influentialCitationCount,publicationTypes,url,isInfluential,intents,contexts";
   const data = await getSemanticScholarJSONStrict(
     `https://api.semanticscholar.org/graph/v1/paper/` +
     `${encodeSemanticScholarPaperIdentifier(identifier)}` +

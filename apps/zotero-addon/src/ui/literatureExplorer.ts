@@ -9,10 +9,11 @@
 import { config } from "../../package.json";
 import { convertItems } from "../features/conversion/commands";
 import type Views from "../modules/views";
-import type {
-  LiteratureCandidate,
-  LiteratureCollectionScope,
-  LiteratureRelationKind,
+import {
+  invalidateLibraryMembership,
+  type LiteratureCandidate,
+  type LiteratureCollectionScope,
+  type LiteratureRelationKind,
 } from "../modules/literatureRelations";
 import { getString } from "../utils/locale";
 import { selectedLiteratureScope } from "../zotero/literatureCollectionAdapter";
@@ -227,6 +228,9 @@ export function openLiteratureExplorerForCollection(
 function openExplorerWindow(mainWindow: Window, views: Views): void {
   explorerViews = views;
   explorerOwner = mainWindow;
+  // A deliberate open is the natural moment to re-derive membership from Zotero,
+  // rather than trusting whatever the short-lived index still holds.
+  invalidateLibraryMembership();
   if (explorerWindow && !explorerWindow.closed) {
     (explorerWindow as any).LiteratureExplorer?.reloadContext?.();
     explorerWindow.focus();

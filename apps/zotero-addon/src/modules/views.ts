@@ -15,6 +15,7 @@ import { PanelStatus } from "./status";
 import { readItemPaperIdentifiers } from "./itemIdentifiers";
 import { forPersistence } from "./edgeIdentity";
 import {
+  invalidateLibraryMembership,
   previewEntries,
   resolveLibraryMembership,
   toLiteratureCandidate,
@@ -744,6 +745,9 @@ export default class Views {
       url: entry.url,
       abstract: entry.abstract,
     });
+    // The memoised membership index would otherwise keep reporting this paper as
+    // absent until its TTL lapses; drop it so the next resolve sees the new item.
+    invalidateLibraryMembership(seed.libraryID);
     return { inLibrary: true, libraryID: seed.libraryID, itemID: created.id };
   }
 
