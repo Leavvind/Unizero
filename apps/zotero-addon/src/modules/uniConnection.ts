@@ -428,20 +428,21 @@ export class UniConnection {
   ): void {
     const hubCap = options.couplingHubCap ?? COUPLING_HUB_CAP;
     const minWeight = options.couplingMinWeight ?? COUPLING_MIN_WEIGHT;
+    // A scoped key cannot contain NUL, so it is a safe pair delimiter.
     const weights = new Map<string, number>();
     for (const citing of index.inverted.values()) {
       if (citing.size < 2 || citing.size > hubCap) { continue; }
       const members = [...citing].sort();
       for (let i = 0; i < members.length; i += 1) {
         for (let j = i + 1; j < members.length; j += 1) {
-          const pair = `${members[i]} ${members[j]}`;
+          const pair = `${members[i]}\u0000${members[j]}`;
           weights.set(pair, (weights.get(pair) || 0) + 1);
         }
       }
     }
     for (const [pair, weight] of weights) {
       if (weight < minWeight) { continue; }
-      const [source, target] = pair.split(" ");
+      const [source, target] = pair.split("\u0000");
       emit(source, target, weight);
     }
   }
