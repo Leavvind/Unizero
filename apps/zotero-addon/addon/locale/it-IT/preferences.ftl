@@ -77,3 +77,8 @@ caption-conversion = Conversione
 conversion-mdSnapshot =
   .label = Salva una copia Markdown sull'elemento dopo la conversione
 conversion-note = La copia si sincronizza con Zotero ed è leggibile su altri computer, al costo di essere sovrascritta a ogni riconversione.
+
+conversion-obsidianVault = Cassaforte Obsidian
+conversion-obsidianVault-input =
+  .placeholder = Nome della cassaforte
+conversion-obsidianVault-note = «Apri in Obsidian» salta allora tramite l'uid della nota, che sopravvive a rinomina o spostamento nella cassaforte. Richiede il plugin Advanced URI. Se vuoto, le note si aprono per percorso.

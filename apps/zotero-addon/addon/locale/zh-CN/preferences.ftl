@@ -81,3 +81,8 @@ caption-conversion = 转换
 conversion-mdSnapshot =
   .label = 转换后把 Markdown 副本存入条目
 conversion-note = 副本随 Zotero 同步、换机器能看，代价是每次重新转换都会覆盖它。
+
+conversion-obsidianVault = Obsidian 仓库
+conversion-obsidianVault-input =
+  .placeholder = 仓库名
+conversion-obsidianVault-note = 填写后「在 Obsidian 中打开」按笔记的 uid 跳转，在仓库内改名或移动都不会失效。需要 Advanced URI 插件。留空则按文件路径打开。

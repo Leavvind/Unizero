@@ -179,3 +179,30 @@ def test_the_default_table_covers_every_documented_variable() -> None:
     keys = {item["key"] for item in DEFAULT_FRONTMATTER_PROPERTIES}
     assert "unizero-attachment" in keys  # Publish's overwrite-ownership marker
     assert len(keys) == len(DEFAULT_FRONTMATTER_PROPERTIES)
+
+
+def test_uid_is_derived_from_the_item_and_survives_reconversion() -> None:
+    """The whole point of the uid is that it does not move.
+
+    Publish rewrites the file end to end, so a uid drawn at random would be a new
+    value on every run and every Obsidian link built on the previous one would
+    rot. Deriving it makes that impossible by construction.
+    """
+    meta = PaperMeta(title="A Paper", library_id=1, item_key="ABCD2345")
+    first = _parsed(meta)
+    second = _parsed(meta)
+    assert first["uid"] == second["uid"] == "unizero-1-ABCD2345"
+
+
+def test_uid_falls_back_to_the_attachment_for_a_standalone_pdf() -> None:
+    # A standalone PDF has no parent item, but still needs an identity.
+    document = _parsed(
+        PaperMeta(title="Loose Scan", library_id=3, attachment_key="ZZZZ9999"),
+    )
+    assert document["uid"] == "unizero-3-ZZZZ9999"
+
+
+def test_uid_is_omitted_when_the_paper_has_no_zotero_identity() -> None:
+    # Nothing to derive from, and an empty uid in a vault would collide with
+    # every other empty one.
+    assert "uid" not in _parsed(PaperMeta(title="Orphan"))

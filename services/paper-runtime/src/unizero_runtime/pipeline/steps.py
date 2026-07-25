@@ -313,10 +313,31 @@ FRONTMATTER_TYPES = ("text", "list", "number", "date", "checkbox")
 #: lists them. Kept beside `_fm_variables`, which must supply every one of them.
 FRONTMATTER_VARIABLES = (
     "title", "citekey", "authors", "year", "doi", "publication", "abstract",
-    "item_key", "attachment_key", "library_id", "unizero_item",
+    "item_key", "attachment_key", "library_id", "uid", "unizero_item",
     "unizero_attachment", "zotero_select", "zotero_pdf", "pdf_path",
     "semantic_scholar", "citations", "today", "converter",
 )
+
+
+def _fm_uid(library_id: Any, item_key: str, attachment_key: str) -> str:
+    """A note identity that survives being renamed or moved.
+
+    Derived from the Zotero item rather than drawn at random, for two reasons.
+    Re-conversion rewrites the whole file, so a random value would be redrawn
+    every run and every link built on the previous one would rot. And a derived
+    value can be recomputed by the add-on without opening the file at all, which
+    is what lets it jump to a note whose path it has already lost track of.
+
+    A standalone PDF has no parent item, so its own key identifies it instead.
+
+    The add-on derives the same string in `markdownUid` (ui/literatureExplorer.ts).
+    The value is never exchanged between the two — each side computes it — so this
+    format cannot change on one side alone.
+    """
+    key = str(item_key or attachment_key or "").strip()
+    if not key:
+        return ""
+    return f"unizero-{library_id}-{key}"
 
 
 def _fm_variables(meta: "PaperMeta", mineru_version: str = "",
@@ -338,6 +359,7 @@ def _fm_variables(meta: "PaperMeta", mineru_version: str = "",
         "item_key": meta.item_key,
         "attachment_key": meta.attachment_key,
         "library_id": str(meta.library_id),
+        "uid": _fm_uid(meta.library_id, meta.item_key, meta.attachment_key),
         "unizero_item": f"{meta.library_id}:{meta.item_key}" if meta.item_key else "",
         "unizero_attachment": (
             f"{meta.library_id}:{meta.attachment_key}" if meta.attachment_key else ""
@@ -420,6 +442,9 @@ DEFAULT_FRONTMATTER_PROPERTIES: list[dict[str, Any]] = [
     {"key": "authors", "value": "{{ authors }}", "type": "list"},
     {"key": "year", "value": "{{ year }}", "type": "number"},
     {"key": "citekey", "value": "{{ citekey }}", "type": "text"},
+    # Stable note identity, so a link into this note survives a rename in the
+    # vault. Removing it costs Obsidian Advanced URI jumps, nothing else.
+    {"key": "uid", "value": "{{ uid }}", "type": "text"},
     {"key": "doi", "value": "{{ doi }}", "type": "text"},
     {"key": "publication", "value": "{{ publication }}", "type": "text"},
     # unizero-attachment is the ownership marker Publish reads before it

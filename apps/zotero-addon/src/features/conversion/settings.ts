@@ -15,10 +15,17 @@ export interface ConversionSettings {
    * the cost of being overwritten on every re-conversion.
    */
   mdSnapshot: boolean;
+  /**
+   * Obsidian vault holding the converted Markdown, used to open a note by its
+   * frontmatter `uid` through the Advanced URI plugin. Empty falls back to
+   * opening by absolute path, which does not survive a rename inside the vault.
+   */
+  obsidianVault: string;
 }
 
 export const CONVERSION_PREF_DEFAULTS: ConversionSettings = {
   mdSnapshot: true,
+  obsidianVault: "",
 };
 
 export function getConversionPref<K extends keyof ConversionSettings>(
@@ -34,5 +41,5 @@ export function setConversionPref<K extends keyof ConversionSettings>(
   name: K,
   value: ConversionSettings[K],
 ): void {
-  Zotero.Prefs.set(PREFIX + name, value as boolean, true);
+  Zotero.Prefs.set(PREFIX + name, value as string | boolean, true);
 }

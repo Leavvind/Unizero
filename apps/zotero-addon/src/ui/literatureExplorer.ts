@@ -8,6 +8,7 @@
 
 import { config } from "../../package.json";
 import { convertItems } from "../features/conversion/commands";
+import { getConversionPref } from "../features/conversion/settings";
 import type Views from "../modules/views";
 import {
   invalidateLibraryMembership,
@@ -52,6 +53,35 @@ function contextItem(itemKey?: string): Zotero.Item {
   return item;
 }
 
+/**
+ * The note identity conversion writes into the Markdown frontmatter.
+ *
+ * Must stay identical to `_fm_uid` in the runtime's `pipeline/steps.py`; the two
+ * sides never exchange this value, they each derive it, which is exactly what
+ * makes it usable when the file itself cannot be found. A paper's own key is the
+ * parent item key, and a standalone PDF's is the attachment key — `item.key` is
+ * already whichever of those applies.
+ */
+function markdownUid(item: Zotero.Item): string {
+  const key = String(item.key || "").trim();
+  return key ? `unizero-${item.libraryID}-${key}` : "";
+}
+
+const FRONTMATTER_UID = /^uid:\s*["']?([^"'\r\n]+)["']?\s*$/m;
+
+/** Whether a reachable note actually declares the uid we would jump to. */
+async function fileCarriesUid(path: string, uid: string): Promise<boolean> {
+  try {
+    const head = await Zotero.File.getContentsAsync(path, "utf-8", 4000);
+    return FRONTMATTER_UID.exec(String(head))?.[1]?.trim() === uid;
+  } catch (error) {
+    // Unreadable is not "wrong uid": fall back to the path, which is the route
+    // that does not need to read anything.
+    ztoolkit.log("openMarkdown: could not read frontmatter", error);
+    return false;
+  }
+}
+
 function strings() {
   const read = (key: string, fallback: string) => getString(key) || fallback;
   return {
@@ -61,10 +91,7 @@ function strings() {
       "literature-collection-search-placeholder",
       "Search this Collection",
     ),
-    backToCollection: read(
-      "literature-back-to-collection-label",
-      "Back to Collection",
-    ),
+    closeTab: read("literature-close-tab-label", "Close tab"),
     creatorColumn: read("literature-column-creator-label", "Creator"),
     dateAddedColumn: read("literature-column-date-added-label", "Date Added"),
     markdownColumn: read("literature-column-markdown-label", "Markdown"),
@@ -371,16 +398,46 @@ function explorerApi() {
     /**
      * Open a converted paper's Markdown in Obsidian.
      *
-     * Obsidian resolves an absolute path against whichever vault contains it, so
-     * this needs no vault name. A file that lives outside every vault is Obsidian's
-     * error to report; there is nothing to check for on this side.
+     * Two routes, and the choice matters because the Markdown is attached as a
+     * *link*: Zotero stores a path and nothing else, so renaming or moving the
+     * note inside the vault leaves a record that still says "converted" pointing
+     * at a file that is no longer there.
+     *
+     * - By `uid`, through the Advanced URI plugin. The uid is derived from the
+     *   Zotero item, so it can be recomputed here without opening anything, and
+     *   it is the same value conversion wrote into the frontmatter. This is the
+     *   route that still works once the path is stale.
+     * - By absolute path, which is all that is possible without a vault name.
+     *
+     * Notes converted before the uid existed carry none, so a reachable file is
+     * checked for one first: sending Obsidian after a uid that is not in the
+     * vault would fail where the path would have worked.
      */
     openMarkdown: async (itemKey: string) => {
       const item = contextItem(itemKey);
       const attachment = markdownAttachment(item);
       if (!attachment) { throw new Error("This paper has no Markdown yet"); }
+      const vault = String(getConversionPref("obsidianVault") || "").trim();
+      // `false` here means the record exists but the file does not.
       const path = await attachment.getFilePathAsync();
-      if (!path) { throw new Error("The Markdown file could not be located"); }
+      const uid = markdownUid(item);
+
+      if (vault && uid && (!path || await fileCarriesUid(String(path), uid))) {
+        Zotero.launchURL(
+          `obsidian://adv-uri?vault=${encodeURIComponent(vault)}` +
+          `&uid=${encodeURIComponent(uid)}`,
+        );
+        return uid;
+      }
+      if (!path) {
+        throw new Error(
+          vault
+            ? "The Markdown file has moved, and the note carries no uid to find " +
+              "it by. Re-convert the paper to add one."
+            : "The Markdown file has moved. Set an Obsidian vault in the UniZero " +
+              "settings to open notes by uid instead of by path, or re-convert.",
+        );
+      }
       Zotero.launchURL(`obsidian://open?path=${encodeURIComponent(String(path))}`);
       return String(path);
     },
