@@ -194,3 +194,69 @@ export interface LiteratureGraph {
 - ✅ 布局坐标持久化：已实现（见文首状态）。种子式恢复——存的坐标只作模拟起点，过期或残缺也会自行收敛，因此不做校验。
 - ⏳ WebGL 渲染器：仅当上千节点不够顺滑时替换；数据层已解耦以便低成本切换。
 - ⏳ 2 跳及以上 Ego 图：首版仅 1 跳。
+
+---
+
+## 12. 0.4.1 修正：渲染循环与力学参数
+
+两条都来自 0.4 的实测反馈（主图能动 1-2 秒后卡死；节点糊成一团）。
+
+### 12.1 force-graph 的渲染循环是单点故障
+
+`force-graph` 的主循环最后一行才续帧，并且**全程没有 try/catch**：
+
+```js
+// node_modules/force-graph/dist/force-graph.js 的 animate()
+state.onRenderFramePost && state.onRenderFramePost(ctx, globalScale);
+state.tweenGroup.update();
+state.animationFrameRequestId = requestAnimationFrame(animate);  // 抛异常就到不了这里
+```
+
+`onNodeHover` / `nodeCanvasObject` / `linkColor` 这些回调都是**在这个循环里同步调用**的。任何一个抛异常 → 续帧那行永远执行不到 → 画布冻在最后一帧。表现正是「能拖动一下随后完全卡死」：鼠标碰到第一个节点触发 hover 回调即死。
+
+因此立下规矩：
+
+1. **交给 force-graph 的每个回调都必须过 `guard()`**（`literature-graph.js`）。渲染循环的存活不能取决于 UI 回调的正确性。
+2. 吞掉的异常必须**可见**：`options.onError` → 写到图的状态条（`.graph-error`）+ `console.error`，只报第一次。
+3. **watchdog 兜底**：`onRenderFramePost` 累加帧计数，每 1.5s 检查；停止推进且容器可见 → `pauseAnimation()` 然后 `resumeAnimation()`。
+   - **必须 pause 再 resume**：`resumeAnimation` 只在 `animationFrameRequestId` 为空时才重启，而异常留下的是上一帧的**陈旧 id**（看起来像活的），单独调用是空操作。
+   - 连续复活 3 次后报一次错，避免无声地永久重启掩盖真 bug。
+
+已在浏览器测试台验证两半：装一个会抛异常的 `onRenderFramePost`，循环每次立刻死，watchdog 每次都把它拉回来。
+
+### 12.2 力学参数：比例错了一个量级
+
+`check zotero-style/addon/chrome/content/dist/assets/sim.js` 是 d3-force 跑在 Web Worker 里（配一段 WASM 做 `manyBody`/`visitCollide`），里面写着 Obsidian 那四个力的默认值。对照：
+
+| 参数 | Obsidian (sim.js) | UniZero 0.4 | 0.4.1 |
+|---|---|---|---|
+| linkDistance | 250 | 24 ~ 70 | 250（coupled 按权重收紧至 112） |
+| repelStrength (charge) | -1000 | -118 | -1000（`distanceMax` = 12×linkDistance） |
+| centerStrength | 0.1 | 0.06 | 0.09 |
+| collide | 有 | **无** | 有（手写网格分桶） |
+
+要点：
+
+- **只有比例有意义**，绝对值无所谓——视图永远 zoom-to-fit。所谓「糊成一团」就是斥力/连线长度的比值太小，再叠加完全没有碰撞体积。
+- 节点半径、线宽、箭头、字号必须**跟着一起放大**，否则 250 单位的间距配 3px 的点等于没改。
+- 标签去杂改成按**屏幕像素**判定（`radius * scale < LABEL_MIN_PX` 就不画），字号用 `LABEL_PX / scale` 保持屏幕上恒定——原来的 `scale < 1.15` 阈值在放大后的坐标系里恒为真。
+- **`d3Force("collide", …)` 与 `containForce` 都得手写**：force-graph 打包了 d3-force 但不重新导出 force 工厂。
+
+测量（300 节点 / 611 边 / 12 个稠密簇的合成图，稳定后取中位数）：
+
+| | 最近邻距离 / 节点半径 | 10 分位 | 重叠对 |
+|---|---|---|---|
+| 0.4 参数（无 collide） | 3.82 | 2.9 | 0 / 44850 |
+| 0.4.1 | **7.49** | **6.6** | 0 / 44850 |
+
+即每个节点周围的净空约翻倍，且在最拥挤的 10 分位仍成立。
+
+### 12.3 布局缓存必须带版本号
+
+存下的坐标只在**产生它们的那套力学参数的尺度下**有意义。改了 linkDistance/斥力还沿用旧坐标，等于把模拟种在我们刚要摆脱的形状里——升级后依然是一团。故 `views.ts` 加 `GRAPH_LAYOUT_VERSION`，读取时版本不符即视为冷启动。**以后每次改力学参数都要 bump。**
+
+### 12.4 zotero-style 的 Graph 引擎：不可复用
+
+`dist/assets/index.js`（108KB）是从 **Obsidian 里抽出来的渲染器**，不是他们自己写的：颜色键为 `fillUnresolved` / `fillAttachment`（Zotero 里没有「未解析链接」「附件节点」这种概念）、API 为 `renderer.changed()` / `testCSS()` / `interactiveEl` / `getDisplayText`、CSS 类 `.graph-view-container`——全是 Obsidian 的内部形状。仓库标 AGPL 也无权替 Obsidian 重新授权，**不要 vendor，不要参考实现**。
+
+可以参考的只有两样，都已吸收进本节：`sim.js` 里的**力学参数取值**（数值是事实，非表达），以及架构走向——力学放 Worker、渲染用 PixiJS/WebGL。后者是**上千节点卡帧之后**才走的路，见 §11。

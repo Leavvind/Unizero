@@ -34,15 +34,129 @@ function containForce(strength) {
   return force;
 }
 
+/**
+ * A d3-force that stops nodes from overlapping.
+ *
+ * Repulsion alone spaces out the graph as a whole but says nothing about a node's
+ * physical size, so two papers pulled together by a strong link end up drawn on
+ * top of each other. Bucketing by a uniform grid keeps this near-linear instead of
+ * comparing every pair — a whole library ticks 60 times a second either way.
+ */
+function collideForce(radiusOf, padding, strength) {
+  var nodes = [];
+  var radii = [];
+  function force() {
+    var count = nodes.length;
+    if (!count) { return; }
+    var largest = 0;
+    var i;
+    for (i = 0; i < count; i += 1) {
+      if (radii[i] > largest) { largest = radii[i]; }
+    }
+    var cell = (largest + padding) * 2 || 1;
+    var buckets = new Map();
+    for (i = 0; i < count; i += 1) {
+      var key = Math.round(nodes[i].x / cell) + ":" + Math.round(nodes[i].y / cell);
+      var bucket = buckets.get(key);
+      if (bucket) { bucket.push(i); } else { buckets.set(key, [i]); }
+    }
+    for (i = 0; i < count; i += 1) {
+      var node = nodes[i];
+      var cx = Math.round(node.x / cell);
+      var cy = Math.round(node.y / cell);
+      for (var ox = -1; ox <= 1; ox += 1) {
+        for (var oy = -1; oy <= 1; oy += 1) {
+          var neighbours = buckets.get((cx + ox) + ":" + (cy + oy));
+          if (!neighbours) { continue; }
+          for (var n = 0; n < neighbours.length; n += 1) {
+            var j = neighbours[n];
+            // Each pair is resolved once, and a node never collides with itself.
+            if (j <= i) { continue; }
+            var other = nodes[j];
+            var dx = (other.x + other.vx) - (node.x + node.vx);
+            var dy = (other.y + other.vy) - (node.y + node.vy);
+            var wanted = radii[i] + radii[j] + padding;
+            var squared = dx * dx + dy * dy;
+            if (squared >= wanted * wanted) { continue; }
+            // Perfectly coincident nodes have no direction to separate along, so
+            // a nudge picks one instead of dividing by zero.
+            var distance = Math.sqrt(squared);
+            if (!distance) {
+              dx = 1e-6;
+              dy = 1e-6;
+              distance = Math.sqrt(2) * 1e-6;
+            }
+            var push = ((wanted - distance) / distance) * strength * 0.5;
+            dx *= push;
+            dy *= push;
+            node.vx -= dx;
+            node.vy -= dy;
+            other.vx += dx;
+            other.vy += dy;
+          }
+        }
+      }
+    }
+  }
+  force.initialize = function (suppliedNodes) {
+    nodes = suppliedNodes;
+    radii = nodes.map(radiusOf);
+  };
+  return force;
+}
+
 var LiteratureGraph = {
   /**
    * Node radius and colour read from data, per the design's visual encoding:
    * size = in-library degree (a paper connected to more of your library is
    * bigger), colour = year (older cool, newer warm).
+   *
+   * Radii are in simulation units and only mean anything relative to LINK_DISTANCE:
+   * the view is always zoom-to-fit, so what reads as "spread out" or "clumped" is
+   * the ratio between how far links pull and how big nodes are, never the absolute
+   * numbers.
    */
-  MIN_RADIUS: 3.2,
-  MAX_RADIUS: 13,
-  LABEL_ZOOM: 1.15,
+  LINK_DISTANCE: 250,
+  REPEL_STRENGTH: -1000,
+  CENTER_STRENGTH: 0.09,
+  MIN_RADIUS: 8,
+  MAX_RADIUS: 40,
+  /** Below this on-screen radius a label is unreadable clutter, so it is skipped. */
+  LABEL_MIN_PX: 5,
+  LABEL_PX: 11,
+
+  /**
+   * Wrap a callback that force-graph invokes from inside its render loop.
+   *
+   * The loop ends with `state.animationFrameRequestId = requestAnimationFrame(...)`
+   * and has no error handling of its own, so anything that throws on the way there
+   * — a hover handler, a paint function — stops the loop being rescheduled and
+   * freezes the canvas for good. Swallowing here keeps a display bug a display bug.
+   */
+  guard(view, name, fn) {
+    return function () {
+      try {
+        return fn.apply(null, arguments);
+      } catch (error) {
+        LiteratureGraph.reportError(view, name, error);
+        return undefined;
+      }
+    };
+  },
+
+  reportError(view, name, error) {
+    var message = name + ": " + (error && error.message ? error.message : String(error));
+    if (typeof console !== "undefined" && console.error) {
+      console.error("[UniZero graph] " + message, error);
+    }
+    // Only the first failure is worth surfacing; a throwing paint callback would
+    // otherwise report itself sixty times a second.
+    if (view.lastError) { return; }
+    view.lastError = message;
+    if (view.options.onError) {
+      try { view.options.onError(message); } catch (ignored) { /* never recurse */ }
+    }
+  },
 
   create(container, options) {
     if (typeof window.ForceGraph !== "function") {
@@ -62,7 +176,50 @@ var LiteratureGraph = {
     view.graph = window.ForceGraph()(container);
     this.configure(view);
     this.watchTheme(view);
+    this.startWatchdog(view);
     return view;
+  },
+
+  /**
+   * Restart the render loop if it ever stops advancing.
+   *
+   * The guards above cover callbacks we control, but the loop is a single
+   * unprotected `requestAnimationFrame` chain: one unforeseen throw anywhere in it
+   * and the canvas is frozen until the window is reopened. A frame counter makes
+   * that state detectable, and pause-then-resume is what restarts it — resume alone
+   * is a no-op, because the stale frame id left behind looks like a live loop.
+   */
+  startWatchdog(view) {
+    var self = this;
+    var last = -1;
+    view.watchdog = window.setInterval(function () {
+      var frames = view.frames || 0;
+      if (frames !== last) {
+        last = frames;
+        return;
+      }
+      // A hidden container legitimately stops painting; only revive a visible one.
+      if (!view.container || !view.container.clientWidth) { return; }
+      try {
+        view.graph.pauseAnimation();
+        view.graph.resumeAnimation();
+        view.revivals = (view.revivals || 0) + 1;
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn("[UniZero graph] render loop stalled; restarted it");
+        }
+        // Reviving repeatedly means the cause is still there, and silently
+        // restarting forever would hide it. Say so once and keep going.
+        if (view.revivals === 3) {
+          self.reportError(
+            view,
+            "render loop",
+            new Error("keeps stalling; see the console for the underlying error"),
+          );
+        }
+      } catch (error) {
+        self.reportError(view, "watchdog", error);
+      }
+    }, 1500);
   },
 
   /** Pull palette out of the stylesheet so the canvas matches the surrounding UI. */
@@ -137,6 +294,8 @@ var LiteratureGraph = {
   configure(view) {
     var self = this;
     var graph = view.graph;
+    var container = view.container;
+    var guard = function (name, fn) { return self.guard(view, name, fn); };
 
     graph
       .backgroundColor(this.background(view))
@@ -146,40 +305,44 @@ var LiteratureGraph = {
       .autoPauseRedraw(false)
       .nodeId("id")
       .nodeRelSize(1)
-      .nodeVal(function (node) { return self.radius(view, node); })
+      .nodeVal(guard("nodeVal", function (node) { return self.radius(view, node); }))
       .nodeLabel(function () { return ""; }) // hover card is rendered by the explorer
-      .linkColor(function (link) { return self.linkColor(view, link); })
-      .linkWidth(function (link) { return self.linkWidth(view, link); })
+      .linkColor(guard("linkColor", function (link) {
+        return self.linkColor(view, link);
+      }))
+      .linkWidth(guard("linkWidth", function (link) {
+        return self.linkWidth(view, link);
+      }))
       .linkDirectionalArrowLength(function (link) {
-        return link.type === "cites" ? 2.6 : 0;
+        return link.type === "cites" ? 9 : 0;
       })
       .linkDirectionalArrowRelPos(0.92)
-      .linkDirectionalParticles(function (link) {
+      .linkDirectionalParticles(guard("particles", function (link) {
         // Particles only on the highlighted subgraph: constant motion everywhere
         // is noise, but on hover it reads as direction of citation.
         return view.hoverId && self.touchesHover(view, link) && link.type === "cites"
           ? 2
           : 0;
-      })
-      .linkDirectionalParticleWidth(1.6)
+      }))
+      .linkDirectionalParticleWidth(5)
       .linkDirectionalParticleSpeed(0.006)
-      .nodeCanvasObject(function (node, ctx, scale) {
+      .nodeCanvasObject(guard("drawNode", function (node, ctx, scale) {
         self.drawNode(view, node, ctx, scale);
-      })
-      .nodePointerAreaPaint(function (node, color, ctx) {
-        var radius = self.radius(view, node) + 2;
+      }))
+      .nodePointerAreaPaint(guard("pointerArea", function (node, color, ctx) {
+        var radius = self.radius(view, node) + 4;
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
         ctx.fill();
-      })
-      .onNodeHover(function (node) {
+      }))
+      .onNodeHover(guard("onNodeHover", function (node) {
         view.hoverId = node ? node.id : null;
         self.recomputeNeighbours(view);
         container.style.cursor = node ? "pointer" : "default";
         if (view.options.onHover) { view.options.onHover(node || null); }
-      })
-      .onNodeClick(function (node, event) {
+      }))
+      .onNodeClick(guard("onNodeClick", function (node, event) {
         // force-graph has no double-click event, so the click count off the
         // MouseEvent is what separates "select" from "open".
         if (node && event && event.detail >= 2) {
@@ -190,44 +353,65 @@ var LiteratureGraph = {
         self.select(view, node ? node.id : null);
         if (node) { graph.centerAt(node.x, node.y, 420); }
         if (view.options.onSelect) { view.options.onSelect(node || null); }
-      })
-      .onNodeRightClick(function (node) {
+      }))
+      .onNodeRightClick(guard("onNodeRightClick", function (node) {
         if (node && view.options.onContext) { view.options.onContext(node); }
-      })
-      .onBackgroundClick(function () {
+      }))
+      .onBackgroundClick(guard("onBackgroundClick", function () {
         self.select(view, null);
         if (view.options.onSelect) { view.options.onSelect(null); }
-      })
-      .onNodeDragEnd(function (node) {
+      }))
+      .onNodeDragEnd(guard("onNodeDragEnd", function (node) {
         // Pin a dragged node, matching the mental model of arranging a board.
         node.fx = node.x;
         node.fy = node.y;
-      });
+      }))
+      // A frame counter is the only reliable way to tell a settled graph from a
+      // dead render loop; the watchdog reads it.
+      .onRenderFramePost(function () { view.frames = (view.frames || 0) + 1; });
 
     // Papers with no connections have nothing pulling them back, so charge alone
     // pushes them past the horizon — and zoom-to-fit then shrinks the real cluster
     // to a dot. A weak pull toward the origin keeps them in a loose orbit, the way
     // orphan notes sit around the edge of a graph view.
-    graph.d3Force("contain", containForce(0.06));
+    graph.d3Force("contain", containForce(this.CENTER_STRENGTH));
+    // Nodes have a drawn size that repulsion knows nothing about, so without this
+    // two strongly linked papers are painted on top of each other.
+    graph.d3Force("collide", collideForce(
+      function (node) { return self.radius(view, node); },
+      6,
+      0.7,
+    ));
 
-    // Coupling should pull related papers together; citation links stay looser so
-    // the layout reflects similarity rather than pure reference direction.
+    // Link distance and repulsion only matter as a ratio, and these proportions are
+    // the ones a graph view of this kind needs: an order of magnitude more repulsion
+    // than a default d3 layout, over links four times longer. Anything tighter and a
+    // real library collapses into one illegible blob.
     var linkForce = graph.d3Force("link");
     if (linkForce && linkForce.distance) {
-      linkForce.distance(function (link) {
-        return link.type === "coupled" ? Math.max(24, 70 - link.weight * 9) : 55;
-      });
+      // Coupling should pull related papers together; citation links stay looser so
+      // the layout reflects similarity rather than pure reference direction.
+      linkForce.distance(guard("linkDistance", function (link) {
+        return link.type === "coupled"
+          ? Math.max(self.LINK_DISTANCE * 0.45, self.LINK_DISTANCE - link.weight * 22)
+          : self.LINK_DISTANCE;
+      }));
     }
     var chargeForce = graph.d3Force("charge");
-    if (chargeForce && chargeForce.strength) { chargeForce.strength(-118); }
+    if (chargeForce && chargeForce.strength) {
+      chargeForce.strength(this.REPEL_STRENGTH);
+      // Bounding the far field keeps a large library from inflating without limit
+      // while still letting clusters push each other apart.
+      if (chargeForce.distanceMax) { chargeForce.distanceMax(this.LINK_DISTANCE * 12); }
+    }
   },
 
   radius(view, node) {
     var degree = Number(node.degree || 0);
     // sqrt keeps a hub from dwarfing everything else.
-    var scaled = this.MIN_RADIUS + Math.sqrt(degree) * 2.1;
+    var scaled = this.MIN_RADIUS + Math.sqrt(degree) * 5;
     var radius = Math.min(this.MAX_RADIUS, scaled);
-    return node.id === view.centerId ? radius + 2.2 : radius;
+    return node.id === view.centerId ? radius * 1.15 + 3 : radius;
   },
 
   /** Year → colour ramp, cool (old) to warm (recent). */
@@ -282,10 +466,10 @@ var LiteratureGraph = {
   },
 
   linkWidth(view, link) {
-    if (view.hoverId && this.touchesHover(view, link)) { return 1.8; }
+    if (view.hoverId && this.touchesHover(view, link)) { return 7; }
     return link.type === "coupled"
-      ? Math.min(2.4, 0.5 + Number(link.weight || 1) * 0.35)
-      : 0.5;
+      ? Math.min(10, 2 + Number(link.weight || 1) * 1.4)
+      : 2;
   },
 
   drawNode(view, node, ctx, scale) {
@@ -303,7 +487,7 @@ var LiteratureGraph = {
     // at a glance without changing the node's size or colour meaning.
     if (node.id === view.centerId || node.id === view.selectedId ||
         node.id === view.hoverId) {
-      ctx.lineWidth = node.id === view.centerId ? 2.2 : 1.6;
+      ctx.lineWidth = node.id === view.centerId ? 8 : 6;
       ctx.strokeStyle = node.id === view.centerId
         ? view.theme.orange
         : view.theme.accent;
@@ -311,28 +495,31 @@ var LiteratureGraph = {
     } else if (node.hasMarkdown) {
       // A converted paper gets a quiet ring: it is the one state worth seeing
       // across the whole board while scanning.
-      ctx.lineWidth = 1.1;
+      ctx.lineWidth = 4;
       ctx.strokeStyle = this.withAlpha(view.theme.green, 0.85);
       ctx.stroke();
     }
 
-    // Decluttering: labels appear when zoomed in, for well-connected papers, or
-    // for whatever the pointer/selection is on. Drawing all of them at once turns
-    // a real library into an unreadable mat of text.
+    // Decluttering, in screen pixels rather than simulation units: a label is worth
+    // drawing once its node is actually big enough to read next to. Zoomed out, that
+    // leaves only hubs and whatever the pointer is on, which is the whole point —
+    // every label at once turns a real library into a mat of text.
     var important = node.id === view.centerId || node.id === view.selectedId ||
       node.id === view.hoverId || view.neighbours.has(node.id);
-    if (!important && (scale < this.LABEL_ZOOM || node.degree < view.labelDegree)) {
+    if (!important &&
+        (radius * scale < this.LABEL_MIN_PX || node.degree < view.labelDegree)) {
       ctx.globalAlpha = 1;
       return;
     }
     var label = node.label || "";
     if (!label) { ctx.globalAlpha = 1; return; }
-    var fontSize = Math.max(2.5, Math.min(4.6, 11 / scale));
+    // Dividing by the zoom keeps text a constant size on screen at any zoom level.
+    var fontSize = this.LABEL_PX / scale;
     ctx.font = fontSize + "px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     ctx.fillStyle = dim ? this.withAlpha(view.theme.muted, 0.5) : view.theme.fg;
-    ctx.fillText(label, node.x, node.y + radius + 1.2);
+    ctx.fillText(label, node.x, node.y + radius + fontSize * 0.35);
     ctx.globalAlpha = 1;
   },
 
@@ -468,6 +655,10 @@ var LiteratureGraph = {
   },
 
   destroy(view) {
+    if (view && view.watchdog) {
+      window.clearInterval(view.watchdog);
+      view.watchdog = null;
+    }
     if (view && view.graph && view.graph._destructor) {
       try { view.graph._destructor(); } catch (error) { /* already gone */ }
     }

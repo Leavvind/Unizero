@@ -58,6 +58,12 @@ import {
 } from "../zotero/literatureCollectionAdapter";
 const SECTION_PREVIEW_LIMIT = 5;
 const EXPLORER_COUPLING_LIMIT = 50;
+/**
+ * Stamped into every saved graph layout, and required to match on read. Bumped
+ * whenever the renderer's force parameters change, because coordinates from the
+ * old parameters would seed the simulation at the wrong scale.
+ */
+const GRAPH_LAYOUT_VERSION = 2;
 
 /**
  * Collapse a provider's free-text diagnostic ("ok count=12", "error: HTTP 429",
@@ -725,9 +731,16 @@ export default class Views {
    * Purely a starting position for the simulation: a stale or partial layout
    * settles into the right shape anyway, so this is never validated against the
    * current graph.
+   *
+   * The version is the one thing that must be checked. Coordinates only mean
+   * anything at the scale the forces that produced them used, so a layout written
+   * by different force parameters is not a head start — it seeds the simulation in
+   * the shape we changed the parameters to get away from. Bump GRAPH_LAYOUT_VERSION
+   * whenever link distance or repulsion changes.
    */
   public async getGraphLayout(libraryID: number): Promise<Record<string, number[]>> {
     const payload = await localStorage.readGraphLayout(libraryID);
+    if (payload?.version !== GRAPH_LAYOUT_VERSION) { return {}; }
     const positions = payload?.positions;
     return positions && typeof positions === "object" ? positions : {};
   }
@@ -737,6 +750,7 @@ export default class Views {
     positions: Record<string, number[]>,
   ): Promise<void> {
     await localStorage.writeGraphLayout(libraryID, {
+      version: GRAPH_LAYOUT_VERSION,
       savedAt: Date.now(),
       positions,
     });

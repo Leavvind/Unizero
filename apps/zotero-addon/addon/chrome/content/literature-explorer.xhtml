@@ -425,6 +425,14 @@
       align-items: center;
       gap: 5px;
     }
+    /* A swallowed render-loop failure: visible enough to report, quiet enough to ignore. */
+    .graph-error {
+      color: var(--danger);
+      max-width: 40ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .graph-swatch {
       display: inline-block;
       width: 15px;

@@ -465,6 +465,7 @@ var LiteratureExplorer = {
         onSelect: (node) => this.onGraphSelect(which, node),
         onOpen: (node) => this.onGraphOpen(node),
         onContext: (node) => this.onGraphOpen(node),
+        onError: (message) => this.onGraphError(which, message),
       });
     } catch (error) {
       this.setGraphEmpty(which, this.strings.error + ": " + String(error));
@@ -559,6 +560,14 @@ var LiteratureExplorer = {
       let hint = document.createElement("span");
       hint.textContent = s.graphOpenHint;
       overlay.append(hint);
+      // Rebuilding the overlay must not quietly drop a reported failure.
+      let failure = this._graphErrors && this._graphErrors[which];
+      if (failure) {
+        let note = document.createElement("span");
+        note.className = "graph-error";
+        note.textContent = s.error + ": " + failure;
+        overlay.append(note);
+      }
     }
     let empty = document.getElementById(which + "-graph-empty");
     if (empty) {
@@ -704,6 +713,25 @@ var LiteratureExplorer = {
   onGraphOpen(node) {
     if (!node) return;
     this.showDetail(node.itemKey, "references");
+  },
+
+  /**
+   * Surface a swallowed render-loop error.
+   *
+   * The graph now keeps drawing when a callback throws, which is right but would
+   * otherwise hide the failure entirely — so the first one is written onto the
+   * board's own status line, where it can be reported instead of guessed at.
+   */
+  onGraphError(which, message) {
+    this._graphErrors = this._graphErrors || {};
+    if (this._graphErrors[which]) return;
+    this._graphErrors[which] = message;
+    let overlay = document.getElementById(which + "-graph-overlay");
+    if (!overlay) return;
+    let note = document.createElement("span");
+    note.className = "graph-error";
+    note.textContent = this.strings.error + ": " + message;
+    overlay.append(note);
   },
 
   /** Shape a graph node like a table row so the shared preview card can render it. */
