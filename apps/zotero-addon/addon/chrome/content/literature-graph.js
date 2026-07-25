@@ -145,7 +145,10 @@ var LiteratureGraph = {
   /** Bounds for anything read back from disk; a bad value must not break a render. */
   SETTINGS_LIMITS: {
     textFade: [0, 24],
-    nodeSize: [0.2, 4],
+    // Every step has to change something you can see. Below a quarter the nodes
+    // stop being clickable targets, above two and a half a dense cluster is one
+    // solid shape, so the travel outside this band was only ever wasted.
+    nodeSize: [0.25, 2.5],
     linkThickness: [0.2, 5],
     centerForce: [0, 1],
     repelForce: [0, 4000],
@@ -366,7 +369,7 @@ var LiteratureGraph = {
       .autoPauseRedraw(false)
       .nodeId("id")
       .nodeRelSize(1)
-      .nodeVal(guard("nodeVal", function (node) { return self.radius(view, node); }))
+      .nodeVal(guard("nodeVal", function (node) { return self.drawRadius(view, node); }))
       .nodeLabel(function () { return ""; }) // hover card is rendered by the explorer
       .linkColor(guard("linkColor", function (link) {
         return self.linkColor(view, link);
@@ -391,7 +394,9 @@ var LiteratureGraph = {
         self.drawNode(view, node, ctx, scale);
       }))
       .nodePointerAreaPaint(guard("pointerArea", function (node, color, ctx) {
-        var radius = self.radius(view, node) + 4;
+        // Follows what is painted, and never shrinks below something clickable —
+        // the smallest setting still has to be usable, not just visible.
+        var radius = Math.max(self.drawRadius(view, node) + 4, 10);
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
@@ -457,10 +462,9 @@ var LiteratureGraph = {
     // to a dot. A weak pull toward the origin keeps them in a loose orbit, the way
     // orphan notes sit around the edge of a graph view.
     graph.d3Force("contain", containForce(settings.centerForce));
-    // Nodes have a drawn size that repulsion knows nothing about, so without this
-    // two strongly linked papers are painted on top of each other. Rebuilt rather
-    // than tweaked, because the force caches each node's radius when it initialises
-    // and the node-size slider changes exactly that.
+    // Nodes have a size that repulsion knows nothing about, so without this two
+    // strongly linked papers end up in the same place. It reads the layout radius,
+    // not the painted one: the node-size setting must not move anything.
     graph.d3Force("collide", collideForce(
       function (node) { return self.radius(view, node); },
       6,
@@ -512,9 +516,7 @@ var LiteratureGraph = {
     view.settings = this.sanitizeSettings(settings);
     var forcesChanged = ["centerForce", "repelForce", "linkForce", "linkDistance"]
       .some(function (key) { return previous[key] !== view.settings[key]; });
-    // Node size feeds the collide force's cached radii, so it counts as a force
-    // change even though it is a display control.
-    if (forcesChanged || previous.nodeSize !== view.settings.nodeSize) {
+    if (forcesChanged) {
       this.applyForces(view);
       if (view.graph && view.graph.d3ReheatSimulation) {
         try { view.graph.d3ReheatSimulation(); } catch (error) { /* not running */ }
@@ -523,12 +525,25 @@ var LiteratureGraph = {
     return view.settings;
   },
 
+  /**
+   * Radius the layout reasons about, in simulation units.
+   *
+   * Deliberately independent of the node-size setting. The view is always
+   * zoom-to-fit, so a radius the collide force can see is a radius that inflates
+   * the whole arrangement and is then divided straight back out by the fit: the
+   * setting would cancel itself and leave only its side effect, nodes growing
+   * against a link distance that did not grow with them.
+   */
   radius(view, node) {
     var degree = Number(node.degree || 0);
     // sqrt keeps a hub from dwarfing everything else.
-    var scaled = this.MIN_RADIUS + Math.sqrt(degree) * 5;
-    var radius = Math.min(this.MAX_RADIUS, scaled) * (view.settings.nodeSize || 1);
+    var radius = Math.min(this.MAX_RADIUS, this.MIN_RADIUS + Math.sqrt(degree) * 5);
     return node.id === view.centerId ? radius * 1.15 + 3 : radius;
+  },
+
+  /** Radius actually painted: the layout radius scaled by the user's setting. */
+  drawRadius(view, node) {
+    return this.radius(view, node) * (view.settings.nodeSize || 1);
   },
 
   /**
@@ -616,7 +631,7 @@ var LiteratureGraph = {
   },
 
   drawNode(view, node, ctx, scale) {
-    var radius = this.radius(view, node);
+    var radius = this.drawRadius(view, node);
     var dim = this.dimmed(view, node.id);
     var color = this.nodeColor(view, node);
 

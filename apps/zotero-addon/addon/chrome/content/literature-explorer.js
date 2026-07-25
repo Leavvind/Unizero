@@ -89,12 +89,14 @@ var LiteratureExplorer = {
       }
     });
     // One dismissal path for both transient surfaces: anything that is not a click
-    // inside them closes them.
+    // inside them closes them. The menu has to exclude itself, because mousedown
+    // precedes click — dismissing on it would hide every entry before its own
+    // click could ever land.
     window.addEventListener("mousedown", (event) => {
-      this.hideGraphMenu();
-      if (!event.target.closest || !event.target.closest(".graph-panel, .graph-gear")) {
-        this.closeGraphPanels();
-      }
+      let inside = (selector) =>
+        Boolean(event.target.closest && event.target.closest(selector));
+      if (!inside(".graph-menu")) this.hideGraphMenu();
+      if (!inside(".graph-panel, .graph-gear")) this.closeGraphPanels();
     });
     window.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
@@ -750,7 +752,10 @@ var LiteratureExplorer = {
   /** Reuse the table's hover card so both surfaces describe a paper identically. */
   onGraphHover(which, node) {
     this.cancelRowPreview();
-    if (!node) return;
+    // The node menu opens at the pointer, which is exactly where the hover card
+    // already sits. Two panels describing the same node, one covering the other,
+    // is worse than either alone, and the menu is the one the user just asked for.
+    if (!node || this._menuOpen) return;
     // showRowPreview anchors to a rect; on canvas the meaningful anchor is the
     // pointer, so hand it a zero-size rect there instead of the whole container.
     let point = this._pointer || { x: 0, y: 0 };
@@ -873,7 +878,7 @@ var LiteratureExplorer = {
     colour.append(colourInput);
 
     slider(s.graphTextFade, "textFade", 0, 24, 1);
-    slider(s.graphNodeSize, "nodeSize", 0.2, 4, 0.1, oneDecimal);
+    slider(s.graphNodeSize, "nodeSize", 0.25, 2.5, 0.05, (n) => Number(n).toFixed(2));
     slider(s.graphLinkThickness, "linkThickness", 0.2, 5, 0.1, oneDecimal);
 
     heading(s.graphForcesGroup);
@@ -935,6 +940,8 @@ var LiteratureExplorer = {
     if (!menu || !node) return;
     let s = this.strings;
     this._menuWhich = which;
+    this._menuOpen = true;
+    this.cancelRowPreview();
     menu.replaceChildren();
 
     let title = document.createElement("div");
@@ -985,6 +992,7 @@ var LiteratureExplorer = {
   },
 
   hideGraphMenu() {
+    this._menuOpen = false;
     let menu = document.getElementById("graph-menu");
     if (menu && !menu.hidden) menu.hidden = true;
   },

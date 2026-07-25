@@ -301,7 +301,11 @@ state.animationFrameRequestId = requestAnimationFrame(animate);  // 抛异常就
 - **Display**：`arrows`（开关）、`textFade`（标签淡入阈值，屏幕像素）、`nodeSize`（倍率）、`linkThickness`（倍率）、`colourBy`（`none` / `year`）。
 - **Forces**：`centerForce`、`repelForce`、`linkForce`、`linkDistance`。
 
-`applySettings()` 分两类处理：显示项每帧被绘制回调读取，**赋值即生效**；力学项必须重装力并 `d3ReheatSimulation()`，否则图保持旧数值产生的形状。**`nodeSize` 归在力学一侧**——碰撞力在 `initialize` 时缓存了每个节点的半径，节点大小恰好改的就是它。
+`applySettings()` 分两类处理：显示项每帧被绘制回调读取，**赋值即生效**；力学项必须重装力并 `d3ReheatSimulation()`，否则图保持旧数值产生的形状。
+
+**`nodeSize` 必须是纯屏幕属性，不能进入力学。** 最初把它归在力学一侧（碰撞力在 `initialize` 时缓存半径，改大小正好改的是它），结果这个滑块几乎是个空操作：视图恒为 zoom-to-fit，半径放大 → 碰撞力把整个布局按同一比例撑大 → 缩放又把它整个除回去。留下的只有副作用——节点相对**没有跟着放大的 linkDistance** 变粗，于是簇糊成一片。所以 `radius()` 是**布局半径**（碰撞力与力学只看它，与设置无关），`drawRadius()` = `radius() × nodeSize` 供绘制与命中区域使用。实测改动前后 300 个节点坐标逐字节相同。
+
+同理，滑块范围收到 `[0.25, 2.5]`：低于 0.25 点不再是可点击的目标，高于 2.5 稠密簇变成一整块，之外的行程只是空转。
 
 `linkForce` 保持 d3 自身 `1/min(degree)` 的形状再乘倍率，所以滑块读作「比正常强多少」，且 hub 不会把整个邻域拽成一团。
 
@@ -323,3 +327,8 @@ state.animationFrameRequestId = requestAnimationFrame(animate);  // 抛异常就
 - `openMarkdown`：取 Markdown 附件的绝对路径 → `obsidian://open?path=<encoded>`。**Obsidian 用绝对路径自行匹配 vault，因此不需要 vault 名**；文件不在任何 vault 里是 Obsidian 该报的错，这边无从预判。
 
 改变状态的操作把 api 返回的最新 paper 合并回表格并重建图——两个界面不能有一个还在描述点击之前的状态。
+
+两条实机才暴露的约束：
+
+- **全局 `mousedown` 关闭菜单时必须把菜单自己排除掉。** `mousedown` 先于 `click`，不排除就会在每个菜单项自己的 `click` 落地之前把它藏掉——菜单看得见、点了全无反应。设置面板本来就按 `.graph-panel, .graph-gear` 排除，菜单当时漏了。
+- **菜单打开时要压掉悬浮卡。** 菜单开在指针处，而指针正停在节点上，悬浮卡就在同一个位置；force-graph 要等指针移开节点才会发 `hover(null)`，在那之前两个面板互相盖住。`showGraphMenu` 立刻 `cancelRowPreview()` 并置 `_menuOpen`，`onGraphHover` 期间不再出卡。

@@ -63,7 +63,7 @@ const EXPLORER_COUPLING_LIMIT = 50;
  * whenever the renderer's force parameters change, because coordinates from the
  * old parameters would seed the simulation at the wrong scale.
  */
-const GRAPH_LAYOUT_VERSION = 2;
+const GRAPH_LAYOUT_VERSION = 3;
 
 /**
  * Collapse a provider's free-text diagnostic ("ok count=12", "error: HTTP 429",
