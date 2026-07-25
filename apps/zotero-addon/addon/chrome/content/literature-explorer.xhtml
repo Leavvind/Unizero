@@ -450,6 +450,108 @@
       text-align: center;
       transform: translate(-50%, -50%);
     }
+    /* ------------------------------------------------------- Graph settings */
+    .graph-gear {
+      position: absolute;
+      z-index: 4;
+      top: 9px;
+      right: 11px;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--card) 86%, transparent);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .graph-gear:hover { color: var(--fg); }
+    .graph-gear.open { border-color: var(--accent); color: var(--accent); }
+    .graph-panel {
+      position: absolute;
+      z-index: 5;
+      top: 41px;
+      right: 11px;
+      width: 236px;
+      max-height: calc(100% - 56px);
+      overflow-y: auto;
+      padding: 10px 12px 12px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--card);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+      font-size: 11px;
+    }
+    .graph-panel h4 {
+      margin: 10px 0 6px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .graph-panel h4:first-child { margin-top: 0; }
+    .graph-setting {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 2px 8px;
+      margin-bottom: 7px;
+    }
+    .graph-setting > label { color: var(--fg); }
+    .graph-setting > .graph-setting-value {
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .graph-setting > input[type="range"] { grid-column: 1 / -1; width: 100%; margin: 0; }
+    .graph-setting > input[type="checkbox"] { justify-self: end; margin: 0; }
+    .graph-setting > select { grid-column: 2; }
+    .graph-panel .graph-reset {
+      width: 100%;
+      margin-top: 10px;
+      padding: 4px 0;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .graph-panel .graph-reset:hover { color: var(--fg); }
+    /* ----------------------------------------------------------- Node menu */
+    .graph-menu {
+      position: fixed;
+      z-index: 20;
+      min-width: 190px;
+      padding: 4px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .22);
+      font-size: 12px;
+    }
+    .graph-menu .graph-menu-title {
+      padding: 4px 8px 6px;
+      color: var(--muted);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .graph-menu button {
+      display: block;
+      width: 100%;
+      padding: 5px 8px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--fg);
+      text-align: left;
+      cursor: pointer;
+    }
+    .graph-menu button:hover:not(:disabled) { background: var(--soft); }
+    .graph-menu button:disabled { color: var(--muted); cursor: default; }
     .view-toggle {
       display: inline-flex;
       flex: none;
@@ -627,6 +729,8 @@
     <div class="graph-wrap" id="collection-graph-wrap">
       <div class="graph-canvas" id="collection-graph"></div>
       <div class="graph-overlay" id="collection-graph-overlay"></div>
+      <button class="graph-gear" id="collection-graph-gear">⚙</button>
+      <div class="graph-panel" id="collection-graph-panel" hidden="hidden"></div>
       <div class="graph-empty" id="collection-graph-empty" hidden="hidden"></div>
     </div>
 
@@ -662,6 +766,8 @@
     <div class="graph-wrap" id="detail-graph-wrap" hidden="hidden">
       <div class="graph-canvas" id="detail-graph"></div>
       <div class="graph-overlay" id="detail-graph-overlay"></div>
+      <button class="graph-gear" id="detail-graph-gear">⚙</button>
+      <div class="graph-panel" id="detail-graph-panel" hidden="hidden"></div>
       <div class="graph-empty" id="detail-graph-empty" hidden="hidden"></div>
     </div>
 
@@ -731,5 +837,8 @@
       <button id="load-more" hidden="hidden"></button>
     </div>
   </section>
+
+  <!-- One node menu for both graphs: only one of them is ever on screen. -->
+  <div class="graph-menu" id="graph-menu" hidden="hidden"></div>
 </body>
 </html>

@@ -49,6 +49,9 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 - Decide the fate of `uniConnection.egoGraph`: it is tested and unused, reserved for a
   possible one-hop-only toggle. Ship the toggle or delete the builder.
+- Grouping and faceting on the board — colouring or clustering by tag, collection, or
+  another facet, beyond the year option that exists now. Raised but not designed: what
+  the groups should be is the open question, not how to draw them.
 - Out-of-library discovery nodes, the Connected Papers style "papers you do not have",
   reusing the References/Citations caches.
 - Replace the 2D canvas renderer only if a real library stops being smooth; the data layer

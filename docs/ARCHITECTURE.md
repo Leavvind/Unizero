@@ -131,8 +131,11 @@ Two constraints are load-bearing and easy to break:
   callbacks pass through `guard()`, swallowed failures surface on the graph status line,
   and a watchdog restarts a stalled loop.
 - Saved layout coordinates are only meaningful at the scale of the forces that produced
-  them, so `views.ts` versions them with `GRAPH_LAYOUT_VERSION` and treats a mismatch as
-  a cold start.
+  them, so the layout file carries two guards: `GRAPH_LAYOUT_VERSION` for changes made in
+  code, and a force signature for the settings the user chose. Either mismatch is a cold
+  start.
+- Display and force settings live in the renderer, which owns their meaning, their
+  bounds, and their sanitisation; the layers below only carry them to and from disk.
 
 ## Runtime layers
 
@@ -175,6 +178,7 @@ Neither component reaches through the HTTP boundary to reuse the other's impleme
 | Provider responses | Refreshable add-on cache, one shard per item |
 | Reverse-reference index, coupling, graph topology | Derived from the reference cache; rebuildable, never authoritative |
 | Graph layout coordinates | `<dataDir>/unizero/graph/<libraryID>.json`, versioned and discardable |
+| Graph display and force settings | `<dataDir>/unizero/graph/settings.json`, one file for every library |
 | Conversion templates and jobs | Paper runtime |
 | Work files and processing records | Runtime home |
 | Published Markdown | User-selected filesystem destination |

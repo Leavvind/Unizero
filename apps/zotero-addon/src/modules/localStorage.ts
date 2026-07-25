@@ -221,6 +221,41 @@ class LocalStorage {
     }
   }
 
+  /**
+   * Graph display and force settings — one file for every library, because they
+   * describe how the user wants graphs drawn, not anything about a library's
+   * contents. Disposable in the same way layouts are: a miss means defaults.
+   */
+  private settingsPath(): string {
+    return PathUtils.join(this.root, "graph", "settings.json");
+  }
+
+  async readGraphSettings(): Promise<any> {
+    await this.lock.promise;
+    try {
+      return JSON.parse(await IOUtils.readUTF8(this.settingsPath()) as string);
+    } catch (error) {
+      if (!isMissingFile(error)) {
+        ztoolkit.log(`graph settings unreadable: ${error}`);
+      }
+      return undefined;
+    }
+  }
+
+  async writeGraphSettings(payload: any): Promise<void> {
+    await this.lock.promise;
+    try {
+      const path = this.settingsPath();
+      await IOUtils.makeDirectory(PathUtils.parent(path)!, {
+        createAncestors: true,
+        ignoreExisting: true,
+      });
+      await IOUtils.writeUTF8(path, JSON.stringify(payload), { tmpPath: `${path}.tmp` });
+    } catch (error) {
+      ztoolkit.log(`graph settings unwritable: ${error}`);
+    }
+  }
+
   // --------------------------------------------------------------- Writing
 
   async set(item: LibraryScopedItem, key: string, value: any): Promise<void> {

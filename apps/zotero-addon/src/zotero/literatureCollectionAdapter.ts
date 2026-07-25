@@ -86,13 +86,23 @@ export function hasPdfAttachment(item: Zotero.Item): boolean {
  * parent tag: the attachment is the usable artifact, while an old parent tag can
  * survive a manually removed output.
  */
-export function hasMarkdownAttachment(item: Zotero.Item): boolean {
-  return attachments(item).some((attachment) => {
+export function markdownAttachment(item: Zotero.Item): Zotero.Item | undefined {
+  return attachments(item).find((attachment) => {
     if (attachment.attachmentContentType === "text/markdown") { return true; }
     if (attachment.getTags().some((tag) => MARKDOWN_TAGS.has(tag.tag))) { return true; }
     const title = String(attachment.getField("title") || "");
     return /\.md(?:\s|$)/i.test(title);
   });
+}
+
+export function hasMarkdownAttachment(item: Zotero.Item): boolean {
+  return Boolean(markdownAttachment(item));
+}
+
+export function pdfAttachment(item: Zotero.Item): Zotero.Item | undefined {
+  return attachments(item).find(
+    (attachment) => attachment.attachmentContentType === "application/pdf",
+  );
 }
 
 export function literaturePaperMetadata(

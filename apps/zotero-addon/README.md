@@ -14,7 +14,8 @@ the client for the local paper runtime.
 - a Relation view per paper: which library papers cite it, and which share the most of
   its references, both derived locally with no extra network access;
 - graph views in the Explorer: a full-library graph that toggles with the management
-  table, and a graph tab per paper that centres the same graph on it;
+  table, and a graph tab per paper that centres the same graph on it, with adjustable
+  display and force settings and a per-node menu for PDF, Markdown, and relation actions;
 - filtering discovered works by library status, influence, year, publication type, and
   order, plus importing missing papers into the current library;
 - relating discovered works;
@@ -64,9 +65,10 @@ Two graph constraints are easy to break and expensive to diagnose:
 - force-graph invokes callbacks synchronously inside an animation loop that has no error
   handling, so one unguarded throw freezes the canvas for good. Keep every callback inside
   `guard()`.
-- layout coordinates are only valid at the scale of the forces that produced them. Bump
-  `GRAPH_LAYOUT_VERSION` in `src/modules/views.ts` whenever link distance, repulsion, or
-  collision changes.
+- layout coordinates are only valid at the scale of the forces that produced them. The
+  user's own force settings are covered by the signature stored with the layout; a code
+  change that alters what a coordinate means is not, so bump `GRAPH_LAYOUT_VERSION` in
+  `src/modules/views.ts` for that.
 
 ## Stored state
 
@@ -74,6 +76,7 @@ Two graph constraints are easy to break and expensive to diagnose:
 | --- | --- |
 | Per-item provider caches | `<Zotero data dir>/unizero/cache/` shard tree |
 | Graph layout coordinates | `<Zotero data dir>/unizero/graph/<libraryID>.json` |
+| Graph display and force settings | `<Zotero data dir>/unizero/graph/settings.json` |
 | Preferences | Zotero preference branch, defaults in `addon/prefs.js` |
 
 The derived relation index is memory-only and rebuilt on demand.

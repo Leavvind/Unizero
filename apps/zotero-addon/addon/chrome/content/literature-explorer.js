@@ -32,6 +32,8 @@ var LiteratureExplorer = {
   graphFilters: { links: "all", minShared: 1 },
   /** Saved node coordinates for this library, seeded into the simulation. */
   graphLayout: null,
+  /** Display and force settings, shared by both graphs and stored across sessions. */
+  graphSettings: null,
   dropdowns: {},
   filters: {
     library: "all",
@@ -76,6 +78,28 @@ var LiteratureExplorer = {
     // The graph hover card anchors to the pointer rather than to a table row.
     window.addEventListener("mousemove", (event) => {
       this._pointer = { x: event.clientX, y: event.clientY };
+    });
+    ["collection", "detail"].forEach((which) => {
+      let gear = document.getElementById(which + "-graph-gear");
+      if (gear) {
+        gear.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this.toggleGraphPanel(which);
+        });
+      }
+    });
+    // One dismissal path for both transient surfaces: anything that is not a click
+    // inside them closes them.
+    window.addEventListener("mousedown", (event) => {
+      this.hideGraphMenu();
+      if (!event.target.closest || !event.target.closest(".graph-panel, .graph-gear")) {
+        this.closeGraphPanels();
+      }
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      this.hideGraphMenu();
+      this.closeGraphPanels();
     });
     this.reloadContext();
   },
@@ -461,10 +485,11 @@ var LiteratureExplorer = {
     if (!container || typeof LiteratureGraph === "undefined") return null;
     try {
       this.graphs[which] = LiteratureGraph.create(container, {
+        settings: this.graphSettings || undefined,
         onHover: (node) => this.onGraphHover(which, node),
         onSelect: (node) => this.onGraphSelect(which, node),
         onOpen: (node) => this.onGraphOpen(node),
-        onContext: (node) => this.onGraphOpen(node),
+        onContext: (node, event) => this.showGraphMenu(which, node, event),
         onError: (message) => this.onGraphError(which, message),
       });
     } catch (error) {
@@ -626,11 +651,46 @@ var LiteratureExplorer = {
     };
   },
 
-  /** Read the stored layout once per session; a miss is a normal cold start. */
+  /**
+   * Read the stored settings once per session.
+   *
+   * The renderer owns what these values mean, so whatever comes back from disk is
+   * handed straight to it to clamp; a miss simply leaves the defaults in place.
+   */
+  async ensureGraphSettings() {
+    if (this.graphSettings) return this.graphSettings;
+    let stored = null;
+    if (api.graphSettings) {
+      try {
+        stored = await api.graphSettings();
+      } catch (error) {
+        stored = null;
+      }
+    }
+    this.graphSettings = LiteratureGraph.sanitizeSettings(stored);
+    // A view created before the read finished is still on defaults.
+    ["collection", "detail"].forEach((which) => {
+      if (this.graphs[which]) {
+        LiteratureGraph.applySettings(this.graphs[which], this.graphSettings);
+      }
+    });
+    return this.graphSettings;
+  },
+
+  /**
+   * Read the stored layout once per session; a miss is a normal cold start.
+   *
+   * Settings come first because the coordinates are only accepted when they were
+   * produced by the same forces — see LiteratureGraph.forceSignature.
+   */
   async ensureGraphLayout() {
-    if (this.graphLayout || !api.graphLayout) return this.graphLayout || {};
+    if (this.graphLayout) return this.graphLayout;
+    await this.ensureGraphSettings();
+    if (!api.graphLayout) return (this.graphLayout = {});
     try {
-      this.graphLayout = await api.graphLayout();
+      this.graphLayout = await api.graphLayout(
+        LiteratureGraph.forceSignature(this.graphSettings),
+      );
     } catch (error) {
       this.graphLayout = {};
     }
@@ -652,7 +712,10 @@ var LiteratureExplorer = {
       if (!Object.keys(positions).length) return;
       // Merge so filtered-out papers keep the position they last had.
       this.graphLayout = Object.assign({}, this.graphLayout, positions);
-      api.saveGraphLayout(this.graphLayout).catch(() => {
+      api.saveGraphLayout(
+        this.graphLayout,
+        LiteratureGraph.forceSignature(this.graphSettings),
+      ).catch(() => {
         // Layout is disposable; a failed write costs one simulation next time.
       });
     });
@@ -713,6 +776,251 @@ var LiteratureExplorer = {
   onGraphOpen(node) {
     if (!node) return;
     this.showDetail(node.itemKey, "references");
+  },
+
+  // ------------------------------------------------------------ Graph settings
+
+  toggleGraphPanel(which) {
+    let panel = document.getElementById(which + "-graph-panel");
+    if (!panel) return;
+    let opening = panel.hidden;
+    this.closeGraphPanels();
+    if (!opening) return;
+    this.buildGraphPanel(which);
+    panel.hidden = false;
+    let gear = document.getElementById(which + "-graph-gear");
+    if (gear) gear.classList.add("open");
+  },
+
+  closeGraphPanels() {
+    ["collection", "detail"].forEach((which) => {
+      let panel = document.getElementById(which + "-graph-panel");
+      if (panel) panel.hidden = true;
+      let gear = document.getElementById(which + "-graph-gear");
+      if (gear) gear.classList.remove("open");
+    });
+  },
+
+  /**
+   * Build the settings panel.
+   *
+   * Rebuilt on each open rather than kept in sync: it is a dozen controls over a
+   * settings object that is the single source of truth, so re-reading it is both
+   * shorter and impossible to desynchronise.
+   */
+  buildGraphPanel(which) {
+    let panel = document.getElementById(which + "-graph-panel");
+    if (!panel) return;
+    let s = this.strings;
+    let settings = this.graphSettings ||
+      (this.graphSettings = LiteratureGraph.sanitizeSettings(null));
+    panel.replaceChildren();
+
+    let heading = (text) => {
+      let node = document.createElement("h4");
+      node.textContent = text;
+      panel.append(node);
+    };
+    let row = (label) => {
+      let wrap = document.createElement("div");
+      wrap.className = "graph-setting";
+      let name = document.createElement("label");
+      name.textContent = label;
+      wrap.append(name);
+      panel.append(wrap);
+      return wrap;
+    };
+    let slider = (label, key, min, max, step, format) => {
+      let wrap = row(label);
+      let value = document.createElement("span");
+      value.className = "graph-setting-value";
+      value.textContent = format ? format(settings[key]) : settings[key];
+      let input = document.createElement("input");
+      input.type = "range";
+      input.min = min;
+      input.max = max;
+      input.step = step;
+      input.value = settings[key];
+      input.addEventListener("input", () => {
+        let next = Number(input.value);
+        value.textContent = format ? format(next) : next;
+        this.changeGraphSetting(key, next);
+      });
+      wrap.append(value, input);
+    };
+    let oneDecimal = (n) => Number(n).toFixed(1);
+
+    heading(s.graphDisplayGroup);
+    let arrows = row(s.graphArrows);
+    let arrowsInput = document.createElement("input");
+    arrowsInput.type = "checkbox";
+    arrowsInput.checked = Boolean(settings.arrows);
+    arrowsInput.addEventListener("change", () =>
+      this.changeGraphSetting("arrows", arrowsInput.checked));
+    arrows.append(arrowsInput);
+
+    let colour = row(s.graphColour);
+    let colourInput = document.createElement("select");
+    [["none", s.graphColourNone], ["year", s.graphColourYear]].forEach((pair) => {
+      let option = document.createElement("option");
+      option.value = pair[0];
+      option.textContent = pair[1];
+      colourInput.append(option);
+    });
+    colourInput.value = settings.colourBy;
+    colourInput.addEventListener("change", () =>
+      this.changeGraphSetting("colourBy", colourInput.value));
+    colour.append(colourInput);
+
+    slider(s.graphTextFade, "textFade", 0, 24, 1);
+    slider(s.graphNodeSize, "nodeSize", 0.2, 4, 0.1, oneDecimal);
+    slider(s.graphLinkThickness, "linkThickness", 0.2, 5, 0.1, oneDecimal);
+
+    heading(s.graphForcesGroup);
+    slider(s.graphCenterForce, "centerForce", 0, 1, 0.01, (n) => Number(n).toFixed(2));
+    slider(s.graphRepelForce, "repelForce", 0, 4000, 50);
+    slider(s.graphLinkForce, "linkForce", 0, 4, 0.1, oneDecimal);
+    slider(s.graphLinkDistance, "linkDistance", 30, 800, 10);
+
+    let reset = document.createElement("button");
+    reset.className = "graph-reset";
+    reset.textContent = s.graphReset;
+    reset.addEventListener("click", () => {
+      this.graphSettings = LiteratureGraph.sanitizeSettings(null);
+      this.applyGraphSettings();
+      this.buildGraphPanel(which);
+    });
+    panel.append(reset);
+  },
+
+  changeGraphSetting(key, value) {
+    this.graphSettings = LiteratureGraph.sanitizeSettings(
+      Object.assign({}, this.graphSettings, { [key]: value }),
+    );
+    this.applyGraphSettings();
+  },
+
+  /**
+   * Push settings to both graphs and persist them.
+   *
+   * Applying is immediate so a dragged slider is visible while dragging; the write
+   * is debounced, because a drag would otherwise mean one file write per pixel.
+   */
+  applyGraphSettings() {
+    ["collection", "detail"].forEach((which) => {
+      if (this.graphs[which]) {
+        LiteratureGraph.applySettings(this.graphs[which], this.graphSettings);
+      }
+    });
+    if (!api.saveGraphSettings) return;
+    window.clearTimeout(this._settingsSave);
+    this._settingsSave = window.setTimeout(() => {
+      api.saveGraphSettings(this.graphSettings).catch(() => {
+        // Settings are a convenience; a failed write costs the next session's
+        // preferences, never data.
+      });
+    }, 400);
+  },
+
+  // ---------------------------------------------------------------- Node menu
+
+  /**
+   * Right-click menu for a node.
+   *
+   * Everything here already exists as an action elsewhere in the window; the menu
+   * exists so the board does not force a detour through the table for them.
+   */
+  showGraphMenu(which, node, event) {
+    let menu = document.getElementById("graph-menu");
+    if (!menu || !node) return;
+    let s = this.strings;
+    this._menuWhich = which;
+    menu.replaceChildren();
+
+    let title = document.createElement("div");
+    title.className = "graph-menu-title";
+    title.textContent = node.title || node.label || "";
+    title.title = node.title || "";
+    menu.append(title);
+
+    let entry = (label, enabled, run) => {
+      let button = document.createElement("button");
+      button.textContent = label;
+      button.disabled = !enabled;
+      if (enabled) {
+        button.addEventListener("click", () => {
+          this.hideGraphMenu();
+          run();
+        });
+      }
+      menu.append(button);
+    };
+
+    let key = node.itemKey;
+    entry(s.openRelations, true, () => this.showDetail(key, "references"));
+    entry(s.select, Boolean(node.itemID), () => api.selectItem(node.itemID));
+    entry(s.graphOpenPdf, Boolean(node.hasPDF) && Boolean(api.openPdf), () =>
+      this.runGraphAction(key, () => api.openPdf(key)));
+    if (node.hasMarkdown) {
+      entry(s.graphOpenObsidian, Boolean(api.openMarkdown), () =>
+        this.runGraphAction(key, () => api.openMarkdown(key)));
+    } else {
+      entry(s.generateMarkdown, Boolean(node.hasPDF) && Boolean(api.convertItem), () =>
+        this.runGraphAction(key, () => api.convertItem(key), true));
+    }
+    entry(s.loadReferences, true, () =>
+      this.runGraphAction(key, () => api.loadRelation(key, "references"), true));
+    entry(s.loadCitations, true, () =>
+      this.runGraphAction(key, () => api.loadRelation(key, "citations"), true));
+
+    // Placed after mounting so the menu has a measurable size to keep on screen.
+    menu.hidden = false;
+    let x = (event && event.clientX) || (this._pointer && this._pointer.x) || 0;
+    let y = (event && event.clientY) || (this._pointer && this._pointer.y) || 0;
+    let rect = menu.getBoundingClientRect();
+    menu.style.left =
+      Math.max(4, Math.min(x, window.innerWidth - rect.width - 6)) + "px";
+    menu.style.top =
+      Math.max(4, Math.min(y, window.innerHeight - rect.height - 6)) + "px";
+  },
+
+  hideGraphMenu() {
+    let menu = document.getElementById("graph-menu");
+    if (menu && !menu.hidden) menu.hidden = true;
+  },
+
+  /**
+   * Run a menu action, reporting on whichever surface the user is looking at.
+   *
+   * Actions that change a paper's state change what both surfaces should show, so
+   * the updated paper the API hands back is merged into the table and the graph is
+   * rebuilt — leaving either one describing the state before the click is worse
+   * than the extra work.
+   */
+  async runGraphAction(itemKey, run, changesState) {
+    let which = this._menuWhich === "detail" ? "detail" : "collection";
+    let report = (message, isError) => {
+      if (which === "detail") this.setStatus(message, isError);
+      else this.setCollectionStatus(message, isError);
+    };
+    report(this.strings.loading);
+    try {
+      let updated = await run();
+      report("");
+      if (!changesState) return;
+      if (updated && this.collectionSnapshot) {
+        let paper = this.collectionSnapshot.items
+          .find((item) => item.itemKey === itemKey);
+        if (paper) {
+          Object.assign(paper, updated);
+          this.renderCollection();
+        }
+      }
+      if (which === "detail") await this.loadDetailGraph(true);
+      else await this.loadCollectionGraph(true);
+    } catch (error) {
+      report(this.strings.error + ": " + String(error), true);
+    }
   },
 
   /**

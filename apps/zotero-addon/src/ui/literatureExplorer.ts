@@ -17,7 +17,11 @@ import {
 } from "../modules/literatureRelations";
 import type { RelationSourceKey } from "../modules/mergeRelations";
 import { getString } from "../utils/locale";
-import { selectedLiteratureScope } from "../zotero/literatureCollectionAdapter";
+import {
+  markdownAttachment,
+  pdfAttachment,
+  selectedLiteratureScope,
+} from "../zotero/literatureCollectionAdapter";
 
 const EXPLORER_URL = `chrome://${config.addonRef}/content/literature-explorer.xhtml`;
 const EXPLORER_WINDOW_NAME = `${config.addonRef}-literature-explorer`;
@@ -187,6 +191,23 @@ function strings() {
     ),
     graphMinShared: read("literature-graph-min-shared-label", "Min shared"),
     graphHidden: read("literature-graph-hidden-label", "hidden"),
+    graphSettings: read("literature-graph-settings-label", "Graph settings"),
+    graphDisplayGroup: read("literature-graph-display-group-label", "Display"),
+    graphForcesGroup: read("literature-graph-forces-group-label", "Forces"),
+    graphArrows: read("literature-graph-arrows-label", "Arrows"),
+    graphTextFade: read("literature-graph-text-fade-label", "Text fade threshold"),
+    graphNodeSize: read("literature-graph-node-size-label", "Node size"),
+    graphLinkThickness: read("literature-graph-link-thickness-label", "Link thickness"),
+    graphColour: read("literature-graph-colour-label", "Colour by"),
+    graphColourNone: read("literature-graph-colour-none-label", "Uniform"),
+    graphColourYear: read("literature-graph-colour-year-label", "Year"),
+    graphCenterForce: read("literature-graph-center-force-label", "Center force"),
+    graphRepelForce: read("literature-graph-repel-force-label", "Repel force"),
+    graphLinkForce: read("literature-graph-link-force-label", "Link force"),
+    graphLinkDistance: read("literature-graph-link-distance-label", "Link distance"),
+    graphReset: read("literature-graph-reset-label", "Reset to defaults"),
+    graphOpenPdf: read("literature-graph-open-pdf-label", "Open PDF"),
+    graphOpenObsidian: read("literature-graph-open-obsidian-label", "Open in Obsidian"),
     refresh: read("relatedbox-refresh-label", "Refresh"),
     loadMore: read("citationsbox-more-label", "Load more"),
     loading: read("literature-loading-label", "Loading…"),
@@ -239,16 +260,31 @@ function explorerApi() {
     },
     // Layout coordinates are a rendering convenience, so they are stored per
     // library and reused as the simulation's starting point across sessions.
-    graphLayout: async () => {
+    graphLayout: async (signature?: string) => {
       if (!explorerViews || !explorerContext) { return {}; }
-      return explorerViews.getGraphLayout(explorerContext.scope.libraryID);
+      return explorerViews.getGraphLayout(explorerContext.scope.libraryID, signature);
     },
-    saveGraphLayout: async (positions: Record<string, number[]>) => {
+    saveGraphLayout: async (
+      positions: Record<string, number[]>,
+      signature?: string,
+    ) => {
       if (!explorerViews || !explorerContext) { return; }
       return explorerViews.saveGraphLayout(
         explorerContext.scope.libraryID,
         positions,
+        signature,
       );
+    },
+    // Display and force settings apply to every library, so unlike the layout they
+    // are not scoped. The window owns their meaning and clamps them; this only
+    // carries them to and from disk.
+    graphSettings: async () => {
+      if (!explorerViews) { return {}; }
+      return explorerViews.getGraphSettings();
+    },
+    saveGraphSettings: async (settings: Record<string, unknown>) => {
+      if (!explorerViews) { return; }
+      return explorerViews.saveGraphSettings(settings);
     },
     loadMoreCitations: async (itemKey: string) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
@@ -317,6 +353,36 @@ function explorerApi() {
     },
     launchURL: (url: string) => {
       if (url) { Zotero.launchURL(url); }
+    },
+    // Zotero's own viewer path: it honours the reader preference, opens in the main
+    // window, and handles a missing file with its own dialog.
+    openPdf: async (itemKey: string) => {
+      if (!explorerOwner) { throw new Error("Literature Explorer is unavailable"); }
+      const item = contextItem(itemKey);
+      let attachment = pdfAttachment(item);
+      if (!attachment) {
+        const best = await (item as any).getBestAttachment?.();
+        if (best) { attachment = best as Zotero.Item; }
+      }
+      if (!attachment) { throw new Error("This paper has no PDF attachment"); }
+      await (explorerOwner as any).ZoteroPane?.viewAttachment?.(attachment.id);
+      explorerOwner.focus();
+    },
+    /**
+     * Open a converted paper's Markdown in Obsidian.
+     *
+     * Obsidian resolves an absolute path against whichever vault contains it, so
+     * this needs no vault name. A file that lives outside every vault is Obsidian's
+     * error to report; there is nothing to check for on this side.
+     */
+    openMarkdown: async (itemKey: string) => {
+      const item = contextItem(itemKey);
+      const attachment = markdownAttachment(item);
+      if (!attachment) { throw new Error("This paper has no Markdown yet"); }
+      const path = await attachment.getFilePathAsync();
+      if (!path) { throw new Error("The Markdown file could not be located"); }
+      Zotero.launchURL(`obsidian://open?path=${encodeURIComponent(String(path))}`);
+      return String(path);
     },
     selectItem: (itemID: number) => {
       if (!itemID || !explorerOwner) { return; }

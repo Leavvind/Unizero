@@ -16,10 +16,13 @@
 | 图/表筛选联动、布局坐标持久化 | `literature-explorer.js` + `views.ts` |
 
 布局落盘在 `<dataDir>/unizero/graph/<libraryID>.json`，**刻意放在分片树之外** —— 那里的文件按 item 键入并会被
-`sweep()` 在条目消失时删除，布局放进去会每次启动被清掉。坐标带 `GRAPH_LAYOUT_VERSION`，改力学参数必须 bump（§12.3）。
+`sweep()` 在条目消失时删除，布局放进去会每次启动被清掉。坐标同时带 `GRAPH_LAYOUT_VERSION`（代码层）与
+力学签名（用户层），任一不符即冷启动（§12.3、§13.3）。
 
-**本文此后按「设计依据 + 事故记录」读。** §3 / §8 的坑与 §12 的两处修正是最该反复读的部分；
-仍未做的事（库外 ghost 节点、2 跳、WebGL 门槛、egoGraph 的去留）在 [ROADMAP.md](ROADMAP.md)。
+0.5.0 追加：观感重做、Display/Forces 可设置项、节点右键菜单，见 §13。
+
+**本文此后按「设计依据 + 事故记录」读。** §3 / §8 的坑与 §12 / §13 的修正是最该反复读的部分；
+仍未做的事（库外 ghost 节点、2 跳、WebGL 门槛、egoGraph 的去留、分组）在 [ROADMAP.md](ROADMAP.md)。
 
 ---
 
@@ -267,3 +270,56 @@ state.animationFrameRequestId = requestAnimationFrame(animate);  // 抛异常就
 `dist/assets/index.js`（108KB）是从 **Obsidian 里抽出来的渲染器**，不是他们自己写的：颜色键为 `fillUnresolved` / `fillAttachment`（Zotero 里没有「未解析链接」「附件节点」这种概念）、API 为 `renderer.changed()` / `testCSS()` / `interactiveEl` / `getDisplayText`、CSS 类 `.graph-view-container`——全是 Obsidian 的内部形状。仓库标 AGPL 也无权替 Obsidian 重新授权，**不要 vendor，不要参考实现**。
 
 可以参考的只有两样，都已吸收进本节：`sim.js` 里的**力学参数取值**（数值是事实，非表达），以及架构走向——力学放 Worker、渲染用 PixiJS/WebGL。后者是**上千节点卡帧之后**才走的路，见 §11。
+
+---
+
+## 13. 0.5.0：观感、可设置性、节点菜单
+
+需求方的反馈是「不卡，但想要 Obsidian 那样的美观」。**渲染后端不产生审美**——这一节做的全部是 2D 绘制层面的取舍，没有换渲染器（WebGL 的门槛仍见 §11）。
+
+### 13.1 视觉语言：状态用填充色说，不用描边环
+
+| | 0.4.1 | 0.5.0 | 理由 |
+|---|---|---|---|
+| 节点填充 | 年份连续色阶（钢蓝→橙） | **单一中性色**，年份改为可选 | 满屏连续色阶在一眼扫过时读作噪声；Obsidian 的颜色键本身就是离散的（`fill`/`fillHighlight`/`fillFocused`），没有色阶 |
+| 焦点/选中/hover | 画 6~8px 描边环 | **换填充色** | 半径 8~40 的节点上 8px 环几乎和本体一样粗，稠密板面变成一片靶心 |
+| Markdown 标记 | 4px 绿环 | **1.5 屏幕像素**发丝环 | 这是唯一值得全局扫视的状态，保留但不参与竞争 |
+| coupled 连线 | 宽至 **10px**、alpha 至 0.5 | 宽至 **1.8px**、alpha 至 0.3 | 见下 |
+| cites 连线 | 2px / alpha 0.22 | 1px / alpha 0.18 | 同上 |
+| 箭头 | 恒 9px | 4px，**可关** | 9px 箭头配 1px 线不成比例 |
+| link 粒子 | 宽 5 | 宽 2 | |
+| 标签 | 阈值**硬切换** | 5px 起在 5 屏幕像素内**连续淡入** | 一屏文字同时出现是缩放显得生硬的主因 |
+
+**连线宽度是屏幕像素，不是模拟单位。** force-graph 内部是 `lineWidth = width / globalScale`，所以 `10` 就是实打实的 10px。这是「糊」的第二个来源，与 §12.2 的力学比例是两回事：力学负责节点之间的距离，连线宽度负责节点是否被自己的边盖住。
+
+实测（300 节点 / 711 边 / 12 簇，**同一份收敛后的布局**上只换绘制函数）：旧参数下每个簇是一团蓝色缎带、节点不可见；新参数下节点清晰可辨，耦合结构退为背景网。布局本身未变（最近邻距离中位数 5.83 倍半径，10 分位 3.26，重叠 0/44850）。
+
+### 13.2 可设置项
+
+`literature-graph.js` 的 `SETTINGS_DEFAULTS` 是唯一真相，`SETTINGS_LIMITS` + `sanitizeSettings()` 负责清洗（`null`/`undefined`/`""` 回落默认值——注意 `Number(null) === 0`，不先判空会把「缺失」变成合法的 0）。
+
+- **Display**：`arrows`（开关）、`textFade`（标签淡入阈值，屏幕像素）、`nodeSize`（倍率）、`linkThickness`（倍率）、`colourBy`（`none` / `year`）。
+- **Forces**：`centerForce`、`repelForce`、`linkForce`、`linkDistance`。
+
+`applySettings()` 分两类处理：显示项每帧被绘制回调读取，**赋值即生效**；力学项必须重装力并 `d3ReheatSimulation()`，否则图保持旧数值产生的形状。**`nodeSize` 归在力学一侧**——碰撞力在 `initialize` 时缓存了每个节点的半径，节点大小恰好改的就是它。
+
+`linkForce` 保持 d3 自身 `1/min(degree)` 的形状再乘倍率，所以滑块读作「比正常强多少」，且 hub 不会把整个邻域拽成一团。
+
+设置存于 `<dataDir>/unizero/graph/settings.json`，**不分库**——它描述用户想怎么看图，与某个库的内容无关。
+
+### 13.3 布局缓存改用力学签名
+
+§12.3 立的规矩是「改力学参数要 bump `GRAPH_LAYOUT_VERSION`」。参数一旦交给用户，这条就不够了：**同一份代码下不同用户的力学各不相同**。因此布局文件同时记录 `forceSignature()`（`linkDistance|repelForce|centerForce|linkForce`），读取时签名不符即视为冷启动。
+
+`GRAPH_LAYOUT_VERSION` 仍然保留，管的是**代码层面**改变坐标含义的情形（例如改了碰撞体积或半径公式）；签名管的是**用户层面**。两者都不符即丢弃。
+
+### 13.4 节点右键菜单
+
+`onNodeRightClick` 把节点和 MouseEvent 一起交给 explorer（右键**既不选中也不打开**，当前选中保持不动），容器上另挂一个 `contextmenu` 的 `preventDefault`。菜单项：打开详情页 / 在 Zotero 中显示 / 打开 PDF / 生成 Markdown（已有则改为「在 Obsidian 中打开」）/ 抓取 References / 抓取 Citations。
+
+除两项外全部复用既有 api（`convertItem`、`loadRelation`、`selectItem`）。新增：
+
+- `openPdf`：走 `ZoteroPane.viewAttachment`，由 Zotero 自己处理阅读器偏好与文件缺失。
+- `openMarkdown`：取 Markdown 附件的绝对路径 → `obsidian://open?path=<encoded>`。**Obsidian 用绝对路径自行匹配 vault，因此不需要 vault 名**；文件不在任何 vault 里是 Obsidian 该报的错，这边无从预判。
+
+改变状态的操作把 api 返回的最新 paper 合并回表格并重建图——两个界面不能有一个还在描述点击之前的状态。

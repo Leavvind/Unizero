@@ -44,8 +44,7 @@ and which are design notes; do not treat a design note as a work order.
 10. **Dialog content talks through its window API bridge.** Privileged XHTML dialogs get a
     plain object on `window.arguments[0]`; they never import bundle modules.
 
-The process boundary is recorded in
-`docs/decisions/0001-addon-and-runtime-boundary.md`.
+The process boundary is described in `docs/ARCHITECTURE.md`.
 
 ## Code ownership
 
@@ -87,8 +86,12 @@ manual testing. Two of their constraints are load-bearing:
   error handling, so one unguarded throw freezes the canvas permanently. Keep every
   callback inside `guard()`, and keep swallowed failures visible.
 - Persisted graph layout coordinates are valid only at the scale of the forces that
-  produced them. Bump `GRAPH_LAYOUT_VERSION` in `src/modules/views.ts` whenever link
-  distance, repulsion, or collision changes.
+  produced them. Force settings the user chose are covered by the signature stored with
+  the layout; changes made in code are not, so bump `GRAPH_LAYOUT_VERSION` in
+  `src/modules/views.ts` whenever a code change alters what a coordinate means.
+- Graph display and force values belong to `literature-graph.js`, which defines their
+  defaults, bounds, and sanitisation. Do not duplicate those numbers in the bridge, in
+  `views.ts`, or in the settings file format.
 
 ## Contract changes
 

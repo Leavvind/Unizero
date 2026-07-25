@@ -738,9 +738,16 @@ export default class Views {
    * the shape we changed the parameters to get away from. Bump GRAPH_LAYOUT_VERSION
    * whenever link distance or repulsion changes.
    */
-  public async getGraphLayout(libraryID: number): Promise<Record<string, number[]>> {
+  public async getGraphLayout(
+    libraryID: number,
+    signature?: string,
+  ): Promise<Record<string, number[]>> {
     const payload = await localStorage.readGraphLayout(libraryID);
     if (payload?.version !== GRAPH_LAYOUT_VERSION) { return {}; }
+    // The same argument one level down: the user's own force settings set the scale
+    // just as a code change does, so coordinates produced under different settings
+    // are not a head start either. The renderer supplies the signature.
+    if (signature !== undefined && payload?.signature !== signature) { return {}; }
     const positions = payload?.positions;
     return positions && typeof positions === "object" ? positions : {};
   }
@@ -748,12 +755,29 @@ export default class Views {
   public async saveGraphLayout(
     libraryID: number,
     positions: Record<string, number[]>,
+    signature?: string,
   ): Promise<void> {
     await localStorage.writeGraphLayout(libraryID, {
       version: GRAPH_LAYOUT_VERSION,
+      signature,
       savedAt: Date.now(),
       positions,
     });
+  }
+
+  /**
+   * Graph display and force settings, stored once for every library. The renderer
+   * owns what these values mean and clamps them on the way in, so this layer only
+   * has to hand back whatever was last written.
+   */
+  public async getGraphSettings(): Promise<Record<string, unknown>> {
+    const payload = await localStorage.readGraphSettings();
+    const settings = payload?.settings;
+    return settings && typeof settings === "object" ? settings : {};
+  }
+
+  public async saveGraphSettings(settings: Record<string, unknown>): Promise<void> {
+    await localStorage.writeGraphSettings({ savedAt: Date.now(), settings });
   }
 
   private graphNode(
