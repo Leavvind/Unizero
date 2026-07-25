@@ -118,6 +118,11 @@ The Literature Explorer is a privileged XHTML dialog, not part of the TypeScript
 It reaches the add-on only through the plain-object API passed as `window.arguments[0]`.
 
 - `literature-explorer.js` owns view state, filtering, tables, and the detail tabs.
+  Papers open as window tabs, but only one detail view exists in the DOM: a tab
+  holds the state that view would be in, and switching writes the outgoing state
+  out and the incoming state back. Some of that state lives only in the DOM — the
+  search box and year range have no model behind them — so the capture reads them
+  explicitly.
 - `literature-graph.js` owns force simulation and canvas drawing, and consumes only the
   plain `LiteratureGraph` structure, so the renderer can be replaced without touching the
   data layer.
@@ -182,6 +187,7 @@ Neither component reaches through the HTTP boundary to reuse the other's impleme
 | Conversion templates and jobs | Paper runtime |
 | Work files and processing records | Runtime home |
 | Published Markdown | User-selected filesystem destination |
+| Note identity (`uid` frontmatter) | Derived from `libraryID` + item key by both components independently, never exchanged |
 | Generated Zotero attachment identity | `unizero:<kind>` tags |
 
 Derived data never becomes a second authority for Zotero metadata. Layout coordinates sit

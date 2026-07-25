@@ -19,6 +19,17 @@ var LiteratureExplorer = {
   kind: "references",
   snapshot: null,
   busy: false,
+  /**
+   * Open paper tabs, in strip order. The Collection is always the first tab and is
+   * not in this list; `activeTab` is -1 while it is showing.
+   *
+   * Only one detail view exists in the DOM. A tab holds the state that view would
+   * be in, and switching writes the outgoing state out and the incoming state back
+   * — cheaper than a view per tab, and it means a paper reopened from a cached
+   * snapshot costs no provider call.
+   */
+  tabs: [],
+  activeTab: -1,
   /** "combined" or a RelationSourceKey — which source's list the table shows. */
   activeSource: "combined",
   /** "graph" or "table" — which surface leads the collection overview. */
@@ -54,8 +65,6 @@ var LiteratureExplorer = {
       .addEventListener("input", () => this.renderCollection());
     document.getElementById("collection-refresh")
       .addEventListener("click", () => this.loadCollection());
-    document.getElementById("back-to-collection")
-      .addEventListener("click", () => this.showCollection());
     document.getElementById("search").addEventListener("input", () => this.render());
     document.getElementById("year-from").addEventListener("input", () => this.render());
     document.getElementById("year-to").addEventListener("input", () => this.render());
@@ -99,10 +108,19 @@ var LiteratureExplorer = {
       if (!inside(".graph-panel, .graph-gear")) this.closeGraphPanels();
     });
     window.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
-      this.hideGraphMenu();
-      this.closeGraphPanels();
+      if (event.key === "Escape") {
+        this.hideGraphMenu();
+        this.closeGraphPanels();
+        return;
+      }
+      // Ctrl+W closes the paper, never the window: the Collection tab is not
+      // closable, so on it the shortcut does nothing rather than quitting.
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "w") {
+        event.preventDefault();
+        if (this.activeTab >= 0) this.closeTab(this.activeTab);
+      }
     });
+    this.renderTabs();
     this.reloadContext();
   },
 
@@ -110,7 +128,6 @@ var LiteratureExplorer = {
     let s = this.strings;
     document.title = s.title;
     document.getElementById("app-title").textContent = s.title;
-    document.getElementById("back-to-collection").title = s.backToCollection;
     document.getElementById("label-collection-search").textContent = s.searchLabel;
     document.getElementById("collection-search").placeholder = s.collectionSearch;
     document.getElementById("collection-refresh").textContent = s.refresh;
@@ -357,6 +374,11 @@ var LiteratureExplorer = {
     this.context = api.getContext();
     this.collectionSnapshot = null;
     this.snapshot = null;
+    // A reused window can be pointed at a different Collection, or a different
+    // library. Tabs are keyed by item key within one scope, so they do not carry
+    // across — keeping them would resolve the same key against the wrong library.
+    this.tabs = [];
+    this.activeTab = -1;
     this.activeItemKey = this.context && this.context.itemKey || null;
     this.kind = this.context && this.context.kind || "references";
     document.getElementById("collection-search").value = "";
@@ -372,7 +394,231 @@ var LiteratureExplorer = {
     this.mode = mode;
     document.getElementById("collection-view").hidden = mode !== "collection";
     document.getElementById("detail-view").hidden = mode !== "detail";
-    document.getElementById("back-to-collection").hidden = mode !== "detail";
+  },
+
+  // ------------------------------------------------------------------ Tab strip
+
+  /**
+   * Move the live detail view's state into its tab.
+   *
+   * The view keeps some of its state in the DOM — the search box and the year
+   * range have no model behind them — so a plain object copy would lose it and
+   * the tab would come back filtered differently from how it was left.
+   */
+  captureTab() {
+    let tab = this.tabs[this.activeTab];
+    if (!tab) return;
+    let scroller = document.querySelector("#detail-view .table-wrap");
+    tab.kind = this.kind;
+    tab.snapshot = this.snapshot;
+    tab.activeSource = this.activeSource;
+    tab.filters = Object.assign({}, this.filters);
+    tab.search = document.getElementById("search").value;
+    tab.yearFrom = document.getElementById("year-from").value;
+    tab.yearTo = document.getElementById("year-to").value;
+    tab.scroll = scroller ? scroller.scrollTop : 0;
+    tab.graphData = this.graphData.detail;
+    tab.graphLoaded = this.graphLoaded.detail;
+  },
+
+  /** Put a tab's state back into the one detail view and redraw from it. */
+  async restoreTab(tab) {
+    this.activeItemKey = tab.itemKey;
+    this.kind = tab.kind;
+    this.snapshot = tab.snapshot;
+    this.activeSource = tab.activeSource;
+    this.filters = Object.assign({}, tab.filters);
+    document.getElementById("search").value = tab.search;
+    document.getElementById("year-from").value = tab.yearFrom;
+    document.getElementById("year-to").value = tab.yearTo;
+    this.graphData.detail = tab.graphData;
+    this.graphLoaded.detail = tab.graphLoaded;
+    document.getElementById("paper-title").textContent =
+      tab.title || this.strings.loading;
+    this.showView("detail");
+    this.renderTabs();
+    // Before any load, so a new tab never shows the previous tab's selections
+    // while its own data is still on the way.
+    ["library", "influence", "publicationType"].forEach((name) => {
+      this.dropdowns[name].setValue(this.filters[name]);
+    });
+    this.configureSources();
+    this.configurePublicationLevels();
+    this.configureSort(false);
+    this.configureKindPresentation();
+
+    if (tab.kind === "graph") {
+      // One graph view serves every tab, so it is showing whichever paper was
+      // last centred; returning to a tab has to re-point it, early-return or not.
+      if (tab.graphData && this.graphs.detail) {
+        this.applyGraphData("detail", tab.graphData);
+      } else {
+        // Nothing cached, or the view never got built. Either way the marker this
+        // tab carries would make a plain load decide it had nothing to do.
+        this.graphLoaded.detail = null;
+        await this.loadDetailGraph(false);
+      }
+      return;
+    }
+    // A tab visited before still holds its snapshot, so coming back to it is a
+    // redraw and not another round of provider calls.
+    if (!tab.snapshot) {
+      await this.load(false);
+      return;
+    }
+    this.render();
+    let scroller = document.querySelector("#detail-view .table-wrap");
+    if (scroller) scroller.scrollTop = tab.scroll || 0;
+  },
+
+  newTab(itemKey, kind) {
+    let known = this.collectionSnapshot && this.collectionSnapshot.items
+      .find((item) => item.itemKey === itemKey);
+    return {
+      itemKey,
+      title: known ? known.title : "",
+      kind: kind || "references",
+      snapshot: null,
+      activeSource: "combined",
+      // Same starting point resetFilters uses; a fresh tab is not the last one's
+      // filters carried over.
+      filters: {
+        library: "all",
+        influence: "all",
+        publicationType: "all",
+        publicationLevel: "all",
+        order: kind === "citations" ? "influential" : "original",
+      },
+      search: "",
+      yearFrom: "",
+      yearTo: "",
+      scroll: 0,
+      graphData: null,
+      graphLoaded: null,
+    };
+  },
+
+  /**
+   * Open a paper, or come back to it if it is already open.
+   *
+   * Tab identity is the paper, not the relation kind: a second tab on the same
+   * paper showing a different tab of the same window is a duplicate to keep in
+   * sync, not a second workspace.
+   */
+  async openPaper(itemKey, kind) {
+    if (!itemKey) return;
+    let index = this.tabs.findIndex((tab) => tab.itemKey === itemKey);
+    if (index === -1) {
+      this.captureTab();
+      this.tabs.push(this.newTab(itemKey, kind));
+      index = this.tabs.length - 1;
+      this.activeTab = index;
+      await this.restoreTab(this.tabs[index]);
+      return;
+    }
+    if (index === this.activeTab) {
+      if (kind && kind !== this.kind) await this.switchKind(kind);
+      return;
+    }
+    this.captureTab();
+    this.activeTab = index;
+    if (kind) this.tabs[index].kind = kind;
+    await this.restoreTab(this.tabs[index]);
+  },
+
+  async activateTab(index) {
+    if (index === this.activeTab) return;
+    this.captureTab();
+    this.activeTab = index;
+    if (index < 0) {
+      this.showCollection();
+      this.renderTabs();
+      return;
+    }
+    await this.restoreTab(this.tabs[index]);
+  },
+
+  async closeTab(index) {
+    let tab = this.tabs[index];
+    if (!tab) return;
+    let wasActive = index === this.activeTab;
+    if (wasActive) {
+      // Nothing to write back into a tab that is going away, and capturing would
+      // read the DOM into a record about to be dropped.
+      this.activeTab = -1;
+    } else if (index < this.activeTab) {
+      this.activeTab -= 1;
+    }
+    this.tabs.splice(index, 1);
+    if (!wasActive) {
+      this.renderTabs();
+      return;
+    }
+    // Land on the neighbour a browser would pick: the tab that slid into this
+    // slot, else the one before it, else the Collection.
+    let next = Math.min(index, this.tabs.length - 1);
+    if (next < 0) {
+      this.showCollection();
+      this.renderTabs();
+      return;
+    }
+    this.activeTab = next;
+    await this.restoreTab(this.tabs[next]);
+  },
+
+  /** The heading and the tab carry the same name; keep them from disagreeing. */
+  setPaperTitle(title) {
+    document.getElementById("paper-title").textContent = title;
+    let tab = this.tabs[this.activeTab];
+    if (!tab || tab.title === title) return;
+    tab.title = title;
+    this.renderTabs();
+  },
+
+  renderTabs() {
+    let strip = document.getElementById("page-tabs");
+    if (!strip) return;
+    strip.replaceChildren();
+    let s = this.strings;
+
+    let chip = (label, title, active, onClick, onClose) => {
+      let button = document.createElement("button");
+      button.className = "page-tab" + (active ? " active" : "");
+      button.title = title;
+      let text = document.createElement("span");
+      text.className = "page-tab-label";
+      text.textContent = label;
+      button.append(text);
+      button.addEventListener("click", onClick);
+      if (onClose) {
+        // Middle-click closes, the way it does in every tabbed window.
+        button.addEventListener("auxclick", (event) => {
+          if (event.button !== 1) return;
+          event.preventDefault();
+          onClose();
+        });
+        let close = document.createElement("button");
+        close.className = "page-tab-close";
+        close.textContent = "×";
+        close.title = s.closeTab;
+        close.addEventListener("click", (event) => {
+          event.stopPropagation();
+          onClose();
+        });
+        button.append(close);
+      }
+      strip.append(button);
+    };
+
+    let scopeName = this.collectionSnapshot && this.collectionSnapshot.scope
+      ? this.collectionSnapshot.scope.name
+      : s.collectionOverview;
+    chip(scopeName, scopeName, this.activeTab < 0, () => this.activateTab(-1));
+    this.tabs.forEach((tab, index) => {
+      let label = tab.title || this.strings.loading;
+      chip(label, label, index === this.activeTab,
+        () => this.activateTab(index), () => this.closeTab(index));
+    });
   },
 
   async loadCollection() {
@@ -390,6 +636,8 @@ var LiteratureExplorer = {
       this.collectionSnapshot = await api.collectionSnapshot();
       document.getElementById("paper-title").textContent =
         this.collectionSnapshot.scope.name;
+      // The Collection tab is labelled with the scope, which is only known now.
+      this.renderTabs();
       this.renderCollection();
     } catch (error) {
       this.collectionSnapshot = null;
@@ -402,7 +650,9 @@ var LiteratureExplorer = {
   },
 
   showCollection() {
+    this.activeTab = -1;
     this.showView("collection");
+    this.renderTabs();
     if (!this.collectionSnapshot) {
       this.loadCollection();
       return;
@@ -1415,19 +1665,12 @@ var LiteratureExplorer = {
     this.dropdowns.order.setValue(next);
   },
 
+  /**
+   * Every "open this paper" path in the window goes through here, so opening one
+   * is opening a tab — there is no second way in that would bypass the strip.
+   */
   async showDetail(itemKey, kind) {
-    let changedItem = itemKey !== this.activeItemKey;
-    this.activeItemKey = itemKey;
-    this.kind = kind || "references";
-    this.showView("detail");
-    if (changedItem) this.resetFilters();
-    this.configureSort(true);
-    this.configureKindPresentation();
-    let known = this.collectionSnapshot && this.collectionSnapshot.items
-      .find((item) => item.itemKey === itemKey);
-    document.getElementById("paper-title").textContent =
-      known ? known.title : this.strings.loading;
-    await this.load(false);
+    await this.openPaper(itemKey, kind);
   },
 
   async switchKind(kind) {
@@ -1461,7 +1704,7 @@ var LiteratureExplorer = {
         Boolean(refresh),
       );
       this.syncCollectionRelationStatus();
-      document.getElementById("paper-title").textContent = this.snapshot.seed.title;
+      this.setPaperTitle(this.snapshot.seed.title);
       this.configureSources();
       this.configurePublicationLevels();
       this.configureKindPresentation();

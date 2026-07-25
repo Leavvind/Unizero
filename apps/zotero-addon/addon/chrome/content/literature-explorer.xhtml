@@ -46,12 +46,62 @@
       gap: 12px;
       margin-bottom: 14px;
     }
-    .back-button {
-      flex: none;
-      min-width: 38px;
-      padding-inline: 9px;
-      font-size: 17px;
+    /* Window-level tab strip: one tab per open paper, plus the Collection. */
+    .page-tabs {
+      display: flex;
+      overflow-x: auto;
+      align-items: stretch;
+      gap: 4px;
+      margin-bottom: 12px;
+      padding-bottom: 2px;
+      border-bottom: 1px solid var(--border);
+      scrollbar-width: thin;
     }
+    .page-tab {
+      display: flex;
+      align-items: center;
+      flex: none;
+      max-width: 230px;
+      gap: 6px;
+      min-height: 30px;
+      padding: 4px 8px;
+      border: 1px solid transparent;
+      border-bottom: none;
+      border-radius: 6px 6px 0 0;
+      background: transparent;
+      color: var(--muted);
+    }
+    .page-tab:hover { border-color: var(--border); background: var(--soft); }
+    .page-tab.active {
+      border-color: var(--border);
+      background: var(--card);
+      color: var(--fg);
+      font-weight: 700;
+    }
+    .page-tab-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* Sized and reserved even when idle, so revealing it cannot reflow the strip
+       and slide the next tab under the pointer mid-click. */
+    .page-tab-close {
+      flex: none;
+      min-height: 0;
+      width: 17px;
+      height: 17px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1;
+      visibility: hidden;
+    }
+    .page-tab:hover .page-tab-close,
+    .page-tab.active .page-tab-close { visibility: visible; }
+    .page-tab-close:hover { background: var(--border); color: var(--fg); }
     .title-wrap { min-width: 0; flex: 1; }
     .app-title { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
     .paper-title {
@@ -695,8 +745,9 @@
   <script src="literature-explorer.js"></script>
 </head>
 <body>
+  <nav class="page-tabs" id="page-tabs" aria-label="Open papers"></nav>
+
   <header class="page-head">
-    <button class="back-button" id="back-to-collection" hidden="hidden">←</button>
     <div class="title-wrap">
       <div class="app-title" id="app-title">Literature Explorer</div>
       <div class="paper-title" id="paper-title"></div>

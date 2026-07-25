@@ -8,7 +8,9 @@ the client for the local paper runtime.
 
 - metadata candidate lookup and identifier updates;
 - compact References and Citations item-pane previews plus a Collection-level
-  Literature Explorer, available from item/Collection context menus and Tools;
+  Literature Explorer, available from item/Collection context menus and Tools.
+  Papers open as tabs beside a pinned Collection tab, so several can be read at
+  once and returning to one costs no provider call;
 - Collection paper status for Markdown conversion and cached References/Citations,
   with per-paper quick actions and relation drill-down;
 - a Relation view per paper: which library papers cite it, and which share the most of
@@ -79,7 +81,28 @@ Two graph constraints are easy to break and expensive to diagnose:
 | Graph display and force settings | `<Zotero data dir>/unizero/graph/settings.json` |
 | Preferences | Zotero preference branch, defaults in `addon/prefs.js` |
 
-The derived relation index is memory-only and rebuilt on demand.
+The derived relation index is memory-only and rebuilt on demand. Explorer tabs are
+per-window and not persisted.
+
+## Opening a converted paper in Obsidian
+
+Conversion writes a `uid` into the Markdown frontmatter, derived from the Zotero
+item rather than drawn at random. Publish rewrites the whole file, so a random
+value would be redrawn on every conversion and every link built on the previous
+one would break; a derived one also lets the add-on recompute it without opening
+the file. The format is `unizero-<libraryID>-<itemKey>`, and it is produced
+independently on both sides — `_fm_uid` in the runtime's `pipeline/steps.py` and
+`markdownUid` in `src/ui/literatureExplorer.ts` — so it cannot change on one side
+alone.
+
+Set an Obsidian vault name in *Settings → UniZero* to open notes by that uid
+through the Advanced URI plugin. This is what survives renaming or moving a note
+inside the vault: the Markdown is attached as a *link*, so Zotero holds a path and
+nothing else, and a moved note otherwise leaves a record that still reads
+"converted" pointing at a file that is gone. With no vault set, notes open by
+absolute path, which does not survive the move. Notes converted before the uid
+existed carry none, so a reachable file is checked for one before the uid route is
+used.
 
 ## Runtime connection
 
