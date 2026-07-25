@@ -20,6 +20,9 @@ READMEs and `docs/ARCHITECTURE.md`.
   failed start appearing as a notice in the panel's Jobs list, and its retry action.
 - Run a real MinerU conversion and inspect Markdown, tables, references, links, and
   annotation output.
+- Verify graph behaviour beyond a first look: dark theme, layout persistence across a
+  restart, a library large enough to stress readability, and the graph status line after
+  an induced callback failure.
 
 ## Contracts and artifacts
 
@@ -32,12 +35,25 @@ READMEs and `docs/ARCHITECTURE.md`.
 ## Add-on maintainability
 
 - Add host-independent tests for the feature registry, contract client, library scope,
-  artifact identity, and metadata comparison.
+  artifact identity, and metadata comparison. The derived index and graph builders are
+  already covered.
+- Promote the throwaway browser harness for `literature-graph.js` into the repository, so
+  force parameters and render-loop survival can be measured without packaging an XPI.
 - Extract view state, network orchestration, and Zotero mutations from
   `src/modules/views.ts` as those areas change.
 - Move the template-editor dialog logic in `addon/chrome/content/panel.js` under the
   TypeScript build.
 - Add automated component checks to the release workflow.
+
+## Graph
+
+- Decide the fate of `uniConnection.egoGraph`: it is tested and unused, reserved for a
+  possible one-hop-only toggle. Ship the toggle or delete the builder.
+- Out-of-library discovery nodes, the Connected Papers style "papers you do not have",
+  reusing the References/Citations caches.
+- Replace the 2D canvas renderer only if a real library stops being smooth; the data layer
+  is already decoupled for that, and the parameter and architecture notes are in
+  `UNICONNECTION_GRAPH.md`.
 
 ## Product work
 

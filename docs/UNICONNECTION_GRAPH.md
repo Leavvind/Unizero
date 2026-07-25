@@ -1,18 +1,25 @@
 # UniConnection Graph — Phase 4 设计与施工方案
 
-> 交接文档。目标读者是实现者（Codex）。自包含，不依赖对话上下文。
-> 前置：[UNICONNECTION.md](UNICONNECTION.md)（Phase 1–3 已完成：派生倒排索引 + Relation 面板）。
+> 交接文档（中文）。自包含，不依赖对话上下文。
+> 前置：[UNICONNECTION.md](UNICONNECTION.md)（派生倒排索引 + Relation 面板）。
 > 一句话：**给 Literature Explorer 加图视图——全库总览图（Obsidian 手感）+ 单篇 Ego 图（Connected Papers 手感），
 > 数据全部从已有的 UniConnection 索引派生，渲染用本地打包的 force-graph。**
->
-> **状态：§9 第 1–4 步全部完成**，待真机验证手感。
-> - 数据层 `libraryGraph` / `egoGraph` + 单测（`tests/uniConnectionGraph.test.ts`）
-> - vendored force-graph + [literature-graph.js](../apps/zotero-addon/addon/chrome/content/literature-graph.js) 渲染门面
-> - 全库总览图（Graph⇄Table 切换，表格降为可折叠管理面）+ 详情页 Ego 图标签
-> - 收尾：图/表筛选联动（搜索框、连线类型、最小共同参考数）、布局坐标持久化
->
-> 布局落盘在 `<dataDir>/unizero/graph/<libraryID>.json`，**刻意放在分片树之外** —— 那里的文件按 item 键入并会被
-> `sweep()` 在条目消失时删除，布局放进去会每次启动被清掉。
+
+## 状态：已实现，0.4.1 起在真机上确认两张图均可正常显示与交互
+
+| 交付物 | 落点 |
+|---|---|
+| 数据层 `libraryGraph` / `egoGraph` | `uniConnection.ts` + `tests/uniConnectionGraph.test.ts` |
+| 渲染门面 | [literature-graph.js](../apps/zotero-addon/addon/chrome/content/literature-graph.js) + vendored force-graph |
+| 全库图（Graph⇄Table 切换，表格降为可折叠管理面） | `literature-explorer.js` `#collection-view` |
+| 详情页图标签（同一张图，居中焦点） | `literature-explorer.js` `#detail-view` |
+| 图/表筛选联动、布局坐标持久化 | `literature-explorer.js` + `views.ts` |
+
+布局落盘在 `<dataDir>/unizero/graph/<libraryID>.json`，**刻意放在分片树之外** —— 那里的文件按 item 键入并会被
+`sweep()` 在条目消失时删除，布局放进去会每次启动被清掉。坐标带 `GRAPH_LAYOUT_VERSION`，改力学参数必须 bump（§12.3）。
+
+**本文此后按「设计依据 + 事故记录」读。** §3 / §8 的坑与 §12 的两处修正是最该反复读的部分；
+仍未做的事（库外 ghost 节点、2 跳、WebGL 门槛、egoGraph 的去留）在 [ROADMAP.md](ROADMAP.md)。
 
 ---
 
@@ -58,7 +65,7 @@ Explorer 现为两视图（见 `addon/chrome/content/literature-explorer.xhtml`�
 - **单击**：选中节点 + 图重心平移到它（recenter）；与表格选中双向同步。
 - **双击**：才是「打开」——等价于现在表格里 Title 链接的动作。
   - 全库图双击一个节点 → 进入该 Paper 的 `#detail-view`。
-  - 「Show in Zotero」用已有 `api.selectItem(itemID)`（[literatureExplorer.ts:265](apps/zotero-addon/src/ui/literatureExplorer.ts)）。
+  - 「Show in Zotero」用已有 `api.selectItem(itemID)`（[literatureExplorer.ts](../apps/zotero-addon/src/ui/literatureExplorer.ts)）。
 - **表格与图是同一份筛选结果的两种呈现**：年份 / 来源 / 标签 / 边类型（cites vs coupled）/ 最小耦合权重等筛选对两者同时生效。这正是需求方要的「表格担任管理职能」。
 
 ---
@@ -75,7 +82,7 @@ Explorer 现为两视图（见 `addon/chrome/content/literature-explorer.xhtml`�
 
 ## 5. 数据层：UniConnection 新增整图构造器
 
-现有索引（见 [uniConnection.ts](apps/zotero-addon/src/modules/uniConnection.ts) 的 `LibraryIndex`）已有 `forward` / `inverted` / `selfEdge` / `edgeOwner`，两张图**全部可直接派生，无需新抓取**。
+现有索引（见 [uniConnection.ts](../apps/zotero-addon/src/modules/uniConnection.ts) 的 `LibraryIndex`）已有 `forward` / `inverted` / `selfEdge` / `edgeOwner`，两张图**全部可直接派生，无需新抓取**。
 
 ### 5.1 图数据形状（纯数据，可序列化）
 
@@ -132,7 +139,7 @@ export interface LiteratureGraph {
 
 ## 6. 数据流：接进 Explorer 的 api 桥
 
-数据桥是 `explorerApi()` 返回的纯对象（[literatureExplorer.ts:176](apps/zotero-addon/src/ui/literatureExplorer.ts)），窗口通过 `window.arguments[0].api` 拿到。**不是** `contracts.ts`（那是给 Python runtime 的 HTTP 契约，无关）。
+数据桥是 `explorerApi()` 返回的纯对象（[literatureExplorer.ts](../apps/zotero-addon/src/ui/literatureExplorer.ts) 的 `explorerApi()`），窗口通过 `window.arguments[0].api` 拿到。**不是** `contracts.ts`（那是给 Python runtime 的 HTTP 契约，无关）。
 
 新增（照搬 `collectionSnapshot` / `snapshot` 的写法）：
 - `api.graph()` → `explorerViews.getLiteratureGraph(scope)` → `uniConnection.libraryGraph(scope.libraryID)`。

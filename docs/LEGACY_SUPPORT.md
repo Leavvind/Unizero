@@ -21,4 +21,9 @@ Rules:
   adoption code. New artifacts use `unizero:<kind>` tags.
 - A retirement change must state which condition was met and how it was verified.
 
+Not every version marker belongs here. `GRAPH_LAYOUT_VERSION` in
+`apps/zotero-addon/src/modules/views.ts` guards cached graph coordinates, which are
+derived and cheap to recompute: a version mismatch is discarded, deliberately, and must
+not grow a migration path.
+
 Legal provenance is recorded separately in `NOTICE`.

@@ -1,8 +1,8 @@
 # UniZero Zotero Add-on
 
 The Zotero 8 application component. It owns Zotero lifecycle, UI, preferences,
-scholarly-provider access, item and attachment mutations, and the client for the local
-paper runtime.
+scholarly-provider access, item and attachment mutations, the derived relation index, and
+the client for the local paper runtime.
 
 ## Capabilities
 
@@ -11,6 +11,10 @@ paper runtime.
   Literature Explorer, available from item/Collection context menus and Tools;
 - Collection paper status for Markdown conversion and cached References/Citations,
   with per-paper quick actions and relation drill-down;
+- a Relation view per paper: which library papers cite it, and which share the most of
+  its references, both derived locally with no extra network access;
+- graph views in the Explorer: a full-library graph that toggles with the management
+  table, and a graph tab per paper that centres the same graph on it;
 - filtering discovered works by library status, influence, year, publication type, and
   order, plus importing missing papers into the current library;
 - relating discovered works;
@@ -28,18 +32,51 @@ Document conversion and annotation injection require
 | `src/core/` | Static feature registry and lifecycle dispatch |
 | `src/features/` | Conversion and annotation command orchestration |
 | `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
+| `src/modules/uniConnection.ts` | Derived reverse-reference index, coupling, graph topology |
+| `src/modules/uniConnectionSync.ts` | Notifier-driven index maintenance and reference backfill |
 | `src/runtime-client/` | HTTP contracts, client, launch resolution, process state |
 | `src/zotero/` | Zotero adapters, library scope, artifact identity |
-| `src/ui/` | Menus, progress, service notices, and the panel bridge |
-| `addon/` | Manifest, locales, preferences, icons, dialog markup |
+| `src/ui/` | Menus, progress, service notices, panel and Explorer bridges |
+| `addon/` | Manifest, locales, preferences, icons, dialog markup and scripts |
+| `tests/` | Vitest suites for the derived index and graph builders |
 
 New Zotero mutations belong in `src/zotero`; new command orchestration belongs in
 `src/features`. Do not rewrite `src/modules` as a single refactor. Extract a focused
 responsibility when a feature change needs it.
 
-`addon/chrome/content/panel.js` and `literature-explorer.js` are plain JavaScript outside
-the TypeScript bundle. They implement the runtime-backed template editor and the
-Collection workbench/relation-browser view respectively, and require manual testing.
+## Dialog content
+
+`addon/chrome/content/panel.js`, `literature-explorer.js`, and `literature-graph.js` are
+plain JavaScript outside the TypeScript bundle: not compiled, not type checked, not
+covered by tests. They implement the runtime-backed template editor, the Collection
+workbench and relation browser, and the force-directed graph renderer. Every change there
+needs a manual Zotero check.
+
+They reach the add-on only through the plain-object API passed as
+`window.arguments[0].api`, built in `src/ui/literatureExplorer.ts` and `src/ui/panel.ts`.
+New data for a dialog is added to that bridge and to its `views.ts` producer.
+
+`vendor/force-graph.min.js` is a vendored MIT build with its license alongside it. Dialog
+content must stay self-contained: no CDN, no external fetch.
+
+Two graph constraints are easy to break and expensive to diagnose:
+
+- force-graph invokes callbacks synchronously inside an animation loop that has no error
+  handling, so one unguarded throw freezes the canvas for good. Keep every callback inside
+  `guard()`.
+- layout coordinates are only valid at the scale of the forces that produced them. Bump
+  `GRAPH_LAYOUT_VERSION` in `src/modules/views.ts` whenever link distance, repulsion, or
+  collision changes.
+
+## Stored state
+
+| State | Location |
+| --- | --- |
+| Per-item provider caches | `<Zotero data dir>/unizero/cache/` shard tree |
+| Graph layout coordinates | `<Zotero data dir>/unizero/graph/<libraryID>.json` |
+| Preferences | Zotero preference branch, defaults in `addon/prefs.js` |
+
+The derived relation index is memory-only and rebuilt on demand.
 
 ## Runtime connection
 
@@ -67,11 +104,13 @@ controls live in the UniZero panel.
 ```bash
 npm ci
 npm run check
+npm test
 npm run build
 ```
 
-`npm run check` runs TypeScript and HTTP-contract drift checks. `npm run build` writes
-`build/unizero.xpi`.
+`npm run check` runs TypeScript and HTTP-contract drift checks. `npm test` runs the
+Vitest suites, which cover the derived index and graph builders without a Zotero host.
+`npm run build` writes `build/unizero.xpi`.
 
 ## Run in Zotero
 
@@ -84,11 +123,14 @@ npm run start-watch
 
 For a packaged build, install `build/unizero.xpi` from Zotero's add-on manager.
 
-Type checking does not verify Zotero APIs, window lifecycle, XUL, or the external panel.
+Type checking does not verify Zotero APIs, window lifecycle, XUL, or the external dialogs.
 Changes in those areas require a manual Zotero check.
 
 ## Related documentation
 
+- [Documentation map](../../docs/README.md)
 - [Repository architecture](../../docs/ARCHITECTURE.md)
 - [Project structure](../../docs/PROJECT_STRUCTURE.md)
+- [Derived relation index](../../docs/UNICONNECTION.md)
+- [Graph views](../../docs/UNICONNECTION_GRAPH.md)
 - [Legacy data support](../../docs/LEGACY_SUPPORT.md)

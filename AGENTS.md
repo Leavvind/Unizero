@@ -17,7 +17,8 @@ schema is `packages/contracts/http/v1.schema.json`.
 
 For an unfamiliar task, read only the relevant component README and the path map in
 `docs/PROJECT_STRUCTURE.md`. Use `docs/ARCHITECTURE.md` when the change affects ownership
-or dependency direction.
+or dependency direction. `docs/README.md` says which documents describe current behaviour
+and which are design notes; do not treat a design note as a work order.
 
 ## Architecture rules
 
@@ -37,6 +38,11 @@ or dependency direction.
    `libraryID`; group-library support must not fall back to the user library.
 8. **Lifecycle is symmetric.** Every registered menu, pane, listener, observer, style,
    and window hook has a matching cleanup path.
+9. **Derived state is rebuildable and never authoritative.** The relation index and graph
+   topology are recomputed from the reference cache; they are not written back to item
+   shards, and topology carries no Zotero display fields.
+10. **Dialog content talks through its window API bridge.** Privileged XHTML dialogs get a
+    plain object on `window.arguments[0]`; they never import bundle modules.
 
 The process boundary is recorded in
 `docs/decisions/0001-addon-and-runtime-boundary.md`.
@@ -51,6 +57,7 @@ The process boundary is recorded in
 | `apps/zotero-addon/src/zotero` | Zotero item, attachment, annotation, and identity adapters |
 | `apps/zotero-addon/src/ui` | Menus, panel bridge, progress, and service notices |
 | `apps/zotero-addon/src/modules` | Established relations, metadata, cache, and item-pane code |
+| `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, Literature Explorer, graph renderer |
 | `services/paper-runtime/src/unizero_runtime/api` | FastAPI transport |
 | `services/paper-runtime/src/unizero_runtime/application` | Jobs, configuration, and use cases |
 | `services/paper-runtime/src/unizero_runtime/pipeline` | Workflow templates and document steps |
@@ -72,8 +79,16 @@ page.
 - Treat every main window independently during load and unload.
 - Any UI, lifecycle, preference, or Zotero API change needs a manual Zotero check.
 
-`addon/chrome/content/panel.js` runs outside the TypeScript bundle and type checker.
-Changes there require extra review and manual testing.
+`addon/chrome/content/panel.js`, `literature-explorer.js`, and `literature-graph.js` run
+outside the TypeScript bundle and type checker. Changes there require extra review and
+manual testing. Two of their constraints are load-bearing:
+
+- Callbacks handed to `force-graph` run synchronously inside an animation loop with no
+  error handling, so one unguarded throw freezes the canvas permanently. Keep every
+  callback inside `guard()`, and keep swallowed failures visible.
+- Persisted graph layout coordinates are valid only at the scale of the forces that
+  produced them. Bump `GRAPH_LAYOUT_VERSION` in `src/modules/views.ts` whenever link
+  distance, repulsion, or collision changes.
 
 ## Contract changes
 
@@ -104,11 +119,14 @@ From `apps/zotero-addon`:
 
 ```text
 npm run check
+npm test
 npm run build
 ```
 
-`npm run check` includes TypeScript and shared-contract drift checks. The add-on has no
-host-independent UI test suite.
+`npm run check` includes TypeScript and shared-contract drift checks. `npm test` runs
+Vitest over the derived relation index and the graph builders, which are deliberately
+free of Zotero and DOM dependencies. Everything else in the add-on — UI, lifecycle,
+dialogs, providers — has no host-independent test and needs a manual Zotero check.
 
 From `services/paper-runtime`:
 
@@ -133,5 +151,8 @@ If a required manual check cannot be run, state that explicitly.
 - Preserve existing user changes and ignore unrelated dirty files.
 - Avoid destructive Git commands.
 - Keep generated files and runtime state out of the repository.
-- Write repository documentation, public contracts, and new public API names in English.
-- Update `docs/ROADMAP.md` when planned work lands or an open verification item closes.
+- Write public contracts, code identifiers, and current-state documentation in English.
+  Design and handoff notes may be written in the requester's language; `docs/README.md`
+  records which is which. Never mix languages inside one document.
+- Update `docs/ROADMAP.md` when planned work lands or an open verification item closes,
+  and fix any current-state document the same change invalidates.

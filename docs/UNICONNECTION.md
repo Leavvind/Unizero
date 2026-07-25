@@ -1,8 +1,22 @@
 # UniConnection — 设计与施工方案
 
-> 交接文档。目标读者是实现者（Codex）。本文自包含，不依赖任何对话上下文。
+> 交接文档（中文）。本文自包含，不依赖任何对话上下文。
 > 一句话：**新建一个纯派生层 `UniConnection`，用全库每篇论文已缓存的 References 建一个反向索引，
 > 让 Literature Explorer 的 `Relation` 面板从中只读投影；未来的关系图谱都挂在它上面。**
+
+## 状态：Phase 1–4 全部已实现
+
+| 阶段 | 落点 |
+|---|---|
+| Phase 1 内存索引 | [uniConnection.ts](../apps/zotero-addon/src/modules/uniConnection.ts) |
+| Phase 2 增量维护 + references 补齐 | [uniConnectionSync.ts](../apps/zotero-addon/src/modules/uniConnectionSync.ts) |
+| Phase 3 Relation 面板 | `views.ts` 生产端 + `literature-explorer.js` 详情页标签 |
+| Phase 4 图视图 | [UNICONNECTION_GRAPH.md](UNICONNECTION_GRAPH.md) |
+| 单测 | `apps/zotero-addon/tests/uniConnection*.test.ts`（`npm test`） |
+
+**本文此后按「设计依据」读，不按「待办清单」读。** 真正仍未做的事在 [ROADMAP.md](ROADMAP.md)；
+既成行为的权威描述在 [ARCHITECTURE.md](ARCHITECTURE.md) 的「Derived relations index」一节。
+§7 的约束清单仍然全部有效，是本文最该被反复读的部分。
 
 ---
 
@@ -62,17 +76,18 @@ Literature Explorer 现在有 `References` 和 `Citations` 两个面板：
 |---|---|---|
 | 稳定边身份 `edgeIdentity(info)` | `apps/zotero-addon/src/modules/edgeIdentity.ts:31` | 返回 `doi:…` / `arxiv:…` / `s2:…` / `undefined`。**这就是 EdgeKey。** |
 | reference 条目已打 `edge` 戳 | `edgeIdentity.ts:61` `forPersistence(entries, producedBy)` | 缓存里每条 reference 都带 `edge` 和 `producedBy`，读出来直接用。 |
-| 每篇的 References 缓存 | `views.ts:54` `CACHE_KEY_REFERENCES = "References-Resolved-v4"` | 见 §4 形状。 |
-| 每篇的 Citations 缓存 | `views.ts:55` `CACHE_KEY_CITATIONS = "Citations-v4"` | Relation 不用它；仅供 Citation 面板。 |
-| 分片缓存读写 | `apps/zotero-addon/src/modules/localStorage.ts` | `await load(item)` 后 `get(item, key)` 同步；`set(item, key, value)` 异步。resident LRU=32。 |
-| 全库分片直读（绕过 LRU） | `localStorage.ts:199`（`summary()` 内） | 批量 build 时应仿此**直接读分片文件**，避免 LRU 抖动（见 §7）。 |
-| mtime = per-item dirty marker | `localStorage.ts:18` 注释 | 增量对账的钩子：只重扫 mtime 变过的分片。 |
-| 库内成员解析 | `literatureRelations.ts:132` `libraryMembershipIndex` / `:172` `resolveLibraryMembership` | 已 memoize（10s TTL），`invalidateLibraryMembership()` 可失效。 |
+| 每篇的 References 缓存 | `literatureCache.ts` `CACHE_KEY_REFERENCES = "References-Resolved-v4"` | 见 §4 形状。 |
+| 每篇的 Citations 缓存 | `literatureCache.ts` `CACHE_KEY_CITATIONS = "Citations-v4"` | Relation 不用它；仅供 Citation 面板。 |
+| 分片缓存读写 | `apps/zotero-addon/src/modules/localStorage.ts` | `await load(item)` 后 `get(item, key)` 同步；`set(item, key, value)` 异步。resident LRU=32（`RESIDENT_SHARDS`）。 |
+| 全库分片直读（绕过 LRU） | `localStorage.ts` 的 `summary()` | 批量 build 时应仿此**直接读分片文件**，避免 LRU 抖动（见 §7）。 |
+| mtime = per-item dirty marker | `localStorage.ts` 顶部注释 | 增量对账的钩子：只重扫 mtime 变过的分片。 |
+| 库内成员解析 | `literatureRelations.ts` `libraryMembershipIndex` / `resolveLibraryMembership` | 已 memoize（10s TTL），`invalidateLibraryMembership()` 可失效。 |
 | 从 Zotero item 取标识 | `apps/zotero-addon/src/modules/itemIdentifiers.ts` `readItemPaperIdentifiers(item)` | 返回 `{ doi, semanticScholarPaperId, arxiv? }`，用来算本篇的 self-edge。 |
 | 三源 references 抓取 | `referencesApi.ts:282` `fetchReferencesByIdentifiers` | 已有；UniConnection 不改它，只在“缓存缺失时触发它”。 |
 
-**注意：目前代码里没有任何 `Zotero.Notifier` observer**（已确认 grep 无 `Notifier`/`registerObserver`）。
-Phase 2 的增量维护需要新注册一个，并在插件卸载时注销。
+**Notifier observer 已存在**：`uniConnectionSync.register()` 在 `literature.relations` 特性的
+`onWindowLoad` 里注册，`onShutdown` / `onAppShutdown` 注销（`src/core/features.ts`）。
+新增其它 observer 时沿用这条对称路径，不要另起生命周期。
 
 ---
 
@@ -80,7 +95,7 @@ Phase 2 的增量维护需要新注册一个，并在插件卸载时注销。
 
 ### 4.1 缓存记录形状（只读，勿改）
 
-`References-Resolved-v4` → `ReferencesCache`（`views.ts:465` 附近）：
+`References-Resolved-v4` → `ReferencesCache`（`literatureCache.ts`）：
 ```ts
 interface ReferencesCache {
   savedAt: number;
@@ -156,7 +171,7 @@ coupledWith(P, limit):
 
 ## 6. 施工阶段
 
-### Phase 1 — 纯内存 UniConnection（先验证价值，一天量级）
+### Phase 1 — 纯内存 UniConnection ✅ 已实现
 - 新建 `apps/zotero-addon/src/modules/uniConnection.ts`，实现 §4.2 结构 + §5 算法。
 - `build(libraryID)`：遍历该库所有常规 item，**直接读分片文件**（仿 `localStorage.ts:199` `summary()`，
   不要走 `load`/`get` 的 LRU，避免全库扫描抖 resident 缓存），消化每篇。
@@ -164,7 +179,7 @@ coupledWith(P, limit):
 - **不落盘、不挂 notifier。** 首次调用时 lazy build，会话内常驻。
 - 验收：对若干已缓存 references 的论文，两个查询返回合理结果（见 §9）。
 
-### Phase 2 — 增量维护 + 落盘水位线
+### Phase 2 — 增量维护 ✅ 已实现（落盘水位线**未做**，见下）
 - 注册 `Zotero.Notifier` observer（`add`/`modify`/`delete`/`trash`，type `item`），插件卸载时注销。
   - add/modify：若该 item 有 references 缓存则 `retract` 后 `ingest`；无缓存则按策略触发抓取（见下）。
   - delete/trash：`retract`。
@@ -172,16 +187,18 @@ coupledWith(P, limit):
 - **主动补齐 references**：为没有 references 缓存的 item，用节流队列调
   `fetchReferencesByIdentifiers`（遵守 S2 ~1 rps；OpenAlex/Crossref 更宽松），写回 `References-Resolved-v4`，再 ingest。
   这一步是“加入文章 → 缓存 References → 建 connection”的落点。
-- **可选落盘**：`inverted`/`forward` 序列化为单个 `uniconnection/<libraryID>.json` + 一个
-  “已消化到 mtime = T”的水位线；重启后只对账 mtime > T 的分片（`localStorage.ts:18` 的钩子）。
-  首版可省略，靠内存 lazy build。
+- **可选落盘（未实现，仍是内存 lazy build）**：`inverted`/`forward` 序列化为单个
+  `uniconnection/<libraryID>.json` + 一个“已消化到 mtime = T”的水位线；重启后只对账
+  mtime > T 的分片（`localStorage.ts:18` 的钩子）。
+  当前索引每次会话首次查询时惰性重建；唯一落盘的是**图布局坐标**（`graph/<libraryID>.json`），
+  与本条无关。库大到重建明显卡顿时再做。
 
-### Phase 3 — Relation 面板（Explorer 只读投影）
+### Phase 3 — Relation 面板（Explorer 只读投影）✅ 已实现
 - 在 Literature Explorer 增加 `Relation` 面板，数据来自 `uniConnection.relationsOf(item)`（+ 可选 `coupledWith`）。
 - 复用现有面板的行渲染 / 库内成员标记 / 筛选。
 - Relation 行本身都是库内 item，可直接跳转。
 
-### Phase 4 — 图与更多边类型（后续）
+### Phase 4 — 图与更多边类型 ✅ 图已实现（见 [UNICONNECTION_GRAPH.md](UNICONNECTION_GRAPH.md)）
 - 边类型扩展：`reference`（已有）、`coupling`（派生）、`recommendation`（S2 Related Papers）、
   `manual`（**用 Zotero 原生 related items / `dc:relation`，不要自建**，跟随同步）。
 - 图可视化：obsidian graph view 式 / Connected Papers 式 / 项目特定图，均为 UniConnection 的只读消费者。
@@ -189,7 +206,7 @@ coupledWith(P, limit):
 ### 延后 / 门槛项 — PDF Reference Extraction 复活
 - 仅在 §9 测得“API 三源全空”的残余比例**显著**时才考虑。
 - 复活的是 `services/paper-runtime`（PDF→MD）里 commit `31abdf8` 退役的**生产端**；
-  消费端 `readZoMinerReferences`（`views.ts:736` / `zomReferences.ts`）仍在，插座现成。
+  消费端 `readZoMinerReferences`（`zomReferences.ts`，被 `views.ts` 调用）仍在，插座现成。
 - 即便复活，PDF 抽的是字符串，需 `resolve.ts` 匹配回 DOI 才能进图，且有误匹配风险（见 §7）。
 
 ---
@@ -223,6 +240,9 @@ coupledWith(P, limit):
 ---
 
 ## 8. 建议的模块接口（TS 骨架）
+
+> 已实现，**以代码为准**：真实签名多数是 `async`，另有 `retractItemID`、`libraryGraph`、`egoGraph`。
+> 下面这份骨架保留下来只为说明「一个索引喂两种查询」的意图。
 
 `apps/zotero-addon/src/modules/uniConnection.ts`
 ```ts
@@ -286,5 +306,6 @@ export class UniConnection {
 - ❌ 不追求把 Citations 拉全；Citation 面板只留 Recent / High-influential Top-N。
 - ❌ 不用标题给哑边造 key。
 - ⏳ PDF Reference Extraction 复活：以 §9 测量为门槛。
-- ⏳ 落盘水位线：首版可省，靠内存 lazy build。
-- ⏳ 图可视化 / S2 推荐 / 手动连线：Phase 4，均为 UniConnection 只读消费者；手动连线用 Zotero 原生 related items。
+- ⏳ 索引落盘水位线：仍未做，靠内存 lazy build。
+- ✅ 图可视化：已实现（[UNICONNECTION_GRAPH.md](UNICONNECTION_GRAPH.md)）。
+- ⏳ S2 推荐 / 手动连线：仍未做，均为 UniConnection 只读消费者；手动连线用 Zotero 原生 related items。

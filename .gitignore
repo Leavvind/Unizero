@@ -45,6 +45,10 @@ services/paper-runtime/*.log
 tmp/
 *.preview.md
 
+# Read-only clones of other projects kept locally for reference. They carry their own
+# .git and their own licences; never commit one into this repository.
+check zotero-style/
+
 
 # Paper runtime state (see services/paper-runtime/src/unizero_runtime/paths.py)
 services/paper-runtime/.tmp-home/

@@ -9,6 +9,8 @@ conversion, and Markdown annotations.
 | --- | --- | --- |
 | Metadata | Find identifiers, compare candidates, update Zotero items | Not required |
 | Relations | Browse references and citations, import and relate items | Not required |
+| Connections | See which library papers cite a paper, and which share its references | Not required |
+| Graph | Full-library and single-paper relation graphs in the Literature Explorer | Not required |
 | Documents | Convert PDFs to Markdown, tables, and reference artifacts | Required |
 | Annotations | Export or inject Zotero annotations into Markdown | Required |
 
@@ -21,7 +23,7 @@ truth for bibliographic metadata and annotations.
 apps/zotero-addon/       Zotero 8 add-on, UI, commands, and scholarly providers
 services/paper-runtime/  Python service for PDF and Markdown processing
 packages/contracts/      Shared HTTP schemas and example payloads
-docs/                    Architecture, code map, decisions, and roadmap
+docs/                    Architecture, code map, design notes, decisions, and roadmap
 ```
 
 The add-on and runtime communicate through the versioned `/api/v1` localhost API. They
@@ -29,6 +31,7 @@ do not import each other's implementation.
 
 Start with:
 
+- [Documentation map](docs/README.md) for what each document is and is not;
 - [Architecture](docs/ARCHITECTURE.md) for system boundaries;
 - [Project structure](docs/PROJECT_STRUCTURE.md) for where code belongs;
 - [AGENTS.md](AGENTS.md) for repository rules and verification commands;
@@ -42,6 +45,7 @@ Build and check the add-on:
 cd apps/zotero-addon
 npm ci
 npm run check
+npm test
 npm run build
 ```
 
@@ -57,8 +61,9 @@ uv pip install -e ".[dev]"
 The add-on build writes `apps/zotero-addon/build/unizero.xpi`. Runtime installation,
 launch options, and development-profile setup are documented in the component READMEs.
 
-There is no root build command. Add-on UI and Zotero API changes also require a manual
-Zotero check; type checking does not exercise the host application.
+There is no root build command. `npm test` covers the host-independent derived-index and
+graph logic only. Add-on UI and Zotero API changes also require a manual Zotero check;
+neither type checking nor the test suite exercises the host application.
 
 ## License
 
