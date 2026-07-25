@@ -8,14 +8,13 @@ conversion, and Markdown annotations.
 | Area | Capability | Local runtime |
 | --- | --- | --- |
 | Metadata | Find identifiers, compare candidates, update Zotero items | Not required |
-| Relations | Browse references and citations, import and relate items | Not required |
-| Connections | See which library papers cite a paper, and which share its references | Not required |
-| Graph | Full-library and single-paper relation graphs in the Literature Explorer | Not required |
-| Documents | Convert PDFs to Markdown, tables, and reference artifacts | Required |
-| Annotations | Export or inject Zotero annotations into Markdown | Required |
+| Relations | Browse references and citations, import and relate items and creating connections | Not required |
+| Graph View | Visualize the related and connected papers | Not Required 
+| Conversions | Convert PDFs to Markdown and making connection to Obsidian| Required |
+| Annotations | Export or inject Zotero annotations into Markdown(Obsidian) | Required |
 
-The runtime-dependent features use a local Python service. Zotero remains the source of
-truth for bibliographic metadata and annotations.
+The runtime-dependent features use a local Python service. 
+Zotero remains the source of bibliographic metadata and annotations.
 
 ## Repository
 
@@ -26,8 +25,7 @@ packages/contracts/      Shared HTTP schemas and example payloads
 docs/                    Architecture, code map, design notes, decisions, and roadmap
 ```
 
-The add-on and runtime communicate through the versioned `/api/v1` localhost API. They
-do not import each other's implementation.
+The add-on and runtime communicate through the versioned `/api/v1` localhost API. 
 
 Start with:
 
