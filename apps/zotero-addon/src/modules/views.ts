@@ -427,13 +427,13 @@ export default class Views {
     return cached;
   }
 
-  private saveReferencesCache(
+  private async saveReferencesCache(
     item: Zotero.Item,
     source: string,
     references: ItemBaseInfo[],
     resolved: boolean,
     perSource?: RelationSourceResult[],
-  ) {
+  ): Promise<void> {
     if (!references.length) { return; }
     const payload = makeReferencesCache(
       item,
@@ -444,11 +444,10 @@ export default class Views {
     );
     this.explorerReferences.set(this.explorerKey(item), payload);
     if (!this.isCacheEnabled("saveAPIReferences")) { return; }
-    localStorage.set(item, CACHE_KEY_REFERENCES, payload)
-      // A cache write is not a Zotero item mutation and therefore emits no item
-      // notification. Refresh a resident graph explicitly after the bytes land.
-      .then(() => uniConnection.ingestItem(item, false))
-      .catch((error) => ztoolkit.log("save references cache failed", error));
+    await localStorage.set(item, CACHE_KEY_REFERENCES, payload);
+    // A cache write is not a Zotero item mutation and therefore emits no item
+    // notification. Refresh the resident topology only after the bytes land.
+    await uniConnection.ingestItem(item, false);
     if (this.lastLoadDiagnostic) {
       this.lastLoadDiagnostic.savedAt = new Date().toLocaleTimeString();
       this.lastLoadDiagnostic.savedResolved = resolved;
@@ -861,7 +860,7 @@ export default class Views {
         };
         this.explorerReferences.set(key, state);
         if (state.references.length) {
-          this.saveReferencesCache(
+          await this.saveReferencesCache(
             item,
             state.source,
             state.references,
@@ -1130,7 +1129,7 @@ export default class Views {
       };
       this.explorerReferences.set(key, next);
       if (references.length) {
-        this.saveReferencesCache(item, next.source, references, true, perSource);
+        await this.saveReferencesCache(item, next.source, references, true, perSource);
       }
       return this.buildCombinedSnapshot(
         item,
@@ -2219,7 +2218,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     // never written on the most common path, which looks like "the cache does
     // nothing".
     if (!fromCache) {
-      this.saveReferencesCache(item, source, finalReferences, false, sectionPerSource);
+      await this.saveReferencesCache(item, source, finalReferences, false, sectionPerSource);
     }
     // A cache entry that is already resolved is the end of it; a half-finished one
     // continues with the remainder and then overwrites.
@@ -2300,7 +2299,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     // Persist so the enrichment survives the session; unchanged runs (nothing
     // resolved) skip the write to avoid needless cache churn and a bumped savedAt.
     if (changed) {
-      this.saveReferencesCache(
+      await this.saveReferencesCache(
         item,
         state.source,
         state.references,

@@ -245,6 +245,62 @@ describe("Literature Explorer async ownership", () => {
     harness.win.close();
   });
 
+  it("drops a snapshot after its owning tab is closed", async () => {
+    const pending = deferred<any>();
+    const harness = createHarness({ snapshot: () => pending.promise });
+    await flush();
+
+    const opening = harness.explorer.showDetail("P1", "references");
+    await flush();
+    await harness.explorer.closeTab(0);
+    pending.resolve(snapshot("P1", "Closed Paper"));
+    await opening;
+
+    expect(harness.explorer.tabs).toHaveLength(0);
+    expect(harness.explorer.activeTab).toBe(-1);
+    expect(harness.explorer.mode).toBe("collection");
+    expect(harness.win.document.getElementById("paper-title")?.textContent)
+      .toBe("Library A");
+    harness.win.close();
+  });
+
+  it("supersedes an old kind and load-more request on the same tab", async () => {
+    const oldReferences = deferred<any>();
+    const freshReferences = deferred<any>();
+    const citations = deferred<any>();
+    const more = deferred<any>();
+    let referenceCalls = 0;
+    const harness = createHarness({
+      snapshot: (_itemKey: string, kind: string) =>
+        kind === "references"
+          ? (++referenceCalls === 1 ? oldReferences.promise : freshReferences.promise)
+          : citations.promise,
+      loadMoreCitations: () => more.promise,
+    });
+    await flush();
+
+    const opening = harness.explorer.showDetail("P1", "references");
+    await flush();
+    const switching = harness.explorer.switchKind("citations");
+    citations.resolve(snapshot("P1", "Citations"));
+    await switching;
+    oldReferences.resolve(snapshot("P1", "References"));
+    await opening;
+
+    const paging = harness.explorer.loadMore();
+    await flush();
+    const backToReferences = harness.explorer.switchKind("references");
+    freshReferences.resolve(snapshot("P1", "Fresh References"));
+    await backToReferences;
+    more.resolve(snapshot("P1", "Stale More"));
+    await paging;
+
+    expect(harness.explorer.activeTabState().kind).toBe("references");
+    expect(harness.explorer.activeTabState().snapshot.seed.title)
+      .toBe("Fresh References");
+    harness.win.close();
+  });
+
   it("drops an old Collection result after the window changes library", async () => {
     const oldCollection = deferred<any>();
     let calls = 0;
@@ -308,6 +364,83 @@ describe("Literature Explorer async ownership", () => {
     renderer.emitSettled(view);
     expect(renderer.zoomToFit).toHaveBeenCalledTimes(2);
     expect(view.settleListeners.size).toBe(1);
+    harness.win.close();
+  });
+
+  it("reloads topology only after a References action resolves", async () => {
+    const relation = deferred<any>();
+    const graphCalls = vi.fn(async (scope: any) => ({
+      scope: { libraryID: scope.libraryID },
+      nodes: [],
+      edges: [],
+    }));
+    const harness = createHarness({
+      graph: graphCalls,
+      loadRelation: () => relation.promise,
+    });
+    await flush();
+    await harness.explorer.loadCollectionGraph(true);
+    const before = graphCalls.mock.calls.length;
+
+    harness.explorer._menuWhich = "collection";
+    const action = harness.explorer.runGraphAction(
+      "P1",
+      () => (harness.api as any).loadRelation("P1", "references"),
+      "references",
+    );
+    await flush();
+    expect(graphCalls).toHaveBeenCalledTimes(before);
+
+    relation.resolve({
+      references: { loaded: true, count: 3, total: 3 },
+    });
+    await action;
+    await flush();
+    expect(graphCalls).toHaveBeenCalledTimes(before + 1);
+    harness.win.close();
+  });
+
+  it("patches Markdown metadata without rebuilding topology", async () => {
+    const graphCalls = vi.fn(async () => graph(1, "P1"));
+    const harness = createHarness({ graph: graphCalls });
+    await flush();
+    await harness.explorer.loadCollectionGraph(true);
+    const before = graphCalls.mock.calls.length;
+
+    harness.explorer._menuWhich = "collection";
+    await harness.explorer.runGraphAction(
+      "P1",
+      async () => ({ title: "Converted Paper", hasMarkdown: true }),
+      "metadata",
+    );
+
+    expect(graphCalls).toHaveBeenCalledTimes(before);
+    expect(harness.explorer.graphData.collection.nodes[0]).toMatchObject({
+      title: "Converted Paper",
+      hasMarkdown: true,
+    });
+    harness.win.close();
+  });
+
+  it("updates citation status without invalidating cached graphs", async () => {
+    const graphCalls = vi.fn(async () => graph(1, "P1"));
+    const harness = createHarness({ graph: graphCalls });
+    await flush();
+    await harness.explorer.loadCollectionGraph(true);
+    const cached = harness.explorer.graphData.collection;
+    const before = graphCalls.mock.calls.length;
+
+    harness.explorer._menuWhich = "collection";
+    await harness.explorer.runGraphAction(
+      "P1",
+      async () => ({ citations: { loaded: true, count: 7, total: 7 } }),
+      "citations",
+    );
+
+    expect(graphCalls).toHaveBeenCalledTimes(before);
+    expect(harness.explorer.graphData.collection).toBe(cached);
+    expect(harness.explorer.collectionSnapshot.items[0].citations)
+      .toMatchObject({ loaded: true, count: 7 });
     harness.win.close();
   });
 });

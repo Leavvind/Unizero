@@ -14,18 +14,7 @@ vi.mock("../src/modules/itemIdentifiers", () => ({
 }));
 
 import { UniConnection } from "../src/modules/uniConnection";
-import { sampleLibrary } from "./helpers";
-
-/**
- * Phase 4 graph builders (docs/UNICONNECTION_GRAPH.md §5, §10).
- *
- * Guarded by feature detection so this file also serves as the acceptance net
- * before the methods exist: if a builder is missing the specs report as `todo`
- * instead of failing.
- */
-const probe = new UniConnection() as any;
-const itLibrary = typeof probe.libraryGraph === "function" ? it : it.todo;
-const itEgo = typeof probe.egoGraph === "function" ? it : it.todo;
+import { refCacheFor, sampleLibrary } from "./helpers";
 
 const idSet = (graph: any) => new Set(graph.nodes.map((node: any) => node.id));
 const citePairs = (graph: any) =>
@@ -40,14 +29,14 @@ const coupledDetail = (graph: any) =>
     .sort();
 
 describe("UniConnection.libraryGraph (whole-library overview)", () => {
-  itLibrary("emits one node per library item, keyed by scoped identity", async () => {
+  it("emits one node per library item, keyed by scoped identity", async () => {
     const { uc } = sampleLibrary();
     const graph = await (uc as any).libraryGraph(1);
     expect(graph.scope.libraryID).toBe(1);
     expect(idSet(graph)).toEqual(new Set(["1:A", "1:B", "1:C", "1:D", "1:E"]));
   });
 
-  itLibrary("emits a directed cites edge exactly for each in-library reference", async () => {
+  it("emits a directed cites edge exactly for each in-library reference", async () => {
     // A→B, A→C, B→C, D→B are the only reference endpoints owned by a library item;
     // the out-of-library doi:10/x must NOT produce a cites edge.
     const { uc } = sampleLibrary();
@@ -59,7 +48,7 @@ describe("UniConnection.libraryGraph (whole-library overview)", () => {
     }
   });
 
-  itLibrary("weights coupling edges by shared-reference count", async () => {
+  it("weights coupling edges by shared-reference count", async () => {
     // A&D share B; A&B share C; B&C, B&D, C&D each share the out-of-library x.
     const { uc } = sampleLibrary();
     const graph = await (uc as any).libraryGraph(1);
@@ -75,47 +64,53 @@ describe("UniConnection.libraryGraph (whole-library overview)", () => {
     }
   });
 
-  itLibrary("skips super-hub references above the hub cap", async () => {
+  it("skips super-hub references above the hub cap", async () => {
     const { uc } = sampleLibrary();
     const graph = await (uc as any).libraryGraph(1, { couplingHubCap: 1 });
     expect(coupledDetail(graph)).toEqual([]); // every shared ref has >1 citer
     expect(citePairs(graph)).toHaveLength(4); // cites edges are unaffected
   });
 
-  itLibrary("filters coupling edges below the minimum weight", async () => {
+  it("filters coupling edges below the minimum weight", async () => {
     const { uc } = sampleLibrary();
     const graph = await (uc as any).libraryGraph(1, { couplingMinWeight: 2 });
     expect(coupledDetail(graph)).toEqual([]); // all coupling weights are 1
   });
-});
+  it("memoizes each option set independently", async () => {
+    const { uc } = sampleLibrary();
+    const first = await uc.libraryGraph(1);
+    const second = await uc.libraryGraph(1);
+    const filtered = await uc.libraryGraph(1, { couplingMinWeight: 2 });
+    const filteredAgain = await uc.libraryGraph(1, { couplingMinWeight: 2 });
 
-describe("UniConnection.egoGraph (single-paper neighbourhood, in-library only)", () => {
-  itEgo("centres on the paper and includes citers, citations, and coupled peers", async () => {
-    // Around B: citers A, D; B cites C; coupled with A, C, D → nodes {A,B,C,D}.
-    const { uc, B } = sampleLibrary();
-    const graph = await (uc as any).egoGraph(B);
-    expect(graph.center).toBe("1:B");
-    expect(idSet(graph)).toEqual(new Set(["1:A", "1:B", "1:C", "1:D"]));
-    const center = graph.nodes.find((node: any) => node.id === "1:B");
-    expect(center.isCenter).toBe(true);
-    expect(citePairs(graph)).toEqual(
-      expect.arrayContaining(["1:A->1:B", "1:D->1:B", "1:B->1:C"]),
-    );
+    expect(second).toBe(first);
+    expect(filteredAgain).toBe(filtered);
+    expect(filtered).not.toBe(first);
   });
 
-  itEgo("excludes out-of-library ghost nodes in this phase", async () => {
-    const { uc, B } = sampleLibrary();
-    const graph = await (uc as any).egoGraph(B);
-    const inLibrary = ["1:A", "1:B", "1:C", "1:D", "1:E"];
-    expect(graph.nodes.every((node: any) => inLibrary.includes(node.id))).toBe(true);
+  it("invalidates cached topology after ingest", async () => {
+    const { uc, cache, A } = sampleLibrary();
+    const first = await uc.libraryGraph(1);
+    cache.records.set("1:A", refCacheFor(A, ["doi:10/b"]));
+
+    await uc.ingestItem(A);
+    const next = await uc.libraryGraph(1);
+
+    expect(next).not.toBe(first);
+    expect(citePairs(next)).toEqual(["1:A->1:B", "1:B->1:C", "1:D->1:B"]);
   });
 
-  itEgo("drops coupled peers at couplingLimit 0 without losing cites neighbours", async () => {
-    const { uc, B } = sampleLibrary();
-    const graph = await (uc as any).egoGraph(B, { couplingLimit: 0 });
-    expect(coupledDetail(graph)).toEqual([]);
-    // A, D (citers) and C (cited) survive because they are cites-derived, not coupled.
-    expect(idSet(graph)).toEqual(new Set(["1:A", "1:B", "1:C", "1:D"]));
-    expect(citePairs(graph)).toEqual(["1:A->1:B", "1:B->1:C", "1:D->1:B"]);
+  it("invalidates cached topology after scoped and numeric retract", async () => {
+    const { uc, B, C } = sampleLibrary();
+    const first = await uc.libraryGraph(1);
+    uc.retract("1:B");
+    const afterScoped = await uc.libraryGraph(1);
+    expect(afterScoped).not.toBe(first);
+    expect(idSet(afterScoped).has("1:B")).toBe(false);
+
+    uc.retractItemID(C.id);
+    const afterNumeric = await uc.libraryGraph(1);
+    expect(afterNumeric).not.toBe(afterScoped);
+    expect(idSet(afterNumeric).has("1:C")).toBe(false);
   });
 });

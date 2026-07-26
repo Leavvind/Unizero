@@ -66,11 +66,6 @@ export interface GraphOptions {
   couplingMinWeight?: number;
 }
 
-export interface EgoGraphOptions {
-  /** Cap on coupled peers around the focal paper. */
-  couplingLimit?: number;
-}
-
 export interface UniConnectionStats {
   items: number;
   edges: number;
@@ -102,6 +97,8 @@ interface LibraryIndex {
   itemsWithRefs: Set<ScopedItemKey>;
   /** Anonymous cache rows per item, retained so retract/update fixes diagnostics. */
   anonymousByItem: Map<ScopedItemKey, number>;
+  /** Whole-library topology, keyed by the effective graph options. */
+  graphCache: Map<string, LiteratureGraph>;
 }
 
 const READ_BATCH_SIZE = 32;
@@ -123,6 +120,7 @@ function emptyIndex(libraryID: number): LibraryIndex {
     edgeOwner: new Map(),
     itemsWithRefs: new Set(),
     anonymousByItem: new Map(),
+    graphCache: new Map(),
   };
 }
 
@@ -239,6 +237,8 @@ export class UniConnection {
     if (isReferencesCache(record) && cacheMatchesItem(record, item)) {
       this.ingestReferences(index, item, record);
     }
+    // A graph may have been requested while the shard read was in flight.
+    index.graphCache.clear();
     return true;
   }
 
@@ -323,6 +323,12 @@ export class UniConnection {
     options: GraphOptions = {},
   ): Promise<LiteratureGraph> {
     const index = await this.indexFor(libraryID);
+    const cacheKey = [
+      options.couplingHubCap ?? COUPLING_HUB_CAP,
+      options.couplingMinWeight ?? COUPLING_MIN_WEIGHT,
+    ].join(":");
+    const cached = index.graphCache.get(cacheKey);
+    if (cached) { return cached; }
     const nodes = new Map<ScopedItemKey, GraphNode>();
     const ensure = (id: ScopedItemKey): GraphNode => {
       let node = nodes.get(id);
@@ -351,69 +357,9 @@ export class UniConnection {
       ensure(target).degree += 1;
     });
 
-    return { scope: { libraryID }, nodes: [...nodes.values()], edges };
-  }
-
-  /**
-   * Query D: the in-library neighbourhood of one paper — its citers, the library
-   * papers it cites, and its top coupled peers. One hop, no out-of-library nodes.
-   */
-  public async egoGraph(
-    item: Zotero.Item,
-    options: EgoGraphOptions = {},
-  ): Promise<LiteratureGraph> {
-    const index = await this.indexFor(item.libraryID);
-    const center = libraryItemIdentity(item);
-    const nodes = new Map<ScopedItemKey, GraphNode>();
-    const ensure = (id: ScopedItemKey): GraphNode => {
-      let node = nodes.get(id);
-      if (!node) {
-        node = { id, itemKey: itemKeyOf(id), degree: 0 };
-        nodes.set(id, node);
-      }
-      return node;
-    };
-    ensure(center).isCenter = true;
-
-    const edges: GraphEdge[] = [];
-    const addCite = (source: ScopedItemKey, target: ScopedItemKey): void => {
-      if (source === target) { return; }
-      edges.push({ source, target, type: "cites", weight: 1, directed: true });
-      ensure(source).degree += 1;
-      ensure(target).degree += 1;
-    };
-
-    const self = index.selfEdge.get(center) || itemEdge(item);
-    if (self) {
-      for (const citer of index.inverted.get(self) || []) {
-        if (citer !== center) { addCite(citer, center); }
-      }
-    }
-    for (const edge of index.forward.get(center) || []) {
-      const target = index.edgeOwner.get(edge);
-      if (target && target !== center) { addCite(center, target); }
-    }
-
-    const limit = options.couplingLimit ?? DEFAULT_COUPLING_LIMIT;
-    for (const hit of await this.coupledWith(item, limit)) {
-      ensure(hit.scopedKey);
-      edges.push({
-        source: center,
-        target: hit.scopedKey,
-        type: "coupled",
-        weight: hit.shared,
-        directed: false,
-      });
-      ensure(center).degree += 1;
-      ensure(hit.scopedKey).degree += 1;
-    }
-
-    return {
-      scope: { libraryID: item.libraryID },
-      nodes: [...nodes.values()],
-      edges,
-      center,
-    };
+    const graph = { scope: { libraryID }, nodes: [...nodes.values()], edges };
+    index.graphCache.set(cacheKey, graph);
+    return graph;
   }
 
   /**
@@ -526,6 +472,7 @@ export class UniConnection {
   }
 
   private retractFrom(index: LibraryIndex, scopedKey: ScopedItemKey): void {
+    index.graphCache.clear();
     for (const edge of index.forward.get(scopedKey) || []) {
       const citingItems = index.inverted.get(edge);
       citingItems?.delete(scopedKey);

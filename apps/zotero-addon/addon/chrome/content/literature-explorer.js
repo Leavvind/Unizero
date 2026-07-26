@@ -1534,12 +1534,12 @@ var LiteratureExplorer = {
           this.runGraphAction(key, () => api.openMarkdown(key)));
       } else {
         entry(s.generateMarkdown, Boolean(node.hasPDF) && Boolean(api.convertItem), () =>
-          this.runGraphAction(key, () => api.convertItem(key), true));
+          this.runGraphAction(key, () => api.convertItem(key), "metadata"));
       }
       entry(s.loadReferences, true, () =>
-        this.runGraphAction(key, () => api.loadRelation(key, "references"), true));
+        this.runGraphAction(key, () => api.loadRelation(key, "references"), "references"));
       entry(s.loadCitations, true, () =>
-        this.runGraphAction(key, () => api.loadRelation(key, "citations"), true));
+        this.runGraphAction(key, () => api.loadRelation(key, "citations"), "citations"));
     });
   },
 
@@ -1557,11 +1557,85 @@ var LiteratureExplorer = {
    * rebuilt — leaving either one describing the state before the click is worse
    * than the extra work.
    */
-  async runGraphAction(itemKey, run, changesState) {
+  patchGraphPaper(data, itemKey, updated) {
+    if (!data || !updated) return;
+    let fields = [
+      "itemID", "title", "creators", "year", "publicationTitle",
+      "hasPDF", "hasMarkdown",
+    ];
+    (data.nodes || []).forEach((node) => {
+      if (node.itemKey !== itemKey) return;
+      fields.forEach((field) => {
+        if (updated[field] !== undefined) node[field] = updated[field];
+      });
+    });
+  },
+
+  patchPaperState(itemKey, updated) {
+    if (!updated) return;
+    let paper = this.collectionSnapshot && this.collectionSnapshot.items
+      .find((item) => item.itemKey === itemKey);
+    if (paper) Object.assign(paper, updated);
+    this.tabs.forEach((tab) => {
+      if (tab.itemKey === itemKey && tab.snapshot && tab.snapshot.seed) {
+        Object.assign(tab.snapshot.seed, updated);
+        if (updated.title) tab.title = updated.title;
+      }
+    });
+    let graphs = new Set([this.graphData.collection, this.graphData.detail]);
+    this.tabs.forEach((tab) => graphs.add(tab.graphData));
+    graphs.forEach((data) => this.patchGraphPaper(data, itemKey, updated));
+  },
+
+  invalidateGraphTopology() {
+    this._graphRequests = this._graphRequests || { collection: 0 };
+    this._graphRequests.collection += 1;
+    this.graphLoaded.collection = false;
+    this.graphData.collection = null;
+    this.cancelGraphRefit("collection");
+    this.tabs.forEach((tab) => {
+      this.beginTabRequest(tab, "graph");
+      tab.graphData = null;
+      tab.graphLoaded = null;
+      tab.graphBusy = false;
+      tab.graphError = "";
+    });
+    this.graphData.detail = null;
+    this.graphLoaded.detail = null;
+    this.cancelGraphRefit("detail");
+  },
+
+  async applyPaperChange(itemKey, updated, changeKind) {
+    this.patchPaperState(itemKey, updated);
+    if (changeKind === "references") {
+      this.invalidateGraphTopology();
+      if (this.mode === "collection") {
+        this.renderCollection();
+      } else {
+        let active = this.activeTabState();
+        if (active && active.kind === "graph") await this.loadDetailGraph(true);
+        else this.render();
+      }
+      return;
+    }
+    if (this.mode === "collection") {
+      this.renderCollection();
+    } else {
+      this.syncCollectionRelationStatus();
+      let active = this.activeTabState();
+      if (changeKind === "metadata" && active && active.kind === "graph" &&
+          this.graphData.detail) {
+        this.renderGraph("detail", false);
+      } else if (!active || active.kind !== "graph") {
+        this.render();
+      }
+    }
+  },
+
+  async runGraphAction(itemKey, run, changeKind) {
     let which = this._menuWhich === "detail" ? "detail" : "collection";
     let generation = this.contextGeneration;
     let tab = which === "detail" ? this.activeTabState() : null;
-    let snapshot = this.collectionSnapshot;
     let request = tab
       ? this.beginTabRequest(tab, "action")
       : ((this._collectionActionRequest || 0) + 1);
@@ -1582,25 +1656,12 @@ var LiteratureExplorer = {
     report(this.strings.loading);
     try {
       let updated = await run();
+      if (!this.contextIsCurrent(generation)) return;
+      // The mutation is already durable when the bridge resolves. Even if its
+      // originating tab was closed, current-library derived state must be updated.
+      if (changeKind) await this.applyPaperChange(itemKey, updated, changeKind);
       if (!current()) return;
       report("");
-      if (!changesState) return;
-      if (updated && this.collectionSnapshot === snapshot) {
-        let paper = snapshot.items
-          .find((item) => item.itemKey === itemKey);
-        if (paper) {
-          Object.assign(paper, updated);
-          if (this.mode === "collection") this.renderCollection();
-        }
-      }
-      if (which === "detail") {
-        tab.graphData = null;
-        tab.graphLoaded = null;
-        if (this.tabIsActive(tab) && tab.kind === "graph") {
-          await this.loadDetailGraph(true);
-        }
-      }
-      else await this.loadCollectionGraph(true);
     } catch (error) {
       report(this.strings.error + ": " + String(error), true);
     }
@@ -1773,10 +1834,11 @@ var LiteratureExplorer = {
       // A cancelled file picker is not a failure and must not claim one.
       if (refreshRow && result && result.path) {
         item.hasMarkdown = true;
-        this.renderCollection();
+        await this.applyPaperChange(item.itemKey, { hasMarkdown: true }, "metadata");
       }
       this.setCollectionStatus("");
     } catch (error) {
+      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
       this.setCollectionStatus(this.strings.error + ": " + String(error), true);
     }
   },
@@ -1835,9 +1897,9 @@ var LiteratureExplorer = {
     try {
       let updated = await api.loadRelation(item.itemKey, kind, true);
       if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
-      Object.assign(item, updated);
-      this.renderCollection();
+      await this.applyPaperChange(item.itemKey, updated, kind);
     } catch (error) {
+      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
       button.disabled = false;
       button.textContent = previous;
       this.setCollectionStatus(this.strings.error + ": " + String(error), true);
@@ -1858,9 +1920,13 @@ var LiteratureExplorer = {
         ? await api.convertItem(item.itemKey)
         : await api.loadRelation(item.itemKey, action);
       if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
-      Object.assign(item, updated);
-      this.renderCollection();
+      await this.applyPaperChange(
+        item.itemKey,
+        updated,
+        action === "markdown" ? "metadata" : action,
+      );
     } catch (error) {
+      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
       if (button) {
         button.disabled = false;
         button.textContent = previous;
