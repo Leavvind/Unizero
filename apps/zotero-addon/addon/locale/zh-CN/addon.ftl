@@ -34,7 +34,6 @@ literature-load-references-label = 加载参考文献
 literature-load-citations-label = 加载被引用文献
 literature-generate-markdown-label = 生成 Markdown
 literature-markdown-ready-label = Markdown 已就绪
-literature-markdown-missing-label = 链接的文件已不存在
 literature-markdown-relink-label = 修改 Markdown 链接…
 literature-markdown-regenerate-label = 重新转换
 literature-no-pdf-label = 没有 PDF 附件

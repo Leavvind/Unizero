@@ -34,7 +34,6 @@ literature-load-references-label = Load references
 literature-load-citations-label = Load citations
 literature-generate-markdown-label = Generate Markdown
 literature-markdown-ready-label = Markdown ready
-literature-markdown-missing-label = The linked file is missing
 literature-markdown-relink-label = Change Markdown link…
 literature-markdown-regenerate-label = Convert again
 literature-no-pdf-label = No PDF attachment

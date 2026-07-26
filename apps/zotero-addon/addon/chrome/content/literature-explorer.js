@@ -1802,13 +1802,11 @@ var LiteratureExplorer = {
   },
 
   /**
-   * Link manager for a converted paper.
+   * Obsidian URL manager for a converted paper.
    *
-   * The Markdown is attached as a link, so the record can outlive the file: the
-   * table says "converted" while the path points at nothing. That is invisible
-   * from the badge alone, so the menu leads with where the link goes and whether
-   * anything is still there. UID and path targets share one explicit link-change
-   * action — a note that merely moved needs a new binding, not another conversion.
+   * Opening and editing deliberately ignore Zotero's device-local attachment
+   * path. Conversion supplies a default Obsidian URL and this menu lets the user
+   * replace that URL directly.
    */
   async showMarkdownMenu(item, event) {
     let s = this.strings;
@@ -1820,22 +1818,14 @@ var LiteratureExplorer = {
       link = null;
     }
     this.showMenu(point, item.title || "", ({ entry, note }) => {
-      // Advanced URI is the note's portable identity. The linked attachment path
-      // is only local bookkeeping and should not look authoritative on a second
-      // device where the vault lives elsewhere.
-      if (link && link.advancedUri) note(link.advancedUri);
-      else if (link && link.path) note(link.path);
-      if (link && !link.exists && !link.advancedUri) {
-        note(s.markdownMissing, true);
-      }
+      if (link && link.url) note(link.url);
       entry(s.graphOpenObsidian, Boolean(api.openMarkdown), () =>
         this.runCollectionMarkdownAction(item, () => api.openMarkdown(item.itemKey)));
       entry(s.select, Boolean(item.itemID), () => api.selectItem(item.itemID));
-      // UID and path routes share one explicit repair action. Merely opening this
-      // menu never rewrites an older absolute-path link.
-      entry(s.markdownRelink, Boolean(api.relinkMarkdown),
+      // One action edits the URL text; it never opens a filesystem picker.
+      entry(s.markdownRelink, Boolean(api.editMarkdownLink),
         () => this.runCollectionMarkdownAction(
-          item, () => api.relinkMarkdown(item.itemKey), true));
+          item, () => api.editMarkdownLink(item.itemKey), true));
       entry(s.markdownRegenerate, Boolean(item.hasPDF) && Boolean(api.convertItem),
         () => this.runCollectionAction(null, item, "markdown"));
     });
@@ -1850,7 +1840,7 @@ var LiteratureExplorer = {
       let result = await run();
       if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
       // A cancelled file picker is not a failure and must not claim one.
-      if (refreshRow && result && result.path) {
+      if (refreshRow && result && result.url) {
         item.hasMarkdown = true;
         await this.applyPaperChange(item.itemKey, { hasMarkdown: true }, "metadata");
       }

@@ -12,8 +12,6 @@ import type {
   LiteratureCollectionScope,
 } from "../modules/literatureRelations";
 import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
-import { artifactSource, kindTag, markArtifact } from "./artifactIdentity";
-import { MD_ATTACHMENT_TITLE } from "./conversionAdapter";
 
 const MARKDOWN_TAGS = new Set(["unizero:markdown", "unizero:markdown-copy"]);
 
@@ -89,58 +87,16 @@ export function hasPdfAttachment(item: Zotero.Item): boolean {
  * survive a manually removed output.
  */
 export function markdownAttachment(item: Zotero.Item): Zotero.Item | undefined {
-  const candidates = attachments(item).filter((attachment) => {
+  return attachments(item).find((attachment) => {
     if (attachment.attachmentContentType === "text/markdown") { return true; }
     if (attachment.getTags().some((tag) => MARKDOWN_TAGS.has(tag.tag))) { return true; }
     const title = String(attachment.getField("title") || "");
     return /\.md(?:\s|$)/i.test(title);
   });
-  return candidates.find((attachment) => attachment.isLinkedFileAttachment?.()) ||
-    candidates[0];
 }
 
 export function hasMarkdownAttachment(item: Zotero.Item): boolean {
   return Boolean(markdownAttachment(item));
-}
-
-/**
- * Point a paper's Markdown artifact at a different file.
- *
- * The attachment stores a path and nothing else, so this is the entire repair for
- * a note that was renamed or moved in the vault: no content is read, copied, or
- * written, and the note itself is untouched. If only UniZero's stored snapshot
- * remains, create a new owned linked artifact and leave the snapshot untouched.
- * A user-authored stored Markdown attachment is never converted into our artifact.
- */
-export async function relinkMarkdownAttachment(
-  item: Zotero.Item,
-  path: string,
-): Promise<Zotero.Item> {
-  const attachment = markdownAttachment(item);
-  if (!attachment) { throw new Error("This paper has no Markdown attachment"); }
-  if (!attachment.isLinkedFileAttachment?.()) {
-    const isGeneratedCopy = attachment.getTags().some(
-      (tag) => tag.tag === kindTag("markdown-copy"),
-    );
-    if (!isGeneratedCopy) {
-      throw new Error("This paper's Markdown is a stored copy, not a link");
-    }
-    const created = await Zotero.Attachments.linkFromFile({
-      file: path,
-      parentItemID: item.id,
-      title: MD_ATTACHMENT_TITLE,
-      contentType: "text/markdown",
-    });
-    await markArtifact(
-      created,
-      "markdown",
-      artifactSource(attachment) || pdfAttachment(item)?.key || item.key,
-    );
-    return created;
-  }
-  attachment.attachmentPath = path;
-  await attachment.saveTx();
-  return attachment;
 }
 
 export function pdfAttachment(item: Zotero.Item): Zotero.Item | undefined {

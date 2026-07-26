@@ -34,7 +34,6 @@ literature-load-references-label = Carica riferimenti
 literature-load-citations-label = Carica citazioni
 literature-generate-markdown-label = Genera Markdown
 literature-markdown-ready-label = Markdown pronto
-literature-markdown-missing-label = Il file collegato non esiste più
 literature-markdown-relink-label = Modifica collegamento Markdown…
 literature-markdown-regenerate-label = Riconverti
 literature-no-pdf-label = Nessun allegato PDF

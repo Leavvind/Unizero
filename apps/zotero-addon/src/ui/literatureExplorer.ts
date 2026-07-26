@@ -21,14 +21,12 @@ import { getString } from "../utils/locale";
 import {
   markdownAttachment,
   pdfAttachment,
-  relinkMarkdownAttachment,
   selectedLiteratureScope,
 } from "../zotero/literatureCollectionAdapter";
 import {
-  assertMarkdownUidAvailable,
-  markdownUidFromFile,
+  defaultMarkdownUrl,
+  ensureMarkdownLink,
   recordMarkdownLink,
-  resolveMarkdownLink,
 } from "../zotero/markdownLinkRegistry";
 
 const EXPLORER_URL = `chrome://${config.addonRef}/content/literature-explorer.xhtml`;
@@ -61,15 +59,6 @@ function contextItem(itemKey?: string, libraryID?: number): Zotero.Item {
   return item;
 }
 
-/** Portable Obsidian target for a converted note, when this device has a vault. */
-function markdownAdvancedUri(uid: string): string {
-  const vault = String(getConversionPref("obsidianVault") || "").trim();
-  return vault && uid
-    ? `obsidian://adv-uri?vault=${encodeURIComponent(vault)}` +
-      `&uid=${encodeURIComponent(uid)}`
-    : "";
-}
-
 function strings() {
   const read = (key: string, fallback: string) => getString(key) || fallback;
   return {
@@ -99,10 +88,6 @@ function strings() {
       "Generate Markdown",
     ),
     markdownReady: read("literature-markdown-ready-label", "Markdown ready"),
-    markdownMissing: read(
-      "literature-markdown-missing-label",
-      "The linked file is missing",
-    ),
     markdownRelink: read("literature-markdown-relink-label", "Change Markdown link…"),
     markdownRegenerate: read(
       "literature-markdown-regenerate-label",
@@ -412,109 +397,52 @@ function explorerApi() {
       await (explorerOwner as any).ZoteroPane?.viewAttachment?.(attachment.id);
       explorerOwner.focus();
     },
-    /** Open the note through its recorded uid, or its unchanged absolute path. */
+    /** Open the note only through its stored Obsidian URL. */
     openMarkdown: async (itemKey: string) => {
       const item = contextItem(itemKey);
       const attachment = markdownAttachment(item);
       if (!attachment) { throw new Error("This paper has no Markdown yet"); }
-      const vault = String(getConversionPref("obsidianVault") || "").trim();
-      const link = await resolveMarkdownLink(item, attachment);
-      const advancedUri = markdownAdvancedUri(link.uid);
-
-      if (advancedUri) {
-        Zotero.launchURL(advancedUri);
-        return link.uid;
-      }
-      if (!link.exists || !link.path) {
-        throw new Error(
-          vault
-            ? "The Markdown link cannot be resolved. Use Change Markdown link " +
-              "to select the note again."
-            : "The Markdown file has moved. Use Change Markdown link to select " +
-              "the note again.",
-        );
-      }
-      Zotero.launchURL(`obsidian://open?path=${encodeURIComponent(link.path)}`);
-      return link.path;
+      const link = await ensureMarkdownLink(
+        item,
+        defaultMarkdownUrl(item, getConversionPref("obsidianVault")),
+      );
+      Zotero.launchURL(link.url);
+      return link.url;
     },
     /**
-     * Where a paper's Markdown link points, and whether anything is still there.
-     *
-     * `exists` is the whole reason this exists: the attachment record says
-     * "converted" whether or not the file survived, and nothing in the table can
-     * tell the two apart without asking the filesystem.
+     * The user-editable Obsidian URL for a converted paper.
      */
     markdownLink: async (itemKey: string) => {
       const item = contextItem(itemKey);
       const attachment = markdownAttachment(item);
       if (!attachment) { return null; }
-      const link = await resolveMarkdownLink(item, attachment);
-      return {
-        path: link.path,
-        exists: link.exists,
-        linked: Boolean(attachment.isLinkedFileAttachment?.()),
-        uid: link.uid,
-        advancedUri: markdownAdvancedUri(link.uid),
-      };
+      return ensureMarkdownLink(
+        item,
+        defaultMarkdownUrl(item, getConversionPref("obsidianVault")),
+      );
     },
     /**
-     * Re-point the Markdown link at a file the user chooses.
+     * Edit the URL used by Open in Obsidian.
      *
-     * Returns null when the picker is dismissed, so the caller can tell "changed
+     * Returns null when the prompt is dismissed, so the caller can tell "changed
      * nothing" from "failed" — cancelling is neither an error nor a change.
      */
-    relinkMarkdown: async (itemKey: string) => {
+    editMarkdownLink: async (itemKey: string) => {
       if (!explorerOwner) { throw new Error("Literature Explorer is unavailable"); }
       const item = contextItem(itemKey);
       const attachment = markdownAttachment(item);
       if (!attachment) { throw new Error("This paper has no Markdown attachment"); }
-      const previous = String(attachment.getFilePath() || "");
-      // Open where the note used to be, with its old name filled in: relinking
-      // almost always means the same folder and a name close to the old one.
-      const separator = previous.lastIndexOf("\\") >= previous.lastIndexOf("/")
-        ? previous.lastIndexOf("\\")
-        : previous.lastIndexOf("/");
-      const picked = await new ztoolkit.FilePicker(
+      const current = await ensureMarkdownLink(
+        item,
+        defaultMarkdownUrl(item, getConversionPref("obsidianVault")),
+      );
+      const promptWindow = explorerWindow || explorerOwner;
+      const edited = promptWindow.prompt(
         getString("literature-markdown-relink-label") || "Change Markdown link",
-        "open",
-        [["Markdown", "*.md"]],
-        separator > 0 ? previous.slice(separator + 1) : undefined,
-        explorerWindow || explorerOwner,
-        "all",
-        separator > 0 ? previous.slice(0, separator) : undefined,
-      ).open();
-      if (!picked) { return null; }
-      const path = String(picked);
-      // Inspect before mutating Zotero so an unreadable selection cannot leave the
-      // attachment changed while the registry still points at the old note.
-      const uid = await markdownUidFromFile(path);
-      await assertMarkdownUidAvailable(item, uid);
-      const linked = await relinkMarkdownAttachment(item, path);
-      try {
-        await recordMarkdownLink(item, linked, path, uid);
-      } catch (error) {
-        // Keep Zotero and the registry on the same target if the atomic registry
-        // write fails after the attachment mutation.
-        try {
-          if (attachment.isLinkedFileAttachment?.()) {
-            if (previous) { await relinkMarkdownAttachment(item, previous); }
-          } else {
-            // relinkMarkdownAttachment created this generated link because only
-            // the stored snapshot remained. Roll back that new artifact.
-            await linked.eraseTx();
-          }
-        } catch (rollbackError) {
-          ztoolkit.log("Markdown link rollback failed", rollbackError);
-        }
-        throw error;
-      }
-      return {
-        path,
-        exists: true,
-        linked: true,
-        uid,
-        advancedUri: markdownAdvancedUri(uid),
-      };
+        current.url,
+      );
+      if (edited === null) { return null; }
+      return recordMarkdownLink(item, edited);
     },
     selectItem: (itemID: number) => {
       if (!itemID || !explorerOwner) { return; }

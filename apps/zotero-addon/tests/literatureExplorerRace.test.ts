@@ -390,26 +390,18 @@ describe("Literature Explorer async ownership", () => {
     harness.win.close();
   });
 
-  it("keeps one link-change action available for an Advanced URI target", async () => {
+  it("shows the stored Obsidian URL and one link-change action", async () => {
     const uri = "obsidian://adv-uri?vault=Academic&uid=unizero-1-P1";
     const harness = createHarness({
-      markdownLink: async () => ({
-        path: "D:\\old-device\\First Paper.md",
-        exists: false,
-        linked: true,
-        uid: "unizero-1-P1",
-        advancedUri: uri,
-      }),
+      markdownLink: async () => ({ url: uri }),
       openMarkdown: async () => undefined,
-      relinkMarkdown: async () => undefined,
+      editMarkdownLink: async () => undefined,
     });
     await flush();
 
     await harness.explorer.showMarkdownMenu(paper("P1", "First Paper"), null);
     const menu = harness.win.document.getElementById("graph-menu")!;
     expect(menu.querySelector(".graph-menu-note")?.textContent).toBe(uri);
-    expect(menu.textContent).not.toContain("D:\\old-device");
-    expect(menu.textContent).not.toContain("markdownMissing");
     const linkActions = Array.from(menu.querySelectorAll("button"))
       .filter((button) => button.textContent === "markdownRelink");
     expect(linkActions).toHaveLength(1);
@@ -417,24 +409,20 @@ describe("Literature Explorer async ownership", () => {
     harness.win.close();
   });
 
-  it("uses the same link-change action for an absolute-path target", async () => {
+  it("never presents an absolute attachment path as the Markdown link", async () => {
     const harness = createHarness({
       markdownLink: async () => ({
-        path: "D:\\old-device\\Legacy.md",
-        exists: false,
-        linked: true,
-        uid: "unizero-1-P1",
-        advancedUri: "",
+        url: "obsidian://adv-uri?uid=unizero-1-P1",
       }),
       openMarkdown: async () => undefined,
-      relinkMarkdown: async () => undefined,
+      editMarkdownLink: async () => undefined,
     });
     await flush();
 
     await harness.explorer.showMarkdownMenu(paper("P1", "Legacy"), null);
     const menu = harness.win.document.getElementById("graph-menu")!;
-    expect(menu.textContent).toContain("D:\\old-device\\Legacy.md");
-    expect(menu.textContent).toContain("markdownMissing");
+    expect(menu.textContent).not.toContain("D:\\");
+    expect(menu.textContent).toContain("obsidian://adv-uri");
     const linkActions = Array.from(menu.querySelectorAll("button"))
       .filter((button) => button.textContent === "markdownRelink");
     expect(linkActions).toHaveLength(1);

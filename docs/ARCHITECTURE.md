@@ -205,17 +205,17 @@ Neither component reaches through the HTTP boundary to reuse the other's impleme
 | Work files and processing records | Runtime home |
 | Published Markdown | User-selected filesystem destination |
 | Note identity (`uid` frontmatter) | Published Markdown; the runtime supplies a stable default |
-| Zotero item ↔ Markdown note binding | `<dataDir>/unizero/markdown-links/<libraryID>.json`, maintained by the add-on |
+| Zotero item ↔ Obsidian URL binding | `<dataDir>/unizero/markdown-links/<libraryID>.json`, maintained by the add-on |
 | Generated Zotero attachment identity | `unizero:<kind>` tags |
 
 Derived data never becomes a second authority for Zotero metadata. Layout coordinates sit
 outside the shard tree on purpose: shards are keyed by item and swept when an item
 disappears, which would delete a library-scoped file on every start.
 
-The Markdown link registry contains no bibliographic fields. It joins the canonical
-Zotero item and attachment identity to the path and frontmatter uid observed in the
-published file. Conversion, an explicit link change, or observing a reachable changed
-file refreshes it; observation never rewrites an existing absolute-path attachment.
+The Markdown link registry contains no bibliographic fields or absolute paths. It joins
+the canonical Zotero item identity to one user-editable `obsidian://` URL. Conversion
+creates a missing binding from the configured vault and stable uid; an existing edited
+URL survives re-conversion.
 
 ## Identity and safety
 

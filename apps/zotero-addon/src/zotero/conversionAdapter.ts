@@ -20,10 +20,10 @@ import {
 } from "./artifactIdentity";
 import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
 import { libraryScope } from "./libraryScope";
-import { recordMarkdownLink } from "./markdownLinkRegistry";
+import { ensureMarkdownLink } from "./markdownLinkRegistry";
 
 const GENERATED_TAG = "MD/generated";
-export const MD_ATTACHMENT_TITLE = "ZoMiner MD";
+const MD_ATTACHMENT_TITLE = "ZoMiner MD";
 /** Title used by earlier ZoMiner versions; still recognised when overwriting. */
 const LEGACY_ATTACHMENT_TITLE = "Academic MD";
 const MD_COPY_ATTACHMENT_TITLE = "ZoMiner MD Copy";
@@ -228,7 +228,7 @@ function legacyArtifacts(
 async function attachMarkdown(
   context: ArtifactContext,
   path: string,
-): Promise<Zotero.Item> {
+): Promise<void> {
   const title = MD_ATTACHMENT_TITLE + context.suffix;
   const legacyTitle = LEGACY_ATTACHMENT_TITLE + context.suffix;
   // On Windows the same path can appear with / or \, so normalise before comparing.
@@ -262,7 +262,7 @@ async function attachMarkdown(
     if (!isArtifact(current)) {
       await adoptArtifact(current, "markdown", context.source);
     }
-    return current;
+    return;
   }
 
   const created = await Zotero.Attachments.linkFromFile({
@@ -273,7 +273,6 @@ async function attachMarkdown(
   });
   await markArtifact(created, "markdown", context.source);
   ztoolkit.log(`linked MD attachment: ${path}`);
-  return created;
 }
 
 /**
@@ -319,7 +318,7 @@ async function attachImportedCopy(
 export async function markConverted(
   target: ConversionTarget,
   result: JobResult | undefined,
-  options: { mdSnapshot: boolean },
+  options: { mdSnapshot: boolean; markdownUrl: string },
 ): Promise<void> {
   const parent = target.parent;
   if (!parent) { return; }
@@ -342,11 +341,11 @@ export async function markConverted(
   };
 
   if (outcome.md_path) {
-    const markdown = await attachMarkdown(context, outcome.md_path);
+    await attachMarkdown(context, outcome.md_path);
     // The Collection view represents the paper's main conversion. Supplements
     // have their own attachments but must not replace the paper-level note link.
     if (!target.isSupplement) {
-      await recordMarkdownLink(parent, markdown, outcome.md_path);
+      await ensureMarkdownLink(parent, options.markdownUrl);
     }
     if (options.mdSnapshot) {
       try {

@@ -24,6 +24,7 @@ import {
 import { noteConversionFailure, noteServiceFailure } from "../../ui/notices";
 import { openPanel } from "../../ui/panel";
 import { getConversionPref } from "./settings";
+import { defaultMarkdownUrl } from "../../zotero/markdownLinkRegistry";
 
 /**
  * Job polling interval.
@@ -106,6 +107,12 @@ export async function convertItems(
 
       await markConverted(target, final.result || {}, {
         mdSnapshot: getConversionPref("mdSnapshot"),
+        markdownUrl: target.parent
+          ? defaultMarkdownUrl(
+            target.parent,
+            getConversionPref("obsidianVault"),
+          )
+          : "",
       });
     } catch (error) {
       // Either the runtime never accepted the request — so there is no job row to

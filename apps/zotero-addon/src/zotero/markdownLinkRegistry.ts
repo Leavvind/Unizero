@@ -1,33 +1,22 @@
 /**
- * Persistent binding between a Zotero paper and its published Markdown note.
+ * Persistent Obsidian URL bound to each converted Zotero paper.
  *
- * Zotero remains canonical for the attachment itself. This registry records the
- * extra identity Zotero does not know about: the note's frontmatter `uid`. It is
- * kept outside the installed add-on under:
+ * The user-facing link is deliberately independent of Zotero's local attachment
+ * path. Zotero still needs that path to own the generated attachment, but opening
+ * and editing the note target uses only the URL stored here:
  *
  *   <Zotero data directory>/unizero/markdown-links/<libraryID>.json
- *
- * One document per library keeps group-library identity explicit and lets writes
- * for unrelated libraries proceed independently.
  */
 
 import { config } from "../../package.json";
 
-const REGISTRY_SCHEMA = 1;
-const FRONTMATTER_READ_LIMIT = 16_384;
-const FRONTMATTER_UID = /^\s*uid\s*:\s*(.*?)\s*$/m;
+const REGISTRY_SCHEMA = 2;
 
 export interface MarkdownLinkBinding {
   libraryID: number;
   itemKey: string;
-  attachmentKey: string;
-  path: string;
-  uid: string;
+  url: string;
   updatedAt: number;
-}
-
-export interface ResolvedMarkdownLink extends MarkdownLinkBinding {
-  exists: boolean;
 }
 
 interface RegistryDocument {
@@ -73,12 +62,12 @@ function validBinding(
   if (Number(value.libraryID) !== libraryID || String(value.itemKey) !== itemKey) {
     return;
   }
+  const url = String(value.url || "").trim();
+  if (!url) { return; }
   return {
     libraryID,
     itemKey,
-    attachmentKey: String(value.attachmentKey || ""),
-    path: String(value.path || ""),
-    uid: String(value.uid || ""),
+    url,
     updatedAt: Number(value.updatedAt || 0),
   };
 }
@@ -133,35 +122,26 @@ function isMissingFile(error: any): boolean {
   return error?.name === "NotFoundError" || error?.name === "NotAllowedError";
 }
 
-/**
- * Read a scalar YAML `uid` without treating it as a number.
- *
- * Advanced URI accepts UUID/text identifiers as well as numeric-looking ones.
- * Returning a string here preserves leading zeroes and gives URI construction one
- * representation regardless of how Obsidian displays the property.
- */
-export function uidFromMarkdownFrontmatter(source: string): string {
-  const match = FRONTMATTER_UID.exec(String(source || ""));
-  if (!match) { return ""; }
-  let value = match[1].trim();
-  const quote = value[0];
-  if ((quote === "'" || quote === "\"") && value.endsWith(quote)) {
-    value = value.slice(1, -1).trim();
+/** Default URL generated for a conversion. No absolute path participates. */
+export function defaultMarkdownUrl(item: Zotero.Item, vault: string): string {
+  const key = String(item.key || "").trim();
+  if (!key) { return ""; }
+  const uid = `unizero-${item.libraryID}-${key}`;
+  const encodedVault = String(vault || "").trim();
+  return "obsidian://adv-uri?" +
+    (encodedVault ? `vault=${encodeURIComponent(encodedVault)}&` : "") +
+    `uid=${encodeURIComponent(uid)}`;
+}
+
+export function validateMarkdownUrl(value: string): string {
+  const url = String(value || "").trim();
+  if (!/^obsidian:\/\/\S+$/i.test(url)) {
+    throw new Error("The Markdown link must be an obsidian:// URL");
   }
-  if (!value || /^(?:null|~)$/i.test(value)) { return ""; }
-  return value;
+  return url;
 }
 
-export async function markdownUidFromFile(path: string): Promise<string> {
-  const head = await Zotero.File.getContentsAsync(
-    path,
-    "utf-8",
-    FRONTMATTER_READ_LIMIT,
-  );
-  return uidFromMarkdownFrontmatter(String(head));
-}
-
-export async function readMarkdownLinkBinding(
+export async function readMarkdownLink(
   item: Zotero.Item,
 ): Promise<MarkdownLinkBinding | undefined> {
   const libraryID = Number(item.libraryID);
@@ -170,53 +150,24 @@ export async function readMarkdownLinkBinding(
     try {
       await pending;
     } catch {
-      // The last complete registry is still useful after a failed write.
+      // The previous complete document is still useful after a failed write.
     }
   }
   const document = await loadDocument(libraryID);
   return validBinding(document.items[item.key], libraryID, item.key);
 }
 
-export async function assertMarkdownUidAvailable(
-  item: Zotero.Item,
-  uid: string,
-): Promise<void> {
-  if (!uid) { return; }
-  const libraryID = Number(item.libraryID);
-  const pending = writes.get(libraryID);
-  if (pending) { await pending; }
-  const document = await loadDocument(libraryID);
-  for (const [otherKey, other] of Object.entries(document.items)) {
-    if (otherKey !== item.key && other?.uid === uid) {
-      throw new Error(
-        `Markdown uid '${uid}' is already linked to Zotero item ${otherKey}`,
-      );
-    }
-  }
-}
-
-/**
- * Persist the exact note identity observed after conversion or an explicit link
- * change. Passing `uid` avoids reading a file twice when the caller already
- * inspected it.
- */
+/** Save an explicitly edited URL. */
 export async function recordMarkdownLink(
   item: Zotero.Item,
-  attachment: Zotero.Item,
-  path: string,
-  uid?: string,
+  value: string,
 ): Promise<MarkdownLinkBinding> {
   const libraryID = Number(item.libraryID);
   const itemKey = String(item.key);
-  const observedUid = uid === undefined
-    ? await markdownUidFromFile(path)
-    : String(uid || "");
   const binding: MarkdownLinkBinding = {
     libraryID,
     itemKey,
-    attachmentKey: String(attachment.key || ""),
-    path: String(path || ""),
-    uid: observedUid,
+    url: validateMarkdownUrl(value),
     updatedAt: Date.now(),
   };
 
@@ -224,20 +175,12 @@ export async function recordMarkdownLink(
     .catch(() => undefined)
     .then(async () => {
       const document = await loadDocument(libraryID);
-      for (const [otherKey, other] of Object.entries(document.items)) {
-        if (observedUid && otherKey !== itemKey && other?.uid === observedUid) {
-          throw new Error(
-            `Markdown uid '${observedUid}' is already linked to Zotero item ${otherKey}`,
-          );
-        }
-      }
       const next: RegistryDocument = {
         ...document,
         updatedAt: binding.updatedAt,
         items: { ...document.items, [itemKey]: binding },
       };
       await persistDocument(next);
-      // Do not expose a binding in memory until its atomic disk write succeeds.
       documents.set(libraryID, Promise.resolve(next));
     });
   writes.set(libraryID, write);
@@ -250,51 +193,13 @@ export async function recordMarkdownLink(
 }
 
 /**
- * Reconcile Zotero's attachment path, the reachable Markdown frontmatter, and the
- * persisted binding.
- *
- * No path is changed here. A reachable legacy file is merely observed; an
- * unreachable attachment with no registry entry remains path-based until the user
- * explicitly changes its link.
+ * Ensure conversion/legacy discovery has a URL without overwriting a URL the
+ * user already edited.
  */
-export async function resolveMarkdownLink(
+export async function ensureMarkdownLink(
   item: Zotero.Item,
-  attachment: Zotero.Item,
-): Promise<ResolvedMarkdownLink> {
-  const existing = await attachment.getFilePathAsync();
-  const attachmentPath = String(existing || attachment.getFilePath() || "");
-  const binding = await readMarkdownLinkBinding(item);
-
-  if (existing) {
-    let uid = binding?.path === String(existing) ? binding.uid : "";
-    try {
-      uid = await markdownUidFromFile(String(existing));
-    } catch (error) {
-      ztoolkit.log(`Markdown frontmatter unreadable at ${existing}: ${error}`);
-    }
-    const changed =
-      !binding ||
-      binding.attachmentKey !== String(attachment.key || "") ||
-      binding.path !== String(existing) ||
-      binding.uid !== uid;
-    const current = changed
-      ? await recordMarkdownLink(item, attachment, String(existing), uid)
-      : binding;
-    return { ...current, exists: true };
-  }
-
-  if (
-    binding &&
-    binding.attachmentKey === String(attachment.key || "")
-  ) {
-    return { ...binding, exists: false };
-  }
-
-  const current = await recordMarkdownLink(
-    item,
-    attachment,
-    attachmentPath,
-    "",
-  );
-  return { ...current, exists: false };
+  generatedUrl: string,
+): Promise<MarkdownLinkBinding> {
+  const existing = await readMarkdownLink(item);
+  return existing || recordMarkdownLink(item, generatedUrl);
 }
