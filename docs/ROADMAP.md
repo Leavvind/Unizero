@@ -44,7 +44,6 @@ READMEs and `docs/ARCHITECTURE.md`.
   `src/modules/views.ts` as those areas change.
 - Move the template-editor dialog logic in `addon/chrome/content/panel.js` under the
   TypeScript build.
-- Add automated component checks to the release workflow.
 
 ## Graph
 

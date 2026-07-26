@@ -13,7 +13,7 @@
     ],
     "contactEmail": "j45rbnr8p4@privaterelay.appleid.com",
     "releasepage": "https://github.com/Leavvind/Unizero/releases/latest/download/unizero.xpi",
-    "updaterdf": "https://raw.githubusercontent.com/Leavvind/Unizero/main/update.json"
+    "updaterdf": "https://raw.githubusercontent.com/Leavvind/Unizero/main/apps/zotero-addon/update.json"
   },
   "main": "src/index.ts",
   "scripts": {

@@ -1,0 +1,101 @@
+name: Release Zotero add-on
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: zotero-addon-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Verify, build, and publish XPI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/zotero-addon
+
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/zotero-addon/package-lock.json
+
+      - name: Verify release tag
+        shell: bash
+        run: |
+          package_version="$(node --print "require('./package.json').version")"
+          expected_tag="v${package_version}"
+          if [[ "${GITHUB_REF_NAME}" != "${expected_tag}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package version ${package_version}; expected ${expected_tag}."
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
+            echo "::error::The tagged commit is not on the main branch."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check contracts and types
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build XPI
+        run: npm run build
+
+      - name: Verify release files
+        shell: bash
+        run: |
+          test -s build/unizero.xpi
+
+          package_version="$(node --print "require('./package.json').version")"
+          manifest_version="$(unzip -p build/unizero.xpi manifest.json | node --input-type=module --eval \
+            "let input=''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => console.log(JSON.parse(input).version));")"
+          if [[ "${manifest_version}" != "${package_version}" ]]; then
+            echo "::error::XPI manifest version ${manifest_version} does not match package version ${package_version}."
+            exit 1
+          fi
+
+          if [[ "${package_version}" != *-* ]] && ! git diff --exit-code -- update.json; then
+            echo "::error::update.json was not regenerated before the release tag was created."
+            echo "::error::Create releases with 'npm run release -- patch|minor|major'."
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          package_version="$(node --print "require('./package.json').version")"
+
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" build/unizero.xpi --clobber
+            exit 0
+          fi
+
+          release_flags=(--verify-tag --generate-notes --title "UniZero ${GITHUB_REF_NAME}")
+          if [[ "${package_version}" == *-* ]]; then
+            release_flags+=(--prerelease)
+          else
+            release_flags+=(--latest)
+          fi
+
+          gh release create "${GITHUB_REF_NAME}" build/unizero.xpi "${release_flags[@]}"

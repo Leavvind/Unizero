@@ -2,12 +2,15 @@
   "npm": {
     "publish": false
   },
+  "git": {
+    "requireBranch": "main",
+    "tagName": "v${version}"
+  },
   "github": {
-    "release": true,
-    "assets": ["build/unizero.xpi"]
+    "release": false
   },
   "hooks": {
     "after:bump": "npm run build",
-    "after:release": "echo Successfully released ${name} v${version} to ${repo.repository}."
+    "after:release": "echo Pushed ${name} v${version}; GitHub Actions will publish the XPI."
   }
 }

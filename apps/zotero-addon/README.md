@@ -148,6 +148,25 @@ Vitest suites, which cover the derived index and graph builders plus the host-in
 parts of the Explorer and graph renderer.
 `npm run build` writes `build/unizero.xpi`.
 
+## Release
+
+Releases are published by `.github/workflows/release-zotero-addon.yml`. A pushed
+`v*` tag must match the version in `package.json`; the workflow installs locked
+dependencies, runs the add-on checks and tests, builds the XPI, and attaches
+`build/unizero.xpi` to a GitHub Release as `unizero.xpi`.
+
+From a clean `main` branch, create a release with:
+
+```bash
+npm run release -- patch
+```
+
+Use `minor` or `major` instead of `patch` when appropriate. `release-it` updates
+`package.json` and `package-lock.json`, rebuilds the tracked `update.json`, commits the
+version, creates the matching `v<version>` tag, and pushes it. GitHub Actions then owns
+the GitHub Release, so no local GitHub token is required. Do not create a release tag
+manually unless `update.json` has already been regenerated for that version.
+
 ## Run in Zotero
 
 Copy `scripts/zotero-cmd-default.json` to the gitignored
