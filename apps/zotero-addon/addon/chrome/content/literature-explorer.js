@@ -1551,9 +1551,7 @@ var LiteratureExplorer = {
   },
 
   setCollectionStatus(text, error) {
-    let status = document.getElementById("collection-status");
-    status.textContent = text || "";
-    status.classList.toggle("error", !!error);
+    this.writeStatus("collection-status", text, error);
   },
 
   displayDate(value) {
@@ -1825,9 +1823,22 @@ var LiteratureExplorer = {
   },
 
   setStatus(text, error) {
-    let status = document.getElementById("status");
+    this.writeStatus("status", text, error);
+  },
+
+  /**
+   * Both status lines sit above their table, so a failure reported while the user
+   * is further down the page lands somewhere they cannot see — which reads as the
+   * action having done nothing at all. Errors are rare enough to be worth
+   * scrolling to, and `nearest` does nothing when the line is already visible.
+   */
+  writeStatus(id, text, error) {
+    let status = document.getElementById(id);
     status.textContent = text || "";
     status.classList.toggle("error", !!error);
+    if (error && status.scrollIntoView) {
+      status.scrollIntoView({ block: "nearest" });
+    }
   },
 
   /**

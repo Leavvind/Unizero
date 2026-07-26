@@ -481,17 +481,24 @@ function explorerApi() {
     relinkMarkdown: async (itemKey: string) => {
       if (!explorerOwner) { throw new Error("Literature Explorer is unavailable"); }
       const item = contextItem(itemKey);
-      const picker = new (Zotero as any).FilePicker();
-      picker.init(
-        explorerWindow || explorerOwner,
+      const attachment = markdownAttachment(item);
+      const previous = String(attachment?.getFilePath() || "");
+      // Open where the note used to be, with its old name filled in: relinking
+      // almost always means the same folder and a name close to the old one.
+      const separator = previous.lastIndexOf("\\") >= previous.lastIndexOf("/")
+        ? previous.lastIndexOf("\\")
+        : previous.lastIndexOf("/");
+      const picked = await new ztoolkit.FilePicker(
         getString("literature-markdown-relink-label") || "Change linked file",
-        picker.modeOpen,
-      );
-      picker.appendFilter("Markdown", "*.md");
-      picker.appendFilters(picker.filterAll);
-      if (await picker.show() !== picker.returnOK) { return null; }
-      const path = String(picker.file || "");
-      if (!path) { return null; }
+        "open",
+        [["Markdown", "*.md"]],
+        separator > 0 ? previous.slice(separator + 1) : undefined,
+        explorerWindow || explorerOwner,
+        "all",
+        separator > 0 ? previous.slice(0, separator) : undefined,
+      ).open();
+      if (!picked) { return null; }
+      const path = String(picked);
       await relinkMarkdownAttachment(item, path);
       return { path, exists: true, linked: true, uid: markdownUid(item) };
     },
