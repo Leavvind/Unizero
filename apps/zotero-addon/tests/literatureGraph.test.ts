@@ -39,6 +39,7 @@ function forceGraphStub() {
       return forces[name];
     },
     graphData: vi.fn(() => proxy),
+    centerAt: vi.fn(() => proxy),
     onEngineStop(callback: () => void) {
       onEngineStop = callback;
       return proxy;
@@ -112,6 +113,26 @@ describe("LiteratureGraph renderer facade", () => {
     }, {});
     expect(view.lastError).toBeNull();
     expect(onClearError).toHaveBeenCalledTimes(1);
+    renderer.destroy(view);
+    win.close();
+  });
+
+  it("re-centres the selected node using its existing graph coordinates", () => {
+    const { win, renderer } = loadRenderer();
+    const graph = forceGraphStub();
+    (win as any).ForceGraph = () => () => graph;
+    const container = win.document.getElementById("graph") as HTMLElement;
+    const view = renderer.create(container, {});
+    renderer.setData(view, {
+      scope: { libraryID: 1 },
+      nodes: [{ id: "1:A", itemKey: "A", degree: 0 }],
+      edges: [],
+    }, { "1:A": [12, 34] });
+    renderer.select(view, "1:A");
+
+    renderer.centerOnSelection(view);
+
+    expect(graph.centerAt).toHaveBeenCalledWith(12, 34, 0);
     renderer.destroy(view);
     win.close();
   });

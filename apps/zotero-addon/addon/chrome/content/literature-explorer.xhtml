@@ -653,37 +653,52 @@
       color: var(--accent);
       font-weight: 700;
     }
-    /* The table becomes a collapsible management surface once the graph leads. */
-    .table-panel > summary {
-      padding: 7px 10px;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 700;
-      list-style: none;
-      user-select: none;
-    }
-    .table-panel > summary::-webkit-details-marker { display: none; }
-    .table-panel > summary::before {
-      display: inline-block;
-      margin-right: 6px;
-      content: "▸";
-    }
-    .table-panel[open] > summary::before { content: "▾"; }
-    .table-panel > summary:hover { color: var(--accent); }
-    .table-panel[open] .table-wrap { max-height: 320px; min-height: 0; }
-
     /* The Graph tab replaces the table surface entirely. */
     #detail-view.graph-mode .toolbar,
     #detail-view.graph-mode .table-wrap,
     #detail-view.graph-mode .footer,
     #detail-view.graph-mode .progress { display: none !important; }
-    /* Table mode hides the board and lets the table reclaim the full height. */
-    #collection-view.table-mode .graph-wrap { display: none; }
-    #collection-view.table-mode .table-panel > summary { display: none; }
+    /* Graph and Table are mutually exclusive Collection surfaces. */
+    #collection-view:not(.table-mode) .table-panel { display: none; }
+    #collection-view.table-mode .collection-graph-area { display: none; }
     #collection-view.table-mode .table-panel .table-wrap {
       max-height: calc(100vh - 165px);
       min-height: 420px;
+    }
+    #explorer-workspace.split-mode {
+      display: grid;
+      grid-template-columns: minmax(280px, 1.05fr) minmax(400px, .95fr);
+      align-items: start;
+      gap: 14px;
+    }
+    #explorer-workspace.split-mode > .view { min-width: 0; }
+    #explorer-workspace.split-mode #collection-view {
+      padding-right: 14px;
+      border-right: 1px solid var(--border);
+    }
+    #explorer-workspace.split-mode #collection-view .collection-toolbar {
+      align-items: stretch;
+      flex-wrap: wrap;
+    }
+    #explorer-workspace.split-mode #collection-view .search-field {
+      flex-basis: 100%;
+      max-width: none;
+    }
+    #explorer-workspace.split-mode #collection-view .graph-wrap {
+      height: calc(100vh - 246px);
+    }
+    #explorer-workspace.split-mode #detail-view {
+      min-width: 0;
+    }
+    #explorer-workspace.split-mode #tab-graph { display: none; }
+    #explorer-workspace.split-mode #detail-view .toolbar {
+      max-height: 160px;
+      overflow-y: auto;
+      padding-right: 3px;
+    }
+    #explorer-workspace.split-mode #detail-view .table-wrap {
+      min-height: 360px;
+      max-height: calc(100vh - 330px);
     }
 
     /* Floating preview card shown on row hover. */
@@ -787,6 +802,7 @@
     </div>
   </header>
 
+  <main id="explorer-workspace">
   <section class="view" id="collection-view">
     <div class="collection-toolbar">
       <div class="filter-field search-field">
@@ -810,33 +826,34 @@
     </div>
     <div class="status" id="collection-status" role="status"></div>
 
-    <div class="graph-wrap" id="collection-graph-wrap">
-      <div class="graph-canvas" id="collection-graph"></div>
-      <div class="graph-overlay" id="collection-graph-overlay"></div>
-      <button class="graph-gear" id="collection-graph-gear">⚙</button>
-      <div class="graph-panel" id="collection-graph-panel" hidden="hidden"></div>
-      <div class="graph-empty" id="collection-graph-empty" hidden="hidden"></div>
+    <div class="collection-graph-area">
+      <div class="graph-wrap" id="collection-graph-wrap">
+        <div class="graph-canvas" id="collection-graph"></div>
+        <div class="graph-overlay" id="collection-graph-overlay"></div>
+        <button class="graph-gear" id="collection-graph-gear">⚙</button>
+        <div class="graph-panel" id="collection-graph-panel" hidden="hidden"></div>
+        <div class="graph-empty" id="collection-graph-empty" hidden="hidden"></div>
+      </div>
     </div>
 
-    <details class="table-panel" id="collection-table-panel">
-      <summary id="collection-table-summary"></summary>
-    <div class="table-wrap">
-      <table class="collection-table">
-        <thead>
-          <tr>
-            <th class="title-col" id="collection-head-title"></th>
-            <th class="creator-col" id="collection-head-creator"></th>
-            <th class="year-col" id="collection-head-year"></th>
-            <th class="date-added-col" id="collection-head-date-added"></th>
-            <th class="state-col" id="collection-head-markdown"></th>
-            <th class="state-col" id="collection-head-references"></th>
-            <th class="state-col" id="collection-head-citations"></th>
-          </tr>
-        </thead>
-        <tbody id="collection-rows"></tbody>
-      </table>
+    <div class="table-panel" id="collection-table-panel">
+      <div class="table-wrap">
+        <table class="collection-table">
+          <thead>
+            <tr>
+              <th class="title-col" id="collection-head-title"></th>
+              <th class="creator-col" id="collection-head-creator"></th>
+              <th class="year-col" id="collection-head-year"></th>
+              <th class="date-added-col" id="collection-head-date-added"></th>
+              <th class="state-col" id="collection-head-markdown"></th>
+              <th class="state-col" id="collection-head-references"></th>
+              <th class="state-col" id="collection-head-citations"></th>
+            </tr>
+          </thead>
+          <tbody id="collection-rows"></tbody>
+        </table>
+      </div>
     </div>
-    </details>
   </section>
 
   <section class="view" id="detail-view" hidden="hidden">
@@ -932,6 +949,7 @@
       <button id="load-more" hidden="hidden"></button>
     </div>
   </section>
+  </main>
 
   <!-- One node menu for both graphs: only one of them is ever on screen. -->
   <div class="graph-menu" id="graph-menu" hidden="hidden"></div>

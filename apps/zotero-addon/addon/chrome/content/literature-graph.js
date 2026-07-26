@@ -852,6 +852,23 @@ var LiteratureGraph = {
     } catch (error) { /* not laid out yet */ }
   },
 
+  /** Re-centre the selected Collection node after its canvas changes size. */
+  centerOnSelection(view, milliseconds) {
+    if (!view || !view.graph || !view.selectedId ||
+        !view.data || !view.data.nodes) { return; }
+    var selected = view.data.nodes.find(function (node) {
+      return node.id === view.selectedId;
+    });
+    if (!selected || typeof selected.x !== "number") { return; }
+    try {
+      view.graph.centerAt(
+        selected.x,
+        selected.y,
+        milliseconds === undefined ? 0 : milliseconds,
+      );
+    } catch (error) { /* not laid out yet */ }
+  },
+
   destroy(view) {
     if (view && view.watchdog) {
       window.clearInterval(view.watchdog);

@@ -17,8 +17,10 @@ the client for the local paper runtime.
 - a Relation view per paper: which library papers cite it, and which share the most of
   its references, both derived locally with no extra network access;
 - graph views in the Explorer: a full-library graph that toggles with the management
-  table, and a graph tab per paper that centres the same graph on it, with adjustable
-  display and force settings and a per-node menu for PDF, Markdown, and relation actions;
+  table and previews the existing References/Relation/Citations detail surface beside
+  the graph without opening a paper tab when a node is selected, plus a graph tab per
+  paper that centres the same graph on it, with adjustable display and force settings
+  and a per-node menu for PDF, Markdown, and relation actions;
 - filtering discovered works by library status, influence, year, publication type, and
   order, plus importing missing papers into the current library;
 - relating discovered works;

@@ -23,7 +23,7 @@ var LiteratureExplorer = {
   busy: false,
   /**
    * Open paper tabs, in strip order. The Collection is always the first tab and is
-   * not in this list; `activeTab` is -1 while it is showing.
+   * not in this list. `activeTab` is -1 whenever Collection remains selected.
    *
    * Only one detail view exists in the DOM. A tab holds the state that view would
    * be in, and switching writes the outgoing state out and the incoming state back
@@ -32,6 +32,12 @@ var LiteratureExplorer = {
    */
   tabs: [],
   activeTab: -1,
+  /**
+   * Transient owner of the Detail View beside the Collection graph. It deliberately
+   * lives outside `tabs`: selecting another node replaces it instead of growing the
+   * tab strip. An explicit Open action may promote it into a real paper tab.
+   */
+  collectionPreview: null,
   /** "combined" or a RelationSourceKey — which source's list the table shows. */
   activeSource: "combined",
   /** "graph" or "table" — which surface leads the collection overview. */
@@ -41,7 +47,7 @@ var LiteratureExplorer = {
   graphLoaded: { collection: false, detail: null },
   /** Unfiltered graphs as returned by the API; filters derive views from these. */
   graphData: { collection: null, detail: null },
-  /** Collection-board filters. Detail graph filters live on each paper tab. */
+  /** Collection-board filters. Detail graph filters live on their paper state. */
   graphFilters: { links: "all", minShared: 1 },
   /** Saved node coordinates for this library, seeded into the simulation. */
   graphLayout: null,
@@ -157,7 +163,6 @@ var LiteratureExplorer = {
     document.getElementById("tab-graph").textContent = s.graphTab;
     document.getElementById("collection-mode-graph").textContent = s.graphView;
     document.getElementById("collection-mode-table").textContent = s.tableView;
-    document.getElementById("collection-table-summary").textContent = s.tableView;
     document.getElementById("label-collection-links").textContent = s.graphLinksLabel;
     document.getElementById("label-collection-shared").textContent = s.graphMinShared;
     document.getElementById("label-detail-links").textContent = s.graphLinksLabel;
@@ -416,6 +421,7 @@ var LiteratureExplorer = {
   },
 
   activeTabState() {
+    if (this.mode === "split") return this.collectionPreview;
     return this.tabs[this.activeTab] || null;
   },
 
@@ -431,7 +437,7 @@ var LiteratureExplorer = {
 
   tabRequestIsCurrent(tab, channel, request, generation) {
     return this.contextIsCurrent(generation) &&
-      this.tabs.includes(tab) &&
+      (this.tabs.includes(tab) || this.collectionPreview === tab) &&
       tab.requests[channel] === request;
   },
 
@@ -468,6 +474,7 @@ var LiteratureExplorer = {
     window.clearTimeout(this._settingsSave);
     this._settingsSave = null;
     this.destroyGraphs();
+    this.collectionPreview = null;
     this.cancelRowPreview();
     this.hideGraphMenu();
   },
@@ -491,6 +498,7 @@ var LiteratureExplorer = {
     // across — keeping them would resolve the same key against the wrong library.
     this.tabs = [];
     this.activeTab = -1;
+    this.collectionPreview = null;
     this.activeItemKey = this.context && this.context.itemKey || null;
     this.kind = this.context && this.context.kind || "references";
     document.getElementById("collection-refresh").disabled = false;
@@ -507,21 +515,23 @@ var LiteratureExplorer = {
 
   showView(mode) {
     this.mode = mode;
-    document.getElementById("collection-view").hidden = mode !== "collection";
-    document.getElementById("detail-view").hidden = mode !== "detail";
+    document.getElementById("collection-view").hidden = mode === "detail";
+    document.getElementById("detail-view").hidden = mode === "collection";
+    document.getElementById("explorer-workspace")
+      .classList.toggle("split-mode", mode === "split");
   },
 
   // ------------------------------------------------------------------ Tab strip
 
   /**
-   * Move the live detail view's state into its tab.
+   * Move the live detail view's state into its owning tab or Collection preview.
    *
    * The view keeps some of its state in the DOM — the search box and the year
    * range have no model behind them — so a plain object copy would lose it and
    * the tab would come back filtered differently from how it was left.
    */
   captureTab() {
-    let tab = this.tabs[this.activeTab];
+    let tab = this.activeTabState();
     if (!tab) return;
     let scroller = document.querySelector("#detail-view .table-wrap");
     tab.kind = this.kind;
@@ -537,8 +547,9 @@ var LiteratureExplorer = {
     tab.busy = this.busy;
   },
 
-  /** Put a tab's state back into the one detail view and redraw from it. */
-  async restoreTab(tab) {
+  /** Put a paper state's data back into the one detail view and redraw from it. */
+  async restoreTab(tab, viewMode) {
+    this.showView(viewMode === "split" ? "split" : "detail");
     this.activeItemKey = tab.itemKey;
     this.kind = tab.kind;
     this.snapshot = tab.snapshot;
@@ -555,7 +566,6 @@ var LiteratureExplorer = {
     this.stopProgress();
     document.getElementById("paper-title").textContent =
       tab.title || this.strings.loading;
-    this.showView("detail");
     this.renderTabs();
     // Before any load, so a new tab never shows the previous tab's selections
     // while its own data is still on the way.
@@ -593,7 +603,7 @@ var LiteratureExplorer = {
     if (scroller) scroller.scrollTop = tab.scroll || 0;
   },
 
-  newTab(itemKey, kind) {
+  newPaperState(itemKey, kind) {
     let known = this.collectionSnapshot && this.collectionSnapshot.items
       .find((item) => item.itemKey === itemKey);
     return {
@@ -602,8 +612,8 @@ var LiteratureExplorer = {
       kind: kind || "references",
       snapshot: null,
       activeSource: "combined",
-      // Same starting point resetFilters uses; a fresh tab is not the last one's
-      // filters carried over.
+      // Same starting point resetFilters uses; a fresh paper state is not the
+      // previous detail owner's filters carried over.
       filters: {
         library: "all",
         influence: "all",
@@ -643,7 +653,12 @@ var LiteratureExplorer = {
     let index = this.tabs.findIndex((tab) => tab.itemKey === itemKey);
     if (index === -1) {
       this.captureTab();
-      this.tabs.push(this.newTab(itemKey, kind));
+      let preview = this.collectionPreview;
+      let state = preview && preview.itemKey === itemKey
+        ? preview
+        : this.newPaperState(itemKey, kind);
+      this.collectionPreview = null;
+      this.tabs.push(state);
       index = this.tabs.length - 1;
       this.activeTab = index;
       await this.restoreTab(this.tabs[index]);
@@ -651,17 +666,31 @@ var LiteratureExplorer = {
     }
     if (index === this.activeTab) {
       if (kind && kind !== this.kind) await this.switchKind(kind);
+      this.collectionPreview = null;
+      this.showView("detail");
+      this.renderTabs();
+      this.resizeGraphs();
       return;
     }
     this.captureTab();
+    this.collectionPreview = null;
     this.activeTab = index;
     if (kind) this.tabs[index].kind = kind;
     await this.restoreTab(this.tabs[index]);
   },
 
   async activateTab(index) {
-    if (index === this.activeTab) return;
+    if (index === this.activeTab) {
+      if (index < 0 && this.mode === "split") {
+        this.captureTab();
+        this.showCollection();
+        this.renderTabs();
+        this.resizeGraphs();
+      }
+      return;
+    }
     this.captureTab();
+    this.collectionPreview = null;
     this.activeTab = index;
     if (index < 0) {
       this.showCollection();
@@ -702,10 +731,10 @@ var LiteratureExplorer = {
   /** The heading and the tab carry the same name; keep them from disagreeing. */
   setPaperTitle(title) {
     document.getElementById("paper-title").textContent = title;
-    let tab = this.tabs[this.activeTab];
+    let tab = this.activeTabState();
     if (!tab || tab.title === title) return;
     tab.title = title;
-    this.renderTabs();
+    if (this.tabs.includes(tab)) this.renderTabs();
   },
 
   renderTabs() {
@@ -746,10 +775,11 @@ var LiteratureExplorer = {
     let scopeName = this.collectionSnapshot && this.collectionSnapshot.scope
       ? this.collectionSnapshot.scope.name
       : s.collectionOverview;
-    chip(scopeName, scopeName, this.activeTab < 0, () => this.activateTab(-1));
+    chip(scopeName, scopeName, this.mode !== "detail",
+      () => this.activateTab(-1));
     this.tabs.forEach((tab, index) => {
       let label = tab.title || this.strings.loading;
-      chip(label, label, index === this.activeTab,
+      chip(label, label, this.mode === "detail" && index === this.activeTab,
         () => this.activateTab(index), () => this.closeTab(index));
     });
   },
@@ -761,6 +791,7 @@ var LiteratureExplorer = {
     let scope = this.context && this.context.scope
       ? Object.assign({}, this.context.scope)
       : null;
+    this.collectionPreview = null;
     this.showView("collection");
     this.collectionBusy = true;
     document.getElementById("collection-refresh").disabled = true;
@@ -794,6 +825,7 @@ var LiteratureExplorer = {
   },
 
   showCollection() {
+    this.collectionPreview = null;
     this.activeTab = -1;
     this.showView("collection");
     this.renderTabs();
@@ -864,9 +896,10 @@ var LiteratureExplorer = {
       .classList.toggle("active", mode === "graph");
     document.getElementById("collection-mode-table")
       .classList.toggle("active", mode === "table");
-    // Collapsed by default in graph mode: the table is the management surface,
-    // not the main view.
-    document.getElementById("collection-table-panel").open = mode === "table";
+    if (mode === "table" && this.mode === "split") {
+      this.captureTab();
+      this.showCollection();
+    }
     if (mode === "graph") {
       this.loadCollectionGraph();
       this.resizeGraphs();
@@ -1283,6 +1316,22 @@ var LiteratureExplorer = {
     });
   },
 
+  /**
+   * The node click is centred while Collection still owns the full width. Once
+   * split mode narrows the canvas, resize first and calculate the screen centre
+   * again from the selected node's unchanged graph coordinates.
+   */
+  recenterCollectionSelection() {
+    let view = this.graphs.collection;
+    if (!view || this.mode !== "split") return;
+    try {
+      LiteratureGraph.resize(view);
+      LiteratureGraph.centerOnSelection(view, 0);
+    } catch (error) {
+      this.onGraphError("collection", String(error));
+    }
+  },
+
   /** Reuse the table's hover card so both surfaces describe a paper identically. */
   onGraphHover(which, node) {
     this.cancelRowPreview();
@@ -1303,18 +1352,35 @@ var LiteratureExplorer = {
 
   onGraphSelect(which, node) {
     if (which !== "collection" || !node) return;
-    // Keep the management table in step with the board.
-    let row = document.querySelector(
-      '#collection-rows tr[data-item-key="' + node.itemKey + '"]',
-    );
-    if (row && row.scrollIntoView) {
-      row.scrollIntoView({ block: "nearest" });
-    }
+    this.cancelRowPreview();
+    void this.showCollectionPreview(node.itemKey);
   },
 
   onGraphOpen(node) {
     if (!node) return;
     this.showDetail(node.itemKey, "references");
+  },
+
+  /**
+   * Keep the Collection board in place while reusing the existing paper detail
+   * surface on its right. This state is intentionally not a paper tab: selecting a
+   * different node replaces it, while an explicit Open action promotes it.
+   */
+  async showCollectionPreview(itemKey) {
+    if (!itemKey) return;
+    if (this.collectionPreview && this.collectionPreview.itemKey === itemKey) {
+      if (this.kind !== "references") await this.switchKind("references");
+      return;
+    }
+    this.captureTab();
+    this.activeTab = -1;
+    this.collectionPreview = this.newPaperState(itemKey, "references");
+    let restoring = this.restoreTab(this.collectionPreview, "split");
+    // restoreTab enters split mode synchronously before its provider request waits.
+    // Correct the viewport immediately instead of leaving a full-width canvas
+    // cropped until References finishes loading.
+    this.recenterCollectionSelection();
+    await restoring;
   },
 
   // ------------------------------------------------------------ Graph settings
@@ -1594,8 +1660,15 @@ var LiteratureExplorer = {
         if (updated.title) tab.title = updated.title;
       }
     });
+    let preview = this.collectionPreview;
+    if (preview && preview.itemKey === itemKey && preview.snapshot &&
+        preview.snapshot.seed) {
+      Object.assign(preview.snapshot.seed, updated);
+      if (updated.title) preview.title = updated.title;
+    }
     let graphs = new Set([this.graphData.collection, this.graphData.detail]);
     this.tabs.forEach((tab) => graphs.add(tab.graphData));
+    if (preview) graphs.add(preview.graphData);
     graphs.forEach((data) => this.patchGraphPaper(data, itemKey, updated));
   },
 
@@ -1605,7 +1678,11 @@ var LiteratureExplorer = {
     this.graphLoaded.collection = false;
     this.graphData.collection = null;
     this.cancelGraphRefit("collection");
-    this.tabs.forEach((tab) => {
+    let paperStates = this.tabs.slice();
+    if (this.collectionPreview && !paperStates.includes(this.collectionPreview)) {
+      paperStates.push(this.collectionPreview);
+    }
+    paperStates.forEach((tab) => {
       this.beginTabRequest(tab, "graph");
       tab.graphData = null;
       tab.graphLoaded = null;
@@ -1621,18 +1698,16 @@ var LiteratureExplorer = {
     this.patchPaperState(itemKey, updated);
     if (changeKind === "references") {
       this.invalidateGraphTopology();
-      if (this.mode === "collection") {
-        this.renderCollection();
-      } else {
+      if (this.mode !== "detail") this.renderCollection();
+      if (this.mode !== "collection") {
         let active = this.activeTabState();
         if (active && active.kind === "graph") await this.loadDetailGraph(true);
         else this.render();
       }
       return;
     }
-    if (this.mode === "collection") {
-      this.renderCollection();
-    } else {
+    if (this.mode !== "detail") this.renderCollection();
+    if (this.mode !== "collection") {
       this.syncCollectionRelationStatus();
       let active = this.activeTabState();
       if (changeKind === "metadata" && active && active.kind === "graph" &&

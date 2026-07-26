@@ -25,7 +25,8 @@ READMEs and `docs/ARCHITECTURE.md`.
   restart, a library large enough to stress readability, the graph status line after an
   induced callback failure, rapid switching/closing of paper tabs, personal/group library
   context changes, immediate topology refresh after References updates, fit/drag/menu
-  boundaries, and window-close cleanup.
+  boundaries, Collection node/detail split layout at narrow and wide window sizes, and
+  window-close cleanup.
 
 ## Contracts and artifacts
 

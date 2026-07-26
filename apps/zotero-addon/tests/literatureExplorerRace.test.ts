@@ -129,6 +129,7 @@ function rendererStub() {
     snapshotPositions: () => ({}),
     zoomToFit: vi.fn(),
     centerOnFocus: vi.fn(),
+    centerOnSelection: vi.fn(),
     select: vi.fn(),
   };
   return renderer;
@@ -179,6 +180,117 @@ function createHarness(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Literature Explorer async ownership", () => {
+  it("opens a Collection node in the shared split detail view", async () => {
+    const harness = createHarness();
+    await flush();
+    const renderer = (harness.win as any).LiteratureGraph;
+    renderer.resize.mockClear();
+    renderer.centerOnSelection.mockClear();
+
+    await harness.explorer.showCollectionPreview("P1");
+
+    expect(harness.explorer.mode).toBe("split");
+    expect(harness.win.document.getElementById("collection-view")?.hidden)
+      .toBe(false);
+    expect(harness.win.document.getElementById("detail-view")?.hidden)
+      .toBe(false);
+    expect(harness.win.document.getElementById("rows")?.textContent)
+      .toContain("row-of-P1");
+    expect(harness.win.document.getElementById("collection-table-panel")
+      ?.querySelector("summary")).toBeNull();
+    expect(harness.win.document.getElementById("explorer-workspace")
+      ?.classList.contains("split-mode")).toBe(true);
+    expect(harness.explorer.tabs).toHaveLength(0);
+    expect(harness.explorer.activeTab).toBe(-1);
+    expect(harness.explorer.collectionPreview.itemKey).toBe("P1");
+    expect(renderer.resize).toHaveBeenCalledWith(
+      harness.explorer.graphs.collection,
+    );
+    expect(renderer.centerOnSelection).toHaveBeenCalledWith(
+      harness.explorer.graphs.collection,
+      0,
+    );
+    expect(renderer.resize.mock.invocationCallOrder[0])
+      .toBeLessThan(renderer.centerOnSelection.mock.invocationCallOrder[0]);
+    harness.win.close();
+  });
+
+  it("replaces the Collection preview when another node is selected", async () => {
+    const harness = createHarness();
+    await flush();
+
+    await harness.explorer.showCollectionPreview("P1");
+    await harness.explorer.showCollectionPreview("P2");
+
+    expect(harness.explorer.tabs).toHaveLength(0);
+    expect(harness.explorer.activeTab).toBe(-1);
+    expect(harness.explorer.collectionPreview.itemKey).toBe("P2");
+    expect(harness.win.document.getElementById("rows")?.textContent)
+      .toContain("row-of-P2");
+    expect(harness.win.document.querySelectorAll(".page-tab")).toHaveLength(1);
+    harness.win.close();
+  });
+
+  it("drops a slow result after its Collection preview is replaced", async () => {
+    const first = deferred<any>();
+    const second = deferred<any>();
+    const harness = createHarness({
+      snapshot: (itemKey: string) =>
+        itemKey === "P1" ? first.promise : second.promise,
+    });
+    await flush();
+
+    const openingFirst = harness.explorer.showCollectionPreview("P1");
+    await flush();
+    const openingSecond = harness.explorer.showCollectionPreview("P2");
+    second.resolve(snapshot("P2", "Second Paper"));
+    await openingSecond;
+    first.resolve(snapshot("P1", "First Paper"));
+    await openingFirst;
+
+    expect(harness.explorer.tabs).toHaveLength(0);
+    expect(harness.explorer.collectionPreview.itemKey).toBe("P2");
+    expect(harness.win.document.getElementById("rows")?.textContent)
+      .toContain("row-of-P2");
+    expect(harness.win.document.getElementById("rows")?.textContent)
+      .not.toContain("row-of-P1");
+    harness.win.close();
+  });
+
+  it("promotes the split preview to the full paper tab through Open", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.showCollectionPreview("P1");
+
+    await harness.explorer.showDetail("P1", "references");
+
+    expect(harness.explorer.mode).toBe("detail");
+    expect(harness.win.document.getElementById("collection-view")?.hidden)
+      .toBe(true);
+    expect(harness.win.document.getElementById("detail-view")?.hidden)
+      .toBe(false);
+    expect(harness.explorer.tabs).toHaveLength(1);
+    expect(harness.explorer.tabs[0].itemKey).toBe("P1");
+    expect(harness.explorer.collectionPreview).toBeNull();
+    harness.win.close();
+  });
+
+  it("returns to the full management table when Table mode is selected", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.showCollectionPreview("P1");
+
+    harness.explorer.setCollectionMode("table");
+
+    expect(harness.explorer.mode).toBe("collection");
+    expect(harness.explorer.activeTab).toBe(-1);
+    expect(harness.explorer.collectionPreview).toBeNull();
+    expect(harness.win.document.getElementById("detail-view")?.hidden).toBe(true);
+    expect(harness.win.document.getElementById("collection-view")
+      ?.classList.contains("table-mode")).toBe(true);
+    harness.win.close();
+  });
+
   it("keeps slow snapshot results on their owning inactive tab", async () => {
     const first = deferred<any>();
     const second = deferred<any>();
