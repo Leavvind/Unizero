@@ -3,7 +3,7 @@
     "unizero@leavvind": {
       "updates": [
         {
-          "version": "0.5.0",
+          "version": "0.5.1",
           "update_link": "https://github.com/Leavvind/Unizero/releases/latest/download/unizero.xpi",
           "applications": {
             "gecko": {
@@ -12,7 +12,7 @@
           }
         },
         {
-          "version": "0.5.0",
+          "version": "0.5.1",
           "update_link": "https://github.com/Leavvind/Unizero/releases/latest/download/unizero.xpi",
           "applications": {
             "zotero": {
