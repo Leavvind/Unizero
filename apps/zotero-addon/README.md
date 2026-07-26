@@ -104,6 +104,12 @@ absolute path, which does not survive the move. Notes converted before the uid
 existed carry none, so a reachable file is checked for one before the uid route is
 used.
 
+The Collection table's Markdown badge opens a link manager for a converted paper:
+where the link points, whether anything is still there, and an action to re-point
+it at another file. A note that merely moved needs a new path, not another
+conversion. Only linked files can be re-pointed — a stored copy belongs to Zotero
+and is replaced by the next conversion.
+
 ## Runtime connection
 
 The add-on uses `/api/v1` on `127.0.0.1`. Launch resolution is implemented in

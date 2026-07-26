@@ -21,6 +21,7 @@ import { getString } from "../utils/locale";
 import {
   markdownAttachment,
   pdfAttachment,
+  relinkMarkdownAttachment,
   selectedLiteratureScope,
 } from "../zotero/literatureCollectionAdapter";
 
@@ -111,6 +112,15 @@ function strings() {
       "Generate Markdown",
     ),
     markdownReady: read("literature-markdown-ready-label", "Markdown ready"),
+    markdownMissing: read(
+      "literature-markdown-missing-label",
+      "The linked file is missing",
+    ),
+    markdownRelink: read("literature-markdown-relink-label", "Change linked file…"),
+    markdownRegenerate: read(
+      "literature-markdown-regenerate-label",
+      "Convert again",
+    ),
     noPdf: read("literature-no-pdf-label", "No PDF attachment"),
     openRelations: read(
       "literature-open-relations-label",
@@ -440,6 +450,50 @@ function explorerApi() {
       }
       Zotero.launchURL(`obsidian://open?path=${encodeURIComponent(String(path))}`);
       return String(path);
+    },
+    /**
+     * Where a paper's Markdown link points, and whether anything is still there.
+     *
+     * `exists` is the whole reason this exists: the attachment record says
+     * "converted" whether or not the file survived, and nothing in the table can
+     * tell the two apart without asking the filesystem.
+     */
+    markdownLink: async (itemKey: string) => {
+      const item = contextItem(itemKey);
+      const attachment = markdownAttachment(item);
+      if (!attachment) { return null; }
+      const existing = await attachment.getFilePathAsync();
+      return {
+        // getFilePath resolves a base-directory-relative path without checking
+        // for the file, so a broken link still has something to show.
+        path: String(existing || attachment.getFilePath() || ""),
+        exists: Boolean(existing),
+        linked: Boolean(attachment.isLinkedFileAttachment?.()),
+        uid: markdownUid(item),
+      };
+    },
+    /**
+     * Re-point the Markdown link at a file the user chooses.
+     *
+     * Returns null when the picker is dismissed, so the caller can tell "changed
+     * nothing" from "failed" — cancelling is neither an error nor a change.
+     */
+    relinkMarkdown: async (itemKey: string) => {
+      if (!explorerOwner) { throw new Error("Literature Explorer is unavailable"); }
+      const item = contextItem(itemKey);
+      const picker = new (Zotero as any).FilePicker();
+      picker.init(
+        explorerWindow || explorerOwner,
+        getString("literature-markdown-relink-label") || "Change linked file",
+        picker.modeOpen,
+      );
+      picker.appendFilter("Markdown", "*.md");
+      picker.appendFilters(picker.filterAll);
+      if (await picker.show() !== picker.returnOK) { return null; }
+      const path = String(picker.file || "");
+      if (!path) { return null; }
+      await relinkMarkdownAttachment(item, path);
+      return { path, exists: true, linked: true, uid: markdownUid(item) };
     },
     selectItem: (itemID: number) => {
       if (!itemID || !explorerOwner) { return; }

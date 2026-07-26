@@ -589,6 +589,15 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    /* A path is the one thing here worth reading in full, so it wraps rather
+       than being cut off at the menu's width. */
+    .graph-menu .graph-menu-note {
+      padding: 2px 8px 6px;
+      color: var(--muted);
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+    .graph-menu .graph-menu-note.error { color: var(--danger); }
     .graph-menu button {
       display: block;
       width: 100%;

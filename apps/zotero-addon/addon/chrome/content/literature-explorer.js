@@ -1177,7 +1177,61 @@ var LiteratureExplorer = {
     }, 400);
   },
 
-  // ---------------------------------------------------------------- Node menu
+  // --------------------------------------------------------------- Popup menu
+
+  /**
+   * The window's one popup menu, shared by every surface that needs one.
+   *
+   * `build` receives helpers rather than a list, so a caller can put a note
+   * between two entries without this needing to know what a note is.
+   */
+  showMenu(point, title, build) {
+    let menu = document.getElementById("graph-menu");
+    if (!menu) return;
+    this._menuOpen = true;
+    this.cancelRowPreview();
+    menu.replaceChildren();
+
+    if (title) {
+      let heading = document.createElement("div");
+      heading.className = "graph-menu-title";
+      heading.textContent = title;
+      heading.title = title;
+      menu.append(heading);
+    }
+
+    build({
+      entry: (label, enabled, run) => {
+        let button = document.createElement("button");
+        button.textContent = label;
+        button.disabled = !enabled;
+        if (enabled) {
+          button.addEventListener("click", () => {
+            this.hideGraphMenu();
+            run();
+          });
+        }
+        menu.append(button);
+      },
+      note: (text, isError) => {
+        let line = document.createElement("div");
+        line.className = "graph-menu-note" + (isError ? " error" : "");
+        line.textContent = text;
+        line.title = text;
+        menu.append(line);
+      },
+    });
+
+    // Placed after mounting so the menu has a measurable size to keep on screen.
+    menu.hidden = false;
+    let x = (point && point.x) || (this._pointer && this._pointer.x) || 0;
+    let y = (point && point.y) || (this._pointer && this._pointer.y) || 0;
+    let rect = menu.getBoundingClientRect();
+    menu.style.left =
+      Math.max(4, Math.min(x, window.innerWidth - rect.width - 6)) + "px";
+    menu.style.top =
+      Math.max(4, Math.min(y, window.innerHeight - rect.height - 6)) + "px";
+  },
 
   /**
    * Right-click menu for a node.
@@ -1186,59 +1240,27 @@ var LiteratureExplorer = {
    * exists so the board does not force a detour through the table for them.
    */
   showGraphMenu(which, node, event) {
-    let menu = document.getElementById("graph-menu");
-    if (!menu || !node) return;
+    if (!node) return;
     let s = this.strings;
-    this._menuWhich = which;
-    this._menuOpen = true;
-    this.cancelRowPreview();
-    menu.replaceChildren();
-
-    let title = document.createElement("div");
-    title.className = "graph-menu-title";
-    title.textContent = node.title || node.label || "";
-    title.title = node.title || "";
-    menu.append(title);
-
-    let entry = (label, enabled, run) => {
-      let button = document.createElement("button");
-      button.textContent = label;
-      button.disabled = !enabled;
-      if (enabled) {
-        button.addEventListener("click", () => {
-          this.hideGraphMenu();
-          run();
-        });
-      }
-      menu.append(button);
-    };
-
     let key = node.itemKey;
-    entry(s.openRelations, true, () => this.showDetail(key, "references"));
-    entry(s.select, Boolean(node.itemID), () => api.selectItem(node.itemID));
-    entry(s.graphOpenPdf, Boolean(node.hasPDF) && Boolean(api.openPdf), () =>
-      this.runGraphAction(key, () => api.openPdf(key)));
-    if (node.hasMarkdown) {
-      entry(s.graphOpenObsidian, Boolean(api.openMarkdown), () =>
-        this.runGraphAction(key, () => api.openMarkdown(key)));
-    } else {
-      entry(s.generateMarkdown, Boolean(node.hasPDF) && Boolean(api.convertItem), () =>
-        this.runGraphAction(key, () => api.convertItem(key), true));
-    }
-    entry(s.loadReferences, true, () =>
-      this.runGraphAction(key, () => api.loadRelation(key, "references"), true));
-    entry(s.loadCitations, true, () =>
-      this.runGraphAction(key, () => api.loadRelation(key, "citations"), true));
-
-    // Placed after mounting so the menu has a measurable size to keep on screen.
-    menu.hidden = false;
-    let x = (event && event.clientX) || (this._pointer && this._pointer.x) || 0;
-    let y = (event && event.clientY) || (this._pointer && this._pointer.y) || 0;
-    let rect = menu.getBoundingClientRect();
-    menu.style.left =
-      Math.max(4, Math.min(x, window.innerWidth - rect.width - 6)) + "px";
-    menu.style.top =
-      Math.max(4, Math.min(y, window.innerHeight - rect.height - 6)) + "px";
+    this._menuWhich = which;
+    this.showMenu(event, node.title || node.label || "", ({ entry }) => {
+      entry(s.openRelations, true, () => this.showDetail(key, "references"));
+      entry(s.select, Boolean(node.itemID), () => api.selectItem(node.itemID));
+      entry(s.graphOpenPdf, Boolean(node.hasPDF) && Boolean(api.openPdf), () =>
+        this.runGraphAction(key, () => api.openPdf(key)));
+      if (node.hasMarkdown) {
+        entry(s.graphOpenObsidian, Boolean(api.openMarkdown), () =>
+          this.runGraphAction(key, () => api.openMarkdown(key)));
+      } else {
+        entry(s.generateMarkdown, Boolean(node.hasPDF) && Boolean(api.convertItem), () =>
+          this.runGraphAction(key, () => api.convertItem(key), true));
+      }
+      entry(s.loadReferences, true, () =>
+        this.runGraphAction(key, () => api.loadRelation(key, "references"), true));
+      entry(s.loadCitations, true, () =>
+        this.runGraphAction(key, () => api.loadRelation(key, "citations"), true));
+    });
   },
 
   hideGraphMenu() {
@@ -1379,7 +1401,7 @@ var LiteratureExplorer = {
       button.classList.add("ready");
       button.textContent = "✓ MD";
       button.title = this.strings.markdownReady;
-      button.addEventListener("click", () => api.selectItem(item.itemID));
+      button.addEventListener("click", (event) => this.showMarkdownMenu(item, event));
     } else if (item.hasPDF) {
       button.classList.add("pending");
       button.textContent = "↻ MD";
@@ -1394,6 +1416,56 @@ var LiteratureExplorer = {
     }
     cell.append(button);
     return cell;
+  },
+
+  /**
+   * Link manager for a converted paper.
+   *
+   * The Markdown is attached as a link, so the record can outlive the file: the
+   * table says "converted" while the path points at nothing. That is invisible
+   * from the badge alone, so the menu leads with where the link goes and whether
+   * anything is still there, and offers to re-point it — a note that merely moved
+   * needs a new path, not another conversion.
+   */
+  async showMarkdownMenu(item, event) {
+    let s = this.strings;
+    let point = event ? { x: event.clientX, y: event.clientY } : null;
+    let link = null;
+    try {
+      link = api.markdownLink ? await api.markdownLink(item.itemKey) : null;
+    } catch (error) {
+      link = null;
+    }
+    this.showMenu(point, item.title || "", ({ entry, note }) => {
+      if (link && link.path) note(link.path);
+      if (link && !link.exists) note(s.markdownMissing, true);
+      entry(s.graphOpenObsidian, Boolean(api.openMarkdown), () =>
+        this.runCollectionMarkdownAction(item, () => api.openMarkdown(item.itemKey)));
+      entry(s.select, Boolean(item.itemID), () => api.selectItem(item.itemID));
+      // Only linked files have a path to re-point; a stored copy is owned by
+      // Zotero and re-created by the next conversion instead.
+      entry(s.markdownRelink, Boolean(api.relinkMarkdown) && Boolean(link && link.linked),
+        () => this.runCollectionMarkdownAction(
+          item, () => api.relinkMarkdown(item.itemKey), true));
+      entry(s.markdownRegenerate, Boolean(item.hasPDF) && Boolean(api.convertItem),
+        () => this.runCollectionAction(null, item, "markdown"));
+    });
+  },
+
+  /** Run a link action against the table, reporting on the Collection status line. */
+  async runCollectionMarkdownAction(item, run, refreshRow) {
+    this.setCollectionStatus(this.strings.loading);
+    try {
+      let result = await run();
+      // A cancelled file picker is not a failure and must not claim one.
+      if (refreshRow && result && result.path) {
+        item.hasMarkdown = true;
+        this.renderCollection();
+      }
+      this.setCollectionStatus("");
+    } catch (error) {
+      this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+    }
   },
 
   collectionRelationCell(item, kind) {
@@ -1456,10 +1528,13 @@ var LiteratureExplorer = {
     }
   },
 
+  /** `button` is optional: the same actions are also reachable from a menu. */
   async runCollectionAction(button, item, action) {
-    button.disabled = true;
-    let previous = button.textContent;
-    button.textContent = "…";
+    let previous = button ? button.textContent : "";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "…";
+    }
     try {
       let updated = action === "markdown"
         ? await api.convertItem(item.itemKey)
@@ -1467,8 +1542,10 @@ var LiteratureExplorer = {
       Object.assign(item, updated);
       this.renderCollection();
     } catch (error) {
-      button.disabled = false;
-      button.textContent = previous;
+      if (button) {
+        button.disabled = false;
+        button.textContent = previous;
+      }
       this.setCollectionStatus(this.strings.error + ": " + String(error), true);
     }
   },
