@@ -574,7 +574,14 @@
     }
     .graph-setting > input[type="range"] { grid-column: 1 / -1; width: 100%; margin: 0; }
     .graph-setting > input[type="checkbox"] { justify-self: end; margin: 0; }
-    .graph-setting > select { grid-column: 2; }
+    .graph-setting > .dropdown {
+      grid-column: 2;
+      min-width: 88px;
+    }
+    .graph-setting > .dropdown .dropdown-toggle {
+      min-height: 26px;
+      padding: 2px 7px;
+    }
     .graph-panel .graph-reset {
       width: 100%;
       margin-top: 10px;

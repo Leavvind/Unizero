@@ -369,6 +369,75 @@ describe("Literature Explorer async ownership", () => {
     harness.win.close();
   });
 
+  it("uses the chrome-safe dropdown for graph colour settings", async () => {
+    const harness = createHarness();
+    await flush();
+    harness.explorer.graphSettings = { colourBy: "none" };
+
+    harness.explorer.buildGraphPanel("collection");
+    const panel = harness.win.document.getElementById("collection-graph-panel")!;
+    expect(panel.querySelector("select")).toBeNull();
+    expect(panel.querySelector(".dropdown-label")?.textContent)
+      .toBe("graphColourNone");
+
+    const year = Array.from(panel.querySelectorAll<HTMLButtonElement>(
+      ".dropdown-option",
+    )).find((option) => option.dataset.value === "year");
+    year?.click();
+    expect(harness.explorer.graphSettings.colourBy).toBe("year");
+    expect(panel.querySelector(".dropdown-label")?.textContent)
+      .toBe("graphColourYear");
+    harness.win.close();
+  });
+
+  it("presents Advanced URI as the portable Markdown target", async () => {
+    const uri = "obsidian://adv-uri?vault=Academic&uid=unizero-1-P1";
+    const harness = createHarness({
+      markdownLink: async () => ({
+        path: "D:\\old-device\\First Paper.md",
+        exists: false,
+        linked: true,
+        uid: "unizero-1-P1",
+        advancedUri: uri,
+      }),
+      openMarkdown: async () => undefined,
+      relinkMarkdown: async () => undefined,
+    });
+    await flush();
+
+    await harness.explorer.showMarkdownMenu(paper("P1", "First Paper"), null);
+    const menu = harness.win.document.getElementById("graph-menu")!;
+    expect(menu.querySelector(".graph-menu-note")?.textContent).toBe(uri);
+    expect(menu.textContent).not.toContain("D:\\old-device");
+    expect(menu.textContent).not.toContain("markdownMissing");
+    expect(Array.from(menu.querySelectorAll("button"), (button) => button.textContent))
+      .not.toContain("markdownRelink");
+    harness.win.close();
+  });
+
+  it("keeps path repair available for legacy Markdown without a uid route", async () => {
+    const harness = createHarness({
+      markdownLink: async () => ({
+        path: "D:\\old-device\\Legacy.md",
+        exists: false,
+        linked: true,
+        uid: "unizero-1-P1",
+        advancedUri: "",
+      }),
+      openMarkdown: async () => undefined,
+      relinkMarkdown: async () => undefined,
+    });
+    await flush();
+
+    await harness.explorer.showMarkdownMenu(paper("P1", "Legacy"), null);
+    const menu = harness.win.document.getElementById("graph-menu")!;
+    expect(menu.textContent).toContain("D:\\old-device\\Legacy.md");
+    expect(menu.textContent).toContain("markdownMissing");
+    expect(Array.from(menu.querySelectorAll("button"), (button) => button.textContent))
+      .toContain("markdownRelink");
+    harness.win.close();
+  });
+
   it("keeps layout saving and final fit as separate settle listeners", async () => {
     const harness = createHarness();
     await flush();

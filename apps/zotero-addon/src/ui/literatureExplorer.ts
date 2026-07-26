@@ -69,6 +69,16 @@ function markdownUid(item: Zotero.Item): string {
   return key ? `unizero-${item.libraryID}-${key}` : "";
 }
 
+/** Portable Obsidian target for a converted note, when this device has a vault. */
+function markdownAdvancedUri(item: Zotero.Item): string {
+  const vault = String(getConversionPref("obsidianVault") || "").trim();
+  const uid = markdownUid(item);
+  return vault && uid
+    ? `obsidian://adv-uri?vault=${encodeURIComponent(vault)}` +
+      `&uid=${encodeURIComponent(uid)}`
+    : "";
+}
+
 const FRONTMATTER_UID = /^uid:\s*["']?([^"'\r\n]+)["']?\s*$/m;
 
 /** Whether a reachable note actually declares the uid we would jump to. */
@@ -452,12 +462,10 @@ function explorerApi() {
       // `false` here means the record exists but the file does not.
       const path = await attachment.getFilePathAsync();
       const uid = markdownUid(item);
+      const advancedUri = markdownAdvancedUri(item);
 
-      if (vault && uid && (!path || await fileCarriesUid(String(path), uid))) {
-        Zotero.launchURL(
-          `obsidian://adv-uri?vault=${encodeURIComponent(vault)}` +
-          `&uid=${encodeURIComponent(uid)}`,
-        );
+      if (advancedUri && (!path || await fileCarriesUid(String(path), uid))) {
+        Zotero.launchURL(advancedUri);
         return uid;
       }
       if (!path) {
@@ -484,13 +492,25 @@ function explorerApi() {
       const attachment = markdownAttachment(item);
       if (!attachment) { return null; }
       const existing = await attachment.getFilePathAsync();
+      const path = String(existing || attachment.getFilePath() || "");
+      const uid = markdownUid(item);
+      const candidateUri = markdownAdvancedUri(item);
+      // A reachable legacy note may not contain UniZero's uid yet. In that case
+      // advertise the path route honestly; when the local path is unavailable
+      // (the normal cross-device case), the uid route is the only portable target
+      // and openMarkdown will try it.
+      const advancedUri = candidateUri &&
+        (!existing || await fileCarriesUid(String(existing), uid))
+        ? candidateUri
+        : "";
       return {
         // getFilePath resolves a base-directory-relative path without checking
         // for the file, so a broken link still has something to show.
-        path: String(existing || attachment.getFilePath() || ""),
+        path,
         exists: Boolean(existing),
         linked: Boolean(attachment.isLinkedFileAttachment?.()),
-        uid: markdownUid(item),
+        uid,
+        advancedUri,
       };
     },
     /**

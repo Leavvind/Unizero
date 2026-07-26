@@ -272,8 +272,11 @@ var LiteratureExplorer = {
     ], "original", rerender("order"));
   },
 
-  createDropdown(id, initialOptions, initialValue, onChange) {
-    let host = document.getElementById(id);
+  createDropdown(idOrHost, initialOptions, initialValue, onChange) {
+    let host = typeof idOrHost === "string"
+      ? document.getElementById(idOrHost)
+      : idOrHost;
+    if (!host) { throw new Error("Dropdown host is unavailable"); }
     host.className = "dropdown";
     host.replaceChildren();
 
@@ -387,9 +390,10 @@ var LiteratureExplorer = {
         close();
       }
     });
-    document.addEventListener("mousedown", (event) => {
+    let dismiss = (event) => {
       if (!host.contains(event.target) && !menu.contains(event.target)) close();
-    }, true);
+    };
+    document.addEventListener("mousedown", dismiss, true);
     window.addEventListener("resize", close);
 
     options = initialOptions.slice();
@@ -403,6 +407,10 @@ var LiteratureExplorer = {
           ? preferredValue
           : options[0][0];
         renderOptions();
+      },
+      destroy: () => {
+        document.removeEventListener("mousedown", dismiss, true);
+        window.removeEventListener("resize", close);
       },
     };
   },
@@ -1391,17 +1399,21 @@ var LiteratureExplorer = {
     arrows.append(arrowsInput);
 
     let colour = row(s.graphColour);
-    let colourInput = document.createElement("select");
-    [["none", s.graphColourNone], ["year", s.graphColourYear]].forEach((pair) => {
-      let option = document.createElement("option");
-      option.value = pair[0];
-      option.textContent = pair[1];
-      colourInput.append(option);
-    });
-    colourInput.value = settings.colourBy;
-    colourInput.addEventListener("change", () =>
-      this.changeGraphSetting("colourBy", colourInput.value));
-    colour.append(colourInput);
+    let colourHost = document.createElement("div");
+    colour.append(colourHost);
+    let dropdownKey = which + "GraphColour";
+    if (this.dropdowns[dropdownKey]?.destroy) {
+      this.dropdowns[dropdownKey].destroy();
+    }
+    // Native HTML select popups render incorrectly in Zotero's privileged XHTML
+    // windows (the option text is duplicated and clicks never reach `change`).
+    // Use the same document-rendered listbox as the Explorer filters.
+    this.dropdowns[dropdownKey] = this.createDropdown(
+      colourHost,
+      [["none", s.graphColourNone], ["year", s.graphColourYear]],
+      settings.colourBy,
+      (value) => this.changeGraphSetting("colourBy", value),
+    );
 
     slider(s.graphTextFade, "textFade", 0, 24, 1);
     slider(s.graphNodeSize, "nodeSize", 0.25, 2.5, 0.05, (n) => Number(n).toFixed(2));
@@ -1808,16 +1820,24 @@ var LiteratureExplorer = {
       link = null;
     }
     this.showMenu(point, item.title || "", ({ entry, note }) => {
-      if (link && link.path) note(link.path);
-      if (link && !link.exists) note(s.markdownMissing, true);
+      // Advanced URI is the note's portable identity. The linked attachment path
+      // is only local bookkeeping and should not look authoritative on a second
+      // device where the vault lives elsewhere.
+      if (link && link.advancedUri) note(link.advancedUri);
+      else if (link && link.path) note(link.path);
+      if (link && !link.exists && !link.advancedUri) {
+        note(s.markdownMissing, true);
+      }
       entry(s.graphOpenObsidian, Boolean(api.openMarkdown), () =>
         this.runCollectionMarkdownAction(item, () => api.openMarkdown(item.itemKey)));
       entry(s.select, Boolean(item.itemID), () => api.selectItem(item.itemID));
-      // Only linked files have a path to re-point; a stored copy is owned by
-      // Zotero and re-created by the next conversion instead.
-      entry(s.markdownRelink, Boolean(api.relinkMarkdown) && Boolean(link && link.linked),
-        () => this.runCollectionMarkdownAction(
-          item, () => api.relinkMarkdown(item.itemKey), true));
+      // Re-pointing an absolute file path is a fallback for legacy/path-based
+      // notes, not part of the portable uid workflow.
+      if (!link || !link.advancedUri) {
+        entry(s.markdownRelink, Boolean(api.relinkMarkdown) && Boolean(link && link.linked),
+          () => this.runCollectionMarkdownAction(
+            item, () => api.relinkMarkdown(item.itemKey), true));
+      }
       entry(s.markdownRegenerate, Boolean(item.hasPDF) && Boolean(api.convertItem),
         () => this.runCollectionAction(null, item, "markdown"));
     });

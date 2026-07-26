@@ -45,6 +45,17 @@ READMEs and `docs/ARCHITECTURE.md`.
 - Move the template-editor dialog logic in `addon/chrome/content/panel.js` under the
   TypeScript build.
 
+## Literature data and sync
+
+- Define portable paper locators, typed state namespaces, and a backend-neutral sync
+  engine; implement WebDAV as its first backend, with References first, Citations second,
+  and only explicitly portable settings eligible for sync. Keep device paths and secrets
+  local. The constraints and conflict rules are in
+  [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md).
+- Introduce a capability-based literature-source boundary before adding more out-of-library
+  exploration. Evaluate an optional local corpus behind the versioned runtime API only
+  after real queries show that online providers and the portable cache are insufficient.
+
 ## Graph
 
 - Grouping and faceting on the board — colouring or clustering by tag, collection, or

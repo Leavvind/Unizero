@@ -16,6 +16,7 @@ Two kinds of document live here, and they are read differently.
 | [ROADMAP.md](ROADMAP.md) | Plan | Looking for unfinished work; nothing here is implemented |
 | [UNICONNECTION.md](UNICONNECTION.md) | Design and handoff | Working on the derived reverse-reference index |
 | [UNICONNECTION_GRAPH.md](UNICONNECTION_GRAPH.md) | Design and handoff | Working on the graph views or their force layout |
+| [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md) | Design and handoff | Working on portable state sync, WebDAV, or optional literature data sources |
 
 Component behaviour and commands are documented next to the code:
 [apps/zotero-addon/README.md](../apps/zotero-addon/README.md),

@@ -107,11 +107,12 @@ absolute path, which does not survive the move. Notes converted before the uid
 existed carry none, so a reachable file is checked for one before the uid route is
 used.
 
-The Collection table's Markdown badge opens a link manager for a converted paper:
-where the link points, whether anything is still there, and an action to re-point
-it at another file. A note that merely moved needs a new path, not another
-conversion. Only linked files can be re-pointed — a stored copy belongs to Zotero
-and is replaced by the next conversion.
+The Collection table's Markdown badge opens the note target for a converted paper.
+With a vault configured it shows the portable Advanced URI and does not report a
+device-local attachment path as missing or offer to replace it. Without a usable
+uid route it shows the linked file path and offers to re-point a missing legacy
+link. Only linked files can be re-pointed — a stored copy belongs to Zotero and is
+replaced by the next conversion.
 
 ## Runtime connection
 
