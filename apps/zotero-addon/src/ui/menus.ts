@@ -25,7 +25,10 @@ const MENU_PANEL = `${config.addonRef}-panel-menuitem`;
 const MENU_LITERATURE = `${config.addonRef}-literature-menuitem`;
 const MENU_LITERATURE_TOOLS = `${config.addonRef}-literature-tools-menuitem`;
 const MENU_LITERATURE_COLLECTION = `${config.addonRef}-literature-collection`;
+const TOOLBAR_LITERATURE = `${config.addonRef}-literature-toolbar-button`;
 const MENU_SEPARATOR = `${config.addonRef}-itemmenu-separator`;
+const LITERATURE_ICON =
+  `chrome://${config.addonRef}/content/icons/literature-explorer.svg`;
 
 /** The add-on's item-menu commands, in the order they appear at the bottom. */
 const ITEM_MENU_COMMANDS = [MENU_LITERATURE, MENU_CONVERT, MENU_ANNOTATE];
@@ -38,7 +41,8 @@ const FALLBACK_TEMPLATE_ID = "paper-to-markdown";
 const FALLBACK_TEMPLATE_NAME = "Generate paper Markdown";
 
 type OpenPanel = (mainWindow: Window) => void;
-type OpenLiteratureExplorer = (mainWindow: Window) => void;
+type OpenLiteratureCollection = (mainWindow: Window) => void;
+type OpenLiteratureItem = (mainWindow: Window, item: Zotero.Item) => void;
 
 /**
  * Item-menu ordering listeners, one per main window, so unregistration can remove
@@ -55,9 +59,27 @@ let registeredLiteratureCollectionMenuID: string | undefined;
  * last, and load order is not ours to choose. Re-appending whenever the menu opens
  * settles it at display time instead, which is the only moment the order is visible.
  */
-function moveEntriesToBottom(document: Document): void {
+function selectedLiteratureItem(mainWindow: Window): Zotero.Item | null {
+  const selected = (mainWindow as any).ZoteroPane?.getSelectedItems?.() as
+    | Zotero.Item[]
+    | undefined;
+  if (!Array.isArray(selected) || selected.length !== 1) { return null; }
+  const item = selected[0];
+  return item?.isRegularItem?.() && !item.deleted ? item : null;
+}
+
+function moveEntriesToBottom(mainWindow: Window): void {
+  const document = mainWindow.document;
   const itemMenu = document.getElementById("zotero-itemmenu");
   if (!itemMenu) { return; }
+  const literatureEntry = document.getElementById(MENU_LITERATURE);
+  if (literatureEntry) {
+    if (selectedLiteratureItem(mainWindow)) {
+      literatureEntry.removeAttribute("hidden");
+    } else {
+      literatureEntry.setAttribute("hidden", "true");
+    }
+  }
   const commands = ITEM_MENU_COMMANDS
     .map((id) => document.getElementById(id))
     .filter((element): element is HTMLElement => !!element);
@@ -85,12 +107,12 @@ function ensureItemMenuOrdering(mainWindow: Window): void {
     const listener = (event: Event) => {
       // A submenu's popupshowing bubbles up to the item menu; handle only this level.
       if (event.target !== itemMenu) { return; }
-      moveEntriesToBottom(document);
+      moveEntriesToBottom(mainWindow);
     };
     itemMenu.addEventListener("popupshowing", listener);
     orderListeners.set(mainWindow, listener);
   }
-  moveEntriesToBottom(document);
+  moveEntriesToBottom(mainWindow);
 }
 
 /** Drop the separator and the listener once the last of our entries is gone. */
@@ -205,15 +227,16 @@ export function registerAnnotationMenu(mainWindow: Window): void {
 }
 
 /**
- * Collection workbench contribution.
+ * Literature Explorer contributions.
  *
- * It appears in both the item context menu and Tools: the context entry is the
- * fast path while reading a Collection, and Tools keeps this core view reachable
- * when the Collection is empty and there is no item to right-click.
+ * The item context menu opens the selected paper directly. Tools, the Collection
+ * context menu, and the item-toolbar button open the current Collection/library
+ * overview, including when there is no paper to right-click.
  */
 export function registerLiteratureExplorerMenus(
   mainWindow: Window,
-  openExplorer: OpenLiteratureExplorer,
+  openCollection: OpenLiteratureCollection,
+  openItem: OpenLiteratureItem,
 ): void {
   const document = mainWindow.document;
   (mainWindow as any).MozXULElement?.insertFTLIfNeeded?.(
@@ -226,7 +249,10 @@ export function registerLiteratureExplorerMenus(
     const itemEntry = (document as any).createXULElement("menuitem");
     itemEntry.id = MENU_LITERATURE;
     itemEntry.setAttribute("label", label);
-    itemEntry.addEventListener("command", () => openExplorer(mainWindow));
+    itemEntry.addEventListener("command", () => {
+      const item = selectedLiteratureItem(mainWindow);
+      if (item) { openItem(mainWindow, item); }
+    });
     itemMenu.appendChild(itemEntry);
   }
 
@@ -235,8 +261,25 @@ export function registerLiteratureExplorerMenus(
     const toolsEntry = (document as any).createXULElement("menuitem");
     toolsEntry.id = MENU_LITERATURE_TOOLS;
     toolsEntry.setAttribute("label", label);
-    toolsEntry.addEventListener("command", () => openExplorer(mainWindow));
+    toolsEntry.addEventListener("command", () => openCollection(mainWindow));
     toolsMenu.appendChild(toolsEntry);
+  }
+
+  const itemToolbar = document.getElementById("zotero-items-toolbar");
+  if (itemToolbar && !document.getElementById(TOOLBAR_LITERATURE)) {
+    const button = (document as any).createXULElement("toolbarbutton");
+    button.id = TOOLBAR_LITERATURE;
+    button.classList.add("zotero-tb-button");
+    button.setAttribute("tabindex", "-1");
+    button.setAttribute("tooltiptext", label);
+    button.style.listStyleImage = `url("${LITERATURE_ICON}")`;
+    button.addEventListener("command", () => openCollection(mainWindow));
+    // Keep the command with Zotero's creation buttons, before the flexible spacer
+    // that pushes search to the right. This is the same toolbar extension point
+    // used by zotero-style's Graph View button.
+    const spacer = Array.from(itemToolbar.children).find((child) =>
+      child.localName === "spacer" && child.getAttribute("flex") === "1");
+    itemToolbar.insertBefore(button, spacer || null);
   }
 
   const menuManager = (Zotero as any).MenuManager;
@@ -257,7 +300,7 @@ export function registerLiteratureExplorerMenus(
         onCommand: (event: Event) => {
           const target = event.currentTarget as Element | null;
           const win = target?.ownerDocument?.defaultView || Zotero.getMainWindow();
-          if (win) { openExplorer(win); }
+          if (win) { openCollection(win); }
         },
       }],
     });
@@ -281,6 +324,7 @@ export function unregisterAnnotationMenu(mainWindow: Window): void {
 export function unregisterLiteratureExplorerMenus(mainWindow: Window): void {
   mainWindow.document.getElementById(MENU_LITERATURE)?.remove();
   mainWindow.document.getElementById(MENU_LITERATURE_TOOLS)?.remove();
+  mainWindow.document.getElementById(TOOLBAR_LITERATURE)?.remove();
   releaseItemMenuOrdering(mainWindow);
 }
 

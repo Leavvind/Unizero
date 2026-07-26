@@ -6,9 +6,10 @@ READMEs and `docs/ARCHITECTURE.md`.
 ## Verification
 
 - Run the full add-on smoke check in Zotero: startup, shutdown, metadata review,
-  References/Citations previews, Literature Explorer Collection/item context-menu
-  entry, Collection status/quick actions, relation filtering and current-library
-  import, conversion, artifact registration, and annotation injection.
+  References/Citations previews, Literature Explorer Tools/item-toolbar/Collection
+  context-menu entry, selected-paper item context-menu entry, Collection
+  status/quick actions, relation filtering and current-library import, conversion,
+  artifact registration, and annotation injection.
 - Verify two-window cleanup: closing one main window must not remove the other window's
   pane or menus.
 - Verify personal and group-library conversion with same-title items and repeated runs.

@@ -8,9 +8,10 @@ the client for the local paper runtime.
 
 - metadata candidate lookup and identifier updates;
 - compact References and Citations item-pane previews plus a Collection-level
-  Literature Explorer, available from item/Collection context menus and Tools.
-  Papers open as tabs beside a pinned Collection tab, so several can be read at
-  once and returning to one costs no provider call;
+  Literature Explorer, available from the item-list toolbar, Collection context
+  menu, and Tools. The item context menu opens the selected paper directly in its
+  own Explorer tab. Papers open as tabs beside a pinned Collection tab, so several
+  can be read at once and returning to one costs no provider call;
 - Collection paper status for Markdown conversion and cached References/Citations,
   with per-paper quick actions and relation drill-down;
 - a Relation view per paper: which library papers cite it, and which share the most of
