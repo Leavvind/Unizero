@@ -500,6 +500,23 @@
       text-align: center;
       transform: translate(-50%, -50%);
     }
+    .detail-graph-filters {
+      position: absolute;
+      z-index: 4;
+      left: 11px;
+      bottom: 10px;
+      display: flex;
+      align-items: end;
+      gap: 9px;
+      padding: 7px 9px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--card) 90%, transparent);
+      box-shadow: 0 3px 12px rgba(0, 0, 0, .12);
+    }
+    .detail-graph-filters .filter-field { width: 150px; }
+    .detail-graph-filters .shared-field { width: 92px; }
+    .detail-graph-filters input { width: 100%; }
     /* ------------------------------------------------------- Graph settings */
     .graph-gear {
       position: absolute;
@@ -829,6 +846,17 @@
       <button class="graph-gear" id="detail-graph-gear">⚙</button>
       <div class="graph-panel" id="detail-graph-panel" hidden="hidden"></div>
       <div class="graph-empty" id="detail-graph-empty" hidden="hidden"></div>
+      <div class="detail-graph-filters">
+        <div class="filter-field">
+          <div class="filter-label" id="label-detail-links"></div>
+          <div id="filter-detail-links"></div>
+        </div>
+        <div class="filter-field shared-field">
+          <label class="filter-label" id="label-detail-shared"
+            for="detail-min-shared"></label>
+          <input id="detail-min-shared" type="number" min="1" step="1" value="1"/>
+        </div>
+      </div>
     </div>
 
     <div class="toolbar">

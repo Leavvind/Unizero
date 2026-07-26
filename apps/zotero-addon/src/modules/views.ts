@@ -702,7 +702,7 @@ export default class Views {
    * graph down to immediate neighbours throws exactly that structure away. The
    * focal paper is marked and the view centres on it instead.
    */
-  public async getLiteratureEgoGraph(
+  public async getLiteratureFocusedGraph(
     item: Zotero.Item,
     scope?: LiteratureCollectionScope,
   ): Promise<LiteratureGraphView> {

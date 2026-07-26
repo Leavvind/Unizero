@@ -42,12 +42,13 @@ let explorerOwner: Window | null = null;
 let explorerContext: ExplorerContext | null = null;
 let explorerViews: Views | null = null;
 
-function contextItem(itemKey?: string): Zotero.Item {
+function contextItem(itemKey?: string, libraryID?: number): Zotero.Item {
   if (!explorerContext) { throw new Error("Literature Explorer has no item context"); }
   const key = itemKey || explorerContext.itemKey;
   if (!key) { throw new Error("Literature Explorer has no selected paper"); }
+  const targetLibraryID = libraryID ?? explorerContext.scope.libraryID;
   const item = Zotero.Items.getByLibraryAndKey(
-    explorerContext.scope.libraryID,
+    targetLibraryID,
     key,
   ) as Zotero.Item | false;
   if (!item) { throw new Error("The source Zotero item no longer exists"); }
@@ -264,50 +265,61 @@ function explorerApi() {
     getContext: () => explorerContext
       ? { ...explorerContext, scope: { ...explorerContext.scope } }
       : null,
-    collectionSnapshot: async () => {
+    collectionSnapshot: async (scope?: LiteratureCollectionScope) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
       if (!explorerContext) { throw new Error("Literature Explorer has no scope"); }
-      return explorerViews.getLiteratureCollectionSnapshot(explorerContext.scope);
+      return explorerViews.getLiteratureCollectionSnapshot(
+        scope || explorerContext.scope,
+      );
     },
     snapshot: async (
       itemKey: string,
       kind: LiteratureRelationKind,
       refresh = false,
+      libraryID?: number,
     ) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
       explorerContext!.itemKey = itemKey;
       explorerContext!.kind = kind;
-      return explorerViews.getLiteratureSnapshot(contextItem(itemKey), kind, refresh);
+      return explorerViews.getLiteratureSnapshot(
+        contextItem(itemKey, libraryID),
+        kind,
+        refresh,
+      );
     },
     // Derived library graph for the overview. Read-only: it neither fetches from
     // providers nor writes cache records, so calling it is always cheap after the
     // first (index-building) call.
-    graph: async () => {
+    graph: async (scope?: LiteratureCollectionScope) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
       if (!explorerContext) { throw new Error("Literature Explorer has no scope"); }
-      return explorerViews.getLiteratureGraph(explorerContext.scope);
+      return explorerViews.getLiteratureGraph(scope || explorerContext.scope);
     },
-    egoGraph: async (itemKey: string) => {
+    focusedGraph: async (
+      itemKey: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
       // Same scope as the overview board, so both surfaces show one graph.
-      return explorerViews.getLiteratureEgoGraph(
-        contextItem(itemKey),
-        explorerContext?.scope,
+      return explorerViews.getLiteratureFocusedGraph(
+        contextItem(itemKey, scope?.libraryID),
+        scope || explorerContext?.scope,
       );
     },
     // Layout coordinates are a rendering convenience, so they are stored per
     // library and reused as the simulation's starting point across sessions.
-    graphLayout: async (signature?: string) => {
-      if (!explorerViews || !explorerContext) { return {}; }
-      return explorerViews.getGraphLayout(explorerContext.scope.libraryID, signature);
+    graphLayout: async (libraryID: number, signature?: string) => {
+      if (!explorerViews) { return {}; }
+      return explorerViews.getGraphLayout(libraryID, signature);
     },
     saveGraphLayout: async (
+      libraryID: number,
       positions: Record<string, number[]>,
       signature?: string,
     ) => {
-      if (!explorerViews || !explorerContext) { return; }
+      if (!explorerViews) { return; }
       return explorerViews.saveGraphLayout(
-        explorerContext.scope.libraryID,
+        libraryID,
         positions,
         signature,
       );
@@ -323,19 +335,26 @@ function explorerApi() {
       if (!explorerViews) { return; }
       return explorerViews.saveGraphSettings(settings);
     },
-    loadMoreCitations: async (itemKey: string) => {
+    loadMoreCitations: async (itemKey: string, libraryID?: number) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
-      return explorerViews.loadMoreLiteratureCitations(contextItem(itemKey));
+      return explorerViews.loadMoreLiteratureCitations(
+        contextItem(itemKey, libraryID),
+      );
     },
     refreshSource: async (
       itemKey: string,
       kind: LiteratureRelationKind,
       sourceKey: RelationSourceKey,
+      libraryID?: number,
     ) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
       explorerContext!.itemKey = itemKey;
       explorerContext!.kind = kind;
-      return explorerViews.refreshLiteratureSource(contextItem(itemKey), kind, sourceKey);
+      return explorerViews.refreshLiteratureSource(
+        contextItem(itemKey, libraryID),
+        kind,
+        sourceKey,
+      );
     },
     addToLibrary: async (itemKey: string, candidate: LiteratureCandidate) => {
       if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
@@ -360,9 +379,11 @@ function explorerApi() {
       explorerViews ? explorerViews.relationProgress(kind) : [],
     // Cache-only re-probe of the given papers' loaded state, so returning to the
     // collection view reflects anything loaded meanwhile (item pane, prior session).
-    refreshCollectionStatuses: async (itemKeys: string[]) => {
-      if (!explorerViews || !explorerContext) { return {}; }
-      const libraryID = explorerContext.scope.libraryID;
+    refreshCollectionStatuses: async (
+      libraryID: number,
+      itemKeys: string[],
+    ) => {
+      if (!explorerViews) { return {}; }
       const out: Record<
         string,
         Awaited<ReturnType<Views["relationStatuses"]>>

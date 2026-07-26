@@ -15,6 +15,8 @@ var LiteratureExplorer = {
   mode: "collection",
   collectionSnapshot: null,
   collectionBusy: false,
+  collectionRequest: 0,
+  contextGeneration: 0,
   activeItemKey: null,
   kind: "references",
   snapshot: null,
@@ -39,7 +41,7 @@ var LiteratureExplorer = {
   graphLoaded: { collection: false, detail: null },
   /** Unfiltered graphs as returned by the API; filters derive views from these. */
   graphData: { collection: null, detail: null },
-  /** Graph-only filters, shared by the board and the management table. */
+  /** Collection-board filters. Detail graph filters live on each paper tab. */
   graphFilters: { links: "all", minShared: 1 },
   /** Saved node coordinates for this library, seeded into the simulation. */
   graphLayout: null,
@@ -65,9 +67,21 @@ var LiteratureExplorer = {
       .addEventListener("input", () => this.renderCollection());
     document.getElementById("collection-refresh")
       .addEventListener("click", () => this.loadCollection());
-    document.getElementById("search").addEventListener("input", () => this.render());
-    document.getElementById("year-from").addEventListener("input", () => this.render());
-    document.getElementById("year-to").addEventListener("input", () => this.render());
+    document.getElementById("search").addEventListener("input", (event) => {
+      let tab = this.activeTabState();
+      if (tab) tab.search = event.target.value;
+      this.render();
+    });
+    document.getElementById("year-from").addEventListener("input", (event) => {
+      let tab = this.activeTabState();
+      if (tab) tab.yearFrom = event.target.value;
+      this.render();
+    });
+    document.getElementById("year-to").addEventListener("input", (event) => {
+      let tab = this.activeTabState();
+      if (tab) tab.yearTo = event.target.value;
+      this.render();
+    });
     document.getElementById("refresh").addEventListener("click", () => this.refreshActive());
     document.getElementById("load-more").addEventListener("click", () => this.loadMore());
     // The hover card is fixed-positioned, so dismiss it whenever the table scrolls
@@ -77,6 +91,7 @@ var LiteratureExplorer = {
       detailScroll.addEventListener("scroll", () => this.cancelRowPreview());
     }
     window.addEventListener("blur", () => this.cancelRowPreview());
+    window.addEventListener("unload", () => this.destroy());
     document.getElementById("collection-mode-graph")
       .addEventListener("click", () => this.setCollectionMode("graph"));
     document.getElementById("collection-mode-table")
@@ -145,6 +160,8 @@ var LiteratureExplorer = {
     document.getElementById("collection-table-summary").textContent = s.tableView;
     document.getElementById("label-collection-links").textContent = s.graphLinksLabel;
     document.getElementById("label-collection-shared").textContent = s.graphMinShared;
+    document.getElementById("label-detail-links").textContent = s.graphLinksLabel;
+    document.getElementById("label-detail-shared").textContent = s.graphMinShared;
     document.getElementById("collection-graph-empty").textContent = s.graphEmpty;
     document.getElementById("detail-graph-empty").textContent = s.graphEmpty;
     document.getElementById("tab-references").textContent = s.references;
@@ -176,6 +193,8 @@ var LiteratureExplorer = {
   configureControls() {
     let rerender = (name) => (value) => {
       this.filters[name] = value;
+      let tab = this.activeTabState();
+      if (tab) tab.filters[name] = value;
       this.render();
     };
     this.dropdowns.source = this.createDropdown(
@@ -218,13 +237,31 @@ var LiteratureExplorer = {
       ["coupled", this.strings.graphLinksCoupled],
     ], "all", (value) => {
       this.graphFilters.links = value;
-      this.applyGraphFilters();
+      this.applyGraphFilters("collection");
     });
     document.getElementById("collection-min-shared")
       .addEventListener("input", (event) => {
         let value = Number.parseInt(event.target.value, 10);
         this.graphFilters.minShared = Number.isFinite(value) && value > 0 ? value : 1;
-        this.applyGraphFilters();
+        this.applyGraphFilters("collection");
+      });
+    this.dropdowns.detailLinks = this.createDropdown("filter-detail-links", [
+      ["all", this.strings.graphLinksAll],
+      ["cites", this.strings.graphLinksCites],
+      ["coupled", this.strings.graphLinksCoupled],
+    ], "all", (value) => {
+      let tab = this.activeTabState();
+      if (!tab) return;
+      tab.graphFilters.links = value;
+      this.applyGraphFilters("detail");
+    });
+    document.getElementById("detail-min-shared")
+      .addEventListener("input", (event) => {
+        let tab = this.activeTabState();
+        if (!tab) return;
+        let value = Number.parseInt(event.target.value, 10);
+        tab.graphFilters.minShared = Number.isFinite(value) && value > 0 ? value : 1;
+        this.applyGraphFilters("detail");
       });
     this.dropdowns.order = this.createDropdown("sort", [
       ["original", this.strings.originalOrder],
@@ -370,10 +407,82 @@ var LiteratureExplorer = {
     };
   },
 
+  activeTabState() {
+    return this.tabs[this.activeTab] || null;
+  },
+
+  contextIsCurrent(generation) {
+    return generation === this.contextGeneration;
+  },
+
+  beginTabRequest(tab, channel) {
+    if (!tab) return 0;
+    tab.requests[channel] = (tab.requests[channel] || 0) + 1;
+    return tab.requests[channel];
+  },
+
+  tabRequestIsCurrent(tab, channel, request, generation) {
+    return this.contextIsCurrent(generation) &&
+      this.tabs.includes(tab) &&
+      tab.requests[channel] === request;
+  },
+
+  tabIsActive(tab) {
+    return Boolean(tab) && this.activeTabState() === tab;
+  },
+
+  /**
+   * Tear down state whose identity is the current Collection/library.
+   *
+   * A reused window can cross both boundaries. Keeping a live simulation or a
+   * settled callback across that transition lets old coordinates be written under
+   * the new library ID, so the views are destroyed rather than merely emptied.
+   */
+  destroyGraphs() {
+    if (this._refitTimers) {
+      Object.keys(this._refitTimers).forEach((which) => {
+        window.clearTimeout(this._refitTimers[which]);
+      });
+    }
+    this._refitTimers = {};
+    ["collection", "detail"].forEach((which) => {
+      if (this.graphs[which] && typeof LiteratureGraph !== "undefined") {
+        LiteratureGraph.destroy(this.graphs[which]);
+      }
+    });
+    this.graphs = { collection: null, detail: null };
+    this.graphLoaded = { collection: false, detail: null };
+    this.graphData = { collection: null, detail: null };
+    this.graphLayout = null;
+    this._layoutHooked = {};
+    this._graphErrors = {};
+    this._graphRequests = { collection: 0 };
+  },
+
+  destroy() {
+    this.contextGeneration += 1;
+    this.collectionRequest += 1;
+    window.clearTimeout(this._settingsSave);
+    this._settingsSave = null;
+    this.destroyGraphs();
+    this.cancelRowPreview();
+    this.hideGraphMenu();
+  },
+
   reloadContext() {
-    this.context = api.getContext();
+    this.contextGeneration += 1;
+    this.collectionRequest += 1;
+    this.destroyGraphs();
+    let nextContext = api.getContext();
+    this.context = nextContext
+      ? Object.assign({}, nextContext, {
+        scope: nextContext.scope ? Object.assign({}, nextContext.scope) : null,
+      })
+      : null;
     this.collectionSnapshot = null;
+    this.collectionBusy = false;
     this.snapshot = null;
+    this.busy = false;
     // A reused window can be pointed at a different Collection, or a different
     // library. Tabs are keyed by item key within one scope, so they do not carry
     // across — keeping them would resolve the same key against the wrong library.
@@ -381,6 +490,9 @@ var LiteratureExplorer = {
     this.activeTab = -1;
     this.activeItemKey = this.context && this.context.itemKey || null;
     this.kind = this.context && this.context.kind || "references";
+    document.getElementById("collection-refresh").disabled = false;
+    document.getElementById("refresh").disabled = false;
+    document.getElementById("load-more").disabled = false;
     document.getElementById("collection-search").value = "";
     if (this.context && this.context.mode === "item" && this.activeItemKey) {
       this.resetFilters();
@@ -419,6 +531,7 @@ var LiteratureExplorer = {
     tab.scroll = scroller ? scroller.scrollTop : 0;
     tab.graphData = this.graphData.detail;
     tab.graphLoaded = this.graphLoaded.detail;
+    tab.busy = this.busy;
   },
 
   /** Put a tab's state back into the one detail view and redraw from it. */
@@ -433,6 +546,10 @@ var LiteratureExplorer = {
     document.getElementById("year-to").value = tab.yearTo;
     this.graphData.detail = tab.graphData;
     this.graphLoaded.detail = tab.graphLoaded;
+    this.busy = Boolean(tab.busy);
+    this.setBusy(this.busy, tab);
+    this.syncDetailGraphFilters(tab);
+    this.stopProgress();
     document.getElementById("paper-title").textContent =
       tab.title || this.strings.loading;
     this.showView("detail");
@@ -452,7 +569,9 @@ var LiteratureExplorer = {
       // last centred; returning to a tab has to re-point it, early-return or not.
       if (tab.graphData && this.graphs.detail) {
         this.applyGraphData("detail", tab.graphData);
-      } else {
+      } else if (tab.graphBusy) {
+        this.setStatus(this.strings.loading);
+      } else if (!tab.graphBusy) {
         // Nothing cached, or the view never got built. Either way the marker this
         // tab carries would make a plain load decide it had nothing to do.
         this.graphLoaded.detail = null;
@@ -462,7 +581,7 @@ var LiteratureExplorer = {
     }
     // A tab visited before still holds its snapshot, so coming back to it is a
     // redraw and not another round of provider calls.
-    if (!tab.snapshot) {
+    if (!tab.snapshot && !tab.busy) {
       await this.load(false);
       return;
     }
@@ -495,6 +614,17 @@ var LiteratureExplorer = {
       scroll: 0,
       graphData: null,
       graphLoaded: null,
+      graphBusy: false,
+      graphError: "",
+      graphFilters: { links: "all", minShared: 1 },
+      busy: false,
+      error: "",
+      requests: {
+        snapshot: 0,
+        graph: 0,
+        action: 0,
+      },
+      contextGeneration: this.contextGeneration,
     };
   },
 
@@ -623,6 +753,11 @@ var LiteratureExplorer = {
 
   async loadCollection() {
     if (this.collectionBusy) return;
+    let generation = this.contextGeneration;
+    let request = ++this.collectionRequest;
+    let scope = this.context && this.context.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
     this.showView("collection");
     this.collectionBusy = true;
     document.getElementById("collection-refresh").disabled = true;
@@ -632,20 +767,26 @@ var LiteratureExplorer = {
     this.setCollectionStatus(this.strings.loading);
     // An explicit refresh should rebuild the board as well as the table.
     this.graphLoaded.collection = false;
+    this.graphData.collection = null;
     try {
-      this.collectionSnapshot = await api.collectionSnapshot();
+      let snapshot = await api.collectionSnapshot(scope);
+      if (!this.contextIsCurrent(generation) || request !== this.collectionRequest) return;
+      this.collectionSnapshot = snapshot;
       document.getElementById("paper-title").textContent =
         this.collectionSnapshot.scope.name;
       // The Collection tab is labelled with the scope, which is only known now.
       this.renderTabs();
       this.renderCollection();
     } catch (error) {
+      if (!this.contextIsCurrent(generation) || request !== this.collectionRequest) return;
       this.collectionSnapshot = null;
       this.setCollectionStatus(this.strings.error + ": " + String(error), true);
       this.renderCollection();
     } finally {
-      this.collectionBusy = false;
-      document.getElementById("collection-refresh").disabled = false;
+      if (this.contextIsCurrent(generation) && request === this.collectionRequest) {
+        this.collectionBusy = false;
+        document.getElementById("collection-refresh").disabled = false;
+      }
     }
   },
 
@@ -667,13 +808,18 @@ var LiteratureExplorer = {
 
   async refreshCollectionStatuses() {
     if (!this.collectionSnapshot || !api.refreshCollectionStatuses) return;
-    let keys = this.collectionSnapshot.items.map((item) => item.itemKey);
+    let generation = this.contextGeneration;
+    let snapshot = this.collectionSnapshot;
+    let libraryID = this.context && this.context.scope
+      ? this.context.scope.libraryID
+      : null;
+    let keys = snapshot.items.map((item) => item.itemKey);
     if (!keys.length) return;
     try {
-      let statuses = await api.refreshCollectionStatuses(keys);
-      if (!this.collectionSnapshot) return;
+      let statuses = await api.refreshCollectionStatuses(libraryID, keys);
+      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
       let changed = false;
-      this.collectionSnapshot.items.forEach((item) => {
+      snapshot.items.forEach((item) => {
         let next = statuses[item.itemKey];
         if (!next) return;
         item.references = next.references;
@@ -762,36 +908,84 @@ var LiteratureExplorer = {
     }
     let view = this.ensureGraph("collection");
     if (!view || !api.graph) return;
+    this._graphRequests = this._graphRequests || { collection: 0 };
+    let request = ++this._graphRequests.collection;
+    let generation = this.contextGeneration;
+    let scope = this.context && this.context.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let libraryID = scope && scope.libraryID;
     this.graphLoaded.collection = true;
     try {
-      let [data] = await Promise.all([api.graph(), this.ensureGraphLayout()]);
+      let [data] = await Promise.all([
+        api.graph(scope),
+        this.ensureGraphLayout(libraryID),
+      ]);
+      if (!this.contextIsCurrent(generation) ||
+          request !== this._graphRequests.collection) {
+        return;
+      }
       this.applyGraphData("collection", data);
     } catch (error) {
+      if (!this.contextIsCurrent(generation) ||
+          request !== this._graphRequests.collection) {
+        return;
+      }
       this.graphLoaded.collection = false;
       this.setGraphEmpty("collection", this.strings.error + ": " + String(error));
     }
   },
 
   async loadDetailGraph(force) {
-    if (!this.activeItemKey || !api.egoGraph) return;
-    if (this.graphLoaded.detail === this.activeItemKey && !force) {
+    let tab = this.activeTabState();
+    if (!tab || !api.focusedGraph) return;
+    if (tab.graphLoaded === tab.itemKey && tab.graphData && !force) {
+      if (this.tabIsActive(tab)) {
+        this.graphData.detail = tab.graphData;
+        this.graphLoaded.detail = tab.graphLoaded;
+      }
       this.resizeGraphs();
       return;
     }
     let view = this.ensureGraph("detail");
     if (!view) return;
-    this.graphLoaded.detail = this.activeItemKey;
-    this.setStatus(this.strings.loading);
+    let generation = this.contextGeneration;
+    let request = this.beginTabRequest(tab, "graph");
+    let itemKey = tab.itemKey;
+    let scope = this.context && this.context.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let libraryID = scope && scope.libraryID;
+    tab.graphBusy = true;
+    tab.graphError = "";
+    if (this.tabIsActive(tab)) {
+      this.graphLoaded.detail = null;
+      this.setStatus(this.strings.loading);
+    }
     try {
       let [data] = await Promise.all([
-        api.egoGraph(this.activeItemKey),
-        this.ensureGraphLayout(),
+        api.focusedGraph(itemKey, scope),
+        this.ensureGraphLayout(libraryID),
       ]);
-      this.applyGraphData("detail", data);
+      if (!this.tabRequestIsCurrent(tab, "graph", request, generation)) return;
+      tab.graphData = data;
+      tab.graphLoaded = itemKey;
+      tab.graphBusy = false;
+      if (this.tabIsActive(tab) && tab.kind === "graph") {
+        this.graphData.detail = data;
+        this.graphLoaded.detail = itemKey;
+        this.applyGraphData("detail", data);
+      }
     } catch (error) {
-      this.graphLoaded.detail = null;
-      this.setStatus(this.strings.error + ": " + String(error), true);
-      this.setGraphEmpty("detail", this.strings.error + ": " + String(error));
+      if (!this.tabRequestIsCurrent(tab, "graph", request, generation)) return;
+      tab.graphLoaded = null;
+      tab.graphBusy = false;
+      tab.graphError = this.strings.error + ": " + String(error);
+      if (this.tabIsActive(tab) && tab.kind === "graph") {
+        this.graphLoaded.detail = null;
+        this.setStatus(tab.graphError, true);
+        this.setGraphEmpty("detail", tab.graphError);
+      }
     }
   },
 
@@ -800,11 +994,28 @@ var LiteratureExplorer = {
     this.renderGraph(which, true);
   },
 
-  /** Re-derive both graphs from their raw data after a filter change. */
-  applyGraphFilters() {
-    ["collection", "detail"].forEach((which) => {
-      if (this.graphData[which] && this.graphs[which]) this.renderGraph(which, false);
+  /** Re-derive one or both graphs from their raw data after a filter change. */
+  applyGraphFilters(which) {
+    let targets = which ? [which] : ["collection", "detail"];
+    targets.forEach((target) => {
+      if (this.graphData[target] && this.graphs[target]) this.renderGraph(target, false);
     });
+  },
+
+  graphFiltersFor(which) {
+    if (which === "collection") return this.graphFilters;
+    let tab = this.activeTabState();
+    return tab ? tab.graphFilters : { links: "all", minShared: 1 };
+  },
+
+  syncDetailGraphFilters(tab) {
+    let filters = tab && tab.graphFilters
+      ? tab.graphFilters
+      : { links: "all", minShared: 1 };
+    if (this.dropdowns.detailLinks) {
+      this.dropdowns.detailLinks.setValue(filters.links);
+    }
+    document.getElementById("detail-min-shared").value = filters.minShared;
   },
 
   /**
@@ -869,8 +1080,9 @@ var LiteratureExplorer = {
   },
 
   filterGraph(which, data) {
-    let links = this.graphFilters.links;
-    let minShared = this.graphFilters.minShared;
+    let filters = this.graphFiltersFor(which);
+    let links = filters.links;
+    let minShared = filters.minShared;
     let allowed = null;
     if (which === "collection") {
       // Same predicate as the table, so the two surfaces cannot disagree.
@@ -935,18 +1147,29 @@ var LiteratureExplorer = {
    * Settings come first because the coordinates are only accepted when they were
    * produced by the same forces — see LiteratureGraph.forceSignature.
    */
-  async ensureGraphLayout() {
+  async ensureGraphLayout(libraryID) {
     if (this.graphLayout) return this.graphLayout;
+    let generation = this.contextGeneration;
+    let expectedLibraryID = libraryID !== undefined && libraryID !== null
+      ? libraryID
+      : this.context && this.context.scope && this.context.scope.libraryID;
     await this.ensureGraphSettings();
     if (!api.graphLayout) return (this.graphLayout = {});
     try {
-      this.graphLayout = await api.graphLayout(
+      let layout = await api.graphLayout(
+        expectedLibraryID,
         LiteratureGraph.forceSignature(this.graphSettings),
       );
+      if (!this.contextIsCurrent(generation) ||
+          !this.context ||
+          this.context.scope.libraryID !== expectedLibraryID) {
+        return {};
+      }
+      this.graphLayout = layout;
     } catch (error) {
-      this.graphLayout = {};
+      if (this.contextIsCurrent(generation)) this.graphLayout = {};
     }
-    return this.graphLayout;
+    return this.graphLayout || {};
   },
 
   /**
@@ -959,12 +1182,22 @@ var LiteratureExplorer = {
     this._layoutHooked = this._layoutHooked || {};
     if (this._layoutHooked[which] || !api.saveGraphLayout) return;
     this._layoutHooked[which] = true;
+    let generation = this.contextGeneration;
+    let libraryID = this.context && this.context.scope
+      ? this.context.scope.libraryID
+      : null;
     LiteratureGraph.onSettled(view, () => {
+      if (!this.contextIsCurrent(generation) ||
+          !this.context ||
+          this.context.scope.libraryID !== libraryID) {
+        return;
+      }
       let positions = LiteratureGraph.snapshotPositions(view);
       if (!Object.keys(positions).length) return;
       // Merge so filtered-out papers keep the position they last had.
       this.graphLayout = Object.assign({}, this.graphLayout, positions);
       api.saveGraphLayout(
+        libraryID,
         this.graphLayout,
         LiteratureGraph.forceSignature(this.graphSettings),
       ).catch(() => {
@@ -1279,24 +1512,47 @@ var LiteratureExplorer = {
    */
   async runGraphAction(itemKey, run, changesState) {
     let which = this._menuWhich === "detail" ? "detail" : "collection";
+    let generation = this.contextGeneration;
+    let tab = which === "detail" ? this.activeTabState() : null;
+    let snapshot = this.collectionSnapshot;
+    let request = tab
+      ? this.beginTabRequest(tab, "action")
+      : ((this._collectionActionRequest || 0) + 1);
+    if (!tab) this._collectionActionRequest = request;
+    let current = () => {
+      if (!this.contextIsCurrent(generation)) return false;
+      if (tab) return this.tabRequestIsCurrent(tab, "action", request, generation);
+      return this._collectionActionRequest === request;
+    };
     let report = (message, isError) => {
-      if (which === "detail") this.setStatus(message, isError);
-      else this.setCollectionStatus(message, isError);
+      if (!current()) return;
+      if (which === "detail") {
+        if (this.tabIsActive(tab)) this.setStatus(message, isError);
+      } else if (this.mode === "collection") {
+        this.setCollectionStatus(message, isError);
+      }
     };
     report(this.strings.loading);
     try {
       let updated = await run();
+      if (!current()) return;
       report("");
       if (!changesState) return;
-      if (updated && this.collectionSnapshot) {
-        let paper = this.collectionSnapshot.items
+      if (updated && this.collectionSnapshot === snapshot) {
+        let paper = snapshot.items
           .find((item) => item.itemKey === itemKey);
         if (paper) {
           Object.assign(paper, updated);
-          this.renderCollection();
+          if (this.mode === "collection") this.renderCollection();
         }
       }
-      if (which === "detail") await this.loadDetailGraph(true);
+      if (which === "detail") {
+        tab.graphData = null;
+        tab.graphLoaded = null;
+        if (this.tabIsActive(tab) && tab.kind === "graph") {
+          await this.loadDetailGraph(true);
+        }
+      }
       else await this.loadCollectionGraph(true);
     } catch (error) {
       report(this.strings.error + ": " + String(error), true);
@@ -1454,9 +1710,12 @@ var LiteratureExplorer = {
 
   /** Run a link action against the table, reporting on the Collection status line. */
   async runCollectionMarkdownAction(item, run, refreshRow) {
+    let generation = this.contextGeneration;
+    let snapshot = this.collectionSnapshot;
     this.setCollectionStatus(this.strings.loading);
     try {
       let result = await run();
+      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
       // A cancelled file picker is not a failure and must not claim one.
       if (refreshRow && result && result.path) {
         item.hasMarkdown = true;
@@ -1515,10 +1774,13 @@ var LiteratureExplorer = {
   async refreshCollectionRelation(button, item, kind) {
     if (button.disabled) return;
     button.disabled = true;
+    let generation = this.contextGeneration;
+    let snapshot = this.collectionSnapshot;
     let previous = button.textContent;
     button.textContent = "…";
     try {
       let updated = await api.loadRelation(item.itemKey, kind, true);
+      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
       Object.assign(item, updated);
       this.renderCollection();
     } catch (error) {
@@ -1530,6 +1792,8 @@ var LiteratureExplorer = {
 
   /** `button` is optional: the same actions are also reachable from a menu. */
   async runCollectionAction(button, item, action) {
+    let generation = this.contextGeneration;
+    let snapshot = this.collectionSnapshot;
     let previous = button ? button.textContent : "";
     if (button) {
       button.disabled = true;
@@ -1539,6 +1803,7 @@ var LiteratureExplorer = {
       let updated = action === "markdown"
         ? await api.convertItem(item.itemKey)
         : await api.loadRelation(item.itemKey, action);
+      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
       Object.assign(item, updated);
       this.renderCollection();
     } catch (error) {
@@ -1674,6 +1939,8 @@ var LiteratureExplorer = {
 
   selectSource(value) {
     this.activeSource = value;
+    let tab = this.activeTabState();
+    if (tab) tab.activeSource = value;
     document.getElementById("refresh").title =
       value === "combined" ? "" : this.strings.refreshSource;
     this.render();
@@ -1686,26 +1953,54 @@ var LiteratureExplorer = {
   },
 
   async refreshActive() {
-    if (this.busy || !this.activeItemKey) return;
-    if (this.activeSource === "combined") {
+    let tab = this.activeTabState();
+    if (!tab || tab.busy) return;
+    if (tab.activeSource === "combined") {
       await this.load(true);
       return;
     }
-    let sourceKey = this.activeSource;
-    this.setBusy(true);
-    this.setStatus(this.strings.loading);
-    this.startProgress(this.kind, sourceKey);
+    let sourceKey = tab.activeSource;
+    let itemKey = tab.itemKey;
+    let kind = tab.kind;
+    let generation = this.contextGeneration;
+    let request = this.beginTabRequest(tab, "snapshot");
+    let libraryID = this.context && this.context.scope
+      ? this.context.scope.libraryID
+      : null;
+    tab.error = "";
+    this.setBusy(true, tab);
+    if (this.tabIsActive(tab)) {
+      this.setStatus(this.strings.loading);
+      this.startProgress(kind, sourceKey);
+    }
     try {
-      this.snapshot = await api.refreshSource(this.activeItemKey, this.kind, sourceKey);
-      this.syncCollectionRelationStatus();
-      this.configureSources();
-      this.configurePublicationLevels();
-      this.render();
+      let snapshot = await api.refreshSource(
+        itemKey,
+        kind,
+        sourceKey,
+        libraryID,
+      );
+      if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
+      tab.snapshot = snapshot;
+      tab.busy = false;
+      if (this.tabIsActive(tab)) {
+        this.snapshot = snapshot;
+        this.activeSource = tab.activeSource;
+        this.syncCollectionRelationStatus();
+        this.configureSources();
+        this.configurePublicationLevels();
+        this.render();
+      }
     } catch (error) {
-      this.setStatus(this.strings.error + ": " + String(error), true);
+      if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
+      tab.error = this.strings.error + ": " + String(error);
+      tab.busy = false;
+      if (this.tabIsActive(tab)) this.setStatus(tab.error, true);
     } finally {
-      this.stopProgress();
-      this.setBusy(false);
+      if (this.tabRequestIsCurrent(tab, "snapshot", request, generation)) {
+        this.setBusy(false, tab);
+        if (this.tabIsActive(tab)) this.stopProgress();
+      }
     }
   },
 
@@ -1737,6 +2032,8 @@ var LiteratureExplorer = {
       ? (this.kind === "citations" ? "influential" : "original")
       : this.filters.order;
     this.filters.order = next;
+    let tab = this.activeTabState();
+    if (tab) tab.filters.order = next;
     this.dropdowns.order.setValue(next);
   },
 
@@ -1749,75 +2046,145 @@ var LiteratureExplorer = {
   },
 
   async switchKind(kind) {
-    if (this.busy || kind === this.kind || !this.activeItemKey) return;
+    let tab = this.activeTabState();
+    if (!tab || kind === tab.kind) return;
+    // Supersede a provider request owned by the old surface. It may still finish,
+    // but its generation can no longer write into this tab.
+    this.beginTabRequest(tab, "snapshot");
+    tab.busy = false;
+    tab.error = "";
+    tab.kind = kind;
+    tab.snapshot = null;
+    tab.activeSource = "combined";
+    tab.search = "";
+    tab.yearFrom = "";
+    tab.yearTo = "";
     this.kind = kind;
+    this.snapshot = null;
+    this.activeSource = "combined";
+    this.setBusy(false, tab);
+    this.stopProgress();
     this.configureSort(true);
     this.configureKindPresentation();
     await this.load(false);
   },
 
   async load(refresh) {
-    if (this.busy || !this.activeItemKey) return;
+    let tab = this.activeTabState();
+    if (!tab || tab.busy) return;
     // The graph tab is a different surface entirely: it reads the derived library
     // graph rather than a provider snapshot, so it skips sources and paging.
-    if (this.kind === "graph") {
+    if (tab.kind === "graph") {
       this.configureKindPresentation();
       await this.loadDetailGraph(Boolean(refresh));
       return;
     }
+    let itemKey = tab.itemKey;
+    let kind = tab.kind;
+    let generation = this.contextGeneration;
+    let request = this.beginTabRequest(tab, "snapshot");
+    let libraryID = this.context && this.context.scope
+      ? this.context.scope.libraryID
+      : null;
     // A full (re)load lands on the combined view; the source picker is repopulated
     // from the fresh snapshot below.
-    this.activeSource = "combined";
-    document.getElementById("refresh").title = "";
-    this.setBusy(true);
-    this.setStatus(this.strings.loading);
-    this.startProgress(this.kind);
+    tab.activeSource = "combined";
+    tab.error = "";
+    if (this.tabIsActive(tab)) {
+      this.activeSource = "combined";
+      document.getElementById("refresh").title = "";
+      this.setStatus(this.strings.loading);
+      this.startProgress(kind);
+    }
+    this.setBusy(true, tab);
     try {
-      this.snapshot = await api.snapshot(
-        this.activeItemKey,
-        this.kind,
+      let snapshot = await api.snapshot(
+        itemKey,
+        kind,
         Boolean(refresh),
+        libraryID,
       );
-      this.syncCollectionRelationStatus();
-      this.setPaperTitle(this.snapshot.seed.title);
-      this.configureSources();
-      this.configurePublicationLevels();
-      this.configureKindPresentation();
-      this.render();
+      if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
+      tab.snapshot = snapshot;
+      tab.title = snapshot.seed.title;
+      tab.busy = false;
+      if (this.tabIsActive(tab) && tab.kind === kind) {
+        this.snapshot = snapshot;
+        this.activeSource = tab.activeSource;
+        this.syncCollectionRelationStatus();
+        this.setPaperTitle(snapshot.seed.title);
+        this.configureSources();
+        this.configurePublicationLevels();
+        this.configureKindPresentation();
+        this.render();
+      } else {
+        this.renderTabs();
+      }
     } catch (error) {
-      this.snapshot = null;
-      this.configurePublicationLevels();
-      this.configureKindPresentation();
-      this.setStatus(this.strings.error + ": " + String(error), true);
-      this.render();
+      if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
+      tab.snapshot = null;
+      tab.busy = false;
+      tab.error = this.strings.error + ": " + String(error);
+      if (this.tabIsActive(tab) && tab.kind === kind) {
+        this.snapshot = null;
+        this.configurePublicationLevels();
+        this.configureKindPresentation();
+        this.setStatus(tab.error, true);
+        this.render();
+      }
     } finally {
-      this.stopProgress();
-      this.setBusy(false);
+      if (this.tabRequestIsCurrent(tab, "snapshot", request, generation)) {
+        this.setBusy(false, tab);
+        if (this.tabIsActive(tab)) this.stopProgress();
+      }
     }
   },
 
   async loadMore() {
-    if (this.busy || this.kind !== "citations" || !this.activeItemKey) return;
-    this.setBusy(true);
-    this.setStatus(this.strings.loading);
-    this.startProgress(this.kind);
+    let tab = this.activeTabState();
+    if (!tab || tab.busy || tab.kind !== "citations") return;
+    let generation = this.contextGeneration;
+    let request = this.beginTabRequest(tab, "snapshot");
+    let itemKey = tab.itemKey;
+    let libraryID = this.context && this.context.scope
+      ? this.context.scope.libraryID
+      : null;
+    this.setBusy(true, tab);
+    if (this.tabIsActive(tab)) {
+      this.setStatus(this.strings.loading);
+      this.startProgress(tab.kind);
+    }
     try {
-      this.snapshot = await api.loadMoreCitations(this.activeItemKey);
-      this.syncCollectionRelationStatus();
-      this.configureSources();
-      this.configurePublicationLevels();
-      this.configureKindPresentation();
-      this.render();
+      let snapshot = await api.loadMoreCitations(itemKey, libraryID);
+      if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
+      tab.snapshot = snapshot;
+      tab.busy = false;
+      if (this.tabIsActive(tab)) {
+        this.snapshot = snapshot;
+        this.syncCollectionRelationStatus();
+        this.configureSources();
+        this.configurePublicationLevels();
+        this.configureKindPresentation();
+        this.render();
+      }
     } catch (error) {
-      this.setStatus(this.strings.error + ": " + String(error), true);
+      if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
+      tab.busy = false;
+      tab.error = this.strings.error + ": " + String(error);
+      if (this.tabIsActive(tab)) this.setStatus(tab.error, true);
     } finally {
-      this.stopProgress();
-      this.setBusy(false);
+      if (this.tabRequestIsCurrent(tab, "snapshot", request, generation)) {
+        this.setBusy(false, tab);
+        if (this.tabIsActive(tab)) this.stopProgress();
+      }
     }
   },
 
-  setBusy(value) {
-    this.busy = value;
+  setBusy(value, tab) {
+    let owner = tab || this.activeTabState();
+    if (owner) owner.busy = value;
+    if (owner && !this.tabIsActive(owner)) return;
+    this.busy = Boolean(value);
     document.getElementById("refresh").disabled = value;
     document.getElementById("load-more").disabled = value;
   },
