@@ -86,8 +86,9 @@ discarded and rebuilt at any time.
 
 One index answers both queries: `relationsOf(item)` reads `inverted` at the item's own
 edge; `coupledWith(item)` walks `forward` then `inverted` and tallies shared references.
-`libraryGraph(libraryID)` and `egoGraph(item)` derive graph topology from the same
-structures.
+`libraryGraph(libraryID, options)` derives whole-library topology from the same structures
+and memoizes it per library and effective option set. Build, ingest, retract, trash, and
+delete invalidate that library's memoized topology.
 
 Rules this layer keeps:
 
@@ -107,6 +108,9 @@ Rules this layer keeps:
   add/modify retracts and re-ingests an item, delete and trash retract it. Items without
   a reference cache are filled by a throttled, deduplicated queue that reuses
   `referencesApi` and its provider rate gate.
+- **Reference writes are ordered before topology reads.** A References refresh awaits the
+  cache write and `ingestItem` before the bridge resolves. Citations only update status,
+  while Markdown conversion patches live node metadata without rebuilding topology.
 
 Design detail and the reasoning behind these constraints are in
 [UNICONNECTION.md](UNICONNECTION.md); the graph views are in
@@ -118,14 +122,21 @@ The Literature Explorer is a privileged XHTML dialog, not part of the TypeScript
 It reaches the add-on only through the plain-object API passed as `window.arguments[0]`.
 
 - `literature-explorer.js` owns view state, filtering, tables, and the detail tabs.
-  Papers open as window tabs, but only one detail view exists in the DOM: a tab
-  holds the state that view would be in, and switching writes the outgoing state
-  out and the incoming state back. Some of that state lives only in the DOM — the
-  search box and year range have no model behind them — so the capture reads them
-  explicitly.
+  Papers open as window tabs, but only one detail view exists in the DOM. `TabState` owns
+  the item/kind, snapshot, busy and request generations, raw graph, detail graph filters,
+  search/year filters, and scroll position. Switching projects that state into the shared
+  DOM. Every asynchronous operation captures its context generation, tab reference,
+  item key, kind, and request generation; completion may update only that owner, and may
+  update the live DOM only while the owner is active.
+- A context reload increments the context generation, destroys both simulations, cancels
+  refit/settings timers and settle listeners, and drops library-scoped data/layout state.
+  Collection filters and each paper tab's graph filters are independent.
 - `literature-graph.js` owns force simulation and canvas drawing, and consumes only the
   plain `LiteratureGraph` structure, so the renderer can be replaced without touching the
   data layer.
+- A detail graph is not a one-hop topology. The bridge's `focusedGraph` endpoint asks
+  `views.getLiteratureFocusedGraph` for the same complete scoped graph as Collection,
+  marks the selected node, and centres the renderer on it.
 - `vendor/force-graph.min.js` is a vendored MIT build. Dialog content is fully local; no
   CDN or external fetch is permitted.
 
@@ -138,9 +149,15 @@ Two constraints are load-bearing and easy to break:
 - Saved layout coordinates are only meaningful at the scale of the forces that produced
   them, so the layout file carries two guards: `GRAPH_LAYOUT_VERSION` for changes made in
   code, and a force signature for the settings the user chose. Either mismatch is a cold
-  start.
+  start. Reads and writes also discard non-finite coordinates and node IDs outside the
+  current `${libraryID}:` namespace; writes for the same library are serialized.
 - Display and force settings live in the renderer, which owns their meaning, their
   bounds, and their sanitisation; the layers below only carry them to and from disk.
+
+The host-independent dialog harness loads the real XHTML and plain JavaScript under
+`happy-dom`. It covers tab/context races, graph ownership, per-tab filters, settle/refit
+lifecycle, geometry callbacks, error recovery, and layout serialization. Privileged
+Zotero APIs and the real force-graph canvas remain manual checks.
 
 ## Runtime layers
 

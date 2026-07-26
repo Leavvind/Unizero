@@ -41,7 +41,7 @@ Document conversion and annotation injection require
 | `src/zotero/` | Zotero adapters, library scope, artifact identity |
 | `src/ui/` | Menus, progress, service notices, panel and Explorer bridges |
 | `addon/` | Manifest, locales, preferences, icons, dialog markup and scripts |
-| `tests/` | Vitest suites for the derived index and graph builders |
+| `tests/` | Vitest suites for the derived index, graph builders, renderer facade, and Explorer dialog |
 
 New Zotero mutations belong in `src/zotero`; new command orchestration belongs in
 `src/features`. Do not rewrite `src/modules` as a single refactor. Extract a focused
@@ -50,10 +50,12 @@ responsibility when a feature change needs it.
 ## Dialog content
 
 `addon/chrome/content/panel.js`, `literature-explorer.js`, and `literature-graph.js` are
-plain JavaScript outside the TypeScript bundle: not compiled, not type checked, not
-covered by tests. They implement the runtime-backed template editor, the Collection
-workbench and relation browser, and the force-directed graph renderer. Every change there
-needs a manual Zotero check.
+plain JavaScript outside the TypeScript bundle: not compiled and not type checked. They
+implement the runtime-backed template editor, the Collection workbench and relation
+browser, and the force-directed graph renderer. Vitest loads the real Explorer XHTML and
+plain scripts in `happy-dom`, with bridge and renderer mocks, to cover request ownership,
+tab restoration, filtering, and renderer lifecycle. Zotero APIs, privileged-window
+lifecycle, and the real canvas still require a manual Zotero check.
 
 They reach the add-on only through the plain-object API passed as
 `window.arguments[0].api`, built in `src/ui/literatureExplorer.ts` and `src/ui/panel.ts`.
@@ -141,7 +143,8 @@ npm run build
 ```
 
 `npm run check` runs TypeScript and HTTP-contract drift checks. `npm test` runs the
-Vitest suites, which cover the derived index and graph builders without a Zotero host.
+Vitest suites, which cover the derived index and graph builders plus the host-independent
+parts of the Explorer and graph renderer.
 `npm run build` writes `build/unizero.xpi`.
 
 ## Run in Zotero

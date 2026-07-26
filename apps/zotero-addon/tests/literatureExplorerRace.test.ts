@@ -329,6 +329,28 @@ describe("Literature Explorer async ownership", () => {
     harness.win.close();
   });
 
+  it("does not save a settled Library A layout after reloading to Library B", async () => {
+    const saveGraphLayout = vi.fn(async () => undefined);
+    const harness = createHarness({ saveGraphLayout });
+    await flush();
+    await harness.explorer.loadCollectionGraph(true);
+    const oldView = harness.explorer.graphs.collection;
+    const renderer = (harness.win as any).LiteratureGraph;
+    renderer.snapshotPositions = () => ({ "1:P1": [10, 20] });
+
+    harness.context.current = {
+      mode: "collection",
+      scope: { libraryID: 2, name: "Library B" },
+    };
+    harness.explorer.reloadContext();
+    renderer.emitSettled(oldView);
+    await flush();
+
+    expect(saveGraphLayout).not.toHaveBeenCalled();
+    expect(renderer.destroy).toHaveBeenCalledWith(oldView);
+    harness.win.close();
+  });
+
   it("stores detail graph filters per paper instead of inheriting Collection", async () => {
     const harness = createHarness();
     await flush();
@@ -441,6 +463,21 @@ describe("Literature Explorer async ownership", () => {
     expect(harness.explorer.graphData.collection).toBe(cached);
     expect(harness.explorer.collectionSnapshot.items[0].citations)
       .toMatchObject({ loaded: true, count: 7 });
+    harness.win.close();
+  });
+
+  it("destroys simulations and pending refits on window teardown", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.showDetail("P1", "graph");
+    const renderer = (harness.win as any).LiteratureGraph;
+    const detailView = harness.explorer.graphs.detail;
+
+    harness.explorer.destroy();
+
+    expect(renderer.destroy).toHaveBeenCalledWith(detailView);
+    expect(harness.explorer.graphs).toEqual({ collection: null, detail: null });
+    expect(harness.explorer._refitTimers || {}).toEqual({});
     harness.win.close();
   });
 });

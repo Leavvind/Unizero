@@ -241,7 +241,8 @@ coupledWith(P, limit):
 
 ## 8. 建议的模块接口（TS 骨架）
 
-> 已实现，**以代码为准**：真实签名多数是 `async`，另有 `retractItemID`、`libraryGraph`、`egoGraph`。
+> 已实现，**以代码为准**：真实签名多数是 `async`，另有 `retractItemID` 与按库/参数记忆化的
+> `libraryGraph`。详情页焦点图由 Views 在完整图上标记焦点，不在 UniConnection 维护第二套查询。
 > 下面这份骨架保留下来只为说明「一个索引喂两种查询」的意图。
 
 `apps/zotero-addon/src/modules/uniConnection.ts`

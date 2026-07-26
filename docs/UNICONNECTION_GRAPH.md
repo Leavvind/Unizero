@@ -2,18 +2,19 @@
 
 > 交接文档（中文）。自包含，不依赖对话上下文。
 > 前置：[UNICONNECTION.md](UNICONNECTION.md)（派生倒排索引 + Relation 面板）。
-> 一句话：**给 Literature Explorer 加图视图——全库总览图（Obsidian 手感）+ 单篇 Ego 图（Connected Papers 手感），
+> 一句话：**给 Literature Explorer 加图视图——全库总览图（Obsidian 手感）+ 单篇焦点图（Connected Papers 手感），
 > 数据全部从已有的 UniConnection 索引派生，渲染用本地打包的 force-graph。**
 
 ## 状态：已实现，0.4.1 起在真机上确认两张图均可正常显示与交互
 
 | 交付物 | 落点 |
 |---|---|
-| 数据层 `libraryGraph` / `egoGraph` | `uniConnection.ts` + `tests/uniConnectionGraph.test.ts` |
+| 数据层 `libraryGraph`（按库/参数缓存） | `uniConnection.ts` + `tests/uniConnectionGraph.test.ts` |
 | 渲染门面 | [literature-graph.js](../apps/zotero-addon/addon/chrome/content/literature-graph.js) + vendored force-graph |
 | 全库图（Graph⇄Table 切换，表格降为可折叠管理面） | `literature-explorer.js` `#collection-view` |
-| 详情页图标签（同一张图，居中焦点） | `literature-explorer.js` `#detail-view` |
+| 详情页 `focusedGraph`（同一张图，居中焦点） | `views.ts` + `literature-explorer.js` `#detail-view` |
 | 图/表筛选联动、布局坐标持久化 | `literature-explorer.js` + `views.ts` |
+| XHTML/plain-JS 自动 harness | `tests/literatureExplorerRace.test.ts` + `tests/literatureGraph.test.ts` |
 
 布局落盘在 `<dataDir>/unizero/graph/<libraryID>.json`，**刻意放在分片树之外** —— 那里的文件按 item 键入并会被
 `sweep()` 在条目消失时删除，布局放进去会每次启动被清掉。坐标同时带 `GRAPH_LAYOUT_VERSION`（代码层）与
@@ -22,16 +23,16 @@
 0.5.0 追加：观感重做、Display/Forces 可设置项、节点右键菜单，见 §13。
 
 **本文此后按「设计依据 + 事故记录」读。** §3 / §8 的坑与 §12 / §13 的修正是最该反复读的部分；
-仍未做的事（库外 ghost 节点、2 跳、WebGL 门槛、egoGraph 的去留、分组）在 [ROADMAP.md](ROADMAP.md)。
+仍未做的事（库外 ghost 节点、WebGL 门槛、分组）在 [ROADMAP.md](ROADMAP.md)。
 
 ---
 
 ## 1. 已定决策（来自需求方拍板）
 
-1. **Ego 图仅库内**：单篇为中心的图只含 Zotero 库内论文。库外 ghost 发现节点**延后**（本期不做）。
+1. **焦点图仅库内**：单篇为中心的图只含 Zotero 库内论文。库外 ghost 发现节点**延后**（本期不做）。
 2. **渲染库 = `force-graph`（Vasturiano，2D canvas，MIT）**：自带 hover/拖拽/缩放/link 粒子动感，最接近目标手感。
    数百~上千节点足够。若将来上千节点不够顺滑，再换 WebGL（Cosmograph/Sigma）——**数据层必须与渲染器解耦**以便低成本替换。
-3. **两块图一起做**：整图构造器 + 全库总览视图 + 详情页 Ego 视图，一并交付。
+3. **两块图共用拓扑**：`libraryGraph` + 全库总览视图 + 详情页 focused view；不维护第二套 1 跳构造器。
 
 ⚠ **不要 vendored Obsidian 的图代码**（如 zotero-style 那种「Obsidian source code」）——Obsidian 应用代码闭源、禁止再分发。
 目标手感来自 canvas + d3-force，`force-graph` 已经给全了，直接用它。
@@ -47,11 +48,10 @@ Explorer 现为两视图（见 `addon/chrome/content/literature-explorer.xhtml`�
 | 目标 | 落点 | 角色 |
 |---|---|---|
 | 全库总览图（Obsidian 式） | `#collection-view` 加 **Graph⇄Table** 模式切换 | 图为主视图，表降为**可折叠的管理面** |
-| 单篇 Ego 图（Connected Papers 式） | `#detail-view` 新增 **Graph** 标签（置于 References 之前或并列） | **同一张库内图，居中在选中 Paper 上** |
+| 单篇焦点图（Connected Papers 式） | `#detail-view` 的 **Graph** 标签 | **同一张库内图，居中在选中 Paper 上** |
 
-> Ego 视图**不裁成 1 跳邻域**：与焦点没有直接边的论文，可能通过某篇有边的论文只隔一步，砍掉就把这层结构丢了。
-> 因此详情页画的是同一张图，只是标记并居中焦点。`uniConnection.egoGraph`（1 跳查询）保留且仍有单测，
-> 但当前 UI 未使用 —— 留给将来可能的「仅 1 跳」开关。
+> 焦点视图**不裁成 1 跳邻域**：与焦点没有直接边的论文，可能通过某篇有边的论文只隔一步，砍掉就把这层结构丢了。
+> 因此详情页画的是同一张图，只是由 `getLiteratureFocusedGraph` 标记并居中焦点。
 
 ---
 
@@ -69,13 +69,14 @@ Explorer 现为两视图（见 `addon/chrome/content/literature-explorer.xhtml`�
 - **双击**：才是「打开」——等价于现在表格里 Title 链接的动作。
   - 全库图双击一个节点 → 进入该 Paper 的 `#detail-view`。
   - 「Show in Zotero」用已有 `api.selectItem(itemID)`（[literatureExplorer.ts](../apps/zotero-addon/src/ui/literatureExplorer.ts)）。
-- **表格与图是同一份筛选结果的两种呈现**：年份 / 来源 / 标签 / 边类型（cites vs coupled）/ 最小耦合权重等筛选对两者同时生效。这正是需求方要的「表格担任管理职能」。
+- **Collection 表格与图共享论文可见性筛选**；Collection 的边类型/最小耦合权重只属于
+  Collection，详情页每个论文 tab 各自保存一份图筛选，互不静默继承。
 
 ---
 
 ## 4. 视觉编码（Connected Papers 式）
 
-- **节点大小** = 被引数 `citations`（若库内论文无该字段，回退到**库内入度** = 有多少库内论文引用它）。
+- **节点大小** = 当前可见子图的 degree，经平方根压缩；焦点节点另有小幅强调。
 - **节点颜色** = 年份（顺序色阶）。
 - **位置** = 力导向布局，**耦合权重作为吸引力**（共享参考多的聚在一起）。
 - **边**：`cites` 有向（可加方向性 link 粒子体现「动感」）；`coupled` 无向，**透明度/粗细 = 耦合权重**。
@@ -97,7 +98,7 @@ export interface GraphNode {
   id: ScopedItemKey;        // `${libraryID}:${itemKey}`
   itemKey: string;
   degree: number;           // 库内 in+out 度，用于定大小与去杂
-  isCenter?: boolean;       // 仅 ego 图
+  isCenter?: boolean;       // Views 在 focused graph 上标记
 }
 // Views 富化后追加：title / year? / citations? / hasPDF / hasMarkdown
 export interface GraphEdge {
@@ -111,32 +112,35 @@ export interface LiteratureGraph {
   scope: { libraryID: number };
   nodes: GraphNode[];
   edges: GraphEdge[];
-  center?: ScopedItemKey;   // ego 图为中心节点
+  center?: ScopedItemKey;   // focused graph 的中心节点
 }
 ```
 
 ### 5.2 `libraryGraph(libraryID): LiteratureGraph`
 
 - `await indexFor(libraryID)` 惰性建好索引。
-- **节点**：遍历 `index.items` 的每个 scopedKey，解析回 Zotero item 取 title/year/hasPDF/hasMarkdown（与 `getLiteratureCollectionSnapshot` 取元数据同源，避免两处口径不一）。
+- **节点**：遍历 `index.items` 的每个 scopedKey，只产出 id/itemKey/degree；Views 再从当前
+  Zotero item 实时补 title/year/hasPDF/hasMarkdown。
 - **cites 边**（库内引用）：对每个 A，遍历 `forward[A]` 的边 e，若 `edgeOwner.has(e)` 且 `edgeOwner(e) !== A` → 有向边 `A → edgeOwner(e)`。
 - **coupling 边**（文献耦合）：遍历 `inverted`，对每条边 e，令 `S = inverted[e]`；
   - **超级 hub 上限**：若 `|S| > COUPLING_HUB_CAP`（建议 200）则跳过——人人都引的方法论论文会造出稠密团，既 O(n²) 又无信息量。
   - 否则对 S 内每个无序对 (u,v) 累加 `weight[(u,v)] += 1`。
-  - 只发出 `weight ≥ COUPLING_MIN_WEIGHT`（大库建议 2）的耦合边，控制可读性。
+  - 只发出 `weight ≥ COUPLING_MIN_WEIGHT`（当前默认 1）的耦合边；用户可在图上提高阈值。
 - **degree**：由上面两类边累计。
+- **记忆化**：以 libraryID + 有效 `couplingHubCap`/`couplingMinWeight` 为键缓存纯拓扑；
+  build、ingest、retract、trash、delete 都清除对应库的缓存。Views 每次仍实时富化 Zotero metadata。
 
-### 5.3 `egoGraph(item, opts?): LiteratureGraph`（仅 1 跳，仅库内）
+### 5.3 `getLiteratureFocusedGraph(item, scope?)`（Views 层）
 
-- center = `libraryItemIdentity(item)`，`isCenter=true`。
-- **被引**（谁引用了本篇）：`relationsOf(item)` → 每个邻居有向边 `neighbor → center`。
-- **引用**（本篇引了库内谁）：遍历 `forward[center]` 的边 e，`edgeOwner.has(e)` → 有向边 `center → edgeOwner(e)`。
-- **耦合**：`coupledWith(item, EGO_COUPLING_LIMIT)` → 无向边 `center — neighbor`（weight=shared）。
-- 节点 = center + 上述所有邻居去重。**不含库外 ghost 节点**（本期决策）。
+- 调 `getLiteratureGraph(scope)` 取得完整、已按 Collection scope 裁剪并富化的图。
+- center = `${item.libraryID}:${item.key}`，对应节点 `isCenter=true`。
+- 若 scope 排除了焦点论文，仍补进一个孤立的焦点节点，保证从论文入口打开图时有中心。
+- bridge 名为 `focusedGraph`；未被产品消费的独立 1 跳构造器已经删除。
 
 ### 5.4 与渲染器解耦
 
-`libraryGraph`/`egoGraph` 只返回上面的纯 `LiteratureGraph`。渲染端只消费这个结构，**不得**依赖 force-graph 特有字段——这样将来换 WebGL 只改渲染端。
+`libraryGraph` 只返回上面的纯 `LiteratureGraph`。Views 复制/富化节点，渲染端再复制成
+force-graph 自己的 node/link 对象；缓存拓扑不得被渲染器改写。这样将来换 WebGL 只改渲染端。
 
 ---
 
@@ -146,7 +150,7 @@ export interface LiteratureGraph {
 
 新增（照搬 `collectionSnapshot` / `snapshot` 的写法）：
 - `api.graph()` → `explorerViews.getLiteratureGraph(scope)` → `uniConnection.libraryGraph(scope.libraryID)`。
-- `api.egoGraph(itemKey)` → `explorerViews.getLiteratureEgoGraph(contextItem(itemKey))` → `uniConnection.egoGraph(item)`。
+- `api.focusedGraph(itemKey, scope)` → `explorerViews.getLiteratureFocusedGraph(contextItem(itemKey), scope)`。
 - 在 `views.ts` 里加对应生产端（与 `getLiteratureCollectionSnapshot` 并列）。
 - `strings()` 里补图相关文案（边类型、图/表切换、空态等）；沿用已有 `relationCites/relationCoupled/relationBoth/sharedColumn/mostShared`。
 
@@ -175,16 +179,17 @@ export interface LiteratureGraph {
 3. **大图可读性**：标签**去杂**（缩放/hover 才显全标签，否则重叠成糊——需求方那张 Obsidian 图能全显是因为库小）；配合筛选（边类型 / 最小耦合权重 / 年份）避免「毛球」。
 4. **哑边限制延续**（见 UNICONNECTION.md §7）：无 DOI/arXiv/S2 的论文进不了边，会是孤立节点——预期行为，不是 bug。
 5. **不阻塞 UI**：首次 `graph()` 会惰性全库建索引（大库有秒级延迟），渲染前显示 loading；力模拟异步跑。
-6. **布局坐标缓存（收尾项）**：力模拟稳定后把 `id→{x,y}` 按 libraryID 存起来，重开不必重跑（Obsidian/Connected Papers 都持久化布局）。接上 UNICONNECTION.md 里延后的落盘水位线。首版可先每次重跑，列为 polish。
+6. **布局坐标缓存**：settle 后把 `id→{x,y}` 按 libraryID 存起来；读取/保存只接受当前
+   `${libraryID}:` 前缀与有限坐标，同库写入串行，避免两张图共享 `.tmp` 时互相覆盖。
 7. **渲染器解耦**（§5.4）：为将来换 WebGL 留路。
 
 ---
 
 ## 9. 施工分步（虽「两个一起」，内部仍按此序）
 
-1. **数据层**：`uniConnection.libraryGraph` + `egoGraph`；`views.ts` 生产端；`api.graph()`/`egoGraph()`；strings。可无 UI 单测。
+1. **数据层**：`uniConnection.libraryGraph`；`views.ts` 的 graph/focused graph 生产端；bridge 与 strings。
 2. **vendored force-graph** + xhtml 挂载 + `literature-graph.js` 骨架，先把**全库图**画出来。
-3. **详情页 Ego 图**：接 `api.egoGraph`，节点 open/select、hover 预览。
+3. **详情页焦点图**：接 `api.focusedGraph`，节点 open/select、hover 预览。
 4. **收尾**：图/表切换与折叠、共享筛选、标签去杂、主题响应、布局缓存。
 
 ---
@@ -192,8 +197,12 @@ export interface LiteratureGraph {
 ## 10. 验收与测试
 
 - **单测（补上 UNICONNECTION.md 指出的测试缺口，从这里起头）**：
-  - cites 边 ⇔ `A.forward ∋ B.selfEdge`；coupling 权重 = 共享参考数；无自环；ego 图中心不出现在自己的邻居集；hub 上限生效。
-- **手动**：在 PEAD 库上开全库图，聚类是否符合直觉；双击进详情页 Ego 图；hover/单击/双击语义正确；明暗主题都正常。
+  - cites 边 ⇔ `A.forward ∋ B.selfEdge`；coupling 权重 = 共享参考数；无自环；hub 上限与 cache 失效生效。
+  - happy-dom 加载真实 Explorer XHTML/plain JS，覆盖 tab/context 乱序、关闭/切 kind/load-more stale
+    result、Collection/detail filter 隔离、action 失效策略和 settle/refit 生命周期。
+  - renderer facade 覆盖 `nodeVal = drawRadius²`、error 恢复和 settle listener multiplexing；
+    LocalStorage 覆盖两张图同库 layout write 串行。
+- **手动**：在 PEAD 库上开全库图，聚类是否符合直觉；双击进详情页焦点图；hover/单击/双击语义正确；明暗主题都正常。
 - **性能**：数百~上千节点交互流畅；若卡顿，先上布局缓存，再考虑 §1 决策里的 WebGL 替换。
 
 ---
@@ -201,9 +210,9 @@ export interface LiteratureGraph {
 ## 11. 明确不做 / 延后
 
 - ❌ 库外 ghost 发现节点（Connected Papers 式「你没有的论文」）——本期不做，未来复用 References/Citations 缓存再加。
-- ✅ 布局坐标持久化：已实现（见文首状态）。种子式恢复——存的坐标只作模拟起点，过期或残缺也会自行收敛，因此不做校验。
+- ✅ 布局坐标持久化：已实现（见文首状态）。种子式恢复；版本/力学签名、
+  libraryID 前缀和有限坐标均会校验，过期或跨库条目在下一次保存时清除。
 - ⏳ WebGL 渲染器：仅当上千节点不够顺滑时替换；数据层已解耦以便低成本切换。
-- ⏳ 2 跳及以上 Ego 图：首版仅 1 跳。
 
 ---
 

@@ -21,8 +21,10 @@ READMEs and `docs/ARCHITECTURE.md`.
 - Run a real MinerU conversion and inspect Markdown, tables, references, links, and
   annotation output.
 - Verify graph behaviour beyond a first look: dark theme, layout persistence across a
-  restart, a library large enough to stress readability, and the graph status line after
-  an induced callback failure.
+  restart, a library large enough to stress readability, the graph status line after an
+  induced callback failure, rapid switching/closing of paper tabs, personal/group library
+  context changes, immediate topology refresh after References updates, fit/drag/menu
+  boundaries, and window-close cleanup.
 
 ## Contracts and artifacts
 
@@ -37,8 +39,6 @@ READMEs and `docs/ARCHITECTURE.md`.
 - Add host-independent tests for the feature registry, contract client, library scope,
   artifact identity, and metadata comparison. The derived index and graph builders are
   already covered.
-- Promote the throwaway browser harness for `literature-graph.js` into the repository, so
-  force parameters and render-loop survival can be measured without packaging an XPI.
 - Extract view state, network orchestration, and Zotero mutations from
   `src/modules/views.ts` as those areas change.
 - Move the template-editor dialog logic in `addon/chrome/content/panel.js` under the
@@ -47,8 +47,6 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Graph
 
-- Decide the fate of `uniConnection.egoGraph`: it is tested and unused, reserved for a
-  possible one-hop-only toggle. Ship the toggle or delete the builder.
 - Grouping and faceting on the board — colouring or clustering by tag, collection, or
   another facet, beyond the year option that exists now. Raised but not designed: what
   the groups should be is the open question, not how to draw them.
