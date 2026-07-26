@@ -82,6 +82,7 @@ Two graph constraints are easy to break and expensive to diagnose:
 | Per-item provider caches | `<Zotero data dir>/unizero/cache/` shard tree |
 | Graph layout coordinates | `<Zotero data dir>/unizero/graph/<libraryID>.json` |
 | Graph display and force settings | `<Zotero data dir>/unizero/graph/settings.json` |
+| Zotero item ↔ Markdown note bindings | `<Zotero data dir>/unizero/markdown-links/<libraryID>.json` |
 | Preferences | Zotero preference branch, defaults in `addon/prefs.js` |
 
 The derived relation index is memory-only and rebuilt on demand. Explorer tabs are
@@ -92,27 +93,28 @@ per-window and not persisted.
 Conversion writes a `uid` into the Markdown frontmatter, derived from the Zotero
 item rather than drawn at random. Publish rewrites the whole file, so a random
 value would be redrawn on every conversion and every link built on the previous
-one would break; a derived one also lets the add-on recompute it without opening
-the file. The format is `unizero-<libraryID>-<itemKey>`, and it is produced
-independently on both sides — `_fm_uid` in the runtime's `pipeline/steps.py` and
-`markdownUid` in `src/ui/literatureExplorer.ts` — so it cannot change on one side
-alone.
+one would break. The default format is `unizero-<libraryID>-<itemKey>`, produced
+by `_fm_uid` in the runtime's `pipeline/steps.py`. Advanced URI does not require
+this value to be numeric: its documented form is a UUID/text identifier.
 
 Set an Obsidian vault name in *Settings → UniZero* to open notes by that uid
 through the Advanced URI plugin. This is what survives renaming or moving a note
 inside the vault: the Markdown is attached as a *link*, so Zotero holds a path and
 nothing else, and a moved note otherwise leaves a record that still reads
-"converted" pointing at a file that is gone. With no vault set, notes open by
-absolute path, which does not survive the move. Notes converted before the uid
-existed carry none, so a reachable file is checked for one before the uid route is
-used.
+"converted" pointing at a file that is gone. UniZero therefore records the actual
+frontmatter uid, attachment key, and path against `libraryID + itemKey` in
+`markdown-links/<libraryID>.json`. Every new conversion and every explicit link
+change refreshes that binding. Opening the Markdown menu also reconciles a
+reachable file whose path or uid was edited outside UniZero.
 
-The Collection table's Markdown badge opens the note target for a converted paper.
-With a vault configured it shows the portable Advanced URI and does not report a
-device-local attachment path as missing or offer to replace it. Without a usable
-uid route it shows the linked file path and offers to re-point a missing legacy
-link. Only linked files can be re-pointed — a stored copy belongs to Zotero and is
-replaced by the next conversion.
+The Collection table's Markdown badge always offers one **Change Markdown link**
+action for a linked conversion, whether its current target opens by uid or by
+absolute path. Choosing a file updates both the Zotero attachment and the binding
+record, using the uid that file actually declares. Existing absolute-path links
+are observed but never rewritten automatically. With no usable uid or no vault
+setting, notes continue to open by absolute path. A stored copy belongs to Zotero
+and is replaced by the next conversion; if it is the only Markdown artifact left,
+choosing a new file creates a fresh owned link without altering the stored copy.
 
 ## Runtime connection
 

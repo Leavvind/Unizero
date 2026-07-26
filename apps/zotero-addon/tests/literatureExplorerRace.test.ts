@@ -390,7 +390,7 @@ describe("Literature Explorer async ownership", () => {
     harness.win.close();
   });
 
-  it("presents Advanced URI as the portable Markdown target", async () => {
+  it("keeps one link-change action available for an Advanced URI target", async () => {
     const uri = "obsidian://adv-uri?vault=Academic&uid=unizero-1-P1";
     const harness = createHarness({
       markdownLink: async () => ({
@@ -410,12 +410,14 @@ describe("Literature Explorer async ownership", () => {
     expect(menu.querySelector(".graph-menu-note")?.textContent).toBe(uri);
     expect(menu.textContent).not.toContain("D:\\old-device");
     expect(menu.textContent).not.toContain("markdownMissing");
-    expect(Array.from(menu.querySelectorAll("button"), (button) => button.textContent))
-      .not.toContain("markdownRelink");
+    const linkActions = Array.from(menu.querySelectorAll("button"))
+      .filter((button) => button.textContent === "markdownRelink");
+    expect(linkActions).toHaveLength(1);
+    expect(linkActions[0].disabled).toBe(false);
     harness.win.close();
   });
 
-  it("keeps path repair available for legacy Markdown without a uid route", async () => {
+  it("uses the same link-change action for an absolute-path target", async () => {
     const harness = createHarness({
       markdownLink: async () => ({
         path: "D:\\old-device\\Legacy.md",
@@ -433,8 +435,10 @@ describe("Literature Explorer async ownership", () => {
     const menu = harness.win.document.getElementById("graph-menu")!;
     expect(menu.textContent).toContain("D:\\old-device\\Legacy.md");
     expect(menu.textContent).toContain("markdownMissing");
-    expect(Array.from(menu.querySelectorAll("button"), (button) => button.textContent))
-      .toContain("markdownRelink");
+    const linkActions = Array.from(menu.querySelectorAll("button"))
+      .filter((button) => button.textContent === "markdownRelink");
+    expect(linkActions).toHaveLength(1);
+    expect(linkActions[0].disabled).toBe(false);
     harness.win.close();
   });
 

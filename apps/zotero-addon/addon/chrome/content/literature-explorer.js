@@ -1807,8 +1807,8 @@ var LiteratureExplorer = {
    * The Markdown is attached as a link, so the record can outlive the file: the
    * table says "converted" while the path points at nothing. That is invisible
    * from the badge alone, so the menu leads with where the link goes and whether
-   * anything is still there, and offers to re-point it — a note that merely moved
-   * needs a new path, not another conversion.
+   * anything is still there. UID and path targets share one explicit link-change
+   * action — a note that merely moved needs a new binding, not another conversion.
    */
   async showMarkdownMenu(item, event) {
     let s = this.strings;
@@ -1831,13 +1831,11 @@ var LiteratureExplorer = {
       entry(s.graphOpenObsidian, Boolean(api.openMarkdown), () =>
         this.runCollectionMarkdownAction(item, () => api.openMarkdown(item.itemKey)));
       entry(s.select, Boolean(item.itemID), () => api.selectItem(item.itemID));
-      // Re-pointing an absolute file path is a fallback for legacy/path-based
-      // notes, not part of the portable uid workflow.
-      if (!link || !link.advancedUri) {
-        entry(s.markdownRelink, Boolean(api.relinkMarkdown) && Boolean(link && link.linked),
-          () => this.runCollectionMarkdownAction(
-            item, () => api.relinkMarkdown(item.itemKey), true));
-      }
+      // UID and path routes share one explicit repair action. Merely opening this
+      // menu never rewrites an older absolute-path link.
+      entry(s.markdownRelink, Boolean(api.relinkMarkdown),
+        () => this.runCollectionMarkdownAction(
+          item, () => api.relinkMarkdown(item.itemKey), true));
       entry(s.markdownRegenerate, Boolean(item.hasPDF) && Boolean(api.convertItem),
         () => this.runCollectionAction(null, item, "markdown"));
     });

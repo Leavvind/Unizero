@@ -330,9 +330,10 @@ def _fm_uid(library_id: Any, item_key: str, attachment_key: str) -> str:
 
     A standalone PDF has no parent item, so its own key identifies it instead.
 
-    The add-on derives the same string in `markdownUid` (ui/literatureExplorer.ts).
-    The value is never exchanged between the two — each side computes it — so this
-    format cannot change on one side alone.
+    After conversion the add-on reads this value from the published file and records
+    the Zotero-item binding in its own data directory. That keeps the runtime
+    independent of Zotero while allowing an explicitly re-linked note to carry a
+    different uid.
     """
     key = str(item_key or attachment_key or "").strip()
     if not key:

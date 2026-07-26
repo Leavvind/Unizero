@@ -333,7 +333,7 @@ state.animationFrameRequestId = requestAnimationFrame(animate);  // 抛异常就
 除两项外全部复用既有 api（`convertItem`、`loadRelation`、`selectItem`）。新增：
 
 - `openPdf`：走 `ZoteroPane.viewAttachment`，由 Zotero 自己处理阅读器偏好与文件缺失。
-- `openMarkdown`：设置了 Obsidian vault 时，根据 Zotero `libraryID + itemKey` 派生的稳定 `uid` 走 `obsidian://adv-uri?vault=<encoded>&uid=<encoded>`，因此笔记在 vault 内改名、移动或换设备都不依赖原机器的绝对路径；未设置 vault 或旧笔记没有该 `uid` 时，才回退到 `obsidian://open?path=<encoded>`。
+- `openMarkdown`：插件在 `<dataDir>/unizero/markdown-links/<libraryID>.json` 中记录 Zotero item、Markdown 附件、实际路径与 frontmatter `uid` 的绑定。设置了 Obsidian vault 且绑定里有 `uid` 时走 `obsidian://adv-uri?vault=<encoded>&uid=<encoded>`；否则保留并使用原绝对路径。新转换、显式修改链接及读取到外部改过的可达文件时更新绑定，但不会在后台改写旧的绝对路径链接。
 
 改变状态的操作把 api 返回的最新 paper 合并回表格并重建图——两个界面不能有一个还在描述点击之前的状态。
 

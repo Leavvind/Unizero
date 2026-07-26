@@ -84,6 +84,11 @@ function readRecord(attachment: Zotero.Item): ArtifactRecord | null {
   }
 }
 
+/** Source PDF key recorded on a generated artifact, when the record survived. */
+export function artifactSource(attachment: Zotero.Item): string {
+  return readRecord(attachment)?.source || "";
+}
+
 function noteFor(kind: ArtifactKind, source: string): string {
   const record: ArtifactRecord = { kind, source, schema: RECORD_SCHEMA };
   return (

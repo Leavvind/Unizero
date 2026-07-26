@@ -204,12 +204,18 @@ Neither component reaches through the HTTP boundary to reuse the other's impleme
 | Conversion templates and jobs | Paper runtime |
 | Work files and processing records | Runtime home |
 | Published Markdown | User-selected filesystem destination |
-| Note identity (`uid` frontmatter) | Derived from `libraryID` + item key by both components independently, never exchanged |
+| Note identity (`uid` frontmatter) | Published Markdown; the runtime supplies a stable default |
+| Zotero item ↔ Markdown note binding | `<dataDir>/unizero/markdown-links/<libraryID>.json`, maintained by the add-on |
 | Generated Zotero attachment identity | `unizero:<kind>` tags |
 
 Derived data never becomes a second authority for Zotero metadata. Layout coordinates sit
 outside the shard tree on purpose: shards are keyed by item and swept when an item
 disappears, which would delete a library-scoped file on every start.
+
+The Markdown link registry contains no bibliographic fields. It joins the canonical
+Zotero item and attachment identity to the path and frontmatter uid observed in the
+published file. Conversion, an explicit link change, or observing a reachable changed
+file refreshes it; observation never rewrites an existing absolute-path attachment.
 
 ## Identity and safety
 
