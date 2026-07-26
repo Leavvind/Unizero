@@ -65,7 +65,7 @@ function emptyShard(item: LibraryScopedItem): Shard {
   };
 }
 
-class LocalStorage {
+export class LocalStorage {
   /** Root of the shard tree; surfaced by UniZeroDebug(). */
   public directory!: string;
   /** The add-on's data directory: parent of both the shard tree and graph layouts. */
@@ -75,6 +75,8 @@ class LocalStorage {
   private resident = new Map<string, Shard>();
   /** Serialises writes per shard, so two saves for one item cannot interleave. */
   private writes = new Map<string, Promise<void>>();
+  /** One writer per layout file; both graph views share the same file and tmp path. */
+  private graphWrites = new Map<number, Promise<void>>();
 
   constructor(name: string) {
     this.lock = Zotero.Promise.defer();
@@ -207,6 +209,20 @@ class LocalStorage {
 
   async writeGraphLayout(libraryID: number, payload: any): Promise<void> {
     await this.lock.promise;
+    const write = (this.graphWrites.get(libraryID) || Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.persistGraphLayout(libraryID, payload));
+    this.graphWrites.set(libraryID, write);
+    try {
+      await write;
+    } finally {
+      if (this.graphWrites.get(libraryID) === write) {
+        this.graphWrites.delete(libraryID);
+      }
+    }
+  }
+
+  private async persistGraphLayout(libraryID: number, payload: any): Promise<void> {
     try {
       // Inside the try: a failed init leaves no root, and a missing layout must
       // stay a silent miss rather than break the caller's render.
@@ -215,7 +231,9 @@ class LocalStorage {
         createAncestors: true,
         ignoreExisting: true,
       });
-      await IOUtils.writeUTF8(path, JSON.stringify(payload), { tmpPath: `${path}.tmp` });
+      await IOUtils.writeUTF8(path, JSON.stringify(payload), {
+        tmpPath: `${path}.tmp`,
+      });
     } catch (error) {
       ztoolkit.log(`graph layout unwritable for ${libraryID}: ${error}`);
     }

@@ -24,6 +24,7 @@ import { resolveMany } from "./resolve";
 import { PanelStatus } from "./status";
 import { readItemPaperIdentifiers } from "./itemIdentifiers";
 import { forPersistence } from "./edgeIdentity";
+import { graphPositionsForLibrary } from "./graphLayout";
 import {
   CACHE_KEY_CITATIONS,
   CACHE_KEY_REFERENCES,
@@ -748,8 +749,7 @@ export default class Views {
     // just as a code change does, so coordinates produced under different settings
     // are not a head start either. The renderer supplies the signature.
     if (signature !== undefined && payload?.signature !== signature) { return {}; }
-    const positions = payload?.positions;
-    return positions && typeof positions === "object" ? positions : {};
+    return graphPositionsForLibrary(libraryID, payload?.positions);
   }
 
   public async saveGraphLayout(
@@ -761,7 +761,7 @@ export default class Views {
       version: GRAPH_LAYOUT_VERSION,
       signature,
       savedAt: Date.now(),
-      positions,
+      positions: graphPositionsForLibrary(libraryID, positions),
     });
   }
 

@@ -439,12 +439,7 @@ var LiteratureExplorer = {
    * the new library ID, so the views are destroyed rather than merely emptied.
    */
   destroyGraphs() {
-    if (this._refitTimers) {
-      Object.keys(this._refitTimers).forEach((which) => {
-        window.clearTimeout(this._refitTimers[which]);
-      });
-    }
-    this._refitTimers = {};
+    ["collection", "detail"].forEach((which) => this.cancelGraphRefit(which));
     ["collection", "detail"].forEach((which) => {
       if (this.graphs[which] && typeof LiteratureGraph !== "undefined") {
         LiteratureGraph.destroy(this.graphs[which]);
@@ -889,6 +884,7 @@ var LiteratureExplorer = {
         onOpen: (node) => this.onGraphOpen(node),
         onContext: (node, event) => this.showGraphMenu(which, node, event),
         onError: (message) => this.onGraphError(which, message),
+        onClearError: () => this.onGraphClearError(which),
       });
     } catch (error) {
       this.setGraphEmpty(which, this.strings.error + ": " + String(error));
@@ -1028,6 +1024,7 @@ var LiteratureExplorer = {
     let view = this.graphs[which];
     let data = this.graphData[which];
     if (!view || !data) return;
+    this.cancelGraphRefit(which);
     let filtered = this.filterGraph(which, data);
     let counts = LiteratureGraph.setData(view, filtered, this.graphLayout);
     LiteratureGraph.resize(view);
@@ -1068,15 +1065,61 @@ var LiteratureExplorer = {
         : s.relationEmpty);
     }
     if (refit) {
-      // Fit after the simulation has had a moment to spread the nodes out; an ego
-      // view then pulls its focal paper to the middle.
-      window.setTimeout(() => {
-        LiteratureGraph.zoomToFit(view);
-        if (which === "detail") {
-          window.setTimeout(() => LiteratureGraph.centerOnFocus(view), 460);
-        }
-      }, 620);
+      this.scheduleGraphRefit(which, view, data);
     }
+  },
+
+  cancelGraphRefit(which) {
+    this._refitTimers = this._refitTimers || {};
+    let pending = this._refitTimers[which];
+    if (!pending) return;
+    window.clearTimeout(pending.fallback);
+    window.clearTimeout(pending.center);
+    if (pending.unsubscribe) pending.unsubscribe();
+    delete this._refitTimers[which];
+  },
+
+  /**
+   * Frame a fresh graph twice: a quick fallback keeps the UI useful while a cold
+   * simulation is still spreading out, then engine-stop supplies the final fit.
+   */
+  scheduleGraphRefit(which, view, data) {
+    let generation = this.contextGeneration;
+    let pending = {
+      fallback: null,
+      center: null,
+      unsubscribe: null,
+    };
+    let current = () =>
+      this.contextIsCurrent(generation) &&
+      this.graphs[which] === view &&
+      this.graphData[which] === data &&
+      this._refitTimers[which] === pending;
+    let center = (final) => {
+      window.clearTimeout(pending.center);
+      if (which !== "detail") return;
+      pending.center = window.setTimeout(() => {
+        if (!current()) return;
+        LiteratureGraph.centerOnFocus(view);
+        if (final) delete this._refitTimers[which];
+      }, 460);
+    };
+    let fit = (final) => {
+      if (!current()) return;
+      LiteratureGraph.zoomToFit(view);
+      center(final);
+      if (final) {
+        window.clearTimeout(pending.fallback);
+        if (pending.unsubscribe) pending.unsubscribe();
+        pending.unsubscribe = null;
+        // Keep the record until the centring animation starts so a new dataset can
+        // still cancel it. Collection has no second animation and can finish now.
+        if (which !== "detail") delete this._refitTimers[which];
+      }
+    };
+    pending.unsubscribe = LiteratureGraph.onSettled(view, () => fit(true));
+    pending.fallback = window.setTimeout(() => fit(false), 620);
+    this._refitTimers[which] = pending;
   },
 
   filterGraph(which, data) {
@@ -1457,8 +1500,12 @@ var LiteratureExplorer = {
 
     // Placed after mounting so the menu has a measurable size to keep on screen.
     menu.hidden = false;
-    let x = (point && point.x) || (this._pointer && this._pointer.x) || 0;
-    let y = (point && point.y) || (this._pointer && this._pointer.y) || 0;
+    let x = point && point.x !== undefined
+      ? point.x
+      : this._pointer && this._pointer.x !== undefined ? this._pointer.x : 0;
+    let y = point && point.y !== undefined
+      ? point.y
+      : this._pointer && this._pointer.y !== undefined ? this._pointer.y : 0;
     let rect = menu.getBoundingClientRect();
     menu.style.left =
       Math.max(4, Math.min(x, window.innerWidth - rect.width - 6)) + "px";
@@ -1576,6 +1623,13 @@ var LiteratureExplorer = {
     note.className = "graph-error";
     note.textContent = this.strings.error + ": " + message;
     overlay.append(note);
+  },
+
+  onGraphClearError(which) {
+    if (this._graphErrors) delete this._graphErrors[which];
+    let overlay = document.getElementById(which + "-graph-overlay");
+    let note = overlay && overlay.querySelector(".graph-error");
+    if (note) note.remove();
   },
 
   /** Shape a graph node like a table row so the shared preview card can render it. */

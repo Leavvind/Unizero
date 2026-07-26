@@ -102,7 +102,7 @@ function strings(): Record<string, string> {
 }
 
 function rendererStub() {
-  return {
+  const renderer = {
     SETTINGS_DEFAULTS: {},
     sanitizeSettings: (value: unknown) => value || {},
     forceSignature: () => "test",
@@ -118,12 +118,20 @@ function rendererStub() {
         warm: false,
       };
     },
-    onSettled: vi.fn(),
+    onSettled: vi.fn((view: any, callback: () => void) => {
+      view.settleListeners = view.settleListeners || new Set();
+      view.settleListeners.add(callback);
+      return () => view.settleListeners.delete(callback);
+    }),
+    emitSettled: (view: any) => {
+      Array.from(view.settleListeners || []).forEach((callback: any) => callback());
+    },
     snapshotPositions: () => ({}),
     zoomToFit: vi.fn(),
     centerOnFocus: vi.fn(),
     select: vi.fn(),
   };
+  return renderer;
 }
 
 async function flush(): Promise<void> {
@@ -280,6 +288,26 @@ describe("Literature Explorer async ownership", () => {
       .toEqual({ links: "cites", minShared: 2 });
     expect((harness.win.document.getElementById("detail-min-shared") as HTMLInputElement)
       .value).toBe("2");
+    harness.win.close();
+  });
+
+  it("keeps layout saving and final fit as separate settle listeners", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.showDetail("P1", "graph");
+    const renderer = (harness.win as any).LiteratureGraph;
+    const view = harness.explorer.graphs.detail;
+
+    expect(view.settleListeners.size).toBe(2);
+    renderer.emitSettled(view);
+    expect(renderer.zoomToFit).toHaveBeenCalledTimes(1);
+    expect(view.settleListeners.size).toBe(1);
+
+    harness.explorer.applyGraphData("detail", graph(1, "P1"));
+    expect(view.settleListeners.size).toBe(2);
+    renderer.emitSettled(view);
+    expect(renderer.zoomToFit).toHaveBeenCalledTimes(2);
+    expect(view.settleListeners.size).toBe(1);
     harness.win.close();
   });
 });

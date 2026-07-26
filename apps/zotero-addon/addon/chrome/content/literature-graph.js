@@ -227,6 +227,7 @@ var LiteratureGraph = {
       selectedId: null,
       hoverId: null,
       neighbours: new Set(),
+      settleListeners: new Set(),
       centerId: null,
       theme: this.readTheme(),
       options: options || {},
@@ -235,9 +236,10 @@ var LiteratureGraph = {
     view.graph = window.ForceGraph()(container);
     // The canvas is inside a privileged window whose default menu has nothing to do
     // with the graph; the node menu is the explorer's job.
-    container.addEventListener("contextmenu", function (event) {
+    view.contextMenuHandler = function (event) {
       event.preventDefault();
-    });
+    };
+    container.addEventListener("contextmenu", view.contextMenuHandler);
     this.configure(view);
     this.watchTheme(view);
     this.startWatchdog(view);
@@ -317,8 +319,10 @@ var LiteratureGraph = {
     };
     if (query.addEventListener) {
       query.addEventListener("change", onChange);
+      view.themeSubscription = { query: query, onChange: onChange, modern: true };
     } else if (query.addListener) {
       query.addListener(onChange);
+      view.themeSubscription = { query: query, onChange: onChange, modern: false };
     }
   },
 
@@ -369,7 +373,7 @@ var LiteratureGraph = {
       .autoPauseRedraw(false)
       .nodeId("id")
       .nodeRelSize(1)
-      .nodeVal(guard("nodeVal", function (node) { return self.drawRadius(view, node); }))
+      .nodeVal(guard("nodeVal", function (node) { return self.nodeValue(view, node); }))
       .nodeLabel(function () { return ""; }) // hover card is rendered by the explorer
       .linkColor(guard("linkColor", function (link) {
         return self.linkColor(view, link);
@@ -436,7 +440,18 @@ var LiteratureGraph = {
       }))
       // A frame counter is the only reliable way to tell a settled graph from a
       // dead render loop; the watchdog reads it.
-      .onRenderFramePost(function () { view.frames = (view.frames || 0) + 1; });
+      .onRenderFramePost(guard("onRenderFramePost", function () {
+        view.frames = (view.frames || 0) + 1;
+      }))
+      .onEngineStop(guard("onEngineStop", function () {
+        Array.from(view.settleListeners).forEach(function (listener) {
+          try {
+            listener();
+          } catch (error) {
+            self.reportError(view, "settled listener", error);
+          }
+        });
+      }));
 
     this.applyForces(view);
   },
@@ -544,6 +559,15 @@ var LiteratureGraph = {
   /** Radius actually painted: the layout radius scaled by the user's setting. */
   drawRadius(view, node) {
     return this.radius(view, node) * (view.settings.nodeSize || 1);
+  },
+
+  /**
+   * force-graph treats nodeVal as area and takes its square root to obtain a
+   * radius. Custom drawing works in radii, so square it at this boundary.
+   */
+  nodeValue(view, node) {
+    var radius = this.drawRadius(view, node);
+    return radius * radius;
   },
 
   /**
@@ -742,7 +766,16 @@ var LiteratureGraph = {
     if (view.graph.cooldownTicks) { view.graph.cooldownTicks(warm ? 60 : Infinity); }
 
     view.graph.graphData(view.data);
+    this.clearError(view);
     return { nodes: nodes.length, links: links.length, warm: warm };
+  },
+
+  clearError(view) {
+    if (!view || !view.lastError) { return; }
+    view.lastError = null;
+    if (view.options.onClearError) {
+      try { view.options.onClearError(); } catch (ignored) { /* display-only */ }
+    }
   },
 
   /** Current coordinates, for persisting the layout. */
@@ -759,10 +792,20 @@ var LiteratureGraph = {
     return positions;
   },
 
-  /** Run a callback once the simulation settles. */
+  /**
+   * Subscribe to simulation settles without replacing another consumer.
+   *
+   * Returns an unsubscribe function; layout persistence keeps its listener for the
+   * view lifetime while fit listeners remove themselves after one matching settle.
+   */
   onSettled(view, callback) {
-    if (!view || !view.graph || !view.graph.onEngineStop) { return; }
-    view.graph.onEngineStop(function () { callback(); });
+    if (!view || !view.settleListeners || typeof callback !== "function") {
+      return function () {};
+    }
+    view.settleListeners.add(callback);
+    return function () {
+      view.settleListeners.delete(callback);
+    };
   },
 
   select(view, nodeId) {
@@ -813,6 +856,20 @@ var LiteratureGraph = {
     if (view && view.watchdog) {
       window.clearInterval(view.watchdog);
       view.watchdog = null;
+    }
+    if (view && view.settleListeners) { view.settleListeners.clear(); }
+    if (view && view.themeSubscription) {
+      var subscription = view.themeSubscription;
+      if (subscription.modern && subscription.query.removeEventListener) {
+        subscription.query.removeEventListener("change", subscription.onChange);
+      } else if (subscription.query.removeListener) {
+        subscription.query.removeListener(subscription.onChange);
+      }
+      view.themeSubscription = null;
+    }
+    if (view && view.container && view.contextMenuHandler) {
+      view.container.removeEventListener("contextmenu", view.contextMenuHandler);
+      view.contextMenuHandler = null;
     }
     if (view && view.graph && view.graph._destructor) {
       try { view.graph._destructor(); } catch (error) { /* already gone */ }
