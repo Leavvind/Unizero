@@ -9,7 +9,7 @@ do not implement a roadmap idea merely because it appears in documentation.
 
 UniZero has two executable components:
 
-- `apps/zotero-addon`: the Zotero 8 add-on;
+- `apps/zotero-addon`: the Zotero add-on;
 - `services/paper-runtime`: the optional Python service used for document processing.
 
 Their only integration boundary is the versioned localhost HTTP API. The canonical v1

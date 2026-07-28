@@ -191,7 +191,7 @@ def test_uid_is_derived_from_the_item_and_survives_reconversion() -> None:
     meta = PaperMeta(title="A Paper", library_id=1, item_key="ABCD2345")
     first = _parsed(meta)
     second = _parsed(meta)
-    assert first["uid"] == second["uid"] == "unizero-1-ABCD2345"
+    assert first["uid"] == second["uid"] == "ABCD2345"
 
 
 def test_uid_falls_back_to_the_attachment_for_a_standalone_pdf() -> None:
@@ -199,7 +199,7 @@ def test_uid_falls_back_to_the_attachment_for_a_standalone_pdf() -> None:
     document = _parsed(
         PaperMeta(title="Loose Scan", library_id=3, attachment_key="ZZZZ9999"),
     )
-    assert document["uid"] == "unizero-3-ZZZZ9999"
+    assert document["uid"] == "ZZZZ9999"
 
 
 def test_uid_is_omitted_when_the_paper_has_no_zotero_identity() -> None:

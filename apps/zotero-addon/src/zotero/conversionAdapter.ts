@@ -345,7 +345,9 @@ export async function markConverted(
     // The Collection view represents the paper's main conversion. Supplements
     // have their own attachments but must not replace the paper-level note link.
     if (!target.isSupplement) {
-      await ensureMarkdownLink(parent, options.markdownUrl);
+      await ensureMarkdownLink(parent, options.markdownUrl, {
+        upgradeLegacyUid: true,
+      });
     }
     if (options.mdSnapshot) {
       try {

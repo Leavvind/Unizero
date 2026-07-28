@@ -1,7 +1,7 @@
 schema_version: 1
 id: paper-to-markdown
 name: Generate paper Markdown
-version: 1
+version: 2
 description: Convert, clean up, and publish a Zotero PDF as Markdown using MinerU.
 modules:
   - id: extract
@@ -50,6 +50,7 @@ modules:
         - {key: authors, value: "{{ authors }}", type: list}
         - {key: year, value: "{{ year }}", type: number}
         - {key: citekey, value: "{{ citekey }}", type: text}
+        - {key: uid, value: "{{ uid }}", type: text}
         - {key: doi, value: "{{ doi }}", type: text}
         - {key: publication, value: "{{ publication }}", type: text}
         - {key: unizero-item, value: "{{ unizero_item }}", type: text}

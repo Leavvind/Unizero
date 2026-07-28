@@ -27,6 +27,8 @@ from .steps import DEFAULT_FRONTMATTER_PROPERTIES
 REMOVED_MODULES = {"enrich.semantic-scholar", "transform.references"}
 
 _FRONTMATTER_MODULE = "transform.frontmatter"
+_PAPER_TO_MARKDOWN = "paper-to-markdown"
+_UID_TEMPLATE_VERSION = 2
 
 
 def _frontmatter_properties(settings: dict[str, Any]) -> list[dict[str, Any]]:
@@ -66,6 +68,10 @@ def migrate_template_dict(value: dict[str, Any]) -> dict[str, Any]:
     modules = migrated.get("modules")
     if not isinstance(modules, list):
         return migrated
+    add_uid = (
+        str(migrated.get("id") or "").strip() == _PAPER_TO_MARKDOWN
+        and int(migrated.get("version", 1)) < _UID_TEMPLATE_VERSION
+    )
 
     kept: list[Any] = []
     for item in modules:
@@ -82,6 +88,30 @@ def migrate_template_dict(value: dict[str, Any]) -> dict[str, Any]:
             and ("tags" in settings or "extra" in settings)
         ):
             item["settings"] = {"properties": _frontmatter_properties(settings)}
+            settings = item["settings"]
+        if (
+            add_uid
+            and str(item.get("module") or "").strip() == _FRONTMATTER_MODULE
+            and isinstance(settings, dict)
+            and isinstance(settings.get("properties"), list)
+            and not any(
+                isinstance(row, dict) and str(row.get("key") or "").strip() == "uid"
+                for row in settings["properties"]
+            )
+        ):
+            uid = {"key": "uid", "value": "{{ uid }}", "type": "text"}
+            properties = settings["properties"]
+            citekey_index = next(
+                (
+                    index for index, row in enumerate(properties)
+                    if isinstance(row, dict)
+                    and str(row.get("key") or "").strip() == "citekey"
+                ),
+                len(properties) - 1,
+            )
+            properties.insert(citekey_index + 1, uid)
         kept.append(item)
     migrated["modules"] = kept
+    if add_uid:
+        migrated["version"] = _UID_TEMPLATE_VERSION
     return migrated

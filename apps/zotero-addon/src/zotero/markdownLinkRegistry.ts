@@ -126,11 +126,10 @@ function isMissingFile(error: any): boolean {
 export function defaultMarkdownUrl(item: Zotero.Item, vault: string): string {
   const key = String(item.key || "").trim();
   if (!key) { return ""; }
-  const uid = `unizero-${item.libraryID}-${key}`;
   const encodedVault = String(vault || "").trim();
   return "obsidian://adv-uri?" +
     (encodedVault ? `vault=${encodeURIComponent(encodedVault)}&` : "") +
-    `uid=${encodeURIComponent(uid)}`;
+    `uid=${encodeURIComponent(key)}`;
 }
 
 export function validateMarkdownUrl(value: string): string {
@@ -199,7 +198,30 @@ export async function recordMarkdownLink(
 export async function ensureMarkdownLink(
   item: Zotero.Item,
   generatedUrl: string,
+  options: { upgradeLegacyUid?: boolean } = {},
 ): Promise<MarkdownLinkBinding> {
   const existing = await readMarkdownLink(item);
-  return existing || recordMarkdownLink(item, generatedUrl);
+  if (!existing) {
+    return recordMarkdownLink(item, generatedUrl);
+  }
+  if (!options.upgradeLegacyUid) {
+    return existing;
+  }
+
+  try {
+    const url = new URL(existing.url);
+    const legacyUid = `unizero-${item.libraryID}-${item.key}`;
+    if (
+      url.protocol === "obsidian:" &&
+      url.hostname === "adv-uri" &&
+      url.searchParams.get("uid") === legacyUid
+    ) {
+      url.searchParams.set("uid", String(item.key));
+      return recordMarkdownLink(item, url.toString());
+    }
+  } catch {
+    // validateMarkdownUrl intentionally accepts every obsidian:// action, not
+    // only URLs understood by the platform URL parser. Preserve such edits.
+  }
+  return existing;
 }

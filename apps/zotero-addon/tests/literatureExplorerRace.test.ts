@@ -503,7 +503,7 @@ describe("Literature Explorer async ownership", () => {
   });
 
   it("shows the stored Obsidian URL and one link-change action", async () => {
-    const uri = "obsidian://adv-uri?vault=Academic&uid=unizero-1-P1";
+    const uri = "obsidian://adv-uri?vault=Academic&uid=P1";
     const harness = createHarness({
       markdownLink: async () => ({ url: uri }),
       openMarkdown: async () => undefined,
@@ -524,7 +524,7 @@ describe("Literature Explorer async ownership", () => {
   it("never presents an absolute attachment path as the Markdown link", async () => {
     const harness = createHarness({
       markdownLink: async () => ({
-        url: "obsidian://adv-uri?uid=unizero-1-P1",
+        url: "obsidian://adv-uri?uid=P1",
       }),
       openMarkdown: async () => undefined,
       editMarkdownLink: async () => undefined,

@@ -90,27 +90,6 @@ Two graph constraints are easy to break and expensive to diagnose:
 The derived relation index is memory-only and rebuilt on demand. Explorer tabs are
 per-window and not persisted.
 
-## Opening a converted paper in Obsidian
-
-Conversion writes a stable `uid` into the Markdown frontmatter and generates the
-matching `obsidian://adv-uri?...` URL. The default uid format is
-`unizero-<libraryID>-<itemKey>`, produced independently by the runtime and add-on.
-Advanced URI does not require this value to be numeric: its documented form is a
-UUID/text identifier.
-
-The generated URL is stored against `libraryID + itemKey` in
-`markdown-links/<libraryID>.json`. Re-conversion creates the binding when it is
-missing but preserves a URL the user already edited. An Obsidian vault configured
-in *Settings → UniZero* is included in newly generated URLs; with no configured
-vault, the URL contains only the uid.
-
-The Collection table's Markdown badge displays that URL. **Open in Obsidian**
-launches it directly, and **Change Markdown link** opens a text prompt pre-filled
-with the current URL. Saving the prompt replaces the stored URL. Absolute
-attachment paths are never displayed, selected, used as an opening fallback, or
-stored in this registry. If an edited URL changes its uid, the target Markdown
-frontmatter must declare that same uid.
-
 ## Runtime connection
 
 The add-on uses `/api/v1` on `127.0.0.1`. Launch resolution is implemented in

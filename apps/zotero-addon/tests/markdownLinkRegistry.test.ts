@@ -38,9 +38,9 @@ function item(libraryID: number, key: string): Zotero.Item {
 describe("Markdown link registry", () => {
   it("generates an Advanced URI without using an absolute path", () => {
     expect(defaultMarkdownUrl(item(1, "ABCD2345"), "Academic"))
-      .toBe("obsidian://adv-uri?vault=Academic&uid=unizero-1-ABCD2345");
+      .toBe("obsidian://adv-uri?vault=Academic&uid=ABCD2345");
     expect(defaultMarkdownUrl(item(1, "ABCD2345"), ""))
-      .toBe("obsidian://adv-uri?uid=unizero-1-ABCD2345");
+      .toBe("obsidian://adv-uri?uid=ABCD2345");
   });
 
   it("accepts only Obsidian URLs", () => {
@@ -71,5 +71,28 @@ describe("Markdown link registry", () => {
     );
     expect(document.items.PAPER1.url).toBe(edited);
     expect(JSON.stringify(document)).not.toContain("D:\\");
+  });
+
+  it("upgrades only the old generated uid after a successful conversion", async () => {
+    const paper = item(202, "PAPER2");
+    await recordMarkdownLink(
+      paper,
+      "obsidian://adv-uri?vault=Academic&uid=unizero-202-PAPER2",
+    );
+
+    expect(await ensureMarkdownLink(
+      paper,
+      defaultMarkdownUrl(paper, "Academic"),
+    )).toMatchObject({
+      url: "obsidian://adv-uri?vault=Academic&uid=unizero-202-PAPER2",
+    });
+
+    expect(await ensureMarkdownLink(
+      paper,
+      defaultMarkdownUrl(paper, "Academic"),
+      { upgradeLegacyUid: true },
+    )).toMatchObject({
+      url: "obsidian://adv-uri?vault=Academic&uid=PAPER2",
+    });
   });
 });

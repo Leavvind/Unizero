@@ -319,7 +319,7 @@ FRONTMATTER_VARIABLES = (
 )
 
 
-def _fm_uid(library_id: Any, item_key: str, attachment_key: str) -> str:
+def _fm_uid(_library_id: Any, item_key: str, attachment_key: str) -> str:
     """A note identity that survives being renamed or moved.
 
     Derived from the Zotero item rather than drawn at random, for two reasons.
@@ -337,7 +337,7 @@ def _fm_uid(library_id: Any, item_key: str, attachment_key: str) -> str:
     key = str(item_key or attachment_key or "").strip()
     if not key:
         return ""
-    return f"unizero-{library_id}-{key}"
+    return key
 
 
 def _fm_variables(meta: "PaperMeta", mineru_version: str = "",
