@@ -126,8 +126,7 @@ def test_unsafe_template_ids_are_refused(isolated_home: Path, template_id: str) 
 
 def _legacy_template() -> dict:
     """A template as it was written before enrich.semantic-scholar and
-    transform.references were removed, and before frontmatter became a property
-    mapping table."""
+    before frontmatter became a property mapping table."""
     return {
         "schema_version": 1,
         "id": "paper-to-markdown",
@@ -155,7 +154,9 @@ def _write_user_template(home: Path, document: dict) -> None:
     )
 
 
-def test_a_template_holding_a_removed_module_still_loads(isolated_home: Path) -> None:
+def test_a_legacy_template_drops_removed_enrichment_but_keeps_references(
+    isolated_home: Path,
+) -> None:
     # Validation raises on the first unknown module, which would otherwise take
     # every other template down with it.
     _write_user_template(isolated_home, _legacy_template())
@@ -164,8 +165,9 @@ def test_a_template_holding_a_removed_module_still_loads(isolated_home: Path) ->
     entry = next(item for item in store.list() if item["id"] == "paper-to-markdown")
     modules = [item["module"] for item in entry["modules"]]
     assert "enrich.semantic-scholar" not in modules
-    assert "transform.references" not in modules
+    assert "transform.references" in modules
     assert "extract.mineru" in modules
+    assert modules.index("transform.references") > modules.index("extract.mineru")
 
 
 def test_legacy_frontmatter_settings_become_a_property_table(isolated_home: Path) -> None:
@@ -184,6 +186,33 @@ def test_legacy_frontmatter_settings_become_a_property_table(isolated_home: Path
     assert rows["uid"]["value"] == "{{ uid }}"
     # the mapped Zotero fields survive the migration unchanged
     assert rows["title"]["value"] == "{{ title }}"
+
+
+def test_version_two_template_gains_reference_extraction_once(
+    isolated_home: Path,
+) -> None:
+    document = yaml.safe_load(
+        (paths.builtin_templates_dir() / "paper-to-markdown.yaml").read_text(
+            encoding="utf-8",
+        ),
+    )
+    document["version"] = 2
+    document["modules"] = [
+        item for item in document["modules"]
+        if item["module"] != "transform.references"
+    ]
+    _write_user_template(isolated_home, document)
+
+    store = _store(isolated_home)
+    template = store.get("paper-to-markdown")
+    assert template is not None
+    modules = [item.module for item in template.modules]
+    assert template.version == 3
+    assert modules.count("transform.references") == 1
+    assert modules.index("transform.references") > modules.index("extract.mineru")
+    assert modules.index("transform.references") < modules.index(
+        "transform.markdown-cleanup",
+    )
 
 
 def test_version_one_property_table_gains_uid_once(isolated_home: Path) -> None:
@@ -211,7 +240,7 @@ def test_version_one_property_table_gains_uid_once(isolated_home: Path) -> None:
         if item.module == "transform.frontmatter"
     )
     keys = [row["key"] for row in loaded_frontmatter.settings["properties"]]
-    assert template.version == 2
+    assert template.version == 3
     assert keys.count("uid") == 1
     assert keys.index("uid") == keys.index("citekey") + 1
 
@@ -222,6 +251,7 @@ def test_version_two_template_may_deliberately_omit_uid(isolated_home: Path) -> 
             encoding="utf-8",
         ),
     )
+    document["version"] = 2
     frontmatter = next(
         item for item in document["modules"]
         if item["module"] == "transform.frontmatter"
@@ -250,4 +280,4 @@ def test_a_legacy_document_posted_by_an_old_client_is_migrated(isolated_home: Pa
     document = store.save_dict(_legacy_template())
     modules = [item["module"] for item in document["template"]["modules"]]
     assert "enrich.semantic-scholar" not in modules
-    assert "transform.references" not in modules
+    assert "transform.references" in modules

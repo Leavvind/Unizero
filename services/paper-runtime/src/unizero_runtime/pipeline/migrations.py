@@ -18,17 +18,12 @@ from .steps import DEFAULT_FRONTMATTER_PROPERTIES
 #: citation count, and a missing DOI into the Markdown only; the add-on's
 #: Complete Metadata action now resolves the same facts against the Zotero item,
 #: where they can be reviewed and reused.
-#: transform.references parsed the reference section out of content_list and
-#: attached it to the Zotero item. It was the last-resort source for the citation
-#: sidebar, reached only when OpenAlex, Crossref, and Semantic Scholar all
-#: returned nothing for the item's identifiers — and it cost a full MinerU run to
-#: produce what those return in seconds. An item with no identifiers is better
-#: served by resolving one (Complete Metadata) than by parsing its bibliography.
-REMOVED_MODULES = {"enrich.semantic-scholar", "transform.references"}
+REMOVED_MODULES = {"enrich.semantic-scholar"}
 
 _FRONTMATTER_MODULE = "transform.frontmatter"
 _PAPER_TO_MARKDOWN = "paper-to-markdown"
 _UID_TEMPLATE_VERSION = 2
+_REFERENCES_TEMPLATE_VERSION = 3
 
 
 def _frontmatter_properties(settings: dict[str, Any]) -> list[dict[str, Any]]:
@@ -72,7 +67,10 @@ def migrate_template_dict(value: dict[str, Any]) -> dict[str, Any]:
         str(migrated.get("id") or "").strip() == _PAPER_TO_MARKDOWN
         and int(migrated.get("version", 1)) < _UID_TEMPLATE_VERSION
     )
-
+    upgrade_references = (
+        str(migrated.get("id") or "").strip() == _PAPER_TO_MARKDOWN
+        and int(migrated.get("version", 1)) < _REFERENCES_TEMPLATE_VERSION
+    )
     kept: list[Any] = []
     for item in modules:
         if not isinstance(item, dict):
@@ -111,7 +109,61 @@ def migrate_template_dict(value: dict[str, Any]) -> dict[str, Any]:
             )
             properties.insert(citekey_index + 1, uid)
         kept.append(item)
+    if upgrade_references:
+        # transform.references used to exist before extraction in some stored
+        # templates. Preserve its settings, but move one canonical instance after
+        # MinerU/page-link processing so it can read content_list. Dropping duplicate
+        # legacy instances also prevents the same bibliography being parsed twice.
+        existing_references = [
+            item
+            for item in kept
+            if isinstance(item, dict)
+            and str(item.get("module") or "").strip() == "transform.references"
+        ]
+        kept = [
+            item
+            for item in kept
+            if not (
+                isinstance(item, dict)
+                and str(item.get("module") or "").strip()
+                == "transform.references"
+            )
+        ]
+        used_ids = {
+            str(item.get("id") or "").strip()
+            for item in kept
+            if isinstance(item, dict)
+        }
+        instance_id = (
+            "references"
+            if "references" not in used_ids
+            else "reference-extraction"
+        )
+        reference_module = (
+            existing_references[0]
+            if existing_references
+            else {
+                "id": instance_id,
+                "module": "transform.references",
+                "enabled": True,
+                "settings": {"warn_if_empty": True},
+            }
+        )
+        insert_after = next(
+            (
+                index for index, item in reversed(list(enumerate(kept)))
+                if isinstance(item, dict)
+                and str(item.get("module") or "").strip()
+                in {"extract.mineru", "transform.zotero-page-links"}
+            ),
+            -1,
+        )
+        kept.insert(insert_after + 1, reference_module)
     migrated["modules"] = kept
-    if add_uid:
-        migrated["version"] = _UID_TEMPLATE_VERSION
+    if add_uid or upgrade_references:
+        migrated["version"] = max(
+            int(migrated.get("version", 1)),
+            _UID_TEMPLATE_VERSION if add_uid else 1,
+            _REFERENCES_TEMPLATE_VERSION if upgrade_references else 1,
+        )
     return migrated

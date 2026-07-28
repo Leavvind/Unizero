@@ -60,7 +60,7 @@ export const referencesDiagnostics: {
 export interface ReferencesResult {
   /** The merged, deduplicated list when more than one source answered. */
   references: ItemBaseInfo[];
-  /** "Combined" for a merge, otherwise the single engine that matched. */
+  /** "Combined" for a merge, one engine name for a single match, or "none". */
   source: string;
   /** Each engine's raw contribution, so the explorer can show and refresh them
    *  individually. Absent on the legacy single-source paths. */
@@ -276,8 +276,11 @@ async function fromSemanticScholar(identifier: string): Promise<ItemBaseInfo[] |
  * they run concurrently, so the slowest one sets the total, usually a second or
  * two more — in exchange for never inexplicably losing half the list.
  *
- * Returns null when all are empty, which tells the caller to fall back to
- * ZoMiner's PDF extraction.
+ * Returns an empty result (with `perSource` intact) when every queried source
+ * contributes zero entries. Callers need those source statuses to distinguish a
+ * genuine empty response from publisher restriction or provider failure before
+ * deciding whether to fall back to local PDF extraction. `null` is reserved for
+ * an item that has no usable identifier, so no source was queried at all.
  */
 export async function fetchReferencesByIdentifiers(
   rawDOI?: string,
@@ -315,13 +318,13 @@ export async function fetchReferencesByIdentifiers(
     "openAlex",
     "semanticScholar",
   ]);
-  if (!references.length) {
-    referencesDiagnostics.chosen = "none";
-    return null;
-  }
   const contributing = perSource.filter((source) => source.entries.length);
-  const source = contributing.length > 1 ? "Combined" : contributing[0].name;
-  referencesDiagnostics.chosen = `${source} (${references.length})`;
+  const source = contributing.length > 1
+    ? "Combined"
+    : contributing[0]?.name || "none";
+  referencesDiagnostics.chosen = references.length
+    ? `${source} (${references.length})`
+    : "none";
   return { references, source, perSource };
 }
 

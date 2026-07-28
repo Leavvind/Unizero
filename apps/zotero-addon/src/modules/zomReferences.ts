@@ -11,11 +11,10 @@
  * artifact (raw citation + page + DOI/arXiv); resolving title, authors, venue,
  * year, and abstract happens on the add-on side (Crossref/OpenAlex/LLM).
  *
- * The attachment's JSON contract (`schema: "zominer.references/N"`) is still what
- * conversion writes, which makes this the **only** route by which extraction
- * results reach the add-on. The plan is for the conversion job to return
- * references directly; until then this read path must keep working. See
- * docs/LEGACY_SUPPORT.md.
+ * Conversion returns these records in the runtime job result. The Zotero adapter
+ * writes the current `unizero.references/2` envelope and owns it with the
+ * `unizero:references` tag. This reader deliberately accepts the current and
+ * legacy envelopes by their `references` array shape; see docs/LEGACY_SUPPORT.md.
  */
 
 const REFS_ATTACHMENT_TITLE = "ZoMiner References";

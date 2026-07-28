@@ -28,7 +28,7 @@ UniZero/
 │       │   ├── api/                 FastAPI transport
 │       │   ├── application/         Configuration, jobs, use cases
 │       │   ├── pipeline/            Templates and document processing
-│       │   ├── providers/           Tables and remote providers
+│       │   ├── providers/           PDF-reference extraction, tables, and remote providers
 │       │   ├── templates/           Built-in workflow templates
 │       │   ├── composition.py       Dependency wiring
 │       │   ├── contracts.py         Pydantic boundary models

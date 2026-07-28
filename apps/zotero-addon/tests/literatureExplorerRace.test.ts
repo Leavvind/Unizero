@@ -75,6 +75,48 @@ function snapshot(itemKey: string, title: string) {
   };
 }
 
+function emptyReferenceSnapshot(itemKey: string, title: string) {
+  return {
+    seed: { itemKey, title },
+    source: "none",
+    items: [],
+    bySource: {
+      openAlex: [],
+      crossref: [],
+      semanticScholar: [],
+    },
+    sources: [
+      {
+        key: "openAlex",
+        name: "OpenAlex",
+        status: "empty",
+        count: 0,
+        total: 0,
+        hasMore: false,
+      },
+      {
+        key: "crossref",
+        name: "Crossref",
+        status: "empty",
+        count: 0,
+        total: 0,
+        hasMore: false,
+      },
+      {
+        key: "semanticScholar",
+        name: "Semantic Scholar",
+        status: "unavailable",
+        count: 0,
+        total: 0,
+        hasMore: false,
+      },
+    ],
+    loaded: 0,
+    total: 0,
+    hasMore: false,
+  };
+}
+
 function graph(libraryID: number, itemKey: string) {
   const center = `${libraryID}:${itemKey}`;
   return {
@@ -272,6 +314,27 @@ describe("Literature Explorer async ownership", () => {
     expect(harness.explorer.tabs).toHaveLength(1);
     expect(harness.explorer.tabs[0].itemKey).toBe("P1");
     expect(harness.explorer.collectionPreview).toBeNull();
+    harness.win.close();
+  });
+
+  it("keeps all source states visible when every reference source is empty", async () => {
+    const harness = createHarness({
+      snapshot: async (itemKey: string) =>
+        emptyReferenceSnapshot(itemKey, "First Paper"),
+    });
+    await flush();
+
+    await harness.explorer.showDetail("P1", "references");
+
+    expect(harness.explorer.activeTabState().snapshot.sources).toHaveLength(3);
+    expect(harness.explorer.sourceOptionLabel({
+      name: "Semantic Scholar",
+      status: "unavailable",
+    })).toBe("Semantic Scholar · restricted");
+    expect(harness.win.document.getElementById("filter-source")
+      ?.closest(".filter-field")?.hidden).toBe(false);
+    expect(harness.win.document.getElementById("status")?.textContent)
+      .toContain("OA 0 / CR 0 / S2 ⚠");
     harness.win.close();
   });
 

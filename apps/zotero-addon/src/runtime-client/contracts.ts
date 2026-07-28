@@ -144,9 +144,22 @@ export interface ConvertAccepted {
 
 export type JobStatus = "queued" | "running" | "done" | "failed";
 
+/** Pure PDF extraction output; provider enrichment happens in the add-on. */
+export interface ExtractedReference {
+  index: number;
+  raw: string;
+  page?: number;
+  identifiers: {
+    doi?: string;
+    arxiv?: string;
+  };
+}
+
 export interface JobResult {
   md_path?: string;
   tables_html_path?: string;
+  references?: ExtractedReference[];
+  references_count?: number;
   [key: string]: unknown;
 }
 

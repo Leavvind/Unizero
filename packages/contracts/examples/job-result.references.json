@@ -1,0 +1,22 @@
+{
+  "md_path": "/vault/20_Papers/example.md",
+  "references_count": 2,
+  "references": [
+    {
+      "index": 1,
+      "raw": "Example, A. (2024). A structured reference. Journal 1, 1-10. https://doi.org/10.1234/example.1",
+      "page": 14,
+      "identifiers": {
+        "doi": "10.1234/example.1"
+      }
+    },
+    {
+      "index": 2,
+      "raw": "Researcher, B. (2025). A preprint reference. arXiv:2501.01234",
+      "page": 15,
+      "identifiers": {
+        "arxiv": "2501.01234"
+      }
+    }
+  ]
+}

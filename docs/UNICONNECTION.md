@@ -59,12 +59,14 @@ Literature Explorer 现在有 `References` 和 `Citations` 两个面板：
 4. **不写回。** 不把反向边数据写进被引论文的分片。反向边是可推导的派生物，不是独立真相；
    写回会导致双份真相 + 删除时的清理地狱。反向关系只存在于 UniConnection 的派生索引里。
 
-5. **elision 兜底：先榨干 API 三源，PDF 抽取延后。**
+5. **elision 兜底：API 三源优先，PDF 抽取作为转换产物保留。**
    - references 侧已是 **OpenAlex + Crossref + Semantic Scholar 三源 union**（`referencesApi.ts` / `mergeRelations.ts`）。
    - **Crossref 是 elision 的克星**：被 S2 elide 的出版商（Wiley/Elsevier…）通常直接把 reference deposit 进 Crossref。
-   - 真正三源全空的残余集很小（无 DOI，或对所有聚合器都不 deposit）。
-   - **PDF 抽取（`services/paper-runtime` 里 commit `31abdf8` 退役的生产端）暂不复活**，原因见 §7 的“哑边”约束：
-     PDF 抽出来的是字符串不是 DOI，对图几乎无贡献。**先测量残余比例再决定**（见 §9）。
+   - 三源全空现在仍保留每源的 `empty` / `restricted` / `error` 状态，不再被当作“未查询”。
+   - PDF 转换模板已恢复纯提取版 `transform.references`：它在 Markdown 清理前读取
+     MinerU `content_list`，通过转换结果保存为带版本的 `ZoMiner References` 结构化 JSON。
+   - 该产物只包含原始引用、页码和 PDF 中直接出现的 DOI/arXiv；没有标识符的条目仍是哑边，
+     不会仅凭标题进入 UniConnection 图（见 §7）。
 
 ---
 
@@ -203,11 +205,13 @@ coupledWith(P, limit):
   `manual`（**用 Zotero 原生 related items / `dc:relation`，不要自建**，跟随同步）。
 - 图可视化：obsidian graph view 式 / Connected Papers 式 / 项目特定图，均为 UniConnection 的只读消费者。
 
-### 延后 / 门槛项 — PDF Reference Extraction 复活
-- 仅在 §9 测得“API 三源全空”的残余比例**显著**时才考虑。
-- 复活的是 `services/paper-runtime`（PDF→MD）里 commit `31abdf8` 退役的**生产端**；
-  消费端 `readZoMinerReferences`（`zomReferences.ts`，被 `views.ts` 调用）仍在，插座现成。
-- 即便复活，PDF 抽的是字符串，需 `resolve.ts` 匹配回 DOI 才能进图，且有误匹配风险（见 §7）。
+### PDF Reference Extraction ✅ 已恢复纯提取生产端
+- `services/paper-runtime` 的默认转换模板包含 `transform.references`，并在
+  `transform.markdown-cleanup` 之前执行。
+- 转换 job 通过 HTTP 契约返回有序结构化记录；add-on 将它保存为带
+  `unizero:references` 所有权标签的 `ZoMiner References` JSON 附件。
+- 现阶段不把原始字符串自动送入远程解析，也不让无标识符条目进入图。把 PDF 提取结果扩展为
+  可点击、带 citation count 的完整 Literature Explorer 条目，仍需独立的解析与置信度策略。
 
 ---
 
@@ -290,11 +294,12 @@ export class UniConnection {
   - `coupledWith(P)` 的 shared 数与手工数一致。
 - 反向一致性：若 A 的 references 含 B，则 `relationsOf(B)` 必含 A。
 
-**残余测量（决定 PDF 抽取是否复活）**
+**残余测量（决定 PDF 抽取结果是否需要进一步解析）**
 - 全库跑一遍 `fetchReferencesByIdentifiers`，用 `referencesDiagnostics` 统计：
   - 三源全空（`chosen === "none"`）的论文占比；
   - 其中“有 PDF 附件”的占比（PDF 抽取只对这部分有意义）。
-- 只有当这两个比例都**不可忽略**时，才把 PDF 抽取复活排进计划。
+- 再统计结构化 PDF 结果中直接带 DOI/arXiv 的比例。只有残余规模和可解析收益都不可忽略时，
+  才设计后续远程解析、置信度与 Literature Explorer 融合。
 
 **性能**
 - Phase 1 build 对典型库（数百–数千篇）应在数秒内；若过慢，优先落盘水位线（Phase 2 可选项）。
@@ -306,7 +311,8 @@ export class UniConnection {
 - ❌ 不把反向边写回被引论文的分片（§2.4）。
 - ❌ 不追求把 Citations 拉全；Citation 面板只留 Recent / High-influential Top-N。
 - ❌ 不用标题给哑边造 key。
-- ⏳ PDF Reference Extraction 复活：以 §9 测量为门槛。
+- ✅ PDF Reference Extraction：纯提取生产端与结构化 JSON 已恢复；远程解析和 Explorer
+  深度融合仍以 §9 测量为门槛。
 - ⏳ 索引落盘水位线：仍未做，靠内存 lazy build。
 - ✅ 图可视化：已实现（[UNICONNECTION_GRAPH.md](UNICONNECTION_GRAPH.md)）。
 - ⏳ S2 推荐 / 手动连线：仍未做，均为 UniConnection 只读消费者；手动连线用 Zotero 原生 related items。

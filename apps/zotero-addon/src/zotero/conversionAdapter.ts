@@ -13,7 +13,11 @@
  * pre-migration one.
  */
 
-import type { ConvertRequest, JobResult } from "../runtime-client/contracts";
+import type {
+  ConvertRequest,
+  ExtractedReference,
+  JobResult,
+} from "../runtime-client/contracts";
 import {
   adoptArtifact, findArtifacts, isArtifact, markArtifact,
   type ArtifactKind,
@@ -30,6 +34,8 @@ const MD_COPY_ATTACHMENT_TITLE = "ZoMiner MD Copy";
 /** The Chinese title this add-on used before the interface was unified on English. */
 const LEGACY_MD_COPY_ATTACHMENT_TITLE = "ZoMiner MD 副本";
 const TABLES_ATTACHMENT_TITLE = "ZoMiner Tables";
+const REFS_ATTACHMENT_TITLE = "ZoMiner References";
+const REFS_SCHEMA = "unizero.references/2";
 
 export interface ConversionTarget {
   /** A standalone PDF attachment has no parent item. */
@@ -309,6 +315,47 @@ async function attachImportedCopy(
   ztoolkit.log(`imported attachment '${title}': ${path}`);
 }
 
+/** Persist conversion's local PDF evidence as a versioned JSON attachment. */
+async function attachReferences(
+  context: ArtifactContext,
+  references: ExtractedReference[],
+): Promise<void> {
+  const payload = JSON.stringify({
+    schema: REFS_SCHEMA,
+    generatedAt: new Date().toISOString(),
+    subject: {
+      libraryID: context.parent.libraryID,
+      itemKey: context.parent.key,
+      attachmentKey: context.source,
+    },
+    count: references.length,
+    references,
+  }, null, 2);
+
+  const temp = Zotero.getTempDirectory();
+  temp.append(
+    `unizero-references-${context.parent.libraryID}-` +
+    `${context.parent.key}-${context.source}.json`,
+  );
+  const path = temp.path;
+  await Zotero.File.putContentsAsync(path, payload);
+  try {
+    await attachImportedCopy(
+      context,
+      "references",
+      path,
+      REFS_ATTACHMENT_TITLE + context.suffix,
+      "application/json",
+    );
+  } finally {
+    try {
+      await IOUtils.remove(path, { ignoreAbsent: true });
+    } catch (error) {
+      ztoolkit.log(`temp reference file cleanup failed: ${error}`);
+    }
+  }
+}
+
 /**
  * Register the artifacts once a conversion finishes.
  *
@@ -373,4 +420,14 @@ export async function markConverted(
     }
   }
 
+  // An empty array is still a successful extraction artifact: it records that the
+  // conversion checked the PDF and found no bibliography, and replaces any stale
+  // non-empty artifact left by an earlier version of the source attachment.
+  if (Array.isArray(outcome.references)) {
+    try {
+      await attachReferences(context, outcome.references);
+    } catch (error) {
+      ztoolkit.log(`references attach failed: ${error}`);
+    }
+  }
 }

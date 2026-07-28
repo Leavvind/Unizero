@@ -219,8 +219,36 @@
         "job_id": { "type": "string" },
         "status": { "$ref": "#/$defs/JobStatus" },
         "log_tail": { "type": "array", "items": { "type": "string" }, "default": [] },
-        "result": { "type": ["object", "null"], "default": null },
+        "result": {
+          "type": ["object", "null"],
+          "default": null,
+          "properties": {
+            "references": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/ExtractedReference" }
+            },
+            "references_count": { "type": "integer", "minimum": 0 }
+          }
+        },
         "error": { "type": ["string", "null"], "default": null }
+      }
+    },
+    "ExtractedReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "raw", "identifiers"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 1 },
+        "raw": { "type": "string" },
+        "page": { "type": "integer", "minimum": 1 },
+        "identifiers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "doi": { "type": "string" },
+            "arxiv": { "type": "string" }
+          }
+        }
       }
     },
     "AnnotateResponse": {

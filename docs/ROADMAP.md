@@ -19,8 +19,12 @@ READMEs and `docs/ARCHITECTURE.md`.
   manually started service.
 - Verify the automatic service start and stop: silent startup, shutdown on quit, a
   failed start appearing as a notice in the panel's Jobs list, and its retry action.
-- Run a real MinerU conversion and inspect Markdown, tables, references, links, and
-  annotation output.
+- Run a real MinerU conversion and inspect Markdown, tables, links, annotation output,
+  and the versioned structured `ZoMiner References` JSON artifact, including an empty
+  bibliography and a re-conversion that replaces a stale artifact.
+- In Zotero, verify a References query where OpenAlex and Crossref are empty while
+  Semantic Scholar is restricted: all three source states must remain visible after
+  closing and reopening Literature Explorer.
 - Verify graph behaviour beyond a first look: dark theme, layout persistence across a
   restart, a library large enough to stress readability, the graph status line after an
   induced callback failure, rapid switching/closing of paper tabs, personal/group library

@@ -32,12 +32,7 @@
  * them there.
  */
 
-/**
- * `references` no longer has a producer — the extraction module it came from was
- * retired. It stays in the union because libraries still hold attachments tagged
- * `unizero:references`, and ownership is what decides whether those may be
- * overwritten or deleted.
- */
+/** Generated artifacts use one owned kind per user-visible output. */
 export type ArtifactKind = "markdown" | "markdown-copy" | "tables" | "references";
 
 const TAG_PREFIX = "unizero:";

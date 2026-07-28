@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .postprocess import PostCtx, read_pdf_toc, run_passes
+from ..providers.references import extract_references
 from ..providers.table_vlm import refine_tables
 from ..providers.tables import export_tables_html
 from .workflow import ModuleRegistry, WorkflowModule, WorkflowRunner, WorkflowTemplate
@@ -561,6 +562,7 @@ class ConvertResult:
     warnings: list[str] = field(default_factory=list)
     workflow: dict = field(default_factory=dict)
     tables_html_path: Optional[Path] = None
+    references: Optional[list[dict[str, Any]]] = None
 
 
 def _mineru_cmd(src: Path, out_dir: Path, opts: ConvertOptions) -> list[str]:
@@ -630,6 +632,7 @@ class ConversionContext:
     out_md: Optional[Path] = None
     content_list_path: Optional[Path] = None
     content_list: list[dict] = field(default_factory=list)
+    references: Optional[list[dict[str, Any]]] = None
     body: str = ""
     frontmatter: str = ""
     final_md: Optional[Path] = None
@@ -723,6 +726,29 @@ def _stage_page_links(ctx: ConversionContext, _settings: dict[str, Any]) -> None
         ctx.log(f"[links] injected {ctx.pages_injected}/{ctx.pages_found} page links")
     except Exception as exc:
         ctx.warnings.append(f"page-link injection failed: {exc}")
+
+
+def _stage_references(ctx: ConversionContext, settings: dict[str, Any]) -> None:
+    """Extract ordered raw citations from MinerU's untouched content list."""
+    if ctx.content_list_path is None:
+        out_md = _require_output(ctx)
+        candidates = list(out_md.parent.glob("*_content_list.json"))
+        ctx.content_list_path = candidates[0] if candidates else None
+    if ctx.content_list_path is None:
+        ctx.warnings.append("no _content_list.json — skipped reference extraction")
+        return
+    if not ctx.content_list:
+        try:
+            ctx.content_list = json.loads(
+                ctx.content_list_path.read_text(encoding="utf-8"),
+            )
+        except Exception as exc:
+            ctx.warnings.append(f"content_list unreadable: {exc}")
+            return
+
+    ctx.references = extract_references(ctx.content_list, ctx.log)
+    if not ctx.references and bool(settings.get("warn_if_empty", True)):
+        ctx.warnings.append("reference extraction found 0 references")
 
 
 def _stage_transform(ctx: ConversionContext, settings: dict[str, Any]) -> None:
@@ -1077,6 +1103,24 @@ MODULE_REGISTRY.register(WorkflowModule(
     settings_schema=_object_schema({}),
 ))
 MODULE_REGISTRY.register(WorkflowModule(
+    id="transform.references",
+    name="Reference extraction",
+    role="process",
+    handler=_stage_references,
+    description=(
+        "Extract the PDF bibliography into ordered structured records containing "
+        "raw citation text, source page, and identifiers printed in the paper. "
+        "Scholarly-provider resolution remains on the Zotero add-on side."
+    ),
+    defaults={"warn_if_empty": True},
+    settings_schema=_object_schema({
+        "warn_if_empty": {
+            "type": "boolean",
+            "title": "Warn when no references are found",
+        },
+    }),
+))
+MODULE_REGISTRY.register(WorkflowModule(
     id="transform.markdown-cleanup",
     name="Markdown post-processing",
     role="process",
@@ -1260,6 +1304,7 @@ def convert_pdf(
         pages_found=context.pages_found,
         pages_injected=context.pages_injected,
         warnings=context.warnings,
+        references=context.references,
         workflow={
             "id": report.workflow_id,
             "version": report.workflow_version,

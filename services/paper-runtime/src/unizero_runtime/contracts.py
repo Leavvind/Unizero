@@ -103,6 +103,18 @@ class JobAccepted(BaseModel):
     status: str
 
 
+class ExtractedReferenceIdentifiers(RequestModel):
+    doi: str = ""
+    arxiv: str = ""
+
+
+class ExtractedReference(RequestModel):
+    index: int = Field(ge=1)
+    raw: str
+    page: Optional[int] = Field(default=None, ge=1)
+    identifiers: ExtractedReferenceIdentifiers
+
+
 class JobStatusResponse(BaseModel):
     job_id: str
     status: str

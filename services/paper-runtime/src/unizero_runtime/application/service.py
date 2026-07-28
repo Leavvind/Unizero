@@ -303,6 +303,9 @@ class ZoMinerApplication:
             "template": result.workflow,
             "workflow": result.workflow,
         }
+        if result.references is not None:
+            job.result["references"] = result.references
+            job.result["references_count"] = len(result.references)
         shutil.rmtree(work_dir, ignore_errors=True)
 
     def annotate(self, request: AnnotateRequest) -> dict:

@@ -267,7 +267,6 @@ export class UniConnectionSync {
         );
         if (
           isReferencesCache(record) &&
-          record.references.length &&
           cacheMatchesItem(record, item)
         ) {
           continue;
@@ -344,7 +343,6 @@ export class UniConnectionSync {
         );
         if (
           isReferencesCache(existing) &&
-          existing.references.length &&
           cacheMatchesItem(existing, item)
         ) {
           await this.connection.ingestItem(item, false);
@@ -356,7 +354,7 @@ export class UniConnectionSync {
           task.doi,
           task.semanticScholarPaperId,
         );
-        if (!result?.references.length) {
+        if (!result) {
           this.noteFill(task, "empty");
           continue;
         }
@@ -378,7 +376,11 @@ export class UniConnectionSync {
         );
         await this.cache.set(current, CACHE_KEY_REFERENCES, payload);
         await this.connection.ingestItem(current, false);
-        this.noteFill(task, "saved", result.references.length);
+        this.noteFill(
+          task,
+          result.references.length ? "saved" : "empty",
+          result.references.length,
+        );
       } catch (error) {
         this.noteFill(task, "failed", undefined, error);
         ztoolkit.log(`[uniConnection] reference fill failed for ${task.scopedKey}`, error);

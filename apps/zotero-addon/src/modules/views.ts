@@ -419,7 +419,10 @@ export default class Views {
   private readReferencesCache(item: Zotero.Item): ReferencesCache | undefined {
     if (!this.isCacheEnabled("saveAPIReferences")) { return; }
     const cached = localStorage.get(item, CACHE_KEY_REFERENCES) as ReferencesCache | undefined;
-    if (!cached?.references?.length) { return; }
+    // An empty array is a meaningful completed lookup: its per-source statuses say
+    // whether providers answered empty, were restricted, or failed. Do not turn it
+    // back into a cache miss and discard that evidence.
+    if (!cached || !Array.isArray(cached.references)) { return; }
     const identifiers = readItemPaperIdentifiers(item);
     if (!cacheMatchesIdentifiers(cached, identifiers)) {
       return;
@@ -434,7 +437,6 @@ export default class Views {
     resolved: boolean,
     perSource?: RelationSourceResult[],
   ): Promise<void> {
-    if (!references.length) { return; }
     const payload = makeReferencesCache(
       item,
       source,
@@ -800,6 +802,31 @@ export default class Views {
   }
 
   /**
+   * Parse the runtime's raw, local-only bibliography records into the minimal
+   * ItemBaseInfo shape used by both References surfaces.
+   */
+  private async parsedZoMinerReferences(
+    item: Zotero.Item,
+  ): Promise<ItemBaseInfo[] | null> {
+    const extracted = await readZoMinerReferences(item);
+    if (!extracted?.length) { return extracted; }
+    return extracted.map((reference) => {
+      const parsed = this.utils.refText2Info(reference.text || "");
+      return {
+        ...parsed,
+        ...reference,
+        title: reference.title || parsed.title,
+        authors: reference.authors?.length ? reference.authors : parsed.authors,
+        year: reference.year || parsed.year,
+        identifiers: {
+          ...this.utils.getIdentifiers(reference.text || ""),
+          ...reference.identifiers,
+        },
+      };
+    });
+  }
+
+  /**
    * Shared data entry point for the item-pane preview and the independent
    * Literature Explorer. It reads the same per-item shards as the section; when a
    * shard is missing it fetches through the established providers and writes the
@@ -822,6 +849,28 @@ export default class Views {
       let state = refresh
         ? undefined
         : (this.readReferencesCache(item) || this.explorerReferences.get(key));
+      // A completed empty provider lookup remains a valid diagnostic cache, but a
+      // later conversion may have added local PDF evidence. Promote that evidence
+      // without discarding the preserved per-source statuses.
+      if (state && !state.references.length) {
+        const extracted = await this.parsedZoMinerReferences(item);
+        if (extracted?.length) {
+          state = {
+            ...state,
+            savedAt: Date.now(),
+            source: "ZoMiner",
+            references: extracted,
+          };
+          this.explorerReferences.set(key, state);
+          await this.saveReferencesCache(
+            item,
+            state.source,
+            state.references,
+            state.resolved,
+            state.perSource,
+          );
+        }
+      }
       if (!state) {
         const result = await fetchReferencesByIdentifiers(
           identifiers.doi,
@@ -830,22 +879,9 @@ export default class Views {
         let references = result?.references || [];
         let source = result?.source || "none";
         if (!references.length) {
-          const extracted = await readZoMinerReferences(item);
+          const extracted = await this.parsedZoMinerReferences(item);
           if (extracted?.length) {
-            references = extracted.map((reference) => {
-              const parsed = this.utils.refText2Info(reference.text || "");
-              return {
-                ...parsed,
-                ...reference,
-                title: reference.title || parsed.title,
-                authors: reference.authors?.length ? reference.authors : parsed.authors,
-                year: reference.year || parsed.year,
-                identifiers: {
-                  ...this.utils.getIdentifiers(reference.text || ""),
-                  ...reference.identifiers,
-                },
-              };
-            });
+            references = extracted;
             source = "ZoMiner";
           }
         }
@@ -859,15 +895,13 @@ export default class Views {
           perSource: result?.perSource,
         };
         this.explorerReferences.set(key, state);
-        if (state.references.length) {
-          await this.saveReferencesCache(
-            item,
-            state.source,
-            state.references,
-            state.resolved,
-            state.perSource,
-          );
-        }
+        await this.saveReferencesCache(
+          item,
+          state.source,
+          state.references,
+          state.resolved,
+          state.perSource,
+        );
       }
       // Upgrade Crossref "DOI-only" rows to real bibliographic data. The item-pane
       // box does this through resolveReferences; the explorer path returns records
@@ -1128,9 +1162,7 @@ export default class Views {
         perSource,
       };
       this.explorerReferences.set(key, next);
-      if (references.length) {
-        await this.saveReferencesCache(item, next.source, references, true, perSource);
-      }
+      await this.saveReferencesCache(item, next.source, references, true, perSource);
       return this.buildCombinedSnapshot(
         item,
         kind,
@@ -2094,6 +2126,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     }
     if (cached) {
       references = cached.references
+      sectionPerSource = cached.perSource
       fromCache = true
       panel.setAttribute("source", cached.source)
       label.title = `${cached.source} · ${new Date(cached.savedAt).toLocaleString()}`
@@ -2162,23 +2195,13 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
 
     // Fallback source: references extracted by ZoMiner into a JSON attachment. A
     // pure extraction artifact, so title and authors come from local parsing.
-    const zomRefs = references ? null : await readZoMinerReferences(item)
-    if (zomRefs) {
-      references = zomRefs.map((ref) => {
-        // ZoMiner supplies only the raw citation; title, authors, and year come
-        // from local parsing first and are overwritten later by Crossref or
-        // OpenAlex. Note that ref carries empty title/authors placeholders, which
-        // must not overwrite what was just parsed.
-        const parsed = this.utils.refText2Info(ref.text!)
-        return {
-          ...parsed,
-          ...ref,
-          title: ref.title || parsed.title,
-          authors: ref.authors?.length ? ref.authors : parsed.authors,
-          year: ref.year || parsed.year,
-          identifiers: { ...this.utils.getIdentifiers(ref.text!), ...ref.identifiers },
-        }
-      })
+    const zomRefs = references?.length
+      ? null
+      : await this.parsedZoMinerReferences(item)
+    let usedZoMiner = false
+    if (zomRefs?.length) {
+      references = zomRefs
+      usedZoMiner = true
       panel.setAttribute("source", "ZoMiner");
       // Auto-loading fires on every section expansion and shows no message, since
       // one popup per click would be noisy; only a manual refresh gives feedback.
@@ -2217,12 +2240,12 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     // normal — writing the cache only after resolution completes would mean it is
     // never written on the most common path, which looks like "the cache does
     // nothing".
-    if (!fromCache) {
+    if (!fromCache || usedZoMiner) {
       await this.saveReferencesCache(item, source, finalReferences, false, sectionPerSource);
     }
     // A cache entry that is already resolved is the end of it; a half-finished one
     // continues with the remainder and then overwrites.
-    if (fromCache && cached?.resolved) { return; }
+    if (fromCache && cached?.resolved && !usedZoMiner) { return; }
     // Not awaited: blocking would leave the section empty; each entry updates in
     // place as it resolves.
     this.resolveReferences(panel, finalReferences)

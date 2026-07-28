@@ -6,6 +6,11 @@ publishing, and annotation injection.
 It exposes `/api/v1` on localhost, does not access Zotero directly, and is not required
 for metadata or literature-relations features.
 
+The built-in conversion template extracts the PDF bibliography before Markdown cleanup
+and returns ordered structured records with raw citation text, source page, and any
+DOI/arXiv identifier printed in the paper. It does not query scholarly providers or
+guess bibliographic metadata.
+
 ## Install
 
 Python 3.12 is required.

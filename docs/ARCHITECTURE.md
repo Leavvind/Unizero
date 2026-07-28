@@ -179,6 +179,12 @@ The add-on sends typed requests to `/api/v1`; the runtime returns typed response
 capabilities. The shared field contract is
 `packages/contracts/http/v1.schema.json`, mirrored by TypeScript and Pydantic models.
 
+During conversion, `transform.references` reads MinerU's untouched content list before
+Markdown cleanup removes the bibliography. The runtime returns ordered local extraction
+records only (`raw`, page, printed DOI/arXiv); the add-on persists them in the owned,
+versioned `ZoMiner References` JSON attachment. Provider matching, citation counts, and
+library resolution remain add-on responsibilities.
+
 Dependency direction:
 
 ```text
@@ -204,6 +210,7 @@ Neither component reaches through the HTTP boundary to reuse the other's impleme
 | Conversion templates and jobs | Paper runtime |
 | Work files and processing records | Runtime home |
 | Published Markdown | User-selected filesystem destination |
+| Extracted PDF bibliography | Versioned `ZoMiner References` Zotero JSON attachment, derived and replaceable |
 | Note identity (`uid` frontmatter) | Published Markdown; the runtime supplies a stable default |
 | Zotero item ↔ Obsidian URL binding | `<dataDir>/unizero/markdown-links/<libraryID>.json`, maintained by the add-on |
 | Generated Zotero attachment identity | `unizero:<kind>` tags |

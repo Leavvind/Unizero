@@ -24,7 +24,8 @@ the client for the local paper runtime.
 - filtering discovered works by library status, influence, year, publication type, and
   order, plus importing missing papers into the current library;
 - relating discovered works;
-- PDF conversion commands and generated-artifact registration;
+- PDF conversion commands and generated-artifact registration, including a versioned
+  structured References JSON attachment produced from the PDF bibliography;
 - annotation export and Markdown injection;
 - runtime lifecycle, jobs, service notices, and templates.
 
@@ -85,6 +86,7 @@ Two graph constraints are easy to break and expensive to diagnose:
 | Graph layout coordinates | `<Zotero data dir>/unizero/graph/<libraryID>.json` |
 | Graph display and force settings | `<Zotero data dir>/unizero/graph/settings.json` |
 | Zotero item ↔ Obsidian URL bindings | `<Zotero data dir>/unizero/markdown-links/<libraryID>.json` |
+| Extracted PDF bibliography | Owned `ZoMiner References` Zotero JSON attachment (`unizero:references`) |
 | Preferences | Zotero preference branch, defaults in `addon/prefs.js` |
 
 The derived relation index is memory-only and rebuilt on demand. Explorer tabs are

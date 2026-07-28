@@ -16,6 +16,7 @@ from unizero_runtime.contracts import (
     AnnotationPayload,
     ConvertOptionsPatch,
     ConvertRequest,
+    ExtractedReference,
     HealthResponse,
     JobAccepted,
     JobStatusResponse,
@@ -47,6 +48,7 @@ MODEL_DEFINITIONS: list[tuple[type[BaseModel], str]] = [
     (TemplateDetailResponse, "TemplateDetail"),
     (JobAccepted, "JobAccepted"),
     (JobStatusResponse, "JobStatusResponse"),
+    (ExtractedReference, "ExtractedReference"),
     (AnnotateResponse, "AnnotateResponse"),
 ]
 
@@ -83,3 +85,21 @@ def test_shared_examples_validate(filename: str, model: type[BaseModel]) -> None
     )
     parsed = model.model_validate(payload)
     assert parsed.library_scope == "groups/123456"
+
+
+def test_structured_reference_result_example_validates() -> None:
+    payload = json.loads(
+        (
+            ROOT
+            / "packages"
+            / "contracts"
+            / "examples"
+            / "job-result.references.json"
+        ).read_text(encoding="utf-8"),
+    )
+
+    references = [
+        ExtractedReference.model_validate(reference)
+        for reference in payload["references"]
+    ]
+    assert payload["references_count"] == len(references)
