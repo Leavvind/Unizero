@@ -434,6 +434,166 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
+  it("creates a connection by dragging a node handle onto another card", async () => {
+    const harness = createHarness();
+    await flush();
+    const drop = async (itemKey: string, x: number, y: number) => {
+      await harness.explorer.dropPaperOnBoard({
+        preventDefault: () => undefined,
+        clientX: x,
+        clientY: y,
+        dataTransfer: {
+          getData: (type: string) =>
+            type === "application/x-unizero-paper" ? itemKey : "",
+        },
+      });
+    };
+    await drop("P1", 300, 240);
+    await drop("P2", 620, 440);
+    const [source, target] = harness.explorer.project.nodes;
+    const targetCard = harness.win.document.querySelector(
+      `[data-node-id="${target.node.id}"]`,
+    );
+
+    harness.explorer.startBoardConnection({
+      button: 0,
+      pointerId: 7,
+      preventDefault: () => undefined,
+    }, source, "right");
+    expect(harness.win.document.querySelector(".board-connection-preview"))
+      .not.toBeNull();
+
+    harness.explorer.moveBoardPointer({
+      pointerId: 7,
+      clientX: 620,
+      clientY: 440,
+      target: targetCard,
+    });
+    expect(targetCard?.classList.contains("connection-target")).toBe(true);
+    await harness.explorer.finishBoardPointer({
+      pointerId: 7,
+      target: targetCard,
+    });
+
+    expect(harness.api.addBoardEdge).toHaveBeenCalledWith(
+      source.node.id,
+      target.node.id,
+      expect.any(Object),
+    );
+    const edge = harness.win.document.querySelector(".board-manual-edge");
+    expect(edge?.tagName.toLowerCase()).toBe("path");
+    expect(edge?.getAttribute("d")).toContain(" C ");
+    expect(harness.win.document.querySelector(".board-connection-preview"))
+      .toBeNull();
+    harness.win.close();
+  });
+
+  it("zooms around the pointer, pans the camera, and clears selection on blank click", async () => {
+    const harness = createHarness();
+    await flush();
+    const surface = harness.win.document.getElementById("project-board-surface")!;
+    harness.explorer.boardCamera = { x: 10, y: 20, scale: 1 };
+    harness.explorer.applyBoardCamera();
+    harness.explorer.zoomBoard(2, { x: 100, y: 100 });
+
+    expect(harness.explorer.boardCamera).toEqual({
+      x: -80,
+      y: -60,
+      scale: 2,
+    });
+    expect(harness.win.document.getElementById("board-zoom-fit")?.textContent)
+      .toBe("200%");
+
+    harness.explorer.startBoardPan({
+      button: 0,
+      pointerId: 9,
+      preventDefault: () => undefined,
+      clientX: 100,
+      clientY: 100,
+      target: surface,
+    });
+    harness.explorer.moveBoardPointer({
+      pointerId: 9,
+      clientX: 130,
+      clientY: 140,
+      target: surface,
+    });
+    await harness.explorer.finishBoardPointer({
+      pointerId: 9,
+      target: surface,
+    });
+    expect(harness.explorer.boardCamera).toEqual({
+      x: -50,
+      y: -20,
+      scale: 2,
+    });
+
+    harness.explorer.boardSelectedNodeID = "node-1";
+    harness.explorer.startBoardPan({
+      button: 0,
+      pointerId: 10,
+      preventDefault: () => undefined,
+      clientX: 100,
+      clientY: 100,
+      target: surface,
+    });
+    await harness.explorer.finishBoardPointer({
+      pointerId: 10,
+      target: surface,
+    });
+    expect(harness.explorer.boardSelectedNodeID).toBeNull();
+    harness.win.close();
+  });
+
+  it("moves Board nodes in world coordinates at a non-default zoom", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.dropPaperOnBoard({
+      preventDefault: () => undefined,
+      clientX: 300,
+      clientY: 240,
+      dataTransfer: {
+        getData: (type: string) =>
+          type === "application/x-unizero-paper" ? "P1" : "",
+      },
+    });
+    const view = harness.explorer.project.nodes[0];
+    const startX = view.node.geometry.x;
+    const startY = view.node.geometry.y;
+    const card = harness.win.document.querySelector(
+      `[data-node-id="${view.node.id}"]`,
+    );
+    harness.explorer.boardCamera = { x: 0, y: 0, scale: 2 };
+
+    harness.explorer.startBoardNodeDrag({
+      button: 0,
+      pointerId: 12,
+      preventDefault: () => undefined,
+      clientX: 100,
+      clientY: 100,
+    }, view, card);
+    harness.explorer.moveBoardPointer({
+      pointerId: 12,
+      clientX: 140,
+      clientY: 120,
+      target: card,
+    });
+    await harness.explorer.finishBoardPointer({
+      pointerId: 12,
+      target: card,
+    });
+
+    expect(harness.api.moveBoardNode).toHaveBeenCalledWith(
+      view.node.id,
+      expect.objectContaining({
+        x: startX + 20,
+        y: startY + 10,
+      }),
+      expect.any(Object),
+    );
+    harness.win.close();
+  });
+
   it("replaces the Collection preview when another node is selected", async () => {
     const harness = createHarness();
     await flush();

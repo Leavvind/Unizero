@@ -89,13 +89,19 @@ manual edges are independent documents, so moving a card or changing one connect
 not require a whole-board last-write-wins merge.
 
 The current Home window renders a three-pane Project View. Collection papers drag onto a
-scrollable HTML Board; every drop first creates or reuses a stable Zotero-bound Paper,
-then creates a new paper-node instance. The same Paper may therefore occur more than
-once. Moving a card updates only its geometry document, and Delete or Backspace writes a
-tombstone. The Connect command joins two selected card instances with a persisted manual
-edge; selecting a line allows that edge to be deleted independently. Deleting a node also
-tombstones its incident manual edges. Selecting a card reuses the existing Detail View on
-the right. The Paper catalog is stored separately under
+DOM/SVG Board whose world layer has one camera transform for cards and edges. Wheel
+gestures pan, Ctrl/Cmd-wheel and toolbar controls zoom, blank-space drag pans, and Fit
+frames the current cards. The camera is transient window state; card geometry remains the
+persisted state.
+
+Every drop first creates or reuses a stable Zotero-bound Paper, then creates a new
+paper-node instance. The same Paper may therefore occur more than once. Moving a card
+updates only its geometry document, and Delete or Backspace writes a tombstone. Four
+directional handles start a connection drag with a live SVG preview; a successful drop
+creates a persisted manual edge rendered as a boundary-to-boundary curve. Selecting a
+curve allows that edge to be deleted independently. Deleting a node also tombstones its
+incident manual edges. Selecting a card reuses the existing Detail View on the right. The
+Paper catalog is stored separately under
 `<dataDir>/unizero/literature/`; a Zotero binding uses portable library scope plus item
 key, so refreshing metadata does not replace the Paper ID.
 
@@ -148,7 +154,8 @@ Design detail and the reasoning behind these constraints are in
 Unizero Home is a privileged XHTML dialog, not part of the TypeScript bundle.
 It reaches the add-on only through the plain-object API passed as `window.arguments[0]`.
 
-- `literature-explorer.js` owns the Home Board, drag/move/selection state, filtering,
+- `literature-explorer.js` owns the Home Board camera and pointer state machine,
+  drag/move/connection/selection state, filtering,
   tables, and the detail tabs.
   Papers open as window tabs, but only one detail view exists in the DOM. `TabState` owns
   the item/kind, snapshot, busy and request generations, raw graph, detail graph filters,

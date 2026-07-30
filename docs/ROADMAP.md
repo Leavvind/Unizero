@@ -78,9 +78,10 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Unizero Home
 
-- Add notes, resizing, colours, multi-selection tools, edge labels/direction, pan/zoom
-  beyond the current scrollable coordinate plane, and per-object sync metadata. Manual
-  edge CRUD, rendering, single selection, and deletion are now available.
+- Add notes, resizing, colours, multi-selection tools, edge labels/direction, camera
+  persistence if user testing justifies it, and per-object sync metadata. A shared
+  pan/zoom transform, Pointer interaction state machine, handle-drag connection preview,
+  manual edge CRUD/rendering, single selection, and deletion are now available.
 - Let Detail discoveries drag onto the Board. Dropping an external paper must not create
   a Zotero item; a later explicit import adds a binding to the same stable Paper.
 - Project automatic Relations onto Board instances only as hover/selection hints.

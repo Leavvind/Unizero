@@ -18,6 +18,7 @@ var LiteratureExplorer = {
   boardSelectedEdgeID: null,
   boardConnectSourceID: null,
   boardViewportProjectID: null,
+  boardCamera: { x: 0, y: 0, scale: 1 },
   mode: "collection",
   collectionSnapshot: null,
   collectionBusy: false,
@@ -87,14 +88,27 @@ var LiteratureExplorer = {
       .addEventListener("click", () => this.toggleBoardConnect());
     document.getElementById("board-delete")
       .addEventListener("click", () => this.deleteBoardSelection());
-    let boardSurface = document.getElementById("project-board-surface");
-    boardSurface.addEventListener("dragover", (event) => {
+    document.getElementById("board-zoom-out")
+      .addEventListener("click", () => this.zoomBoard(1 / 1.2));
+    document.getElementById("board-zoom-in")
+      .addEventListener("click", () => this.zoomBoard(1.2));
+    document.getElementById("board-zoom-fit")
+      .addEventListener("click", () => this.fitBoardToContent());
+    let boardViewport = document.getElementById("project-board-viewport");
+    boardViewport.addEventListener("pointerdown", (event) =>
+      this.startBoardPan(event));
+    boardViewport.addEventListener("wheel", (event) =>
+      this.handleBoardWheel(event), { passive: false });
+    boardViewport.addEventListener("dragover", (event) => {
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
     });
-    boardSurface.addEventListener("drop", (event) => this.dropPaperOnBoard(event));
-    window.addEventListener("mousemove", (event) => this.moveBoardNodeDrag(event));
-    window.addEventListener("mouseup", (event) => this.finishBoardNodeDrag(event));
+    boardViewport.addEventListener("drop", (event) => this.dropPaperOnBoard(event));
+    window.addEventListener("pointermove", (event) => this.moveBoardPointer(event));
+    window.addEventListener("pointerup", (event) =>
+      void this.finishBoardPointer(event));
+    window.addEventListener("pointercancel", (event) =>
+      void this.finishBoardPointer(event, true));
     document.getElementById("search").addEventListener("input", (event) => {
       let tab = this.activeTabState();
       if (tab) tab.search = event.target.value;
@@ -154,6 +168,10 @@ var LiteratureExplorer = {
       if (event.key === "Escape") {
         this.hideGraphMenu();
         this.closeGraphPanels();
+        if (this.cancelBoardInteraction()) {
+          event.preventDefault();
+          return;
+        }
         return;
       }
       if ((event.key === "Delete" || event.key === "Backspace") &&
@@ -190,6 +208,9 @@ var LiteratureExplorer = {
     document.getElementById("collapse-detail").title = s.collapseDetail;
     document.getElementById("board-connect").textContent = s.boardConnect;
     document.getElementById("board-delete").textContent = s.boardDelete;
+    document.getElementById("board-zoom-out").title = s.boardZoomOut;
+    document.getElementById("board-zoom-in").title = s.boardZoomIn;
+    document.getElementById("board-zoom-fit").title = s.boardFit;
     this.updateBoardControls();
     document.getElementById("collection-head-title").textContent = s.titleColumn;
     document.getElementById("collection-head-creator").textContent = s.creatorColumn;
@@ -514,6 +535,7 @@ var LiteratureExplorer = {
     this._settingsSave = null;
     this.destroyGraphs();
     this.collectionPreview = null;
+    this._boardInteraction = null;
     this.cancelRowPreview();
     this.hideGraphMenu();
   },
@@ -533,7 +555,9 @@ var LiteratureExplorer = {
     this.boardSelectedNodeID = null;
     this.boardSelectedEdgeID = null;
     this.boardConnectSourceID = null;
-    this._boardPointer = null;
+    this.boardViewportProjectID = null;
+    this.boardCamera = { x: 0, y: 0, scale: 1 };
+    this._boardInteraction = null;
     let workspace = document.getElementById("explorer-workspace");
     if (workspace) {
       delete workspace.dataset.projectId;
@@ -1942,7 +1966,36 @@ var LiteratureExplorer = {
         view.paper.year,
       ].filter(Boolean).join(" · ");
       card.append(title, meta);
-      card.addEventListener("mousedown", (event) =>
+      ["top", "right", "bottom", "left"].forEach((side) => {
+        let port = document.createElement("button");
+        port.type = "button";
+        port.className = "board-node-port";
+        port.dataset.side = side;
+        port.title = this.strings.boardConnectHandle;
+        port.setAttribute("aria-label", this.strings.boardConnectHandle);
+        port.addEventListener("pointerdown", (event) => {
+          event.stopPropagation();
+          this.startBoardConnection(event, view, side);
+        });
+        port.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          event.stopPropagation();
+          this.boardSelectedNodeID = view.node.id;
+          this.boardSelectedEdgeID = null;
+          this.boardConnectSourceID = view.node.id;
+          document.querySelectorAll(".board-paper-node").forEach((element) => {
+            element.classList.toggle(
+              "selected",
+              element.dataset.nodeId === view.node.id,
+            );
+          });
+          this.renderBoardEdges();
+          this.updateBoardControls();
+        });
+        card.append(port);
+      });
+      card.addEventListener("pointerdown", (event) =>
         this.startBoardNodeDrag(event, view, card));
       card.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -1952,6 +2005,7 @@ var LiteratureExplorer = {
       });
       surface.append(card);
     });
+    this.applyBoardCamera();
     this.updateBoardControls();
   },
 
@@ -1966,52 +2020,131 @@ var LiteratureExplorer = {
       ? this.project.edges
       : [];
     let byID = new Map(nodes.map((view) => [view.node.id, view.node]));
-    let center = (node) => ({
-      x: node.geometry.x + node.geometry.width / 2,
-      y: node.geometry.y + node.geometry.height / 2,
-    });
     edges.forEach((edge) => {
       let source = byID.get(edge.sourceNodeID);
       let target = byID.get(edge.targetNodeID);
       if (!source || !target) return;
-      let from = center(source);
-      let to = center(target);
-      let makeLine = (className) => {
-        let line = document.createElementNS(
+      let pathData = this.boardEdgePath(source, target);
+      let makePath = (className) => {
+        let path = document.createElementNS(
           "http://www.w3.org/2000/svg",
-          "line",
+          "path",
         );
-        line.setAttribute("class", className);
-        line.setAttribute("x1", String(from.x));
-        line.setAttribute("y1", String(from.y));
-        line.setAttribute("x2", String(to.x));
-        line.setAttribute("y2", String(to.y));
-        line.dataset.edgeId = edge.id;
-        return line;
+        path.setAttribute("class", className);
+        path.setAttribute("d", pathData);
+        path.dataset.edgeId = edge.id;
+        return path;
       };
-      let hit = makeLine("board-manual-edge-hit");
+      let hit = makePath("board-manual-edge-hit");
       hit.addEventListener("click", (event) => {
         event.stopPropagation();
         this.selectBoardEdge(edge);
       });
-      let visible = makeLine(
+      let visible = makePath(
         "board-manual-edge" +
         (edge.id === this.boardSelectedEdgeID ? " selected" : ""),
       );
       svg.append(hit, visible);
     });
+    let interaction = this._boardInteraction;
+    if (interaction?.kind === "connect" && interaction.currentPoint) {
+      let source = interaction.view.node;
+      let from = this.boardPortPoint(source, interaction.side);
+      let preview = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "path",
+      );
+      preview.setAttribute("class", "board-connection-preview");
+      preview.setAttribute(
+        "d",
+        this.boardCurvePath(from, interaction.currentPoint, interaction.side),
+      );
+      svg.append(preview);
+    }
+  },
+
+  boardPortPoint(node, side) {
+    let geometry = node.geometry;
+    let centerX = geometry.x + geometry.width / 2;
+    let centerY = geometry.y + geometry.height / 2;
+    if (side === "top") return { x: centerX, y: geometry.y };
+    if (side === "bottom") {
+      return { x: centerX, y: geometry.y + geometry.height };
+    }
+    if (side === "left") return { x: geometry.x, y: centerY };
+    return { x: geometry.x + geometry.width, y: centerY };
+  },
+
+  boardBoundaryPoint(node, toward) {
+    let geometry = node.geometry;
+    let center = {
+      x: geometry.x + geometry.width / 2,
+      y: geometry.y + geometry.height / 2,
+    };
+    let dx = toward.x - center.x;
+    let dy = toward.y - center.y;
+    if (!dx && !dy) return center;
+    let ratio = 1 / Math.max(
+      Math.abs(dx) / (geometry.width / 2),
+      Math.abs(dy) / (geometry.height / 2),
+    );
+    return {
+      x: center.x + dx * ratio,
+      y: center.y + dy * ratio,
+    };
+  },
+
+  boardCurvePath(from, to, sourceSide) {
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    let horizontal = sourceSide
+      ? sourceSide === "left" || sourceSide === "right"
+      : Math.abs(dx) >= Math.abs(dy);
+    if (horizontal) {
+      let direction = sourceSide === "left" ? -1 :
+        sourceSide === "right" ? 1 : (dx < 0 ? -1 : 1);
+      let reach = Math.max(44, Math.abs(dx) * .42);
+      return `M ${from.x} ${from.y} C ${from.x + direction * reach} ` +
+        `${from.y}, ${to.x - direction * reach} ${to.y}, ${to.x} ${to.y}`;
+    }
+    let direction = sourceSide === "top" ? -1 :
+      sourceSide === "bottom" ? 1 : (dy < 0 ? -1 : 1);
+    let reach = Math.max(44, Math.abs(dy) * .42);
+    return `M ${from.x} ${from.y} C ${from.x} ` +
+      `${from.y + direction * reach}, ${to.x} ${to.y - direction * reach}, ` +
+      `${to.x} ${to.y}`;
+  },
+
+  boardEdgePath(source, target) {
+    let sourceCenter = {
+      x: source.geometry.x + source.geometry.width / 2,
+      y: source.geometry.y + source.geometry.height / 2,
+    };
+    let targetCenter = {
+      x: target.geometry.x + target.geometry.width / 2,
+      y: target.geometry.y + target.geometry.height / 2,
+    };
+    let from = this.boardBoundaryPoint(source, targetCenter);
+    let to = this.boardBoundaryPoint(target, sourceCenter);
+    return this.boardCurvePath(from, to);
   },
 
   updateBoardControls() {
     let connect = document.getElementById("board-connect");
     let remove = document.getElementById("board-delete");
     if (!connect || !remove) return;
-    connect.disabled = !this.boardSelectedNodeID && !this.boardConnectSourceID;
-    connect.classList.toggle("active", Boolean(this.boardConnectSourceID));
-    connect.textContent = this.boardConnectSourceID
+    let connecting = this._boardInteraction?.kind === "connect";
+    connect.disabled = connecting ||
+      (!this.boardSelectedNodeID && !this.boardConnectSourceID);
+    connect.classList.toggle(
+      "active",
+      Boolean(this.boardConnectSourceID) || connecting,
+    );
+    connect.textContent = this.boardConnectSourceID || connecting
       ? this.strings.boardConnecting
       : this.strings.boardConnect;
-    remove.disabled = !this.boardSelectedNodeID && !this.boardSelectedEdgeID;
+    remove.disabled = Boolean(this._boardInteraction) ||
+      (!this.boardSelectedNodeID && !this.boardSelectedEdgeID);
   },
 
   toggleLibraryPane() {
@@ -2027,22 +2160,111 @@ var LiteratureExplorer = {
   positionBoardViewport(projectID) {
     if (!projectID || this.boardViewportProjectID === projectID) return;
     this.boardViewportProjectID = projectID;
-    let viewport = document.getElementById("project-board-viewport");
-    // The persisted coordinate plane has generous room in every direction. Start
-    // a new Project near its centre rather than at the top-left corner.
     window.setTimeout(() => {
       if (this.boardViewportProjectID !== projectID) return;
-      viewport.scrollLeft = Math.max(0, (3200 - viewport.clientWidth) / 2);
-      viewport.scrollTop = Math.max(0, (2200 - viewport.clientHeight) / 2);
+      this.fitBoardToContent();
     }, 0);
+  },
+
+  applyBoardCamera() {
+    let surface = document.getElementById("project-board-surface");
+    if (!surface) return;
+    let camera = this.boardCamera || { x: 0, y: 0, scale: 1 };
+    surface.style.transform =
+      `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`;
+    let label = document.getElementById("board-zoom-fit");
+    if (label) label.textContent = `${Math.round(camera.scale * 100)}%`;
+  },
+
+  fitBoardToContent() {
+    let viewport = document.getElementById("project-board-viewport");
+    if (!viewport) return;
+    let rect = viewport.getBoundingClientRect();
+    let width = viewport.clientWidth || rect.width || 800;
+    let height = viewport.clientHeight || rect.height || 600;
+    let nodes = this.project && Array.isArray(this.project.nodes)
+      ? this.project.nodes
+      : [];
+    if (!nodes.length) {
+      this.boardCamera = {
+        x: width / 2 - 1600,
+        y: height / 2 - 1100,
+        scale: 1,
+      };
+      this.applyBoardCamera();
+      return;
+    }
+    let left = Math.min(...nodes.map((view) => view.node.geometry.x));
+    let top = Math.min(...nodes.map((view) => view.node.geometry.y));
+    let right = Math.max(...nodes.map((view) =>
+      view.node.geometry.x + view.node.geometry.width));
+    let bottom = Math.max(...nodes.map((view) =>
+      view.node.geometry.y + view.node.geometry.height));
+    let contentWidth = Math.max(1, right - left);
+    let contentHeight = Math.max(1, bottom - top);
+    let scale = Math.min(
+      1.35,
+      Math.max(.35, Math.min(
+        Math.max(1, width - 120) / contentWidth,
+        Math.max(1, height - 120) / contentHeight,
+      )),
+    );
+    this.boardCamera = {
+      x: width / 2 - (left + contentWidth / 2) * scale,
+      y: height / 2 - (top + contentHeight / 2) * scale,
+      scale,
+    };
+    this.applyBoardCamera();
+  },
+
+  zoomBoard(factor, clientPoint) {
+    let viewport = document.getElementById("project-board-viewport");
+    if (!viewport) return;
+    let rect = viewport.getBoundingClientRect();
+    let anchor = clientPoint || {
+      x: rect.left + (viewport.clientWidth || rect.width || 800) / 2,
+      y: rect.top + (viewport.clientHeight || rect.height || 600) / 2,
+    };
+    let camera = this.boardCamera;
+    let nextScale = Math.min(2.4, Math.max(.35, camera.scale * factor));
+    if (nextScale === camera.scale) return;
+    let localX = anchor.x - rect.left;
+    let localY = anchor.y - rect.top;
+    let worldX = (localX - camera.x) / camera.scale;
+    let worldY = (localY - camera.y) / camera.scale;
+    this.boardCamera = {
+      x: localX - worldX * nextScale,
+      y: localY - worldY * nextScale,
+      scale: nextScale,
+    };
+    this.applyBoardCamera();
+  },
+
+  handleBoardWheel(event) {
+    event.preventDefault();
+    if (event.ctrlKey || event.metaKey) {
+      this.zoomBoard(Math.exp(-event.deltaY * .002), {
+        x: event.clientX,
+        y: event.clientY,
+      });
+      return;
+    }
+    let camera = this.boardCamera;
+    this.boardCamera = {
+      ...camera,
+      x: camera.x - (event.shiftKey ? event.deltaY : event.deltaX),
+      y: camera.y - (event.shiftKey ? 0 : event.deltaY),
+    };
+    this.applyBoardCamera();
   },
 
   boardPoint(event) {
     let viewport = document.getElementById("project-board-viewport");
     let rect = viewport.getBoundingClientRect();
+    let camera = this.boardCamera;
     return {
-      x: event.clientX - rect.left + viewport.scrollLeft,
-      y: event.clientY - rect.top + viewport.scrollTop,
+      x: (event.clientX - rect.left - camera.x) / camera.scale,
+      y: (event.clientY - rect.top - camera.y) / camera.scale,
     };
   },
 
@@ -2079,10 +2301,12 @@ var LiteratureExplorer = {
   },
 
   startBoardNodeDrag(event, view, element) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || this._boardInteraction) return;
     event.preventDefault();
     let geometry = view.node.geometry;
-    this._boardPointer = {
+    this._boardInteraction = {
+      kind: "node",
+      pointerId: event.pointerId,
       view,
       element,
       startClientX: event.clientX,
@@ -2094,31 +2318,159 @@ var LiteratureExplorer = {
     };
   },
 
-  moveBoardNodeDrag(event) {
-    let drag = this._boardPointer;
-    if (!drag) return;
-    let dx = event.clientX - drag.startClientX;
-    let dy = event.clientY - drag.startClientY;
-    if (!drag.moved && Math.hypot(dx, dy) < 3) return;
-    drag.moved = true;
-    drag.element.classList.add("dragging");
-    let x = drag.startX + dx;
-    let y = drag.startY + dy;
-    drag.element.style.left = `${x}px`;
-    drag.element.style.top = `${y}px`;
-    drag.view.node.geometry = {
-      ...drag.view.node.geometry,
-      x,
-      y,
+  startBoardPan(event) {
+    if (event.button !== 0 || this._boardInteraction) return;
+    let interactive = event.target?.closest?.(
+      ".board-paper-node, .board-manual-edge-hit, .board-toolbar",
+    );
+    if (interactive) return;
+    event.preventDefault();
+    this._boardInteraction = {
+      kind: "pan",
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: this.boardCamera.x,
+      startY: this.boardCamera.y,
+      moved: false,
     };
+  },
+
+  startBoardConnection(event, view, side) {
+    if (event.button !== 0 || this._boardConnecting ||
+        this._boardInteraction) return;
+    event.preventDefault();
+    this.boardSelectedNodeID = view.node.id;
+    this.boardSelectedEdgeID = null;
+    this.boardConnectSourceID = null;
+    let from = this.boardPortPoint(view.node, side);
+    this._boardInteraction = {
+      kind: "connect",
+      pointerId: event.pointerId,
+      view,
+      side,
+      currentPoint: from,
+      targetNodeID: null,
+    };
+    document.querySelectorAll(".board-paper-node").forEach((element) => {
+      element.classList.toggle(
+        "selected",
+        element.dataset.nodeId === view.node.id,
+      );
+    });
+    this.updateBoardControls();
     this.renderBoardEdges();
   },
 
-  async finishBoardNodeDrag() {
-    let drag = this._boardPointer;
-    if (!drag) return;
-    this._boardPointer = null;
+  boardPointerMatches(interaction, event) {
+    return interaction.pointerId == null || event.pointerId == null ||
+      interaction.pointerId === event.pointerId;
+  },
+
+  moveBoardPointer(event) {
+    let interaction = this._boardInteraction;
+    if (!interaction || !this.boardPointerMatches(interaction, event)) return;
+    if (interaction.kind === "node") {
+      let dx = (event.clientX - interaction.startClientX) /
+        this.boardCamera.scale;
+      let dy = (event.clientY - interaction.startClientY) /
+        this.boardCamera.scale;
+      if (!interaction.moved && Math.hypot(dx, dy) < 3) return;
+      interaction.moved = true;
+      interaction.element.classList.add("dragging");
+      let x = interaction.startX + dx;
+      let y = interaction.startY + dy;
+      interaction.element.style.left = `${x}px`;
+      interaction.element.style.top = `${y}px`;
+      interaction.view.node.geometry = {
+        ...interaction.view.node.geometry,
+        x,
+        y,
+      };
+      this.renderBoardEdges();
+      return;
+    }
+    if (interaction.kind === "pan") {
+      let dx = event.clientX - interaction.startClientX;
+      let dy = event.clientY - interaction.startClientY;
+      if (!interaction.moved && Math.hypot(dx, dy) < 3) return;
+      interaction.moved = true;
+      document.getElementById("project-board-viewport")
+        .classList.add("panning");
+      this.boardCamera = {
+        ...this.boardCamera,
+        x: interaction.startX + dx,
+        y: interaction.startY + dy,
+      };
+      this.applyBoardCamera();
+      return;
+    }
+    if (interaction.kind === "connect") {
+      interaction.currentPoint = this.boardPoint(event);
+      let target = event.target?.closest?.(".board-paper-node");
+      interaction.targetNodeID = target &&
+        target.dataset.nodeId !== interaction.view.node.id
+        ? target.dataset.nodeId
+        : null;
+      this.markBoardConnectionTarget(interaction.targetNodeID);
+      this.renderBoardEdges();
+    }
+  },
+
+  moveBoardNodeDrag(event) {
+    this.moveBoardPointer(event);
+  },
+
+  async finishBoardPointer(event, cancelled = false) {
+    let interaction = this._boardInteraction;
+    if (!interaction || !this.boardPointerMatches(interaction, event)) return;
+    if (interaction.kind === "node") {
+      await this.finishBoardNodeDrag(event, cancelled);
+      return;
+    }
+    this._boardInteraction = null;
+    if (interaction.kind === "pan") {
+      document.getElementById("project-board-viewport")
+        .classList.remove("panning");
+      if (cancelled) {
+        this.boardCamera = {
+          ...this.boardCamera,
+          x: interaction.startX,
+          y: interaction.startY,
+        };
+        this.applyBoardCamera();
+      } else if (!interaction.moved) {
+        this.clearBoardSelection();
+      }
+      return;
+    }
+    if (interaction.kind === "connect") {
+      let target = event.target?.closest?.(".board-paper-node");
+      let targetNodeID = interaction.targetNodeID ||
+        (target && target.dataset.nodeId !== interaction.view.node.id
+          ? target.dataset.nodeId
+          : null);
+      this.markBoardConnectionTarget(null);
+      this.renderBoardEdges();
+      if (!cancelled && targetNodeID) {
+        await this.createBoardEdge(
+          interaction.view.node.id,
+          targetNodeID,
+        );
+      }
+    }
+  },
+
+  async finishBoardNodeDrag(_event, cancelled = false) {
+    let drag = this._boardInteraction;
+    if (!drag || drag.kind !== "node") return;
+    this._boardInteraction = null;
     drag.element.classList.remove("dragging");
+    if (cancelled) {
+      drag.view.node.geometry = drag.originalGeometry;
+      this.renderProjectBoard();
+      return;
+    }
     if (!drag.moved) {
       this.selectBoardNode(drag.view);
       return;
@@ -2147,6 +2499,57 @@ var LiteratureExplorer = {
         this.setCollectionStatus(this.strings.error + ": " + String(error), true);
       }
     }
+  },
+
+  markBoardConnectionTarget(nodeID) {
+    document.querySelectorAll(".board-paper-node").forEach((element) => {
+      element.classList.toggle(
+        "connection-target",
+        Boolean(nodeID) && element.dataset.nodeId === nodeID,
+      );
+    });
+  },
+
+  clearBoardSelection() {
+    this.boardSelectedNodeID = null;
+    this.boardSelectedEdgeID = null;
+    this.boardConnectSourceID = null;
+    this.markBoardConnectionTarget(null);
+    document.querySelectorAll(".board-paper-node").forEach((element) =>
+      element.classList.remove("selected"));
+    this.renderBoardEdges();
+    this.updateBoardControls();
+  },
+
+  cancelBoardInteraction() {
+    let interaction = this._boardInteraction;
+    if (interaction) {
+      this._boardInteraction = null;
+      this.markBoardConnectionTarget(null);
+      if (interaction.kind === "node") {
+        interaction.view.node.geometry = interaction.originalGeometry;
+        interaction.element.classList.remove("dragging");
+        this.renderProjectBoard();
+      } else if (interaction.kind === "pan") {
+        this.boardCamera = {
+          ...this.boardCamera,
+          x: interaction.startX,
+          y: interaction.startY,
+        };
+        document.getElementById("project-board-viewport")
+          .classList.remove("panning");
+        this.applyBoardCamera();
+      } else {
+        this.renderBoardEdges();
+      }
+      return true;
+    }
+    if (this.boardConnectSourceID) {
+      this.boardConnectSourceID = null;
+      this.updateBoardControls();
+      return true;
+    }
+    return false;
   },
 
   selectBoardNode(view) {

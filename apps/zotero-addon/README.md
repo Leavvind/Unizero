@@ -14,11 +14,12 @@ the client for the local paper runtime.
   can be read at once and returning to one costs no provider call;
 - one stable Project and default Board per Zotero Collection (or library root),
   keyed by portable Zotero scope and Collection key;
-- a three-pane Project View: collapsible Collection paper list, scrollable editable
+- a three-pane Project View: collapsible Collection paper list, pannable and zoomable
   Board, and collapsible References/Relation/Citations Detail View. Library papers can
   be dragged onto the Board more than once, producing independent card instances whose
   positions and deletion tombstones are persisted. Selected cards can be joined by
-  persisted manual connections; connections are independently selectable and deletable;
+  persisted manual connections using four directional drag handles; curved connections
+  are independently selectable and deletable;
 - Collection paper status for Markdown conversion and cached References/Citations,
   with per-paper quick actions and relation drill-down;
 - a Relation view per paper: which library papers cite it, and which share the most of

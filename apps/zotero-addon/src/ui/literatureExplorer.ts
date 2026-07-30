@@ -112,6 +112,13 @@ function strings() {
       "Select another card",
     ),
     boardDelete: read("literature-board-delete-label", "Delete"),
+    boardFit: read("literature-board-fit-label", "Fit Board"),
+    boardZoomIn: read("literature-board-zoom-in-label", "Zoom in"),
+    boardZoomOut: read("literature-board-zoom-out-label", "Zoom out"),
+    boardConnectHandle: read(
+      "literature-board-connect-handle-label",
+      "Drag to connect",
+    ),
     collectionSearch: read(
       "literature-collection-search-placeholder",
       "Search this Collection",

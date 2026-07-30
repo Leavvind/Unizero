@@ -309,6 +309,7 @@
       padding: 3px 9px;
       font-size: 11px;
     }
+    #board-zoom-fit { min-width: 52px; font-variant-numeric: tabular-nums; }
     .board-toolbar button.active {
       border-color: var(--accent);
       background: var(--soft);
@@ -317,14 +318,22 @@
     .project-board-viewport {
       position: absolute;
       inset: 0;
-      overflow: auto;
+      overflow: hidden;
       overscroll-behavior: contain;
       background: var(--bg);
+      cursor: grab;
+      touch-action: none;
     }
+    .project-board-viewport.panning { cursor: grabbing; }
     .project-board-surface {
-      position: relative;
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 3200px;
       height: 2200px;
+      overflow: visible;
+      transform-origin: 0 0;
+      will-change: transform;
       background-color: var(--bg);
       background-image:
         linear-gradient(color-mix(in srgb, var(--border) 42%, transparent) 1px, transparent 1px),
@@ -341,12 +350,14 @@
       pointer-events: none;
     }
     .board-manual-edge-hit {
+      fill: none;
       stroke: transparent;
       stroke-width: 16;
       pointer-events: stroke;
       cursor: pointer;
     }
     .board-manual-edge {
+      fill: none;
       stroke: color-mix(in srgb, var(--accent) 72%, var(--muted));
       stroke-linecap: round;
       stroke-width: 2.5;
@@ -355,6 +366,14 @@
     .board-manual-edge.selected {
       stroke: var(--orange);
       stroke-width: 4;
+    }
+    .board-connection-preview {
+      fill: none;
+      stroke: var(--accent);
+      stroke-dasharray: 7 5;
+      stroke-linecap: round;
+      stroke-width: 2.5;
+      pointer-events: none;
     }
     .project-board-empty {
       position: absolute;
@@ -372,7 +391,7 @@
     .board-paper-node {
       position: absolute;
       z-index: 1;
-      overflow: hidden;
+      overflow: visible;
       padding: 11px 12px;
       border: 1px solid var(--border);
       border-left: 3px solid var(--accent);
@@ -392,7 +411,48 @@
       outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
       outline-offset: 1px;
     }
+    .board-paper-node.connection-target {
+      outline: 3px solid color-mix(in srgb, var(--green) 72%, transparent);
+      outline-offset: 3px;
+    }
     .board-paper-node.dragging { cursor: grabbing; opacity: .92; }
+    .board-node-port {
+      position: absolute;
+      z-index: 3;
+      display: none;
+      min-width: 0;
+      min-height: 0;
+      width: 13px;
+      height: 13px;
+      padding: 0;
+      border: 2px solid var(--card);
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 72%, var(--border));
+      cursor: crosshair;
+    }
+    .board-node-port:hover {
+      border-color: var(--card);
+      background: var(--accent);
+    }
+    .board-paper-node:hover .board-node-port,
+    .board-paper-node.selected .board-node-port { display: block; }
+    .board-node-port[data-side="top"] {
+      top: -7px;
+      left: calc(50% - 6px);
+    }
+    .board-node-port[data-side="right"] {
+      top: calc(50% - 6px);
+      right: -7px;
+    }
+    .board-node-port[data-side="bottom"] {
+      bottom: -7px;
+      left: calc(50% - 6px);
+    }
+    .board-node-port[data-side="left"] {
+      top: calc(50% - 6px);
+      left: -7px;
+    }
     .board-node-title {
       display: -webkit-box;
       overflow: hidden;
@@ -1028,8 +1088,11 @@
       </aside>
       <section class="project-board-pane">
         <div class="board-toolbar">
-          <button id="board-connect"></button>
-          <button id="board-delete"></button>
+          <button type="button" id="board-connect"></button>
+          <button type="button" id="board-zoom-out">−</button>
+          <button type="button" id="board-zoom-fit">100%</button>
+          <button type="button" id="board-zoom-in">+</button>
+          <button type="button" id="board-delete"></button>
         </div>
         <div class="project-board-viewport" id="project-board-viewport">
           <div class="project-board-surface" id="project-board-surface">
