@@ -12,6 +12,8 @@ var api = window.arguments[0].api;
 var LiteratureExplorer = {
   strings: api.strings,
   context: null,
+  /** Stable Project and default Board documents for the active Collection scope. */
+  project: null,
   mode: "collection",
   collectionSnapshot: null,
   collectionBusy: false,
@@ -490,6 +492,12 @@ var LiteratureExplorer = {
       })
       : null;
     this.collectionSnapshot = null;
+    this.project = null;
+    let workspace = document.getElementById("explorer-workspace");
+    if (workspace) {
+      delete workspace.dataset.projectId;
+      delete workspace.dataset.boardId;
+    }
     this.collectionBusy = false;
     this.snapshot = null;
     this.busy = false;
@@ -803,9 +811,18 @@ var LiteratureExplorer = {
     this.graphLoaded.collection = false;
     this.graphData.collection = null;
     try {
-      let snapshot = await api.collectionSnapshot(scope);
+      let [project, snapshot] = await Promise.all([
+        api.project ? api.project(scope) : Promise.resolve(null),
+        api.collectionSnapshot(scope),
+      ]);
       if (!this.contextIsCurrent(generation) || request !== this.collectionRequest) return;
+      this.project = project;
       this.collectionSnapshot = snapshot;
+      let workspace = document.getElementById("explorer-workspace");
+      if (workspace && project) {
+        workspace.dataset.projectId = project.project.id;
+        workspace.dataset.boardId = project.defaultBoard.id;
+      }
       document.getElementById("paper-title").textContent =
         this.collectionSnapshot.scope.name;
       // The Collection tab is labelled with the scope, which is only known now.

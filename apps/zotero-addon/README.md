@@ -7,11 +7,15 @@ the client for the local paper runtime.
 ## Capabilities
 
 - metadata candidate lookup and identifier updates;
-- compact References and Citations item-pane previews plus a Collection-level
-  Literature Explorer, available from the item-list toolbar, Collection context
+- compact References and Citations item-pane previews plus Collection-level
+  Unizero Home, available from the item-list toolbar, Collection context
   menu, and Tools. The item context menu opens the selected paper directly in its
-  own Explorer tab. Papers open as tabs beside a pinned Collection tab, so several
+  own detail tab. Papers open as tabs beside a pinned Project tab, so several
   can be read at once and returning to one costs no provider call;
+- one stable Project and default Board per Zotero Collection (or library root),
+  keyed by portable Zotero scope and Collection key. The current Home surface is
+  transitional: it still renders the former graph/table overview while the editable
+  three-pane Board is built on these Project documents;
 - Collection paper status for Markdown conversion and cached References/Citations,
   with per-paper quick actions and relation drill-down;
 - a Relation view per paper: which library papers cite it, and which share the most of
@@ -41,11 +45,12 @@ Document conversion and annotation injection require
 | `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
 | `src/modules/uniConnection.ts` | Derived reverse-reference index, coupling, graph topology |
 | `src/modules/uniConnectionSync.ts` | Notifier-driven index maintenance and reference backfill |
+| `src/projects/` | Versioned Project/Board/Paper shapes and local Project repository |
 | `src/runtime-client/` | HTTP contracts, client, launch resolution, process state |
 | `src/zotero/` | Zotero adapters, library scope, artifact identity |
-| `src/ui/` | Menus, progress, service notices, panel and Explorer bridges |
+| `src/ui/` | Menus, progress, service notices, panel and Unizero Home bridges |
 | `addon/` | Manifest, locales, preferences, icons, dialog markup and scripts |
-| `tests/` | Vitest suites for the derived index, graph builders, renderer facade, and Explorer dialog |
+| `tests/` | Vitest suites for Projects, the derived index, graph builders, renderer facade, and Home dialog |
 
 New Zotero mutations belong in `src/zotero`; new command orchestration belongs in
 `src/features`. Do not rewrite `src/modules` as a single refactor. Extract a focused
@@ -55,7 +60,7 @@ responsibility when a feature change needs it.
 
 `addon/chrome/content/panel.js`, `literature-explorer.js`, and `literature-graph.js` are
 plain JavaScript outside the TypeScript bundle: not compiled and not type checked. They
-implement the runtime-backed template editor, the Collection workbench and relation
+implement the runtime-backed template editor, the transitional Home workbench and relation
 browser, and the force-directed graph renderer. Vitest loads the real Explorer XHTML and
 plain scripts in `happy-dom`, with bridge and renderer mocks, to cover request ownership,
 tab restoration, filtering, and renderer lifecycle. Zotero APIs, privileged-window
@@ -83,6 +88,7 @@ Two graph constraints are easy to break and expensive to diagnose:
 | State | Location |
 | --- | --- |
 | Per-item provider caches | `<Zotero data dir>/unizero/cache/` shard tree |
+| Project and default Board documents | `<Zotero data dir>/unizero/projects/` typed object tree |
 | Graph layout coordinates | `<Zotero data dir>/unizero/graph/<libraryID>.json` |
 | Graph display and force settings | `<Zotero data dir>/unizero/graph/settings.json` |
 | Zotero item ↔ Obsidian URL bindings | `<Zotero data dir>/unizero/markdown-links/<libraryID>.json` |

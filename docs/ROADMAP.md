@@ -6,7 +6,7 @@ READMEs and `docs/ARCHITECTURE.md`.
 ## Verification
 
 - Run the full add-on smoke check in Zotero: startup, shutdown, metadata review,
-  References/Citations previews, Literature Explorer Tools/item-toolbar/Collection
+  References/Citations previews, Unizero Home Tools/item-toolbar/Collection
   context-menu entry, selected-paper item context-menu entry, Collection
   status/quick actions, relation filtering and current-library import, conversion,
   artifact registration, and annotation injection.
@@ -24,7 +24,7 @@ READMEs and `docs/ARCHITECTURE.md`.
   bibliography and a re-conversion that replaces a stale artifact.
 - In Zotero, verify a References query where OpenAlex and Crossref are empty while
   Semantic Scholar is restricted: all three source states must remain visible after
-  closing and reopening Literature Explorer.
+  closing and reopening Unizero Home.
 - Verify graph behaviour beyond a first look: dark theme, layout persistence across a
   restart, a library large enough to stress readability, the graph status line after an
   induced callback failure, rapid switching/closing of paper tabs, personal/group library
@@ -52,10 +52,14 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Literature data and sync
 
-- Define portable paper locators, typed state namespaces, and a backend-neutral sync
-  engine; implement WebDAV as its first backend, with References first, Citations second,
-  and only explicitly portable settings eligible for sync. Keep device paths and secrets
-  local. The constraints and conflict rules are in
+- Complete the unified Paper catalog: stable internal paper IDs, identifier aliases,
+  optional Zotero bindings, provider observations, and one directed citation edge model
+  shared by References and Citations. Board-pinned and Zotero-bound papers are durable;
+  unpinned discovery results remain reclaimable cache.
+- Define typed state namespaces and a backend-neutral sync engine; implement WebDAV as
+  its first backend. User-authored Project/Board objects are the first non-rebuildable
+  priority, followed by References, Citations, and explicitly portable settings. Keep
+  device paths and secrets local. The constraints and conflict rules are in
   [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md).
 - Introduce a capability-based literature-source boundary before adding more out-of-library
   exploration. Evaluate an optional local corpus behind the versioned runtime API only
@@ -72,10 +76,24 @@ READMEs and `docs/ARCHITECTURE.md`.
   is already decoupled for that, and the parameter and architecture notes are in
   `UNICONNECTION_GRAPH.md`.
 
+## Unizero Home
+
+- Replace the transitional force-directed Collection overview with a three-pane Project
+  View: collapsible Zotero paper list, editable Board, and collapsible Detail View.
+- Persist independently addressable paper-node instances, geometry, manual edges,
+  tombstones, notes, and visual properties. The same Paper may have several nodes.
+- Let library papers and Detail discoveries drag onto the Board. Dropping an external
+  paper must not create a Zotero item; a later explicit import adds a binding to the same
+  stable Paper.
+- Project automatic Relations onto Board instances only as hover/selection hints.
+  UniConnection remains derived and must not write those hints as manual edges.
+- Replace the hard-coded node menu with capability-based actions, then add named raw
+  Markdown and detailed/canvas Obsidian bindings.
+
 ## Product work
 
-- Integrate an explicit, provider-backed publication ranking before exposing the
-  Literature Explorer's Publication Level filter; do not infer rank from venue names.
+- Integrate an explicit, provider-backed publication ranking before exposing Unizero
+  Home's Publication Level filter; do not infer rank from venue names.
 - Let metadata review resolve conflicts field by field, rather than accepting or
   rejecting a candidate paper whole.
 - Carry provider provenance and retrieval time for volatile scholarly data — the

@@ -227,7 +227,7 @@ export function registerAnnotationMenu(mainWindow: Window): void {
 }
 
 /**
- * Literature Explorer contributions.
+ * Unizero Home contributions.
  *
  * The item context menu opens the selected paper directly. Tools, the Collection
  * context menu, and the item-toolbar button open the current Collection/library
@@ -243,7 +243,7 @@ export function registerLiteratureExplorerMenus(
     `${config.addonRef}-addon.ftl`,
   );
   const label = getString("literature-explorer-menu-label") ||
-    "Literature Explorer…";
+    "Unizero Home…";
   const itemMenu = document.getElementById("zotero-itemmenu");
   if (itemMenu && !document.getElementById(MENU_LITERATURE)) {
     const itemEntry = (document as any).createXULElement("menuitem");

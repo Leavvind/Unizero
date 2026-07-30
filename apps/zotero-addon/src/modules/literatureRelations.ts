@@ -68,6 +68,8 @@ export interface LiteratureSnapshot {
 export interface LiteratureCollectionScope {
   libraryID: number;
   collectionID?: number;
+  /** Stable Zotero key used by Project identity and future cross-device sync. */
+  collectionKey?: string;
   name: string;
 }
 

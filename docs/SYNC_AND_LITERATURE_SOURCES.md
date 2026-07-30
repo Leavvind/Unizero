@@ -1,7 +1,8 @@
 # 同步状态与文献数据源设计
 
-> 状态：设计提案，尚未实现。本文记录边界、约束和推荐接口，不定义
-> Workspace 的最终产品形态，也不构成实施工单。未完成工作以
+> 状态：同步引擎尚未实现；Project/Board/Paper 的第一版 typed schema 与稳定
+> Project 初始化已落地。Project View 的产品决定见
+> [UNIZERO_HOME.md](UNIZERO_HOME.md)。未完成工作以
 > [ROADMAP.md](ROADMAP.md) 为准。
 
 ## 1. 问题
@@ -32,15 +33,15 @@ provider 数据并重建连接，却不能继承第一台电脑已经付出的�
 | 插件偏好 | Zotero preference branch | 用户偏好、设备配置或密钥 |
 | 关系索引和 topology | 内存 | 纯派生状态 |
 
-未来还可能出现用户主动创建且不可丢弃的状态，例如某种写作项目、思路板、卡片、
-手工关系或备注。它们的具体形态尚未确定，但同步边界不能假定所有未来状态都是
-cache，也不能把当前磁盘目录直接固化成远端协议。
+Unizero Home 已确定会产生用户主动创建且不可丢弃的 Project、Board、卡片、手工
+关系和备注。第一版 Project/Board schema 已独立落盘；它们是同步的首要
+non-rebuildable 状态，不能被当作 cache，也不能把当前磁盘目录直接固化成远端协议。
 
 ## 2. 目标
 
 本设计希望先建立两个互相独立的扩展点：
 
-1. **文献数据源边界**：Literature Explorer 不依赖数据来自在线 provider
+1. **文献数据源边界**：Unizero Home 不依赖数据来自在线 provider
    还是未来的本地 corpus。
 2. **可同步状态边界**：功能模块不依赖远端是 WebDAV、同步目录还是未来的服务。
 
@@ -49,7 +50,7 @@ cache，也不能把当前磁盘目录直接固化成远端协议。
 - 允许 References/Citations 在两台设备间复用；
 - 允许明确列入白名单的便携设置同步；
 - 保持现有本机 shard 格式可用，不要求一次性迁移；
-- 为未知的未来状态预留带 schema、scope 和冲突策略的 namespace；
+- 为 Project/Paper 等状态提供带 schema、scope 和冲突策略的 namespace；
 - 让 WebDAV 成为第一个 backend，而不是让 WebDAV 规则渗入 cache、Graph
   或 Explorer。
 
@@ -57,7 +58,7 @@ cache，也不能把当前磁盘目录直接固化成远端协议。
 
 本设计不要求：
 
-- 现在定义 Workspace 的 UI、功能或持久化模型；
+- 在同步层重新定义 Unizero Home 的 UI 或 Project 业务语义；
 - 现在部署 Finance/Economics 本地大型数据库；
 - 把整个 Zotero data directory 放入云盘；
 - 同步 `UniConnection` 内存索引或 Graph topology；
@@ -325,8 +326,9 @@ settings.portable
 graph.settings
 ```
 
-未来状态只有在产品形态明确后才增加 namespace；`project` scope 的存在不等于
-现在已经决定 Workspace 的模型。
+Project 模型现已明确，下一批 namespace 应包括 `project.meta`、`project.board`、
+`project.board-node` 与 `project.board-edge`。它们使用独立对象和 tombstone，
+不能退化为一个整板 latest-write-wins 文档。
 
 ### 8.4 Sync engine
 
@@ -454,8 +456,9 @@ interface SettingDefinition<T> {
 按 key 合并，而不是整份 latest-write-wins，以免两台设备修改不同设置时互相覆盖。
 
 Graph layout 默认不同步，因为当前 layout 是可重建的显示状态，而且坐标有效性依赖
-layout version、force signature 和 library scope。未来若某种画布坐标表达用户主动
-组织的意义，它应成为新的权威 namespace，而不是复用 `graph/<libraryID>.json`。
+layout version、force signature 和 library scope。Unizero Home 的 Board 坐标已经
+表达用户主动组织的意义，因此属于权威 Project namespace；不得复用或迁入
+`graph/<libraryID>.json`。
 
 ## 12. 同步顺序与一致性
 
@@ -494,7 +497,7 @@ layout version、force signature 和 library scope。未来若某种画布坐标
 6. 建立设置 portability catalog，只同步明确白名单；
 7. 让 Explorer 的 provider 编排逐步面向 `LiteratureSource`；
 8. 用真实使用数据评估是否实现 runtime corpus；
-9. 等未来用户创作状态的产品模型明确后，再增加新的 project namespace。
+9. 接入 Project/Board typed documents，并为节点/边删除传播 tombstone。
 
 ## 14. 验证标准
 

@@ -15,6 +15,7 @@ flowchart LR
         Providers["Scholarly providers"]
         Cache["Per-item reference cache"]
         Index["UniConnection index and graph"]
+        Projects["Project and Board documents"]
         Client["Runtime client"]
     end
 
@@ -33,6 +34,7 @@ flowchart LR
     Providers --> Cache
     Cache --> Index
     Index --> UI
+    UI --> Projects
     Client --> API
     API --> App
     App --> Pipeline
@@ -50,11 +52,12 @@ runtime.
 | Lifecycle | `src/hooks.ts`, `src/core/` | Register and clean up features per window |
 | Features | `src/features/` | Commands and user-facing orchestration |
 | UI | `src/ui/`, `src/modules/views.ts` | Menus, panes, dialogs, progress |
-| Dialog content | `addon/chrome/content/` | Privileged XHTML windows: panel, Literature Explorer, graph renderer |
+| Dialog content | `addon/chrome/content/` | Privileged XHTML windows: panel, Unizero Home, graph renderer |
 | Zotero adapters | `src/zotero/` | Read and mutate Zotero items and attachments |
 | Providers | `src/modules/*Api.ts`, `src/modules/resolve.ts` | Scholarly HTTP access and normalization |
 | Cache | `src/modules/localStorage.ts`, `src/modules/literatureCache.ts` | Per-item shards under the add-on data directory |
 | Derived index | `src/modules/uniConnection.ts`, `src/modules/uniConnectionSync.ts` | Reverse-reference index, coupling, graph topology |
+| Projects | `src/projects/` | Portable Project identity, versioned Board/Paper shapes, local object persistence |
 | Runtime boundary | `src/runtime-client/` | Contract types, HTTP, launch, process state |
 
 `src/modules/` contains the established item-pane, metadata, provider, and cache
@@ -69,8 +72,22 @@ Feature IDs are statically registered in `src/core/features.ts`:
 - `annotations`.
 
 Static registration keeps activation and cleanup auditable in Zotero's multi-window
-environment. The derived index and the Literature Explorer belong to
+environment. The derived index and Unizero Home belong to
 `literature.relations`, which also owns the index's Zotero notifier registration.
+
+## Project identity and persistence
+
+Opening Unizero Home for a Zotero Collection ensures one stable Project and one default
+Board. The subject is the portable personal/group library scope plus the Zotero
+Collection key; numeric `libraryID` and `collectionID` remain local lookup values and are
+not persisted as project identity. Renaming a Collection updates the Project display
+name without replacing either ID.
+
+Project and Board are separate schema-versioned documents under
+`<dataDir>/unizero/projects/`. Their local paths are not a sync protocol. Board nodes and
+manual edges already have independent document shapes so future edits do not require a
+whole-board last-write-wins merge. The current Home window only initializes and exposes
+the Project bundle; the editable Board renderer remains planned.
 
 ## Derived relations index
 
@@ -118,7 +135,7 @@ Design detail and the reasoning behind these constraints are in
 
 ## Graph rendering
 
-The Literature Explorer is a privileged XHTML dialog, not part of the TypeScript bundle.
+Unizero Home is a privileged XHTML dialog, not part of the TypeScript bundle.
 It reaches the add-on only through the plain-object API passed as `window.arguments[0]`.
 
 - `literature-explorer.js` owns view state, filtering, tables, and the detail tabs.
@@ -202,6 +219,7 @@ Neither component reaches through the HTTP boundary to reuse the other's impleme
 | Data | Owner |
 | --- | --- |
 | Bibliographic fields and item relations | Zotero items |
+| Project identity, Board objects, manual layout and edges | Versioned Project documents |
 | Highlight and underline annotations | Zotero attachment annotations |
 | Provider responses | Refreshable add-on cache, one shard per item |
 | Reverse-reference index, coupling, graph topology | Derived from the reference cache; rebuildable, never authoritative |

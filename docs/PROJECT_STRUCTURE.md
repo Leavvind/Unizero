@@ -15,6 +15,7 @@ UniZero/
 │       │   ├── core/                Feature registry and lifecycle
 │       │   ├── features/            Conversion and annotation commands
 │       │   ├── modules/             Relations, metadata, providers, cache, derived index, item pane
+│       │   ├── projects/            Project/Board/Paper schemas and Project persistence
 │       │   ├── runtime-client/      Runtime HTTP client and process management
 │       │   ├── ui/                  Menus, panel and explorer bridges, progress, service notices
 │       │   ├── utils/               Shared add-on utilities
@@ -79,7 +80,8 @@ bundle modules.
 | Change References, Citations, or metadata UI | `apps/zotero-addon/src/modules/` |
 | Change relation or graph topology | `apps/zotero-addon/src/modules/uniConnection.ts` |
 | Change index maintenance or reference backfill | `apps/zotero-addon/src/modules/uniConnectionSync.ts` |
-| Add data the Explorer needs | `views.ts` producer, then the `src/ui/literatureExplorer.ts` bridge |
+| Change Project/Board/Paper persisted shapes | `apps/zotero-addon/src/projects/` |
+| Add data Unizero Home needs | `views.ts` producer, then the `src/ui/literatureExplorer.ts` bridge |
 | Change Explorer layout, filters, or tables | `addon/chrome/content/literature-explorer.js` |
 | Change graph visuals, forces, or interaction | `addon/chrome/content/literature-graph.js` |
 | Change cached or persisted add-on state | `apps/zotero-addon/src/modules/localStorage.ts` |

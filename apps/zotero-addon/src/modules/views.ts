@@ -828,7 +828,7 @@ export default class Views {
 
   /**
    * Shared data entry point for the item-pane preview and the independent
-   * Literature Explorer. It reads the same per-item shards as the section; when a
+   * Unizero Home. It reads the same per-item shards as the section; when a
    * shard is missing it fetches through the established providers and writes the
    * normal cache shape, so opening the large view never creates a parallel source
    * of truth.

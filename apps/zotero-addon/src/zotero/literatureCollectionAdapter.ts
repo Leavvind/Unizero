@@ -1,5 +1,5 @@
 /**
- * Read adapter for the Collection-level Literature Explorer.
+ * Read adapter for Collection-level Unizero Home.
  *
  * The explorer is a view over Zotero's canonical items. Collection selection,
  * membership, bibliographic fields, and attachment state stay on this side of the
@@ -35,6 +35,7 @@ export function selectedLiteratureScope(
     return {
       libraryID: collection.libraryID,
       collectionID: collection.id,
+      collectionKey: String((collection as any).key || ""),
       name: collection.name || libraryName(collection.libraryID),
     };
   }

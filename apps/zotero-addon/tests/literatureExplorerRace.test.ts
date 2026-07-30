@@ -178,8 +178,12 @@ function rendererStub() {
 }
 
 async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  // Collection startup now joins the stable Project/Board bundle with the Zotero
+  // snapshot before publishing either one. Drain the small Promise chain rather
+  // than assuming the old two-microtask startup shape.
+  for (let index = 0; index < 6; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 function createHarness(overrides: Record<string, unknown> = {}) {
@@ -194,6 +198,15 @@ function createHarness(overrides: Record<string, unknown> = {}) {
   const api = {
     strings: strings(),
     getContext: () => context.current,
+    project: async (scope: any) => ({
+      project: {
+        id: `project-${scope.libraryID}`,
+        name: scope.name,
+      },
+      defaultBoard: {
+        id: `board-${scope.libraryID}`,
+      },
+    }),
     collectionSnapshot: async (scope: any) =>
       collection(scope.libraryID, scope.name),
     snapshot: async (itemKey: string) =>
@@ -225,6 +238,12 @@ describe("Literature Explorer async ownership", () => {
   it("opens a Collection node in the shared split detail view", async () => {
     const harness = createHarness();
     await flush();
+    expect(harness.explorer.project.project.id).toBe("project-1");
+    expect(harness.win.document.getElementById("explorer-workspace")?.dataset)
+      .toMatchObject({
+        projectId: "project-1",
+        boardId: "board-1",
+      });
     const renderer = (harness.win as any).LiteratureGraph;
     renderer.resize.mockClear();
     renderer.centerOnSelection.mockClear();
@@ -499,6 +518,12 @@ describe("Literature Explorer async ownership", () => {
     await flush();
 
     expect(harness.explorer.collectionSnapshot.scope.libraryID).toBe(2);
+    expect(harness.explorer.project.project.id).toBe("project-2");
+    expect(harness.win.document.getElementById("explorer-workspace")?.dataset)
+      .toMatchObject({
+        projectId: "project-2",
+        boardId: "board-2",
+      });
     expect(harness.win.document.getElementById("paper-title")?.textContent)
       .toBe("Library B");
     harness.win.close();

@@ -1,5 +1,5 @@
 /**
- * Bridge for the independent References/Relation/Citations browser.
+ * Bridge for Unizero Home and its References/Relation/Citations detail surface.
  *
  * The XHTML/JS window is intentionally a thin view. Provider calls, cache policy,
  * library scoping, and Zotero mutations stay in Views/application code and cross
@@ -17,6 +17,7 @@ import {
   type LiteratureRelationKind,
 } from "../modules/literatureRelations";
 import type { RelationSourceKey } from "../modules/mergeRelations";
+import { ensureProjectForScope } from "../projects/projectRepository";
 import { getString } from "../utils/locale";
 import {
   markdownAttachment,
@@ -47,9 +48,9 @@ let explorerContext: ExplorerContext | null = null;
 let explorerViews: Views | null = null;
 
 function contextItem(itemKey?: string, libraryID?: number): Zotero.Item {
-  if (!explorerContext) { throw new Error("Literature Explorer has no item context"); }
+  if (!explorerContext) { throw new Error("Unizero Home has no item context"); }
   const key = itemKey || explorerContext.itemKey;
-  if (!key) { throw new Error("Literature Explorer has no selected paper"); }
+  if (!key) { throw new Error("Unizero Home has no selected paper"); }
   const targetLibraryID = libraryID ?? explorerContext.scope.libraryID;
   const item = Zotero.Items.getByLibraryAndKey(
     targetLibraryID,
@@ -62,8 +63,8 @@ function contextItem(itemKey?: string, libraryID?: number): Zotero.Item {
 function strings() {
   const read = (key: string, fallback: string) => getString(key) || fallback;
   return {
-    title: read("literature-explorer-title", "Literature Explorer"),
-    collectionOverview: read("literature-collection-overview-label", "Collection"),
+    title: read("literature-explorer-title", "Unizero Home"),
+    collectionOverview: read("literature-collection-overview-label", "Project"),
     collectionSearch: read(
       "literature-collection-search-placeholder",
       "Search this Collection",
@@ -236,9 +237,13 @@ function explorerApi() {
     getContext: () => explorerContext
       ? { ...explorerContext, scope: { ...explorerContext.scope } }
       : null,
+    project: async (scope?: LiteratureCollectionScope) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      return ensureProjectForScope(scope || explorerContext.scope);
+    },
     collectionSnapshot: async (scope?: LiteratureCollectionScope) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
-      if (!explorerContext) { throw new Error("Literature Explorer has no scope"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
       return explorerViews.getLiteratureCollectionSnapshot(
         scope || explorerContext.scope,
       );
@@ -249,7 +254,7 @@ function explorerApi() {
       refresh = false,
       libraryID?: number,
     ) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       explorerContext!.itemKey = itemKey;
       explorerContext!.kind = kind;
       return explorerViews.getLiteratureSnapshot(
@@ -262,15 +267,15 @@ function explorerApi() {
     // providers nor writes cache records, so calling it is always cheap after the
     // first (index-building) call.
     graph: async (scope?: LiteratureCollectionScope) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
-      if (!explorerContext) { throw new Error("Literature Explorer has no scope"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
       return explorerViews.getLiteratureGraph(scope || explorerContext.scope);
     },
     focusedGraph: async (
       itemKey: string,
       scope?: LiteratureCollectionScope,
     ) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       // Same scope as the overview board, so both surfaces show one graph.
       return explorerViews.getLiteratureFocusedGraph(
         contextItem(itemKey, scope?.libraryID),
@@ -307,7 +312,7 @@ function explorerApi() {
       return explorerViews.saveGraphSettings(settings);
     },
     loadMoreCitations: async (itemKey: string, libraryID?: number) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       return explorerViews.loadMoreLiteratureCitations(
         contextItem(itemKey, libraryID),
       );
@@ -318,7 +323,7 @@ function explorerApi() {
       sourceKey: RelationSourceKey,
       libraryID?: number,
     ) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       explorerContext!.itemKey = itemKey;
       explorerContext!.kind = kind;
       return explorerViews.refreshLiteratureSource(
@@ -328,7 +333,7 @@ function explorerApi() {
       );
     },
     addToLibrary: async (itemKey: string, candidate: LiteratureCandidate) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       return explorerViews.addLiteratureCandidateToLibrary(
         contextItem(itemKey),
         candidate,
@@ -339,7 +344,7 @@ function explorerApi() {
       kind: LiteratureRelationKind,
       refresh = false,
     ) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       const item = contextItem(itemKey);
       await explorerViews.getLiteratureSnapshot(item, kind, refresh);
       return explorerViews.getLiteratureCollectionPaper(item);
@@ -369,7 +374,7 @@ function explorerApi() {
     },
     convertItem: async (itemKey: string) => {
       if (!explorerOwner || !explorerViews) {
-        throw new Error("Literature Explorer is unavailable");
+        throw new Error("Unizero Home is unavailable");
       }
       const item = contextItem(itemKey);
       await convertItems(
@@ -386,7 +391,7 @@ function explorerApi() {
     // Zotero's own viewer path: it honours the reader preference, opens in the main
     // window, and handles a missing file with its own dialog.
     openPdf: async (itemKey: string) => {
-      if (!explorerOwner) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerOwner) { throw new Error("Unizero Home is unavailable"); }
       const item = contextItem(itemKey);
       let attachment = pdfAttachment(item);
       if (!attachment) {
@@ -428,7 +433,7 @@ function explorerApi() {
      * nothing" from "failed" — cancelling is neither an error nor a change.
      */
     editMarkdownLink: async (itemKey: string) => {
-      if (!explorerOwner) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerOwner) { throw new Error("Unizero Home is unavailable"); }
       const item = contextItem(itemKey);
       const attachment = markdownAttachment(item);
       if (!attachment) { throw new Error("This paper has no Markdown attachment"); }
