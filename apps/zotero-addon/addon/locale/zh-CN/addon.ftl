@@ -40,6 +40,7 @@ literature-board-fit-label = 适应白板
 literature-board-zoom-in-label = 放大
 literature-board-zoom-out-label = 缩小
 literature-board-connect-handle-label = 拖动以连线
+literature-board-resize-label = 调整卡片大小
 literature-collection-search-placeholder = 搜索当前文献集
 literature-close-tab-label = 关闭标签页
 literature-column-creator-label = 作者

@@ -55,10 +55,11 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Literature data and sync
 
-- Complete the unified Paper catalog: stable internal paper IDs, identifier aliases,
-  optional Zotero bindings, provider observations, and one directed citation edge model
-  shared by References and Citations. Board-pinned and Zotero-bound papers are durable;
-  unpinned discovery results remain reclaimable cache.
+- Finish unified Paper lifecycle beyond the current stable IDs, monotonic retention,
+  terminal-snapshot compaction, orphan cache collection, identifier inspection, and
+  explicit merge/redirect operations: add a user-facing conflict-review workflow,
+  lifecycle diagnostics, and sync migration coverage for Papers, observations, and
+  redirects.
 - Define typed state namespaces and a backend-neutral sync engine; implement WebDAV as
   its first backend. User-authored Project/Board objects are the first non-rebuildable
   priority, followed by References, Citations, and explicitly portable settings. Keep
@@ -81,18 +82,16 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Unizero Home
 
-- Extend the current TextBlock/PaperBlock MVP with block reordering, additional block
-  kinds, rich Markdown editing, move-versus-copy gestures, and external PaperBlocks.
-  Evaluate extracting blocks into independent sync objects only when real merge
-  requirements justify changing the current text-node conflict boundary.
-- Add notes, resizing, colours, multi-selection tools, edge labels/direction, camera
-  persistence if user testing justifies it, and per-object sync metadata. A shared
+- Revisit the experimental TextBlock/PaperBlock interaction before extending it. Prefer
+  an Obsidian Canvas-like composition of independent cards and containers; do not add
+  block kinds, rich editing, or deeper nesting until that interaction model is chosen.
+  Evaluate independent sync objects only when real merge requirements justify changing
+  the current text-node conflict boundary.
+- Add notes, colours, multi-selection tools, edge labels/direction, camera persistence
+  if user testing justifies it, and per-object sync metadata. A shared
   pan/zoom transform, Pointer interaction state machine, handle-drag connection preview,
-  manual edge CRUD/rendering, single selection, and deletion are now available.
-- Let Detail discoveries drag onto the Board. Dropping an external paper must not create
-  a Zotero item; a later explicit import adds a binding to the same stable Paper.
-- Project automatic Relations onto Board instances only as hover/selection hints.
-  UniConnection remains derived and must not write those hints as manual edges.
+  manual edge CRUD/rendering, single selection, deletion, and node resizing are now
+  available.
 - Replace the hard-coded node menu with capability-based actions, then add named raw
   Markdown and detailed/canvas Obsidian bindings.
 

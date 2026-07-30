@@ -367,6 +367,18 @@
       stroke: var(--orange);
       stroke-width: 4;
     }
+    .board-relation-hint-edge {
+      fill: none;
+      stroke: color-mix(in srgb, var(--green) 72%, var(--muted));
+      stroke-dasharray: 8 6;
+      stroke-linecap: round;
+      stroke-width: 2.25;
+      pointer-events: none;
+    }
+    .board-relation-hint-edge.coupled {
+      stroke: color-mix(in srgb, var(--orange) 70%, var(--muted));
+      stroke-dasharray: 3 6;
+    }
     .board-connection-preview {
       fill: none;
       stroke: var(--accent);
@@ -415,7 +427,19 @@
       outline: 3px solid color-mix(in srgb, var(--green) 72%, transparent);
       outline-offset: 3px;
     }
+    .board-paper-node.relation-focus {
+      z-index: 3;
+      outline: 3px solid color-mix(in srgb, var(--accent) 72%, transparent);
+      outline-offset: 3px;
+    }
+    .board-paper-node.relation-related {
+      z-index: 2;
+      outline: 3px solid color-mix(in srgb, var(--green) 72%, transparent);
+      outline-offset: 3px;
+    }
+    .board-paper-node.relation-dim { opacity: .38; }
     .board-paper-node.dragging { cursor: grabbing; opacity: .92; }
+    .board-paper-node.resizing { cursor: nwse-resize; }
     .board-text-node {
       padding: 0;
       border-left-width: 1px;
@@ -548,6 +572,36 @@
       top: calc(50% - 6px);
       left: -7px;
     }
+    .board-node-resize {
+      position: absolute;
+      z-index: 4;
+      right: -5px;
+      bottom: -5px;
+      min-width: 0;
+      min-height: 0;
+      width: 17px;
+      height: 17px;
+      padding: 0;
+      opacity: 0;
+      border: 1px solid color-mix(in srgb, var(--accent) 72%, var(--border));
+      border-radius: 5px;
+      background:
+        linear-gradient(
+          135deg,
+          transparent 0 48%,
+          var(--accent) 49% 57%,
+          transparent 58% 68%,
+          var(--accent) 69% 77%,
+          transparent 78%
+        ),
+        var(--card);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .16);
+      cursor: nwse-resize;
+      transition: opacity .12s ease;
+    }
+    .board-paper-node:hover .board-node-resize,
+    .board-paper-node.selected .board-node-resize,
+    .board-paper-node.resizing .board-node-resize { opacity: 1; }
     .board-node-title {
       display: -webkit-box;
       overflow: hidden;
@@ -637,6 +691,8 @@
     td.state { text-align: center; }
     tr.in-library { background: var(--green-soft); }
     tr.not-in-library { background: var(--orange-soft); }
+    tr.board-draggable-paper { cursor: grab; }
+    tr.board-draggable-paper:active { cursor: grabbing; }
     .paper-link {
       display: block;
       width: 100%;

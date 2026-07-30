@@ -1,8 +1,11 @@
 # 同步状态与文献数据源设计
 
-> 状态：同步引擎尚未实现；Project/Board/Paper 的第一版 typed schema、稳定
-> Project、库内 Paper catalog、Board paper/text-node、内嵌 content blocks 与
-> manual-edge documents 已落地。Project View 的产品决定见
+> 状态：Project/Board/Paper 的第一版 typed schema、稳定 Project、统一
+> cache/pinned/Zotero Paper catalog、provider/query citation observations、
+> 完整快照压缩、孤立 cache Paper 回收、identifier 冲突检查和显式
+> Paper merge/redirect，以及 Board paper/text-node、内嵌 content blocks 与
+> manual-edge documents 已落地；
+> 同步引擎尚未实现。Project View 的产品决定见
 > [UNIZERO_HOME.md](UNIZERO_HOME.md)。未完成工作以
 > [ROADMAP.md](ROADMAP.md) 为准。
 
@@ -29,6 +32,7 @@ provider 数据并重建连接，却不能继承第一台电脑已经付出的�
 | 状态 | 当前保存位置 | 性质 |
 | --- | --- | --- |
 | References/Citations provider 结果 | `unizero/cache/` | 昂贵但可重建的缓存 |
+| 统一 Paper 与 citation observations | `unizero/literature/` | cache 或 Project 依赖 |
 | Graph layout | `unizero/graph/<libraryID>.json` | 可丢弃的显示状态 |
 | Graph display/force 设置 | `unizero/graph/settings.json` | 用户偏好 |
 | 插件偏好 | Zotero preference branch | 用户偏好、设备配置或密钥 |
@@ -157,8 +161,20 @@ type PaperLocator =
   identity。
 
 第一版 Zotero-backed cache 可以从 portable library scope、item key 和 record
-kind 确定性地产生文档 ID。未来库外论文可以使用 UUID，并通过 identifiers 做
-去重或 alias 解析；本设计暂不规定完整的 external-paper merge 算法。
+kind 确定性地产生文档 ID。Board Paper catalog 已为库外论文使用 UUID，并按 DOI、
+arXiv、Semantic Scholar Paper ID 与 OpenAlex ID 维护 alias index；同 identifier
+的后续 Zotero binding 会附加到原 Paper。多 identifier 指向不同既有 Paper 时会
+报告冲突并拒绝静默合并。
+
+数据层已经提供显式 merge：调用者选择 canonical Paper 后，旧 Paper ID 写成
+`paper-redirect`，相关 observations 会改写并去重；多个 Zotero binding 合并时，
+canonical Paper 原有 binding 继续拥有 bibliographic metadata。用户可视化的冲突
+审阅流程仍未实现。
+
+provider observation 的生命周期同样区分完整与不完整结果。只有成功且已经到达末页
+的 provider snapshot 才替换同一 seed/query/provider route 的旧 observations；
+分页未完成或 provider 失败时保留旧证据。替换后若某个 `cache` Paper 已无任何
+observation，数据层会回收它；`pinned` 和 `zotero` Paper 不参与自动回收。
 
 ## 6. 文献数据源接口
 
@@ -540,7 +556,7 @@ layout version、force signature 和 library scope。Unizero Home 的 Board 坐�
 - Citations 的默认同步上限；
 - cache freshness policy 是否按 provider 分别配置；
 - 何种真实查询和延迟指标足以触发本地 corpus 实现；
-- 未来库外论文的 alias/merge 规则。
+- 库外论文 identifier 冲突的审阅、alias 重定向与显式 merge 规则。
 
 这些问题不妨碍先稳定接口，但不应由目录名或某个 WebDAV 服务的偶然行为替我们作出
 决定。

@@ -66,6 +66,20 @@ export interface GraphOptions {
   couplingMinWeight?: number;
 }
 
+export interface BoardConnectionMember {
+  paperID: string;
+  /** Present when this Paper is bound to a Zotero item in the indexed library. */
+  scopedKey?: ScopedItemKey;
+  /** Stable DOI/arXiv/S2 endpoint for library and external Papers alike. */
+  edge?: EdgeKey;
+}
+
+export interface BoardConnection {
+  sourcePaperID: string;
+  targetPaperID: string;
+  type: "cites" | "coupled";
+}
+
 export interface UniConnectionStats {
   items: number;
   edges: number;
@@ -360,6 +374,80 @@ export class UniConnection {
     const graph = { scope: { libraryID }, nodes: [...nodes.values()], edges };
     index.graphCache.set(cacheKey, graph);
     return graph;
+  }
+
+  /**
+   * Project derived topology onto stable Paper IDs currently present on a Board.
+   *
+   * Unlike libraryGraph(), this admits external Paper endpoints: a Zotero-bound
+   * source whose cached References contain an external Paper's identifier still
+   * produces a hint. The result is read-only derived state and never becomes a
+   * manual Board edge.
+   */
+  public async boardConnections(
+    libraryID: number,
+    members: BoardConnectionMember[],
+  ): Promise<BoardConnection[]> {
+    const index = await this.indexFor(libraryID);
+    const unique = new Map<string, BoardConnectionMember>();
+    for (const member of members) {
+      if (member.paperID && !unique.has(member.paperID)) {
+        unique.set(member.paperID, member);
+      }
+    }
+    const byEdge = new Map<EdgeKey, BoardConnectionMember[]>();
+    const byScopedKey = new Map<ScopedItemKey, BoardConnectionMember>();
+    for (const member of unique.values()) {
+      if (member.edge) {
+        const list = byEdge.get(member.edge) || [];
+        list.push(member);
+        byEdge.set(member.edge, list);
+      }
+      if (member.scopedKey) { byScopedKey.set(member.scopedKey, member); }
+    }
+
+    const output: BoardConnection[] = [];
+    const seen = new Set<string>();
+    const add = (
+      sourcePaperID: string,
+      targetPaperID: string,
+      type: BoardConnection["type"],
+    ) => {
+      if (!sourcePaperID || !targetPaperID || sourcePaperID === targetPaperID) {
+        return;
+      }
+      const endpoints = type === "coupled"
+        ? [sourcePaperID, targetPaperID].sort()
+        : [sourcePaperID, targetPaperID];
+      const key = `${type}:${endpoints[0]}\u0000${endpoints[1]}`;
+      if (seen.has(key)) { return; }
+      seen.add(key);
+      output.push({
+        sourcePaperID: endpoints[0],
+        targetPaperID: endpoints[1],
+        type,
+      });
+    };
+
+    for (const source of unique.values()) {
+      if (!source.scopedKey) { continue; }
+      for (const edge of index.forward.get(source.scopedKey) || []) {
+        for (const target of byEdge.get(edge) || []) {
+          add(source.paperID, target.paperID, "cites");
+        }
+      }
+    }
+
+    const graph = await this.libraryGraph(libraryID);
+    for (const edge of graph.edges) {
+      if (edge.type !== "coupled") { continue; }
+      const source = byScopedKey.get(edge.source);
+      const target = byScopedKey.get(edge.target);
+      if (source && target) {
+        add(source.paperID, target.paperID, "coupled");
+      }
+    }
+    return output;
   }
 
   /**

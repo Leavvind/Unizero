@@ -95,6 +95,9 @@ function mergedIdentifiers(group: Group): ItemBaseInfo["identifiers"] {
     if (!identifiers.DOI && source.DOI) { identifiers.DOI = source.DOI; }
     if (!identifiers.arXiv && source.arXiv) { identifiers.arXiv = source.arXiv; }
     if (!identifiers.paperID && source.paperID) { identifiers.paperID = source.paperID; }
+    if (!identifiers.openAlex && source.openAlex) {
+      identifiers.openAlex = source.openAlex;
+    }
   }
   return identifiers;
 }

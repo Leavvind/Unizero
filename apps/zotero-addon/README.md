@@ -24,7 +24,12 @@ the client for the local paper runtime.
   are independently selectable and deletable. Text Nodes contain ordered, stable-ID
   content blocks; Collection papers can be embedded as PaperBlocks without creating
   another Zotero item, and a library-backed embedded block can be copied back out as a
-  standalone paper card;
+  standalone paper card. References and Citations rows can also be dragged directly
+  onto the Board: out-of-library results become durable pinned Papers without creating
+  Zotero items. Hovering an identifiable library or external card temporarily
+  highlights every related Board instance and draws derived relation hints without
+  persisting manual edges. Paper and Text cards have a zoom-aware resize handle, and
+  their updated geometry remains durable;
 - Collection paper status for Markdown conversion and cached References/Citations,
   with per-paper quick actions and relation drill-down;
 - a Relation view per paper: which library papers cite it, and which share the most of
@@ -35,7 +40,13 @@ the client for the local paper runtime.
   paper that centres the same graph on it, with adjustable display and force settings
   and a per-node menu for PDF, Markdown, and relation actions;
 - filtering discovered works by library status, influence, year, publication type, and
-  order, plus importing missing papers into the current library;
+  order, plus importing missing papers into the current library. Every loaded
+  References/Citations candidate receives a stable catalog Paper ID with `cache`
+  retention; Board pinning and Zotero binding promote the same Paper to `pinned` or
+  `zotero`. Provider/query observations use one directed citation model. Successful
+  terminal provider snapshots replace stale observations and collect orphaned
+  cache-only Papers, while incomplete pages and provider failures preserve prior
+  evidence. Explicit identity merges retain redirects for old Paper IDs;
 - relating discovered works;
 - PDF conversion commands and generated-artifact registration, including a versioned
   structured References JSON attachment produced from the PDF bibliography;
@@ -99,7 +110,7 @@ Two graph constraints are easy to break and expensive to diagnose:
 | Per-item provider caches | `<Zotero data dir>/unizero/cache/` shard tree |
 | Project and default Board documents | `<Zotero data dir>/unizero/projects/` typed object tree |
 | Board paper/text nodes, content blocks, manual edges, geometry, and tombstones | Per-Board typed documents under `unizero/projects/` |
-| Stable Zotero-bound Paper catalog | `<Zotero data dir>/unizero/literature/` |
+| Stable cache/pinned/Zotero Paper catalog and citation observations | `<Zotero data dir>/unizero/literature/` |
 | Graph layout coordinates | `<Zotero data dir>/unizero/graph/<libraryID>.json` |
 | Graph display and force settings | `<Zotero data dir>/unizero/graph/settings.json` |
 | Zotero item ↔ Obsidian URL bindings | `<Zotero data dir>/unizero/markdown-links/<libraryID>.json` |

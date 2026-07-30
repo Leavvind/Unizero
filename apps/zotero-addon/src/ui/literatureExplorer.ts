@@ -9,6 +9,7 @@
 import { config } from "../../package.json";
 import { convertItems } from "../features/conversion/commands";
 import { getConversionPref } from "../features/conversion/settings";
+import { edgeIdentity } from "../modules/edgeIdentity";
 import type Views from "../modules/views";
 import {
   invalidateLibraryMembership,
@@ -32,7 +33,10 @@ import {
   updateDefaultBoardTextBlock,
 } from "../projects/projectRepository";
 import {
+  ensureCatalogExternalPaper,
   ensureCatalogPaper,
+  listCatalogCitationObservations,
+  pinCatalogPaper,
   readCatalogPaper,
 } from "../projects/paperCatalog";
 import type {
@@ -140,6 +144,7 @@ function strings() {
       "literature-board-connect-handle-label",
       "Drag to connect",
     ),
+    boardResize: read("literature-board-resize-label", "Resize card"),
     collectionSearch: read(
       "literature-collection-search-placeholder",
       "Search this Collection",
@@ -329,6 +334,87 @@ interface BoardTextNodeView {
 
 type BoardNodeView = BoardPaperNodeView | BoardTextNodeView;
 
+interface BoardRelationHintView {
+  sourcePaperID: string;
+  targetPaperID: string;
+  type: "cites" | "coupled";
+}
+
+async function boardRelationHints(
+  scope: LiteratureCollectionScope,
+  nodes?: BoardNodeView[],
+): Promise<BoardRelationHintView[]> {
+  const views = explorerViews;
+  if (!views) { return []; }
+  try {
+    let nodeViews = nodes;
+    if (!nodeViews) {
+      const bundle = await ensureProjectForScope(scope);
+      const documents = await listDefaultBoardNodes(bundle);
+      nodeViews = await Promise.all(documents.map((node) =>
+        boardNodeView(node, scope.libraryID)));
+    }
+    const members = nodeViews.flatMap((view) => {
+      if (!("paper" in view)) { return []; }
+      return [{
+        paperID: view.paper.id,
+        scopedKey: view.itemKey
+          ? `${scope.libraryID}:${view.itemKey}`
+          : undefined,
+        edge: edgeIdentity({
+          identifiers: {
+            DOI: view.paper.identifiers.doi,
+            arXiv: view.paper.identifiers.arxiv,
+            paperID: view.paper.identifiers.semanticScholarPaperId,
+          },
+          title: "",
+          authors: [],
+        }),
+      }];
+    });
+    const [derived, observations] = await Promise.all([
+      views.getLiteratureBoardConnections(
+        scope.libraryID,
+        members,
+      ),
+      listCatalogCitationObservations(),
+    ]);
+    const paperIDs = new Set(members.map((member) => member.paperID));
+    const output: BoardRelationHintView[] = [];
+    const seen = new Set<string>();
+    const add = (hint: BoardRelationHintView) => {
+      const endpoints = hint.type === "coupled"
+        ? [hint.sourcePaperID, hint.targetPaperID].sort()
+        : [hint.sourcePaperID, hint.targetPaperID];
+      const key = `${hint.type}:${endpoints[0]}\u0000${endpoints[1]}`;
+      if (seen.has(key)) { return; }
+      seen.add(key);
+      output.push({
+        sourcePaperID: endpoints[0],
+        targetPaperID: endpoints[1],
+        type: hint.type,
+      });
+    };
+    derived.forEach(add);
+    observations.forEach((observation) => {
+      if (
+        paperIDs.has(observation.citingPaperID) &&
+        paperIDs.has(observation.citedPaperID)
+      ) {
+        add({
+          sourcePaperID: observation.citingPaperID,
+          targetPaperID: observation.citedPaperID,
+          type: "cites",
+        });
+      }
+    });
+    return output;
+  } catch (error) {
+    ztoolkit.log("Board relation hints unavailable", error);
+    return [];
+  }
+}
+
 function paperNodeView(
   node: BoardPaperNodeDocument,
   paper: PaperDocument,
@@ -367,17 +453,20 @@ async function projectSnapshot(
 ): Promise<ProjectBundle & {
   nodes: BoardNodeView[];
   edges: BoardManualEdgeDocument[];
+  relationHints: BoardRelationHintView[];
 }> {
   const bundle = await ensureProjectForScope(scope);
   const [nodes, edges] = await Promise.all([
     listDefaultBoardNodes(bundle),
     listDefaultBoardEdges(bundle),
   ]);
+  const nodeViews = await Promise.all(nodes.map((node) =>
+    boardNodeView(node, scope.libraryID)));
   return {
     ...bundle,
     edges,
-    nodes: await Promise.all(nodes.map((node) =>
-      boardNodeView(node, scope.libraryID))),
+    nodes: nodeViews,
+    relationHints: await boardRelationHints(scope, nodeViews),
   };
 }
 
@@ -391,6 +480,10 @@ function explorerApi() {
       if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
       return projectSnapshot(scope || explorerContext.scope);
     },
+    boardRelationHints: async (scope?: LiteratureCollectionScope) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      return boardRelationHints(scope || explorerContext.scope);
+    },
     addBoardNode: async (
       itemKey: string,
       geometry: Partial<BoardNodeGeometry>,
@@ -401,6 +494,43 @@ function explorerApi() {
       const bundle = await ensureProjectForScope(targetScope);
       const item = contextItem(itemKey, targetScope.libraryID);
       const paper = await ensureCatalogPaper(item);
+      const node = await createDefaultBoardPaperNode(
+        bundle,
+        paper.id,
+        geometry,
+      );
+      return paperNodeView(node, paper, targetScope.libraryID);
+    },
+    addBoardCandidate: async (
+      candidate: LiteratureCandidate,
+      geometry: Partial<BoardNodeGeometry>,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      const localItem = candidate.membership.inLibrary &&
+        candidate.membership.itemID
+        ? Zotero.Items.get(candidate.membership.itemID) as Zotero.Item | false
+        : false;
+      const paper = localItem && localItem.libraryID === targetScope.libraryID
+        ? await ensureCatalogPaper(localItem)
+        : candidate.paperID
+          ? await pinCatalogPaper(candidate.paperID)
+          : await ensureCatalogExternalPaper({
+            identifiers: {
+              doi: candidate.identifiers.DOI,
+              arxiv: candidate.identifiers.arXiv,
+              semanticScholarPaperId: candidate.identifiers.paperID,
+              openAlexId: candidate.identifiers.openAlex,
+            },
+            title: candidate.title || candidate.text || "Untitled",
+            authors: [...(candidate.authors || [])],
+            year: candidate.year,
+            type: candidate.type,
+            primaryVenue: candidate.primaryVenue,
+            abstract: candidate.abstract,
+          });
       const node = await createDefaultBoardPaperNode(
         bundle,
         paper.id,

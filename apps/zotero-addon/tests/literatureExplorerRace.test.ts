@@ -278,11 +278,36 @@ function createHarness(overrides: Record<string, unknown> = {}) {
       },
       nodes: [],
       edges: [],
+      relationHints: [],
     }),
+    boardRelationHints: vi.fn(async () => []),
     addBoardNode: vi.fn(async (
       itemKey: string,
       geometry: Record<string, number>,
     ) => boardNodeView(`node-${++nextBoardNode}`, itemKey, geometry)),
+    addBoardCandidate: vi.fn(async (
+      candidate: any,
+      geometry: Record<string, number>,
+    ) => ({
+      node: {
+        id: `node-${++nextBoardNode}`,
+        projectID: "project-1",
+        boardID: "board-1",
+        paperID: "paper-external",
+        kind: "paper",
+        geometry,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      paper: {
+        id: "paper-external",
+        title: candidate.title,
+        authors: candidate.authors,
+        year: candidate.year,
+        bindings: [],
+        retention: "pinned",
+      },
+    })),
     moveBoardNode: vi.fn(async (
       nodeID: string,
       geometry: Record<string, number>,
@@ -506,6 +531,101 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
+  it("pins a Detail discovery on the Board without importing it into Zotero", async () => {
+    const harness = createHarness();
+    await flush();
+    const candidate = {
+      identifiers: { DOI: "10.1000/discovery" },
+      title: "External discovery",
+      authors: ["Outside Author"],
+      year: "2025",
+      membership: { inLibrary: false, libraryID: 1 },
+    };
+
+    await harness.explorer.dropPaperOnBoard({
+      preventDefault: () => undefined,
+      clientX: 420,
+      clientY: 300,
+      dataTransfer: {
+        getData: (type: string) =>
+          type === "application/x-unizero-literature-candidate"
+            ? JSON.stringify(candidate)
+            : (type === "text/plain" ? candidate.title : ""),
+      },
+    });
+
+    expect(harness.api.addBoardCandidate).toHaveBeenCalledWith(
+      candidate,
+      expect.objectContaining({ width: 228, height: 118 }),
+      expect.any(Object),
+    );
+    expect(harness.api.addBoardNode).not.toHaveBeenCalled();
+    expect(harness.explorer.project.nodes[0].paper.retention).toBe("pinned");
+    expect(harness.explorer.project.nodes[0].itemKey).toBeUndefined();
+    expect(harness.win.document.querySelector(".board-node-title")?.textContent)
+      .toBe("External discovery");
+    harness.win.close();
+  });
+
+  it("shows derived relation hints for every Board instance without saving edges", async () => {
+    const harness = createHarness();
+    await flush();
+    const drop = async (itemKey: string, x: number, y: number) => {
+      await harness.explorer.dropPaperOnBoard({
+        preventDefault: () => undefined,
+        clientX: x,
+        clientY: y,
+        dataTransfer: {
+          getData: (type: string) =>
+            type === "application/x-unizero-paper" ? itemKey : "",
+        },
+      });
+    };
+    await drop("P1", 280, 220);
+    await drop("P1", 520, 220);
+    await harness.explorer.dropPaperOnBoard({
+      preventDefault: () => undefined,
+      clientX: 760,
+      clientY: 420,
+      dataTransfer: {
+        getData: (type: string) =>
+          type === "application/x-unizero-literature-candidate"
+            ? JSON.stringify({
+                identifiers: { DOI: "10.1000/external" },
+                title: "External discovery",
+                authors: ["Outside Author"],
+                membership: { inLibrary: false, libraryID: 1 },
+              })
+            : "",
+      },
+    });
+    harness.explorer.project.relationHints = [{
+      sourcePaperID: "paper-P1",
+      targetPaperID: "paper-external",
+      type: "cites",
+    }];
+    harness.explorer.renderProjectBoard();
+
+    const externalCard = harness.win.document.querySelector(
+      `[data-node-id="${harness.explorer.project.nodes[2].node.id}"]`,
+    );
+    externalCard?.dispatchEvent(new harness.win.MouseEvent("mouseenter"));
+
+    expect(harness.win.document.querySelectorAll(".relation-focus"))
+      .toHaveLength(1);
+    expect(harness.win.document.querySelectorAll(".relation-related"))
+      .toHaveLength(2);
+    expect(harness.win.document.querySelectorAll(".board-relation-hint-edge"))
+      .toHaveLength(2);
+    expect(harness.explorer.project.edges).toHaveLength(0);
+    expect(harness.api.addBoardEdge).not.toHaveBeenCalled();
+
+    harness.explorer.clearBoardRelationHints();
+    expect(harness.win.document.querySelectorAll(".board-relation-hint-edge"))
+      .toHaveLength(0);
+    harness.win.close();
+  });
+
   it("creates, selects, and deletes a manual Board connection", async () => {
     const harness = createHarness();
     await flush();
@@ -711,6 +831,59 @@ describe("Unizero Home async ownership and Board interaction", () => {
       }),
       expect.any(Object),
     );
+    harness.win.close();
+  });
+
+  it("resizes Board nodes in world coordinates and persists geometry", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.dropPaperOnBoard({
+      preventDefault: () => undefined,
+      clientX: 300,
+      clientY: 240,
+      dataTransfer: {
+        getData: (type: string) =>
+          type === "application/x-unizero-paper" ? "P1" : "",
+      },
+    });
+    const view = harness.explorer.project.nodes[0];
+    const card = harness.win.document.querySelector(
+      `[data-node-id="${view.node.id}"]`,
+    ) as HTMLElement;
+    harness.explorer.boardCamera = { x: 0, y: 0, scale: 2 };
+
+    harness.explorer.startBoardNodeResize({
+      button: 0,
+      pointerId: 14,
+      preventDefault: () => undefined,
+      clientX: 100,
+      clientY: 100,
+    }, view, card);
+    harness.explorer.moveBoardPointer({
+      pointerId: 14,
+      clientX: 180,
+      clientY: 140,
+      target: card,
+    });
+
+    expect(card?.style.width).toBe("268px");
+    expect(card?.style.height).toBe("138px");
+    await harness.explorer.finishBoardPointer({
+      pointerId: 14,
+      target: card,
+    });
+
+    expect(harness.api.moveBoardNode).toHaveBeenCalledWith(
+      view.node.id,
+      expect.objectContaining({
+        width: 268,
+        height: 138,
+      }),
+      expect.any(Object),
+    );
+    expect(harness.win.document.querySelector(
+      `[data-node-id="${view.node.id}"]`,
+    )?.classList.contains("selected")).toBe(true);
     harness.win.close();
   });
 

@@ -51,7 +51,8 @@ export type ProjectObjectKind =
   | "node"
   | "edge"
   | "block"
-  | "paper";
+  | "paper"
+  | "observation";
 
 function isMissingFile(error: any): boolean {
   return error?.name === "NotFoundError" || error?.name === "NotAllowedError";

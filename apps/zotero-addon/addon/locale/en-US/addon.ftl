@@ -40,6 +40,7 @@ literature-board-fit-label = Fit Board
 literature-board-zoom-in-label = Zoom in
 literature-board-zoom-out-label = Zoom out
 literature-board-connect-handle-label = Drag to connect
+literature-board-resize-label = Resize card
 literature-collection-search-placeholder = Search this Collection
 literature-close-tab-label = Close tab
 literature-column-creator-label = Creator

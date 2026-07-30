@@ -36,7 +36,11 @@ import {
   type CitationsCache,
   type ReferencesCache,
 } from "./literatureCache";
-import { uniConnection } from "./uniConnection";
+import {
+  uniConnection,
+  type BoardConnection,
+  type BoardConnectionMember,
+} from "./uniConnection";
 import {
   invalidateLibraryMembership,
   previewEntries,
@@ -59,6 +63,10 @@ import {
   literatureItemsInScope,
   literaturePaperMetadata,
 } from "../zotero/literatureCollectionAdapter";
+import {
+  recordCatalogDiscoverySnapshot,
+  type PaperCatalogSeed,
+} from "../projects/paperCatalog";
 const SECTION_PREVIEW_LIMIT = 5;
 const EXPLORER_COUPLING_LIMIT = 50;
 /**
@@ -67,6 +75,39 @@ const EXPLORER_COUPLING_LIMIT = 50;
  * old parameters would seed the simulation at the wrong scale.
  */
 const GRAPH_LAYOUT_VERSION = 3;
+
+function catalogSeedFromEntry(candidate: {
+  identifiers: ItemBaseInfo["identifiers"];
+  title: string;
+  authors: string[];
+  year?: string;
+  type?: string;
+  text?: string;
+  primaryVenue?: string;
+  abstract?: string;
+  sourceOrder?: number;
+  number?: number;
+}): PaperCatalogSeed {
+  return {
+    identifiers: {
+      doi: candidate.identifiers.DOI,
+      arxiv: candidate.identifiers.arXiv,
+      semanticScholarPaperId: candidate.identifiers.paperID,
+      openAlexId: candidate.identifiers.openAlex,
+    },
+    title: candidate.title || candidate.text || "Untitled",
+    authors: [...(candidate.authors || [])],
+    year: candidate.year,
+    type: candidate.type,
+    primaryVenue: candidate.primaryVenue,
+    abstract: candidate.abstract,
+    sourceOrder: candidate.sourceOrder ?? candidate.number,
+  };
+}
+
+function catalogSeed(candidate: LiteratureCandidate): PaperCatalogSeed {
+  return catalogSeedFromEntry(candidate);
+}
 
 /**
  * Collapse a provider's free-text diagnostic ("ok count=12", "error: HTTP 429",
@@ -83,6 +124,12 @@ function normalizeProgress(status: string | undefined): string {
   if (value.startsWith("error")) { return "error"; }
   if (value.startsWith("skipped")) { return "skipped"; }
   return "pending";
+}
+
+function sourceSnapshotIsComplete(source: RelationSourceResult): boolean {
+  const status = normalizeProgress(source.status);
+  return !source.hasMore &&
+    (status === "ok" || status === "empty" || status === "restricted");
 }
 
 type ExplorerOpener = (
@@ -447,6 +494,16 @@ export default class Views {
       perSource,
     );
     this.explorerReferences.set(this.explorerKey(item), payload);
+    await recordCatalogDiscoverySnapshot(item, {
+      kind: "references",
+      retrievedAt: payload.savedAt,
+      merged: references.map(catalogSeedFromEntry),
+      sources: (perSource || []).map((entry) => ({
+        provider: entry.key,
+        entries: entry.entries.map(catalogSeedFromEntry),
+        complete: sourceSnapshotIsComplete(entry),
+      })),
+    });
     if (!this.isCacheEnabled("saveAPIReferences")) { return; }
     await localStorage.set(item, CACHE_KEY_REFERENCES, payload);
     // A cache write is not a Zotero item mutation and therefore emits no item
@@ -466,26 +523,40 @@ export default class Views {
     return citationsCacheIsUsable(cached, identifiers) ? cached : undefined;
   }
 
-  private persistCitationsCache(item: Zotero.Item, state: CitationsCache): void {
+  private async persistCitationsCache(
+    item: Zotero.Item,
+    state: CitationsCache,
+  ): Promise<void> {
     if (!state.all.length && !completedEmptyCitations(state)) { return; }
     const savedAt = Date.now();
-    this.explorerCitations.set(this.explorerKey(item), { ...state, savedAt });
+    const normalized = { ...state, savedAt };
+    this.explorerCitations.set(this.explorerKey(item), normalized);
+    await recordCatalogDiscoverySnapshot(item, {
+      kind: "citations",
+      retrievedAt: savedAt,
+      merged: state.all.map(catalogSeedFromEntry),
+      sources: (state.perSource || []).map((entry) => ({
+        provider: entry.key,
+        entries: entry.entries.map(catalogSeedFromEntry),
+        complete: sourceSnapshotIsComplete(entry),
+      })),
+    });
     if (!this.isCacheEnabled("saveCitations")) { return; }
-    localStorage.set(item, CACHE_KEY_CITATIONS, {
-      ...state,
+    await localStorage.set(item, CACHE_KEY_CITATIONS, {
+      ...normalized,
       savedAt,
       all: forPersistence(state.all, state.source),
       perSource: persistRelationSources(state.perSource),
-    }).catch(
-      (error) => ztoolkit.log("save citations cache failed", error),
-    );
+    });
   }
 
   private saveCitationsCache(pane: HTMLDivElement) {
     const item = (pane as any)._referenceItem as Zotero.Item;
     const state = (pane as any)._citationsState as CitationsCache | undefined;
     if (!item || !state || !Array.isArray(state.all)) { return; }
-    this.persistCitationsCache(item, state);
+    void this.persistCitationsCache(item, state).catch(
+      (error) => ztoolkit.log("save citations cache failed", error),
+    );
   }
 
   /** Restore the whole Citations tab from cache, paging progress included. True on a hit. */
@@ -535,15 +606,21 @@ export default class Views {
     total: number,
     hasMore: boolean,
     source: string,
+    retrievedAt = Date.now(),
   ): Promise<LiteratureSnapshot> {
     const bySource: Partial<Record<RelationSourceKey, LiteratureCandidate[]>> = {};
     const sources: LiteratureSourceView[] = [];
+    const sourceCandidates: LiteratureCandidate[][] = [];
     for (const entry of perSource) {
       if (entry.entries.length) {
-        bySource[entry.key] = await this.candidatesWithMembership(
+        const candidates = await this.candidatesWithMembership(
           item.libraryID,
           entry.entries,
         );
+        bySource[entry.key] = candidates;
+        sourceCandidates.push(candidates);
+      } else {
+        sourceCandidates.push([]);
       }
       sources.push({
         key: entry.key,
@@ -554,6 +631,29 @@ export default class Views {
         hasMore: Boolean(entry.hasMore),
       });
     }
+    const candidates = await this.candidatesWithMembership(
+      item.libraryID,
+      merged,
+    );
+    const observed = await recordCatalogDiscoverySnapshot(item, {
+      kind: kind as "references" | "citations",
+      retrievedAt,
+      merged: candidates.map(catalogSeed),
+      sources: perSource.map((entry, index) => ({
+        provider: entry.key,
+        entries: sourceCandidates[index].map(catalogSeed),
+        complete: sourceSnapshotIsComplete(entry),
+      })),
+    });
+    candidates.forEach((candidate, index) => {
+      candidate.paperID = observed.mergedPaperIDs[index];
+    });
+    perSource.forEach((entry, sourceIndex) => {
+      const sourceList = bySource[entry.key] || [];
+      sourceList.forEach((candidate, entryIndex) => {
+        candidate.paperID = observed.sourcePaperIDs[sourceIndex]?.[entryIndex];
+      });
+    });
     return {
       kind,
       seed: {
@@ -565,7 +665,7 @@ export default class Views {
       total,
       loaded: merged.length,
       hasMore,
-      items: await this.candidatesWithMembership(item.libraryID, merged),
+      items: candidates,
       sources,
       bySource,
     };
@@ -693,6 +793,13 @@ export default class Views {
       (edge) => present.has(edge.source) && present.has(edge.target),
     );
     return { scope: { libraryID: scope.libraryID }, nodes, edges };
+  }
+
+  public async getLiteratureBoardConnections(
+    libraryID: number,
+    members: BoardConnectionMember[],
+  ): Promise<BoardConnection[]> {
+    return uniConnection.boardConnections(libraryID, members);
   }
 
   /**
@@ -915,6 +1022,7 @@ export default class Views {
         state.references.length,
         false,
         state.source,
+        state.savedAt,
       );
     }
 
@@ -939,7 +1047,7 @@ export default class Views {
         perSource: result?.perSource,
       };
       this.explorerCitations.set(key, state);
-      this.persistCitationsCache(item, state);
+      await this.persistCitationsCache(item, state);
     }
     return this.buildCombinedSnapshot(
       item,
@@ -949,6 +1057,7 @@ export default class Views {
       state.total,
       this.citationsHasMore(state),
       state.source,
+      state.savedAt,
     );
   }
 
@@ -1081,6 +1190,7 @@ export default class Views {
       const merged = mergeRelationSources(advanced, ["openAlex", "semanticScholar"]);
       state = {
         ...state,
+        savedAt: Date.now(),
         perSource: advanced,
         all: merged,
         loaded: merged.length,
@@ -1088,7 +1198,7 @@ export default class Views {
         page: Math.max(0, ...advanced.map((entry) => entry.page || 0)),
       };
       this.explorerCitations.set(key, state);
-      this.persistCitationsCache(item, state);
+      await this.persistCitationsCache(item, state);
     } else if (state.loaded < state.total) {
       // Legacy single-source shard without per-source paging.
       const result = await fetchCitationsPage(
@@ -1101,12 +1211,13 @@ export default class Views {
       if (result?.citations.length) {
         state = {
           ...state,
+          savedAt: Date.now(),
           page: state.page + 1,
           loaded: state.loaded + result.citations.length,
           all: [...state.all, ...result.citations],
         };
         this.explorerCitations.set(key, state);
-        this.persistCitationsCache(item, state);
+        await this.persistCitationsCache(item, state);
       }
     }
     return this.buildCombinedSnapshot(
@@ -1117,6 +1228,7 @@ export default class Views {
       state.total,
       this.citationsHasMore(state),
       state.source,
+      state.savedAt,
     );
   }
 
@@ -1170,6 +1282,7 @@ export default class Views {
         references.length,
         false,
         next.source,
+        next.savedAt,
       );
     }
 
@@ -1194,7 +1307,7 @@ export default class Views {
       perSource,
     };
     this.explorerCitations.set(key, next);
-    if (all.length) { this.persistCitationsCache(item, next); }
+    if (all.length) { await this.persistCitationsCache(item, next); }
     return this.buildCombinedSnapshot(
       item,
       "citations",
@@ -1203,6 +1316,7 @@ export default class Views {
       next.total,
       this.citationsHasMore(next),
       next.source,
+      next.savedAt,
     );
   }
 

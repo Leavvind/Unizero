@@ -17,6 +17,7 @@ var LiteratureExplorer = {
   boardSelectedNodeID: null,
   boardSelectedEdgeID: null,
   boardConnectSourceID: null,
+  boardHintNodeID: null,
   boardViewportProjectID: null,
   boardCamera: { x: 0, y: 0, scale: 1 },
   mode: "collection",
@@ -180,6 +181,7 @@ var LiteratureExplorer = {
         return;
       }
       if ((event.key === "Delete" || event.key === "Backspace") &&
+          !this._boardInteraction &&
           (this.boardSelectedNodeID || this.boardSelectedEdgeID) &&
           !event.target?.closest?.("input, textarea, [contenteditable]")) {
         event.preventDefault();
@@ -546,6 +548,7 @@ var LiteratureExplorer = {
     this.boardTextSaveTimers.forEach((timer) => window.clearTimeout(timer));
     this.boardTextSaveTimers.clear();
     this._boardInteraction = null;
+    this.boardHintNodeID = null;
     this.cancelRowPreview();
     this.hideGraphMenu();
   },
@@ -567,6 +570,7 @@ var LiteratureExplorer = {
     this.boardSelectedNodeID = null;
     this.boardSelectedEdgeID = null;
     this.boardConnectSourceID = null;
+    this.boardHintNodeID = null;
     this.boardViewportProjectID = null;
     this.boardCamera = { x: 0, y: 0, scale: 1 };
     this._boardInteraction = null;
@@ -1825,6 +1829,7 @@ var LiteratureExplorer = {
     this.patchPaperState(itemKey, updated);
     if (changeKind === "references") {
       this.invalidateGraphTopology();
+      await this.refreshBoardRelationHints();
       if (this.mode !== "detail") this.renderCollection();
       if (this.mode !== "collection") {
         let active = this.activeTabState();
@@ -1994,6 +1999,8 @@ var LiteratureExplorer = {
       if (node.kind === "text") card.classList.add("board-text-node");
       if (node.id === this.boardSelectedNodeID) card.classList.add("selected");
       card.dataset.nodeId = node.id;
+      if (node.paperID) card.dataset.paperId = node.paperID;
+      if (view.itemKey) card.dataset.itemKey = view.itemKey;
       card.style.left = `${Number(geometry.x) || 0}px`;
       card.style.top = `${Number(geometry.y) || 0}px`;
       card.style.width = `${Number(geometry.width) || 228}px`;
@@ -2014,8 +2021,13 @@ var LiteratureExplorer = {
         card.append(title, meta);
         card.addEventListener("pointerdown", (event) =>
           this.startBoardNodeDrag(event, view, card));
+        card.addEventListener("mouseenter", () =>
+          this.showBoardRelationHints(view));
+        card.addEventListener("mouseleave", () =>
+          this.clearBoardRelationHints(view.node.id));
       }
       this.appendBoardNodePorts(card, view);
+      this.appendBoardNodeResizeHandle(card, view);
       card.addEventListener("keydown", (event) => {
         if (event.target !== card) return;
         if (event.key === "Enter" || event.key === " ") {
@@ -2027,6 +2039,13 @@ var LiteratureExplorer = {
     });
     this.applyBoardCamera();
     this.updateBoardControls();
+    if (this.boardHintNodeID) {
+      let hintView = nodes.find(
+        (view) => view.node.id === this.boardHintNodeID,
+      );
+      if (hintView) this.showBoardRelationHints(hintView);
+      else this.boardHintNodeID = null;
+    }
   },
 
   appendBoardNodePorts(card, view) {
@@ -2061,6 +2080,22 @@ var LiteratureExplorer = {
     });
   },
 
+  appendBoardNodeResizeHandle(card, view) {
+    let handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "board-node-resize";
+    handle.title = this.strings.boardResize || "Resize";
+    handle.setAttribute(
+      "aria-label",
+      this.strings.boardResize || "Resize",
+    );
+    handle.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      this.startBoardNodeResize(event, view, card);
+    });
+    card.append(handle);
+  },
+
   renderBoardTextNode(card, view) {
     let header = document.createElement("div");
     header.className = "board-text-node-header";
@@ -2070,6 +2105,8 @@ var LiteratureExplorer = {
     let body = document.createElement("div");
     body.className = "board-text-node-body";
     body.addEventListener("dragover", (event) => {
+      let types = Array.from(event.dataTransfer?.types || []);
+      if (!types.includes("application/x-unizero-paper")) return;
       event.preventDefault();
       event.stopPropagation();
       body.classList.add("drop-target");
@@ -2081,6 +2118,9 @@ var LiteratureExplorer = {
       }
     });
     body.addEventListener("drop", (event) => {
+      let itemKey = event.dataTransfer &&
+        event.dataTransfer.getData("application/x-unizero-paper");
+      if (!itemKey) return;
       event.preventDefault();
       event.stopPropagation();
       body.classList.remove("drop-target");
@@ -2159,6 +2199,7 @@ var LiteratureExplorer = {
       ? this.project.edges
       : [];
     let byID = new Map(nodes.map((view) => [view.node.id, view.node]));
+    this.renderBoardRelationHintEdges(svg, nodes, byID);
     edges.forEach((edge) => {
       let source = byID.get(edge.sourceNodeID);
       let target = byID.get(edge.targetNodeID);
@@ -2199,6 +2240,109 @@ var LiteratureExplorer = {
         this.boardCurvePath(from, interaction.currentPoint, interaction.side),
       );
       svg.append(preview);
+    }
+  },
+
+  renderBoardRelationHintEdges(svg, nodes, byID) {
+    if (!this.boardHintNodeID) return;
+    let originView = nodes.find(
+      (view) => view.node.id === this.boardHintNodeID,
+    );
+    if (!originView?.node?.paperID) return;
+    let hints = Array.isArray(this.project?.relationHints)
+      ? this.project.relationHints
+      : [];
+    let related = hints.flatMap((hint) => {
+      if (hint.sourcePaperID === originView.node.paperID) {
+        return [{ paperID: hint.targetPaperID, type: hint.type }];
+      }
+      if (hint.targetPaperID === originView.node.paperID) {
+        return [{ paperID: hint.sourcePaperID, type: hint.type }];
+      }
+      return [];
+    });
+    let seen = new Set();
+    for (let relation of related) {
+      for (let targetView of nodes) {
+        if (
+          targetView.node.paperID !== relation.paperID ||
+          targetView.node.id === originView.node.id
+        ) continue;
+        let key = `${targetView.node.id}:${relation.type}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        let path = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "path",
+        );
+        path.setAttribute(
+          "class",
+          `board-relation-hint-edge ${relation.type}`,
+        );
+        path.setAttribute(
+          "d",
+          this.boardEdgePath(originView.node, targetView.node),
+        );
+        svg.append(path);
+      }
+    }
+  },
+
+  showBoardRelationHints(view) {
+    if (!view?.node?.paperID || this._boardInteraction) return;
+    this.boardHintNodeID = view.node.id;
+    let hints = Array.isArray(this.project?.relationHints)
+      ? this.project.relationHints
+      : [];
+    let relatedPaperIDs = new Set();
+    hints.forEach((hint) => {
+      if (hint.sourcePaperID === view.node.paperID) {
+        relatedPaperIDs.add(hint.targetPaperID);
+      } else if (hint.targetPaperID === view.node.paperID) {
+        relatedPaperIDs.add(hint.sourcePaperID);
+      }
+    });
+    document.querySelectorAll(".board-paper-node").forEach((element) => {
+      let paperID = element.dataset.paperId;
+      let same = paperID && paperID === view.node.paperID;
+      let related = paperID && relatedPaperIDs.has(paperID);
+      element.classList.toggle("relation-focus", Boolean(same));
+      element.classList.toggle("relation-related", Boolean(related));
+      element.classList.toggle(
+        "relation-dim",
+        relatedPaperIDs.size > 0 && !same && !related,
+      );
+    });
+    this.renderBoardEdges();
+  },
+
+  clearBoardRelationHints(nodeID) {
+    if (nodeID && this.boardHintNodeID !== nodeID) return;
+    this.boardHintNodeID = null;
+    document.querySelectorAll(".board-paper-node").forEach((element) => {
+      element.classList.remove(
+        "relation-focus",
+        "relation-related",
+        "relation-dim",
+      );
+    });
+    this.renderBoardEdges();
+  },
+
+  async refreshBoardRelationHints() {
+    if (!api.boardRelationHints || !this.project || !this.context?.scope) return;
+    let generation = this.contextGeneration;
+    let scope = Object.assign({}, this.context.scope);
+    try {
+      let hints = await api.boardRelationHints(scope);
+      if (!this.contextIsCurrent(generation) || !this.project) return;
+      this.project.relationHints = Array.isArray(hints) ? hints : [];
+      let hintView = this.project.nodes.find(
+        (view) => view.node.id === this.boardHintNodeID,
+      );
+      if (hintView) this.showBoardRelationHints(hintView);
+    } catch (error) {
+      console.warn("Board relation hints unavailable", error);
     }
   },
 
@@ -2454,8 +2598,7 @@ var LiteratureExplorer = {
   async dropPaperInTextNode(event, view) {
     if (!api.embedBoardPaper || !this.project) return;
     let itemKey = event.dataTransfer &&
-      (event.dataTransfer.getData("application/x-unizero-paper") ||
-        event.dataTransfer.getData("text/plain"));
+      event.dataTransfer.getData("application/x-unizero-paper");
     if (!itemKey) return;
     let scope = this.context?.scope
       ? Object.assign({}, this.context.scope)
@@ -2545,10 +2688,22 @@ var LiteratureExplorer = {
   async dropPaperOnBoard(event) {
     event.preventDefault();
     if (!api.addBoardNode || !this.project) return;
+    let candidate = null;
+    let candidateJSON = event.dataTransfer &&
+      event.dataTransfer.getData(
+        "application/x-unizero-literature-candidate",
+      );
+    if (candidateJSON) {
+      try {
+        candidate = JSON.parse(candidateJSON);
+      } catch (error) {
+        console.warn("Ignored invalid Board paper drag data", error);
+      }
+    }
     let itemKey = event.dataTransfer &&
       (event.dataTransfer.getData("application/x-unizero-paper") ||
         event.dataTransfer.getData("text/plain"));
-    if (!itemKey) return;
+    if (!candidate && !itemKey) return;
     let point = this.boardPoint(event);
     let scope = this.context && this.context.scope
       ? Object.assign({}, this.context.scope)
@@ -2556,17 +2711,22 @@ var LiteratureExplorer = {
     let generation = this.contextGeneration;
     this.setCollectionStatus(this.strings.loading);
     try {
-      let view = await api.addBoardNode(itemKey, {
+      let geometry = {
         x: point.x - 114,
         y: point.y - 59,
         width: 228,
         height: 118,
-      }, scope);
+      };
+      let view = candidate && api.addBoardCandidate
+        ? await api.addBoardCandidate(candidate, geometry, scope)
+        : await api.addBoardNode(itemKey, geometry, scope);
       if (!this.contextIsCurrent(generation) || !this.project) return;
       this.project.nodes.push(view);
       this.boardSelectedNodeID = view.node.id;
+      await this.refreshBoardRelationHints();
+      if (!this.contextIsCurrent(generation) || !this.project) return;
       this.renderCollection();
-      await this.showCollectionPreview(view.itemKey);
+      if (view.itemKey) await this.showCollectionPreview(view.itemKey);
     } catch (error) {
       if (this.contextIsCurrent(generation)) {
         this.setCollectionStatus(this.strings.error + ": " + String(error), true);
@@ -2577,6 +2737,7 @@ var LiteratureExplorer = {
   startBoardNodeDrag(event, view, element) {
     if (event.button !== 0 || this._boardInteraction) return;
     event.preventDefault();
+    this.clearBoardRelationHints();
     let geometry = view.node.geometry;
     this._boardInteraction = {
       kind: "node",
@@ -2590,6 +2751,29 @@ var LiteratureExplorer = {
       originalGeometry: { ...geometry },
       moved: false,
     };
+  },
+
+  startBoardNodeResize(event, view, element) {
+    if (event.button !== 0 || this._boardInteraction) return;
+    event.preventDefault();
+    this.clearBoardRelationHints();
+    let geometry = view.node.geometry;
+    this._boardInteraction = {
+      kind: "resize",
+      pointerId: event.pointerId,
+      view,
+      element,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startWidth: geometry.width,
+      startHeight: geometry.height,
+      originalGeometry: { ...geometry },
+      moved: false,
+    };
+    this.boardSelectedNodeID = view.node.id;
+    this.boardSelectedEdgeID = null;
+    element.classList.add("selected");
+    this.updateBoardControls();
   },
 
   startBoardPan(event) {
@@ -2679,6 +2863,33 @@ var LiteratureExplorer = {
       this.applyBoardCamera();
       return;
     }
+    if (interaction.kind === "resize") {
+      let dx = (event.clientX - interaction.startClientX) /
+        this.boardCamera.scale;
+      let dy = (event.clientY - interaction.startClientY) /
+        this.boardCamera.scale;
+      if (!interaction.moved && Math.hypot(dx, dy) < 3) return;
+      interaction.moved = true;
+      interaction.element.classList.add("resizing");
+      let textNode = interaction.view.node.kind === "text";
+      let width = Math.max(
+        textNode ? 240 : 180,
+        interaction.startWidth + dx,
+      );
+      let height = Math.max(
+        textNode ? 160 : 92,
+        interaction.startHeight + dy,
+      );
+      interaction.element.style.width = `${width}px`;
+      interaction.element.style.height = `${height}px`;
+      interaction.view.node.geometry = {
+        ...interaction.view.node.geometry,
+        width,
+        height,
+      };
+      this.renderBoardEdges();
+      return;
+    }
     if (interaction.kind === "connect") {
       interaction.currentPoint = this.boardPoint(event);
       let target = event.target?.closest?.(".board-paper-node");
@@ -2700,6 +2911,10 @@ var LiteratureExplorer = {
     if (!interaction || !this.boardPointerMatches(interaction, event)) return;
     if (interaction.kind === "node") {
       await this.finishBoardNodeDrag(event, cancelled);
+      return;
+    }
+    if (interaction.kind === "resize") {
+      await this.finishBoardNodeResize(event, cancelled);
       return;
     }
     this._boardInteraction = null;
@@ -2775,6 +2990,50 @@ var LiteratureExplorer = {
     }
   },
 
+  async finishBoardNodeResize(_event, cancelled = false) {
+    let resize = this._boardInteraction;
+    if (!resize || resize.kind !== "resize") return;
+    this._boardInteraction = null;
+    resize.element.classList.remove("resizing");
+    if (cancelled) {
+      resize.view.node.geometry = resize.originalGeometry;
+      this.renderProjectBoard();
+      return;
+    }
+    if (!resize.moved) {
+      this.selectBoardNode(resize.view);
+      return;
+    }
+    let width = Number.parseFloat(resize.element.style.width);
+    let height = Number.parseFloat(resize.element.style.height);
+    let previous = resize.originalGeometry;
+    resize.view.node.geometry = {
+      ...resize.view.node.geometry,
+      width,
+      height,
+    };
+    let scope = this.context?.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let generation = this.contextGeneration;
+    try {
+      let updated = await api.moveBoardNode(
+        resize.view.node.id,
+        resize.view.node.geometry,
+        scope,
+      );
+      if (!this.contextIsCurrent(generation)) return;
+      resize.view.node = updated.node;
+      this.renderProjectBoard();
+    } catch (error) {
+      resize.view.node.geometry = previous;
+      if (this.contextIsCurrent(generation)) {
+        this.renderProjectBoard();
+        this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+      }
+    }
+  },
+
   markBoardConnectionTarget(nodeID) {
     document.querySelectorAll(".board-paper-node").forEach((element) => {
       element.classList.toggle(
@@ -2803,6 +3062,10 @@ var LiteratureExplorer = {
       if (interaction.kind === "node") {
         interaction.view.node.geometry = interaction.originalGeometry;
         interaction.element.classList.remove("dragging");
+        this.renderProjectBoard();
+      } else if (interaction.kind === "resize") {
+        interaction.view.node.geometry = interaction.originalGeometry;
+        interaction.element.classList.remove("resizing");
         this.renderProjectBoard();
       } else if (interaction.kind === "pan") {
         this.boardCamera = {
@@ -3346,6 +3609,13 @@ var LiteratureExplorer = {
       if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
       tab.snapshot = snapshot;
       this.rememberPreviewSnapshot(itemKey, kind, snapshot);
+      await this.refreshBoardRelationHints();
+      if (!this.tabRequestIsCurrent(
+        tab,
+        "snapshot",
+        request,
+        generation,
+      )) return;
       tab.busy = false;
       if (this.tabIsActive(tab)) {
         this.snapshot = snapshot;
@@ -3508,6 +3778,13 @@ var LiteratureExplorer = {
       tab.snapshot = snapshot;
       tab.title = snapshot.seed.title;
       this.rememberPreviewSnapshot(itemKey, kind, snapshot);
+      await this.refreshBoardRelationHints();
+      if (!this.tabRequestIsCurrent(
+        tab,
+        "snapshot",
+        request,
+        generation,
+      )) return;
       tab.busy = false;
       if (this.tabIsActive(tab) && tab.kind === kind) {
         this.snapshot = snapshot;
@@ -3560,6 +3837,13 @@ var LiteratureExplorer = {
       if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
       tab.snapshot = snapshot;
       this.rememberPreviewSnapshot(itemKey, tab.kind, snapshot);
+      await this.refreshBoardRelationHints();
+      if (!this.tabRequestIsCurrent(
+        tab,
+        "snapshot",
+        request,
+        generation,
+      )) return;
       tab.busy = false;
       if (this.tabIsActive(tab)) {
         this.snapshot = snapshot;
@@ -3826,6 +4110,23 @@ var LiteratureExplorer = {
   renderRow(item) {
     let row = document.createElement("tr");
     row.className = item.membership.inLibrary ? "in-library" : "not-in-library";
+    if (this.kind !== "relation") {
+      row.draggable = true;
+      row.classList.add("board-draggable-paper");
+      row.addEventListener("dragstart", (event) => {
+        if (!event.dataTransfer) return;
+        this.cancelRowPreview();
+        event.dataTransfer.effectAllowed = "copy";
+        event.dataTransfer.setData(
+          "application/x-unizero-literature-candidate",
+          JSON.stringify(item),
+        );
+        event.dataTransfer.setData(
+          "text/plain",
+          item.title || item.text || "Untitled",
+        );
+      });
+    }
     row.addEventListener("mouseenter", () => this.scheduleRowPreview(item, row));
     row.addEventListener("mouseleave", () => this.cancelRowPreview());
 

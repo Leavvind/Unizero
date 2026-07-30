@@ -39,6 +39,8 @@ export interface LiteratureCandidate {
   contexts?: string[];
   sourceOrder?: number;
   source?: string;
+  /** Stable internal catalog identity once a snapshot has been observed. */
+  paperID?: string;
   /** Derived library-only relationships shown by the Relation explorer tab. */
   relationTypes?: LiteratureLibraryRelation[];
   /** Number of distinct cached references shared with the seed paper. */

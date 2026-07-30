@@ -69,11 +69,12 @@ export interface ReferencesResult {
 
 function fromOpenAlexWork(work: any, index: number): ItemBaseInfo {
   const doi = work?.doi ? bareDOI(work.doi) : undefined;
+  const openAlex = bareOpenAlexID(work?.id || "") || undefined;
   const authors = (work?.authorships || [])
     .map((a: any) => a?.author?.display_name)
     .filter(Boolean);
   const info: ItemBaseInfo = {
-    identifiers: doi ? { DOI: doi } : {},
+    identifiers: { DOI: doi, openAlex },
     title: work?.display_name || work?.title || "",
     authors,
     year: work?.publication_year ? String(work.publication_year) : undefined,

@@ -40,6 +40,7 @@ literature-board-fit-label = Adatta lavagna
 literature-board-zoom-in-label = Ingrandisci
 literature-board-zoom-out-label = Riduci
 literature-board-connect-handle-label = Trascina per collegare
+literature-board-resize-label = Ridimensiona scheda
 literature-collection-search-placeholder = Cerca in questa collezione
 literature-close-tab-label = Chiudi scheda
 literature-column-creator-label = Autore

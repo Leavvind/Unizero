@@ -6,6 +6,7 @@ export const BOARD_NODE_SCHEMA = 1 as const;
 export const BOARD_EDGE_SCHEMA = 1 as const;
 export const PAPER_SCHEMA = 1 as const;
 export const LITERATURE_OBSERVATION_SCHEMA = 1 as const;
+export const PAPER_REDIRECT_SCHEMA = 1 as const;
 
 export interface PaperIdentifiers {
   doi?: string;
@@ -157,7 +158,23 @@ export interface PaperDocument {
   primaryVenue?: string;
   abstract?: string;
   bindings: ZoteroPaperBinding[];
+  /** The Zotero binding whose metadata wins after an explicit multi-item merge. */
+  canonicalBinding?: ZoteroPaperBinding;
   retention: "cache" | "pinned" | "zotero";
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * An explicit, user-reviewed identity merge keeps old Board and sync references
+ * resolvable without pretending that two provider identifiers were always known
+ * to describe one Paper.
+ */
+export interface PaperRedirectDocument {
+  schema: typeof PAPER_REDIRECT_SCHEMA;
+  kind: "paper-redirect";
+  sourcePaperID: string;
+  targetPaperID: string;
   createdAt: number;
   updatedAt: number;
 }

@@ -2,8 +2,9 @@
 
 > 状态：Project/Board/Paper schema、每 Collection 的稳定 Project、三栏 Board MVP、
 > 库内 Paper catalog、重复节点、统一平移/缩放、移动、删除 tombstone 与拖拽式手工
-> 连线、Text Node 与嵌入式 PaperBlock 已实现；库外 Paper、自动关系提示与同步仍在
-> 施工。未完成工作以
+> 连线、Node 缩放、Text Node 与嵌入式 PaperBlock、Detail 库外 Paper 拖入及自动
+> 关系 hover 提示、统一 cache/pinned/zotero Paper、citation observation、
+> 完整快照压缩、cache GC 与显式 Paper merge/redirect 已实现；同步仍在施工。未完成工作以
 > [ROADMAP.md](ROADMAP.md) 为准。
 
 ## 1. 产品决定
@@ -41,6 +42,11 @@ Zotero Related Items，必须使用独立的显式命令。
 库外 Paper 被加入 Zotero 时，只为原 Paper 增加 Zotero binding。不得创建一个新
 Paper 并替换 Board 上的身份。
 
+当前最小实现按 DOI、arXiv、Semantic Scholar Paper ID 与 OpenAlex ID 维护 alias。Detail 中的
+库外结果拖到 Board 后成为 `pinned` Paper，不触发 Zotero 写入；以后遇到同一可靠
+identifier 的 Zotero item 时，在原 Paper 上增加 binding，并将 retention 提升为
+`zotero`。标题和作者仍不参与自动合并。
+
 ## 3. 文献模型
 
 库内外 Paper 使用相同 `PaperDocument` schema，但不具有相同的权威性和保留策略：
@@ -48,6 +54,12 @@ Paper 并替换 Board 上的身份。
 - Zotero-bound：长期保存，Zotero metadata 仍是权威；
 - Board-pinned：长期保存，作为 Project 依赖同步；
 - 仅在探索结果出现：可清理 cache。
+
+当前 References/Citations snapshot 中每个结果都会进入 Paper catalog，而不再只有
+拖到 Board 后才保存。retention 只能按 `cache → pinned → zotero` 提升，后续浏览
+不会把 pinned 或 Zotero-bound Paper 降级。无可靠 identifier 的结果使用
+`seed Paper + query kind + provider/order` 范围内的 provisional mapping；它保证
+同一缓存重复打开时身份稳定，但不把标题变成全局 alias。
 
 References 与 Citations 是发现同一条有向 citation edge 的两条路径。关系统一为：
 
@@ -57,6 +69,20 @@ citingPaper → citedPaper
 
 provider、查询方向、抓取时间、分页和 source order 保存在 observation/snapshot，
 不能被压平为无来源、无时间的永久事实。
+
+第一阶段已将 References 保存为 `seed → result`，Citations 保存为
+`result → seed`；同一 provider/query/edge 重复读取会更新原 observation。Board
+hover 同时读取 `UniConnection` 与这些 observation，因此 Citations 发现的库外
+source 也可参与 Paper ID 级的临时提示。
+
+只有成功且已经到达末页的 provider snapshot 才能替换同一查询路线的旧
+observation；分页未完成或 provider 失败不会删除既有证据。替换后失去全部
+observation 的 cache-only Paper 会被回收，pinned 与 Zotero-bound Paper 不会。
+
+多个 reliable identifiers 指向不同 Paper 时，数据层返回 conflict 而不静默挑选。
+显式 merge 由调用方选择 canonical Paper，旧 ID 写入 redirect，相关 observations
+随之改写和去重。多个 Zotero binding 合并后，canonical Paper 原有 binding 保持
+metadata owner；用户可见的冲突审阅 UI 仍待实现。
 
 DOI、arXiv、Semantic Scholar 和 OpenAlex identifiers 可以成为 alias。标题和作者
 只能触发疑似重复审阅，不能自动合并。没有可靠 identifier 的记录使用 provisional
@@ -82,12 +108,22 @@ camera 属于窗口临时状态，不与不可丢失的 Node geometry 混存。
 Delete / Backspace 写入 tombstone。点击 Node 复用右侧现有 Detail View。Node 四边
 提供 connection handle；从 handle 拖到另一个 Node 会显示实时曲线预览并创建独立
 manual edge 文档。连线端点落在卡片边缘，可被单独选择和删除；删除 Node 也会
-tombstone 其关联连线。工具栏“连线”仍保留为键盘可用的替代路径。自动关系 overlay
-尚未接入。
+tombstone 其关联连线。工具栏“连线”仍保留为键盘可用的替代路径。
+
+References / Citations 的行可以直接拖到 Board。库内结果复用 Zotero-bound Paper；
+库外结果创建或复用 Board-pinned Paper。悬停具有可靠 identifier 的 Paper Node
+时，`UniConnection` 会把 Board 当前 Paper ID 投影为派生边，临时高亮所有同 Paper
+实例与相关 Paper 实例，并绘制虚线 overlay；库内 source 因而也能提示它引用的
+库外 Board Paper。离开后提示消失，不产生 manual edge 文档。
+
+Paper 与 Text Node 的右下角提供缩放柄。缩放按当前 camera zoom 换算为 world
+geometry，拖动时连线端点实时更新，结束后保存 width/height。
 
 工具栏“文字”创建可直接编辑的 Text Node。文字在短 debounce 或失焦时保存；将左栏
 库内论文拖进文字容器会追加 PaperBlock。库内 PaperBlock 可以再次拖到白板空白处，
-复制成独立 Paper Node；移除嵌入块不影响 Paper catalog 或其他实例。
+复制成独立 Paper Node；移除嵌入块不影响 Paper catalog 或其他实例。该 Content
+Block 交互目前保留为实验能力；下一轮扩展前应先重新评估更接近 Obsidian Canvas 的
+独立卡片、容器与组合方式。
 
 ## 5. 本地持久化与同步边界
 

@@ -27,7 +27,7 @@
 
 import {
   MAILTO, getJSON, getSemanticScholarJSONStrict, getSemanticScholarKey,
-  bareDOI, unInvertAbstract, composeText,
+  bareDOI, bareOpenAlexID, unInvertAbstract, composeText,
 } from "./scholarlyHttp";
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
@@ -81,8 +81,9 @@ const OPENALEX_SELECT ="id,doi,display_name,authorships,publication_year,primary
 
 function fromOpenAlexWork(work: any, index: number): ItemBaseInfo {
   const doi = work?.doi ? bareDOI(work.doi) : undefined;
+  const openAlex = bareOpenAlexID(work?.id || "") || undefined;
   const info: ItemBaseInfo = {
-    identifiers: doi ? { DOI: doi } : {},
+    identifiers: { DOI: doi, openAlex },
     title: work?.display_name || "",
     authors: (work?.authorships || []).map((a: any) => a?.author?.display_name).filter(Boolean),
     year: work?.publication_year ? String(work.publication_year) : undefined,

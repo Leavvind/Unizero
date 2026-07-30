@@ -28,6 +28,7 @@ declare type ItemBaseInfo = {
     DOI?: string;
     arXiv?: string;
     paperID?: string;
+    openAlex?: string;
   };
   title: string;
   authors: string[];
@@ -60,4 +61,3 @@ interface Rect {
   x: number;
   y: number;
 }
-

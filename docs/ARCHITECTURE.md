@@ -101,9 +101,14 @@ gestures pan, Ctrl/Cmd-wheel and toolbar controls zoom, blank-space drag pans, a
 frames the current cards. The camera is transient window state; card geometry remains the
 persisted state.
 
-Every drop first creates or reuses a stable Zotero-bound Paper, then creates a new
-paper-node instance. The same Paper may therefore occur more than once. Moving a card
-updates only its geometry document, and Delete or Backspace writes a tombstone. Four
+Every Collection-list drop first creates or reuses a stable Zotero-bound Paper. A
+References or Citations result can also be dropped directly; an out-of-library result
+creates or reuses an identifier-aliased, `pinned` Paper and does not create a Zotero
+item. A later Zotero-bound observation with the same DOI, arXiv, or Semantic Scholar
+identifier adds a binding to that Paper and upgrades its retention instead of replacing
+its ID. Each drop then creates a new paper-node instance, so the same Paper may occur
+more than once. Moving a card updates only its geometry document, and Delete or Backspace
+writes a tombstone. Four
 directional handles start a connection drag with a live SVG preview; a successful drop
 creates a persisted manual edge rendered as a boundary-to-boundary curve. Selecting a
 curve allows that edge to be deleted independently. Deleting a node also tombstones its
@@ -111,6 +116,48 @@ incident manual edges. Selecting a card reuses the existing Detail View on the r
 Paper catalog is stored separately under
 `<dataDir>/unizero/literature/`; a Zotero binding uses portable library scope plus item
 key, so refreshing metadata does not replace the Paper ID.
+
+Loading a References or Citations snapshot also materializes every result in this
+catalog with `cache` retention, whether or not it is dragged onto the Board. Reliable
+DOI, arXiv, Semantic Scholar, and OpenAlex aliases converge provider results. An
+unidentified result receives a query-scoped provisional mapping, so reopening the same
+saved snapshot reuses its Paper without making title or author a global merge key.
+Retention is monotonic:
+
+```text
+cache → pinned → zotero
+```
+
+The same snapshot writes `LiteratureCitationObservation` documents under
+`unizero/literature/observations/`. References records `seed → result`; Citations records
+`result → seed`. Provider, query kind, retrieval time, and source order remain on the
+observation. Repeated reads update the same provider/query observation and never move its
+retrieval time backwards. The Paper and observation indexes are batch-flushed so a large
+snapshot does not rewrite an index once per result.
+
+Only a successful terminal provider snapshot may replace older observations for the same
+seed, query kind, and provider. An incomplete citation page or provider failure never
+compacts prior evidence. After a replacement, cache-only Papers with no remaining
+observation are removed; pinned and Zotero-bound Papers are never garbage-collected.
+
+Identifier inspection reports when a proposed alias set resolves to more than one Paper
+instead of selecting one silently. An explicit merge chooses a canonical Paper, preserves
+the canonical Zotero binding as metadata owner, rewrites and deduplicates observations,
+and writes a `paper-redirect` document under `unizero/literature/redirects/`. Reads through
+an old Paper ID resolve the redirect, allowing existing Board and future sync references
+to remain valid.
+
+Hovering an identifiable paper card projects `UniConnection` and catalog observation
+edges onto stable Paper IDs
+present on the current Board as transient SVG paths and highlights every instance of the
+related Papers. A Zotero-bound source can therefore hint an external Board-pinned
+reference when their DOI, arXiv, or Semantic Scholar endpoints match. These hints are
+recomputed data: they never create or update manual-edge documents, and a failure to
+derive them does not prevent the Project from opening.
+
+Paper and Text cards expose a bottom-right resize handle. Pointer deltas are converted
+through the current camera scale, edge paths update during the gesture, and the final
+width and height are persisted in the same per-node geometry document as position.
 
 The Board toolbar can create an inline-editable Text Node. Its body accepts Collection
 paper drops as PaperBlocks, saves text after a short debounce or blur, and allows an
