@@ -16,10 +16,12 @@ import { config } from "../../package.json";
 import type { LiteratureCollectionScope } from "../modules/literatureRelations";
 import { libraryScope } from "../zotero/libraryScope";
 import {
+  BOARD_EDGE_SCHEMA,
   BOARD_NODE_SCHEMA,
   BOARD_SCHEMA,
   PROJECT_SCHEMA,
   type BoardNodeGeometry,
+  type BoardManualEdgeDocument,
   type BoardPaperNodeDocument,
   type BoardDocument,
   type ProjectBundle,
@@ -39,7 +41,7 @@ interface ProjectRepositoryOptions {
   createID?: (kind: ProjectObjectKind) => string;
 }
 
-export type ProjectObjectKind = "project" | "board" | "node" | "paper";
+export type ProjectObjectKind = "project" | "board" | "node" | "edge" | "paper";
 
 function isMissingFile(error: any): boolean {
   return error?.name === "NotFoundError" || error?.name === "NotAllowedError";
@@ -205,6 +207,79 @@ export class ProjectRepository {
     return result;
   }
 
+  public async listBoardEdges(
+    projectID: string,
+    boardID: string,
+  ): Promise<BoardManualEdgeDocument[]> {
+    await this.writes.catch(() => undefined);
+    const directory = this.edgesPath(projectID, boardID);
+    let paths: string[];
+    try {
+      paths = await IOUtils.getChildren(directory);
+    } catch (error) {
+      if (isMissingFile(error)) { return []; }
+      throw error;
+    }
+    const edges: BoardManualEdgeDocument[] = [];
+    for (const path of paths) {
+      if (!String(path).endsWith(".json")) { continue; }
+      try {
+        const edge = await this.readJSON(path);
+        if (
+          edge?.schema === BOARD_EDGE_SCHEMA &&
+          edge?.projectID === projectID &&
+          edge?.boardID === boardID &&
+          edge?.kind === "manual" &&
+          typeof edge?.sourceNodeID === "string" &&
+          typeof edge?.targetNodeID === "string" &&
+          !edge.deletedAt
+        ) {
+          edges.push(edge);
+        }
+      } catch (error) {
+        ztoolkit.log(`Board edge unreadable at ${path}: ${error}`);
+      }
+    }
+    return edges.sort((left, right) =>
+      left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+  }
+
+  public async createManualEdge(
+    projectID: string,
+    boardID: string,
+    sourceNodeID: string,
+    targetNodeID: string,
+  ): Promise<BoardManualEdgeDocument> {
+    if (sourceNodeID === targetNodeID) {
+      throw new Error("A manual edge needs two different Board nodes");
+    }
+    let result!: BoardManualEdgeDocument;
+    const operation = this.writes
+      .catch(() => undefined)
+      .then(async () => {
+        await Promise.all([
+          this.readBoardNode(projectID, boardID, sourceNodeID),
+          this.readBoardNode(projectID, boardID, targetNodeID),
+        ]);
+        const timestamp = this.now();
+        result = {
+          schema: BOARD_EDGE_SCHEMA,
+          id: this.createID("edge"),
+          projectID,
+          boardID,
+          kind: "manual",
+          sourceNodeID,
+          targetNodeID,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        await this.writeJSON(this.edgePath(projectID, boardID, result.id), result);
+      });
+    this.writes = operation;
+    await operation;
+    return result;
+  }
+
   public async moveBoardNode(
     projectID: string,
     boardID: string,
@@ -249,6 +324,25 @@ export class ProjectRepository {
         const timestamp = this.now();
         result = { ...current, updatedAt: timestamp, deletedAt: timestamp };
         await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
+      });
+    this.writes = operation;
+    await operation;
+    return result;
+  }
+
+  public async deleteBoardEdge(
+    projectID: string,
+    boardID: string,
+    edgeID: string,
+  ): Promise<BoardManualEdgeDocument> {
+    let result!: BoardManualEdgeDocument;
+    const operation = this.writes
+      .catch(() => undefined)
+      .then(async () => {
+        const current = await this.readBoardEdge(projectID, boardID, edgeID);
+        const timestamp = this.now();
+        result = { ...current, updatedAt: timestamp, deletedAt: timestamp };
+        await this.writeJSON(this.edgePath(projectID, boardID, edgeID), result);
       });
     this.writes = operation;
     await operation;
@@ -366,6 +460,25 @@ export class ProjectRepository {
     return { ...node, geometry: validBoardGeometry(node.geometry || {}) };
   }
 
+  private async readBoardEdge(
+    projectID: string,
+    boardID: string,
+    edgeID: string,
+  ): Promise<BoardManualEdgeDocument> {
+    const edge = await this.readJSON(this.edgePath(projectID, boardID, edgeID));
+    if (
+      edge?.schema !== BOARD_EDGE_SCHEMA ||
+      edge?.id !== edgeID ||
+      edge?.projectID !== projectID ||
+      edge?.boardID !== boardID ||
+      edge?.kind !== "manual" ||
+      edge?.deletedAt
+    ) {
+      throw new Error(`Unsupported or invalid Board edge: ${edgeID}`);
+    }
+    return edge;
+  }
+
   private async loadIndex(): Promise<ProjectIndexDocument> {
     if (this.index) { return this.index; }
     try {
@@ -434,6 +547,21 @@ export class ProjectRepository {
   private nodePath(projectID: string, boardID: string, nodeID: string): string {
     return PathUtils.join(this.nodesPath(projectID, boardID), `${nodeID}.json`);
   }
+
+  private edgesPath(projectID: string, boardID: string): string {
+    return PathUtils.join(
+      this.root,
+      "objects",
+      projectID,
+      "boards",
+      boardID,
+      "edges",
+    );
+  }
+
+  private edgePath(projectID: string, boardID: string, edgeID: string): string {
+    return PathUtils.join(this.edgesPath(projectID, boardID), `${edgeID}.json`);
+  }
 }
 
 let repository: ProjectRepository | undefined;
@@ -467,6 +595,15 @@ export async function listDefaultBoardNodes(
   );
 }
 
+export async function listDefaultBoardEdges(
+  bundle: ProjectBundle,
+): Promise<BoardManualEdgeDocument[]> {
+  return defaultRepository().listBoardEdges(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+  );
+}
+
 export async function createDefaultBoardPaperNode(
   bundle: ProjectBundle,
   paperID: string,
@@ -493,6 +630,19 @@ export async function moveDefaultBoardNode(
   );
 }
 
+export async function createDefaultBoardManualEdge(
+  bundle: ProjectBundle,
+  sourceNodeID: string,
+  targetNodeID: string,
+): Promise<BoardManualEdgeDocument> {
+  return defaultRepository().createManualEdge(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+    sourceNodeID,
+    targetNodeID,
+  );
+}
+
 export async function deleteDefaultBoardNode(
   bundle: ProjectBundle,
   nodeID: string,
@@ -501,5 +651,16 @@ export async function deleteDefaultBoardNode(
     bundle.project.id,
     bundle.defaultBoard.id,
     nodeID,
+  );
+}
+
+export async function deleteDefaultBoardEdge(
+  bundle: ProjectBundle,
+  edgeID: string,
+): Promise<BoardManualEdgeDocument> {
+  return defaultRepository().deleteBoardEdge(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+    edgeID,
   );
 }

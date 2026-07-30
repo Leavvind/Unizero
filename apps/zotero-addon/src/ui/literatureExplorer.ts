@@ -18,9 +18,12 @@ import {
 } from "../modules/literatureRelations";
 import type { RelationSourceKey } from "../modules/mergeRelations";
 import {
+  createDefaultBoardManualEdge,
   createDefaultBoardPaperNode,
+  deleteDefaultBoardEdge,
   deleteDefaultBoardNode,
   ensureProjectForScope,
+  listDefaultBoardEdges,
   listDefaultBoardNodes,
   moveDefaultBoardNode,
 } from "../projects/projectRepository";
@@ -30,6 +33,7 @@ import {
 } from "../projects/paperCatalog";
 import type {
   BoardNodeGeometry,
+  BoardManualEdgeDocument,
   BoardPaperNodeDocument,
   PaperDocument,
   ProjectBundle,
@@ -102,6 +106,12 @@ function strings() {
       "literature-collapse-detail-label",
       "Collapse Detail View",
     ),
+    boardConnect: read("literature-board-connect-label", "Connect"),
+    boardConnecting: read(
+      "literature-board-connecting-label",
+      "Select another card",
+    ),
+    boardDelete: read("literature-board-delete-label", "Delete"),
     collectionSearch: read(
       "literature-collection-search-placeholder",
       "Search this Collection",
@@ -286,11 +296,18 @@ function boardNodeView(
 
 async function projectSnapshot(
   scope: LiteratureCollectionScope,
-): Promise<ProjectBundle & { nodes: BoardNodeView[] }> {
+): Promise<ProjectBundle & {
+  nodes: BoardNodeView[];
+  edges: BoardManualEdgeDocument[];
+}> {
   const bundle = await ensureProjectForScope(scope);
-  const nodes = await listDefaultBoardNodes(bundle);
+  const [nodes, edges] = await Promise.all([
+    listDefaultBoardNodes(bundle),
+    listDefaultBoardEdges(bundle),
+  ]);
   return {
     ...bundle,
+    edges,
     nodes: await Promise.all(nodes.map(async (node) =>
       boardNodeView(node, await readCatalogPaper(node.paperID), scope.libraryID))),
   };
@@ -335,14 +352,42 @@ function explorerApi() {
       const paper = await readCatalogPaper(node.paperID);
       return boardNodeView(node, paper, targetScope.libraryID);
     },
+    addBoardEdge: async (
+      sourceNodeID: string,
+      targetNodeID: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const bundle = await ensureProjectForScope(scope || explorerContext.scope);
+      return createDefaultBoardManualEdge(
+        bundle,
+        sourceNodeID,
+        targetNodeID,
+      );
+    },
     deleteBoardNode: async (
       nodeID: string,
       scope?: LiteratureCollectionScope,
     ) => {
       if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
       const bundle = await ensureProjectForScope(scope || explorerContext.scope);
+      const edges = await listDefaultBoardEdges(bundle);
+      const incident = edges.filter((edge) =>
+        edge.sourceNodeID === nodeID || edge.targetNodeID === nodeID);
+      for (const edge of incident) {
+        await deleteDefaultBoardEdge(bundle, edge.id);
+      }
       await deleteDefaultBoardNode(bundle, nodeID);
-      return { id: nodeID };
+      return { id: nodeID, deletedEdgeIDs: incident.map((edge) => edge.id) };
+    },
+    deleteBoardEdge: async (
+      edgeID: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const bundle = await ensureProjectForScope(scope || explorerContext.scope);
+      await deleteDefaultBoardEdge(bundle, edgeID);
+      return { id: edgeID };
     },
     collectionSnapshot: async (scope?: LiteratureCollectionScope) => {
       if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }

@@ -178,4 +178,56 @@ describe("ProjectRepository", () => {
       bundle.defaultBoard.id,
     )).map((node) => node.id)).toEqual([duplicate.id]);
   });
+
+  it("persists manual edges independently and tombstones deletion", async () => {
+    const store = repository();
+    const subject = projectSubjectForScope({
+      libraryID: 1,
+      collectionID: 44,
+      collectionKey: "COLLKEY1",
+      name: "Connected Board",
+    });
+    const bundle = await store.ensureProject(subject, "Connected Board");
+    const source = await store.createPaperNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      "paper_A",
+      { x: 10, y: 20 },
+    );
+    const target = await store.createPaperNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      "paper_B",
+      { x: 300, y: 400 },
+    );
+
+    await expect(store.createManualEdge(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      source.id,
+      source.id,
+    )).rejects.toThrow("two different Board nodes");
+
+    const edge = await store.createManualEdge(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      source.id,
+      target.id,
+    );
+    expect(await store.listBoardEdges(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+    )).toEqual([edge]);
+
+    const deleted = await store.deleteBoardEdge(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      edge.id,
+    );
+    expect(deleted.deletedAt).toBeTypeOf("number");
+    expect(await store.listBoardEdges(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+    )).toEqual([]);
+  });
 });

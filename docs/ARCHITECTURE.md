@@ -85,16 +85,19 @@ name without replacing either ID.
 
 Project and Board are separate schema-versioned documents under
 `<dataDir>/unizero/projects/`. Their local paths are not a sync protocol. Board nodes and
-manual edges already have independent document shapes so future edits do not require a
-whole-board last-write-wins merge.
+manual edges are independent documents, so moving a card or changing one connection does
+not require a whole-board last-write-wins merge.
 
 The current Home window renders a three-pane Project View. Collection papers drag onto a
 scrollable HTML Board; every drop first creates or reuses a stable Zotero-bound Paper,
 then creates a new paper-node instance. The same Paper may therefore occur more than
-once. Moving a card updates only its geometry document, and Delete writes a tombstone.
-Selecting a card reuses the existing Detail View on the right. The Paper catalog is
-stored separately under `<dataDir>/unizero/literature/`; a Zotero binding uses portable
-library scope plus item key, so refreshing metadata does not replace the Paper ID.
+once. Moving a card updates only its geometry document, and Delete or Backspace writes a
+tombstone. The Connect command joins two selected card instances with a persisted manual
+edge; selecting a line allows that edge to be deleted independently. Deleting a node also
+tombstones its incident manual edges. Selecting a card reuses the existing Detail View on
+the right. The Paper catalog is stored separately under
+`<dataDir>/unizero/literature/`; a Zotero binding uses portable library scope plus item
+key, so refreshing metadata does not replace the Paper ID.
 
 ## Derived relations index
 

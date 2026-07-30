@@ -15,6 +15,8 @@ var LiteratureExplorer = {
   /** Stable Project and default Board documents for the active Collection scope. */
   project: null,
   boardSelectedNodeID: null,
+  boardSelectedEdgeID: null,
+  boardConnectSourceID: null,
   boardViewportProjectID: null,
   mode: "collection",
   collectionSnapshot: null,
@@ -81,6 +83,10 @@ var LiteratureExplorer = {
       .addEventListener("click", () => this.toggleLibraryPane());
     document.getElementById("collapse-detail")
       .addEventListener("click", () => this.showCollection());
+    document.getElementById("board-connect")
+      .addEventListener("click", () => this.toggleBoardConnect());
+    document.getElementById("board-delete")
+      .addEventListener("click", () => this.deleteBoardSelection());
     let boardSurface = document.getElementById("project-board-surface");
     boardSurface.addEventListener("dragover", (event) => {
       event.preventDefault();
@@ -150,10 +156,11 @@ var LiteratureExplorer = {
         this.closeGraphPanels();
         return;
       }
-      if (event.key === "Delete" && this.boardSelectedNodeID &&
-          !event.target?.closest?.("input, textarea")) {
+      if ((event.key === "Delete" || event.key === "Backspace") &&
+          (this.boardSelectedNodeID || this.boardSelectedEdgeID) &&
+          !event.target?.closest?.("input, textarea, [contenteditable]")) {
         event.preventDefault();
-        void this.deleteSelectedBoardNode();
+        void this.deleteBoardSelection();
         return;
       }
       // Ctrl+W closes the paper, never the window: the Collection tab is not
@@ -181,6 +188,9 @@ var LiteratureExplorer = {
     document.getElementById("toggle-library-pane").title = s.collapseLibrary;
     document.getElementById("collapse-detail").textContent = "▶";
     document.getElementById("collapse-detail").title = s.collapseDetail;
+    document.getElementById("board-connect").textContent = s.boardConnect;
+    document.getElementById("board-delete").textContent = s.boardDelete;
+    this.updateBoardControls();
     document.getElementById("collection-head-title").textContent = s.titleColumn;
     document.getElementById("collection-head-creator").textContent = s.creatorColumn;
     document.getElementById("collection-head-year").textContent = s.yearColumn;
@@ -521,6 +531,8 @@ var LiteratureExplorer = {
     this.collectionSnapshot = null;
     this.project = null;
     this.boardSelectedNodeID = null;
+    this.boardSelectedEdgeID = null;
+    this.boardConnectSourceID = null;
     this._boardPointer = null;
     let workspace = document.getElementById("explorer-workspace");
     if (workspace) {
@@ -1906,6 +1918,7 @@ var LiteratureExplorer = {
     let nodes = this.project && Array.isArray(this.project.nodes)
       ? this.project.nodes
       : [];
+    this.renderBoardEdges();
     document.getElementById("project-board-empty").hidden = nodes.length > 0;
     nodes.forEach((view) => {
       let node = view.node;
@@ -1939,6 +1952,66 @@ var LiteratureExplorer = {
       });
       surface.append(card);
     });
+    this.updateBoardControls();
+  },
+
+  renderBoardEdges() {
+    let svg = document.getElementById("project-board-edges");
+    if (!svg) return;
+    svg.replaceChildren();
+    let nodes = this.project && Array.isArray(this.project.nodes)
+      ? this.project.nodes
+      : [];
+    let edges = this.project && Array.isArray(this.project.edges)
+      ? this.project.edges
+      : [];
+    let byID = new Map(nodes.map((view) => [view.node.id, view.node]));
+    let center = (node) => ({
+      x: node.geometry.x + node.geometry.width / 2,
+      y: node.geometry.y + node.geometry.height / 2,
+    });
+    edges.forEach((edge) => {
+      let source = byID.get(edge.sourceNodeID);
+      let target = byID.get(edge.targetNodeID);
+      if (!source || !target) return;
+      let from = center(source);
+      let to = center(target);
+      let makeLine = (className) => {
+        let line = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "line",
+        );
+        line.setAttribute("class", className);
+        line.setAttribute("x1", String(from.x));
+        line.setAttribute("y1", String(from.y));
+        line.setAttribute("x2", String(to.x));
+        line.setAttribute("y2", String(to.y));
+        line.dataset.edgeId = edge.id;
+        return line;
+      };
+      let hit = makeLine("board-manual-edge-hit");
+      hit.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.selectBoardEdge(edge);
+      });
+      let visible = makeLine(
+        "board-manual-edge" +
+        (edge.id === this.boardSelectedEdgeID ? " selected" : ""),
+      );
+      svg.append(hit, visible);
+    });
+  },
+
+  updateBoardControls() {
+    let connect = document.getElementById("board-connect");
+    let remove = document.getElementById("board-delete");
+    if (!connect || !remove) return;
+    connect.disabled = !this.boardSelectedNodeID && !this.boardConnectSourceID;
+    connect.classList.toggle("active", Boolean(this.boardConnectSourceID));
+    connect.textContent = this.boardConnectSourceID
+      ? this.strings.boardConnecting
+      : this.strings.boardConnect;
+    remove.disabled = !this.boardSelectedNodeID && !this.boardSelectedEdgeID;
   },
 
   toggleLibraryPane() {
@@ -2016,6 +2089,7 @@ var LiteratureExplorer = {
       startClientY: event.clientY,
       startX: geometry.x,
       startY: geometry.y,
+      originalGeometry: { ...geometry },
       moved: false,
     };
   },
@@ -2028,8 +2102,16 @@ var LiteratureExplorer = {
     if (!drag.moved && Math.hypot(dx, dy) < 3) return;
     drag.moved = true;
     drag.element.classList.add("dragging");
-    drag.element.style.left = `${drag.startX + dx}px`;
-    drag.element.style.top = `${drag.startY + dy}px`;
+    let x = drag.startX + dx;
+    let y = drag.startY + dy;
+    drag.element.style.left = `${x}px`;
+    drag.element.style.top = `${y}px`;
+    drag.view.node.geometry = {
+      ...drag.view.node.geometry,
+      x,
+      y,
+    };
+    this.renderBoardEdges();
   },
 
   async finishBoardNodeDrag() {
@@ -2043,8 +2125,8 @@ var LiteratureExplorer = {
     }
     let x = Number.parseFloat(drag.element.style.left);
     let y = Number.parseFloat(drag.element.style.top);
-    let previous = { ...drag.view.node.geometry };
-    drag.view.node.geometry = { ...previous, x, y };
+    let previous = drag.originalGeometry;
+    drag.view.node.geometry = { ...drag.view.node.geometry, x, y };
     let scope = this.context && this.context.scope
       ? Object.assign({}, this.context.scope)
       : null;
@@ -2057,6 +2139,7 @@ var LiteratureExplorer = {
       );
       if (!this.contextIsCurrent(generation)) return;
       drag.view.node = updated.node;
+      this.renderBoardEdges();
     } catch (error) {
       drag.view.node.geometry = previous;
       if (this.contextIsCurrent(generation)) {
@@ -2067,30 +2150,121 @@ var LiteratureExplorer = {
   },
 
   selectBoardNode(view) {
+    if (this.boardConnectSourceID) {
+      if (this.boardConnectSourceID === view.node.id) {
+        this.boardConnectSourceID = null;
+        this.updateBoardControls();
+        return;
+      }
+      void this.createBoardEdge(this.boardConnectSourceID, view.node.id);
+      return;
+    }
     this.boardSelectedNodeID = view.node.id;
+    this.boardSelectedEdgeID = null;
     document.querySelectorAll(".board-paper-node").forEach((element) => {
       element.classList.toggle(
         "selected",
         element.dataset.nodeId === view.node.id,
       );
     });
+    document.querySelectorAll(".board-manual-edge").forEach((element) =>
+      element.classList.remove("selected"));
+    this.updateBoardControls();
     if (view.itemKey) void this.showCollectionPreview(view.itemKey);
+  },
+
+  selectBoardEdge(edge) {
+    this.boardSelectedEdgeID = edge.id;
+    this.boardSelectedNodeID = null;
+    this.boardConnectSourceID = null;
+    document.querySelectorAll(".board-paper-node").forEach((element) =>
+      element.classList.remove("selected"));
+    document.querySelectorAll(".board-manual-edge").forEach((element) => {
+      element.classList.toggle(
+        "selected",
+        element.dataset.edgeId === edge.id,
+      );
+    });
+    this.updateBoardControls();
+  },
+
+  toggleBoardConnect() {
+    if (this.boardConnectSourceID) {
+      this.boardConnectSourceID = null;
+      this.updateBoardControls();
+      return;
+    }
+    if (!this.boardSelectedNodeID) return;
+    this.boardConnectSourceID = this.boardSelectedNodeID;
+    this.updateBoardControls();
+  },
+
+  async createBoardEdge(sourceNodeID, targetNodeID) {
+    if (!this.project || !api.addBoardEdge || this._boardConnecting) return;
+    let duplicate = (this.project.edges || []).find((edge) =>
+      (edge.sourceNodeID === sourceNodeID &&
+        edge.targetNodeID === targetNodeID) ||
+      (edge.sourceNodeID === targetNodeID &&
+        edge.targetNodeID === sourceNodeID));
+    if (duplicate) {
+      this.selectBoardEdge(duplicate);
+      return;
+    }
+    let scope = this.context && this.context.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let generation = this.contextGeneration;
+    this._boardConnecting = true;
+    this.updateBoardControls();
+    try {
+      let edge = await api.addBoardEdge(sourceNodeID, targetNodeID, scope);
+      if (!this.contextIsCurrent(generation) || !this.project) return;
+      if (!Array.isArray(this.project.edges)) this.project.edges = [];
+      this.project.edges.push(edge);
+      this.boardConnectSourceID = null;
+      this.boardSelectedNodeID = null;
+      this.boardSelectedEdgeID = edge.id;
+      this.renderProjectBoard();
+    } catch (error) {
+      if (this.contextIsCurrent(generation)) {
+        this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+      }
+    } finally {
+      this._boardConnecting = false;
+      this.updateBoardControls();
+    }
+  },
+
+  async deleteBoardSelection() {
+    if (this.boardSelectedEdgeID) {
+      await this.deleteSelectedBoardEdge();
+    } else if (this.boardSelectedNodeID) {
+      await this.deleteSelectedBoardNode();
+    }
   },
 
   async deleteSelectedBoardNode() {
     let nodeID = this.boardSelectedNodeID;
-    if (!nodeID || !this.project || !api.deleteBoardNode) return;
+    if (!nodeID || !this.project || !api.deleteBoardNode ||
+        this._boardDeletingID) return;
+    this._boardDeletingID = nodeID;
     let scope = this.context && this.context.scope
       ? Object.assign({}, this.context.scope)
       : null;
     let generation = this.contextGeneration;
     try {
-      await api.deleteBoardNode(nodeID, scope);
+      let deleted = await api.deleteBoardNode(nodeID, scope);
       if (!this.contextIsCurrent(generation) || !this.project) return;
       this.project.nodes = this.project.nodes.filter(
         (view) => view.node.id !== nodeID,
       );
+      let deletedEdges = new Set(deleted.deletedEdgeIDs || []);
+      this.project.edges = (this.project.edges || []).filter(
+        (edge) => !deletedEdges.has(edge.id) &&
+          edge.sourceNodeID !== nodeID && edge.targetNodeID !== nodeID,
+      );
       this.boardSelectedNodeID = null;
+      this.boardConnectSourceID = null;
       this.collectionPreview = null;
       this.showCollection();
       this.renderCollection();
@@ -2098,6 +2272,36 @@ var LiteratureExplorer = {
       if (this.contextIsCurrent(generation)) {
         this.setCollectionStatus(this.strings.error + ": " + String(error), true);
       }
+    } finally {
+      if (this._boardDeletingID === nodeID) this._boardDeletingID = null;
+      this.updateBoardControls();
+    }
+  },
+
+  async deleteSelectedBoardEdge() {
+    let edgeID = this.boardSelectedEdgeID;
+    if (!edgeID || !this.project || !api.deleteBoardEdge ||
+        this._boardDeletingID) return;
+    this._boardDeletingID = edgeID;
+    let scope = this.context && this.context.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let generation = this.contextGeneration;
+    try {
+      await api.deleteBoardEdge(edgeID, scope);
+      if (!this.contextIsCurrent(generation) || !this.project) return;
+      this.project.edges = (this.project.edges || []).filter(
+        (edge) => edge.id !== edgeID,
+      );
+      this.boardSelectedEdgeID = null;
+      this.renderProjectBoard();
+    } catch (error) {
+      if (this.contextIsCurrent(generation)) {
+        this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+      }
+    } finally {
+      if (this._boardDeletingID === edgeID) this._boardDeletingID = null;
+      this.updateBoardControls();
     }
   },
 

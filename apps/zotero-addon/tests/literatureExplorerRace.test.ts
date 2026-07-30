@@ -223,6 +223,7 @@ function createHarness(overrides: Record<string, unknown> = {}) {
     } as any,
   };
   let nextBoardNode = 0;
+  let nextBoardEdge = 0;
   const api = {
     strings: strings(),
     getContext: () => context.current,
@@ -235,6 +236,7 @@ function createHarness(overrides: Record<string, unknown> = {}) {
         id: `board-${scope.libraryID}`,
       },
       nodes: [],
+      edges: [],
     }),
     addBoardNode: vi.fn(async (
       itemKey: string,
@@ -247,7 +249,24 @@ function createHarness(overrides: Record<string, unknown> = {}) {
       const itemKey = nodeID === "node-2" ? "P2" : "P1";
       return boardNodeView(nodeID, itemKey, geometry);
     }),
-    deleteBoardNode: vi.fn(async (nodeID: string) => ({ id: nodeID })),
+    addBoardEdge: vi.fn(async (
+      sourceNodeID: string,
+      targetNodeID: string,
+    ) => ({
+      id: `edge-${++nextBoardEdge}`,
+      projectID: "project-1",
+      boardID: "board-1",
+      kind: "manual",
+      sourceNodeID,
+      targetNodeID,
+      createdAt: 1,
+      updatedAt: 1,
+    })),
+    deleteBoardNode: vi.fn(async (nodeID: string) => ({
+      id: nodeID,
+      deletedEdgeIDs: [],
+    })),
+    deleteBoardEdge: vi.fn(async (edgeID: string) => ({ id: edgeID })),
     collectionSnapshot: async (scope: any) =>
       collection(scope.libraryID, scope.name),
     snapshot: async (itemKey: string) =>
@@ -353,7 +372,10 @@ describe("Unizero Home async ownership and Board interaction", () => {
       expect.any(Object),
     );
 
-    await harness.explorer.deleteSelectedBoardNode();
+    harness.win.dispatchEvent(new harness.win.KeyboardEvent("keydown", {
+      key: "Backspace",
+    }));
+    await flush();
     expect(harness.api.deleteBoardNode).toHaveBeenCalledWith(
       "node-2",
       expect.any(Object),
@@ -361,6 +383,54 @@ describe("Unizero Home async ownership and Board interaction", () => {
     expect(harness.explorer.project.nodes).toHaveLength(1);
     expect(surface.querySelectorAll(".board-paper-node")).toHaveLength(1);
     expect(harness.explorer.mode).toBe("collection");
+    harness.win.close();
+  });
+
+  it("creates, selects, and deletes a manual Board connection", async () => {
+    const harness = createHarness();
+    await flush();
+    const drop = async (itemKey: string, x: number, y: number) => {
+      await harness.explorer.dropPaperOnBoard({
+        preventDefault: () => undefined,
+        clientX: x,
+        clientY: y,
+        dataTransfer: {
+          getData: (type: string) =>
+            type === "application/x-unizero-paper" ? itemKey : "",
+        },
+      });
+    };
+
+    await drop("P1", 300, 240);
+    await drop("P2", 620, 440);
+    const [first, second] = harness.explorer.project.nodes;
+    harness.explorer.selectBoardNode(first);
+    harness.explorer.toggleBoardConnect();
+    harness.explorer.selectBoardNode(second);
+    await flush();
+
+    expect(harness.api.addBoardEdge).toHaveBeenCalledWith(
+      first.node.id,
+      second.node.id,
+      expect.any(Object),
+    );
+    expect(harness.explorer.project.edges).toHaveLength(1);
+    expect(harness.win.document.querySelectorAll(".board-manual-edge"))
+      .toHaveLength(1);
+
+    harness.explorer.selectBoardEdge(harness.explorer.project.edges[0]);
+    harness.win.dispatchEvent(new harness.win.KeyboardEvent("keydown", {
+      key: "Delete",
+    }));
+    await flush();
+
+    expect(harness.api.deleteBoardEdge).toHaveBeenCalledWith(
+      "edge-1",
+      expect.any(Object),
+    );
+    expect(harness.explorer.project.edges).toHaveLength(0);
+    expect(harness.win.document.querySelectorAll(".board-manual-edge"))
+      .toHaveLength(0);
     harness.win.close();
   });
 

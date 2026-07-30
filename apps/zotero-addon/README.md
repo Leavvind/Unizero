@@ -17,7 +17,8 @@ the client for the local paper runtime.
 - a three-pane Project View: collapsible Collection paper list, scrollable editable
   Board, and collapsible References/Relation/Citations Detail View. Library papers can
   be dragged onto the Board more than once, producing independent card instances whose
-  positions and deletion tombstones are persisted;
+  positions and deletion tombstones are persisted. Selected cards can be joined by
+  persisted manual connections; connections are independently selectable and deletable;
 - Collection paper status for Markdown conversion and cached References/Citations,
   with per-paper quick actions and relation drill-down;
 - a Relation view per paper: which library papers cite it, and which share the most of
@@ -91,7 +92,7 @@ Two graph constraints are easy to break and expensive to diagnose:
 | --- | --- |
 | Per-item provider caches | `<Zotero data dir>/unizero/cache/` shard tree |
 | Project and default Board documents | `<Zotero data dir>/unizero/projects/` typed object tree |
-| Board paper nodes, geometry, and tombstones | Per-Board typed documents under `unizero/projects/` |
+| Board paper nodes, manual edges, geometry, and tombstones | Per-Board typed documents under `unizero/projects/` |
 | Stable Zotero-bound Paper catalog | `<Zotero data dir>/unizero/literature/` |
 | Graph layout coordinates | `<Zotero data dir>/unizero/graph/<libraryID>.json` |
 | Graph display and force settings | `<Zotero data dir>/unizero/graph/settings.json` |

@@ -1,7 +1,7 @@
 # Unizero Home — Project View 设计
 
 > 状态：Project/Board/Paper schema、每 Collection 的稳定 Project、三栏 Board MVP、
-> 库内 Paper catalog、重复节点、移动和删除 tombstone 已实现；库外 Paper、手工连线、
+> 库内 Paper catalog、重复节点、移动、删除 tombstone 与手工连线已实现；库外 Paper、
 > 自动关系提示与同步仍在施工。未完成工作以
 > [ROADMAP.md](ROADMAP.md) 为准。
 
@@ -70,8 +70,10 @@ Zotero + References → UniConnection → transient Board hints
 临时 overlay，绝不写入 manual edge 文档。
 
 当前 Board 使用可滚动 HTML coordinate plane。左栏库内论文可重复拖入；每次 drop
-创建独立 Node，移动只更新该 Node geometry，Delete 写入 tombstone。点击 Node
-复用右侧现有 Detail View。自动关系 overlay 与手工 Edge 尚未接入。
+创建独立 Node，移动只更新该 Node geometry，Delete / Backspace 写入 tombstone。
+点击 Node 复用右侧现有 Detail View。选择 Node 后点击“连线”，再选择第二个 Node，
+会创建独立的 manual edge 文档；连线可被单独选择和删除，删除 Node 也会 tombstone
+其关联连线。自动关系 overlay 尚未接入。
 
 ## 5. 本地持久化与同步边界
 
@@ -81,9 +83,8 @@ Zotero + References → UniConnection → transient Board hints
 <Zotero data dir>/unizero/projects/
 ```
 
-Project 和 Board 是独立、带 schema 的对象。未来 Node、Edge 和 tombstone 也按对象
-保存，避免一个巨大 Board JSON 造成整板冲突。本机目录不是远端协议；同步层传输
-typed documents。
+Project、Board、Node、Edge 和 tombstone 都按独立、带 schema 的对象保存，避免一个
+巨大 Board JSON 造成整板冲突。本机目录不是远端协议；同步层传输 typed documents。
 
 推荐 namespace：
 

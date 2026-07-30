@@ -291,6 +291,29 @@
       white-space: nowrap;
     }
     .project-board-pane { min-width: 0; min-height: 0; position: relative; }
+    .board-toolbar {
+      position: absolute;
+      z-index: 10;
+      top: 10px;
+      right: 12px;
+      display: flex;
+      gap: 6px;
+      padding: 5px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--card) 92%, transparent);
+      box-shadow: 0 3px 12px rgba(0, 0, 0, .12);
+    }
+    .board-toolbar button {
+      min-height: 28px;
+      padding: 3px 9px;
+      font-size: 11px;
+    }
+    .board-toolbar button.active {
+      border-color: var(--accent);
+      background: var(--soft);
+      color: var(--accent);
+    }
     .project-board-viewport {
       position: absolute;
       inset: 0;
@@ -307,6 +330,31 @@
         linear-gradient(color-mix(in srgb, var(--border) 42%, transparent) 1px, transparent 1px),
         linear-gradient(90deg, color-mix(in srgb, var(--border) 42%, transparent) 1px, transparent 1px);
       background-size: 24px 24px;
+    }
+    .board-edge-layer {
+      position: absolute;
+      z-index: 0;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .board-manual-edge-hit {
+      stroke: transparent;
+      stroke-width: 16;
+      pointer-events: stroke;
+      cursor: pointer;
+    }
+    .board-manual-edge {
+      stroke: color-mix(in srgb, var(--accent) 72%, var(--muted));
+      stroke-linecap: round;
+      stroke-width: 2.5;
+      pointer-events: none;
+    }
+    .board-manual-edge.selected {
+      stroke: var(--orange);
+      stroke-width: 4;
     }
     .project-board-empty {
       position: absolute;
@@ -979,8 +1027,15 @@
         <div class="project-library-list" id="project-library-list"></div>
       </aside>
       <section class="project-board-pane">
+        <div class="board-toolbar">
+          <button id="board-connect"></button>
+          <button id="board-delete"></button>
+        </div>
         <div class="project-board-viewport" id="project-board-viewport">
           <div class="project-board-surface" id="project-board-surface">
+            <svg xmlns="http://www.w3.org/2000/svg"
+              class="board-edge-layer" id="project-board-edges"
+              width="3200" height="2200"></svg>
             <div class="project-board-empty" id="project-board-empty">
               <strong id="project-board-empty-title"></strong>
               <span id="project-board-empty-hint"></span>
