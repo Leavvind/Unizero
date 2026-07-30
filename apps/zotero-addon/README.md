@@ -11,7 +11,9 @@ the client for the local paper runtime.
   Unizero Home, available from the item-list toolbar, Collection context
   menu, and Tools. The item context menu opens the selected paper directly in its
   own detail tab. Papers open as tabs beside a pinned Project tab, so several
-  can be read at once and returning to one costs no provider call;
+  can be read at once and returning to one costs no provider call. Transient
+  Collection previews also reuse completed snapshots by library, item, and relation
+  kind, so A → B → A does not rebuild A;
 - one stable Project and default Board per Zotero Collection (or library root),
   keyed by portable Zotero scope and Collection key;
 - a three-pane Project View: collapsible Collection paper list, pannable and zoomable
@@ -19,7 +21,10 @@ the client for the local paper runtime.
   be dragged onto the Board more than once, producing independent card instances whose
   positions and deletion tombstones are persisted. Selected cards can be joined by
   persisted manual connections using four directional drag handles; curved connections
-  are independently selectable and deletable;
+  are independently selectable and deletable. Text Nodes contain ordered, stable-ID
+  content blocks; Collection papers can be embedded as PaperBlocks without creating
+  another Zotero item, and a library-backed embedded block can be copied back out as a
+  standalone paper card;
 - Collection paper status for Markdown conversion and cached References/Citations,
   with per-paper quick actions and relation drill-down;
 - a Relation view per paper: which library papers cite it, and which share the most of
@@ -93,7 +98,7 @@ Two graph constraints are easy to break and expensive to diagnose:
 | --- | --- |
 | Per-item provider caches | `<Zotero data dir>/unizero/cache/` shard tree |
 | Project and default Board documents | `<Zotero data dir>/unizero/projects/` typed object tree |
-| Board paper nodes, manual edges, geometry, and tombstones | Per-Board typed documents under `unizero/projects/` |
+| Board paper/text nodes, content blocks, manual edges, geometry, and tombstones | Per-Board typed documents under `unizero/projects/` |
 | Stable Zotero-bound Paper catalog | `<Zotero data dir>/unizero/literature/` |
 | Graph layout coordinates | `<Zotero data dir>/unizero/graph/<libraryID>.json` |
 | Graph display and force settings | `<Zotero data dir>/unizero/graph/settings.json` |
@@ -102,7 +107,9 @@ Two graph constraints are easy to break and expensive to diagnose:
 | Preferences | Zotero preference branch, defaults in `addon/prefs.js` |
 
 The derived relation index is memory-only and rebuilt on demand. Explorer tabs are
-per-window and not persisted.
+per-window and not persisted. The small Preview snapshot LRU is also window-only.
+Completed empty Citations lookups are saved as a 24-hour negative cache only when at
+least one provider answered normally; an all-provider failure is retried next session.
 
 ## Runtime connection
 

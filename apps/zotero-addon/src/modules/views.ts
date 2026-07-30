@@ -29,6 +29,8 @@ import {
   CACHE_KEY_CITATIONS,
   CACHE_KEY_REFERENCES,
   cacheMatchesIdentifiers,
+  citationsCacheIsUsable,
+  completedEmptyCitations,
   makeReferencesCache,
   persistRelationSources,
   type CitationsCache,
@@ -461,20 +463,17 @@ export default class Views {
     if (!this.isCacheEnabled("saveCitations")) { return; }
     const identifiers = readItemPaperIdentifiers(item);
     const cached = localStorage.get(item, CACHE_KEY_CITATIONS) as CitationsCache | undefined;
-    if (!cached?.all?.length ||
-        !cacheMatchesIdentifiers(cached, identifiers)) {
-      return;
-    }
-    return cached;
+    return citationsCacheIsUsable(cached, identifiers) ? cached : undefined;
   }
 
   private persistCitationsCache(item: Zotero.Item, state: CitationsCache): void {
-    if (!state.all.length) { return; }
-    this.explorerCitations.set(this.explorerKey(item), state);
+    if (!state.all.length && !completedEmptyCitations(state)) { return; }
+    const savedAt = Date.now();
+    this.explorerCitations.set(this.explorerKey(item), { ...state, savedAt });
     if (!this.isCacheEnabled("saveCitations")) { return; }
     localStorage.set(item, CACHE_KEY_CITATIONS, {
       ...state,
-      savedAt: Date.now(),
+      savedAt,
       all: forPersistence(state.all, state.source),
       perSource: persistRelationSources(state.perSource),
     }).catch(
@@ -485,7 +484,7 @@ export default class Views {
   private saveCitationsCache(pane: HTMLDivElement) {
     const item = (pane as any)._referenceItem as Zotero.Item;
     const state = (pane as any)._citationsState as CitationsCache | undefined;
-    if (!item || !state?.all?.length) { return; }
+    if (!item || !state || !Array.isArray(state.all)) { return; }
     this.persistCitationsCache(item, state);
   }
 
@@ -940,7 +939,7 @@ export default class Views {
         perSource: result?.perSource,
       };
       this.explorerCitations.set(key, state);
-      if (state.all.length) { this.persistCitationsCache(item, state); }
+      this.persistCitationsCache(item, state);
     }
     return this.buildCombinedSnapshot(
       item,

@@ -2,7 +2,8 @@
 
 > 状态：Project/Board/Paper schema、每 Collection 的稳定 Project、三栏 Board MVP、
 > 库内 Paper catalog、重复节点、统一平移/缩放、移动、删除 tombstone 与拖拽式手工
-> 连线已实现；库外 Paper、自动关系提示与同步仍在施工。未完成工作以
+> 连线、Text Node 与嵌入式 PaperBlock 已实现；库外 Paper、自动关系提示与同步仍在
+> 施工。未完成工作以
 > [ROADMAP.md](ROADMAP.md) 为准。
 
 ## 1. 产品决定
@@ -32,6 +33,10 @@ portable library scope + Zotero collection key
 Paper 与 BoardNode 是两个概念。同一 Paper 可以被多个 Node 引用，每个 Node 拥有
 独立坐标、大小、视觉属性和备注。手工 Edge 连接 Node instance；若用户要写入
 Zotero Related Items，必须使用独立的显式命令。
+
+当前 Node schema 是兼容旧数据的 union：原有 `paper` Node 无需迁移；`text` Node
+拥有带稳定 block ID 的有序内容数组。TextBlock 保存文字，PaperBlock 只保存
+`paperID` 引用。把论文拖进 Text Node 不复制元数据，也不创建 Zotero item。
 
 库外 Paper 被加入 Zotero 时，只为原 Paper 增加 Zotero binding。不得创建一个新
 Paper 并替换 Board 上的身份。
@@ -79,6 +84,10 @@ Delete / Backspace 写入 tombstone。点击 Node 复用右侧现有 Detail View
 manual edge 文档。连线端点落在卡片边缘，可被单独选择和删除；删除 Node 也会
 tombstone 其关联连线。工具栏“连线”仍保留为键盘可用的替代路径。自动关系 overlay
 尚未接入。
+
+工具栏“文字”创建可直接编辑的 Text Node。文字在短 debounce 或失焦时保存；将左栏
+库内论文拖进文字容器会追加 PaperBlock。库内 PaperBlock 可以再次拖到白板空白处，
+复制成独立 Paper Node；移除嵌入块不影响 Paper catalog 或其他实例。
 
 ## 5. 本地持久化与同步边界
 

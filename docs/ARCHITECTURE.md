@@ -88,6 +88,13 @@ Project and Board are separate schema-versioned documents under
 manual edges are independent documents, so moving a card or changing one connection does
 not require a whole-board last-write-wins merge.
 
+Board node schema 1 is a discriminated union. Existing `kind: "paper"` documents remain
+valid standalone-paper shorthand. `kind: "text"` documents own an ordered block array;
+each text or paper-reference block has a stable block ID, and paper blocks reference the
+same Paper catalog used by standalone nodes. Editing or embedding updates the containing
+text-node document. No Paper metadata is copied into the node and no Zotero item is
+created by embedding.
+
 The current Home window renders a three-pane Project View. Collection papers drag onto a
 DOM/SVG Board whose world layer has one camera transform for cards and edges. Wheel
 gestures pan, Ctrl/Cmd-wheel and toolbar controls zoom, blank-space drag pans, and Fit
@@ -104,6 +111,11 @@ incident manual edges. Selecting a card reuses the existing Detail View on the r
 Paper catalog is stored separately under
 `<dataDir>/unizero/literature/`; a Zotero binding uses portable library scope plus item
 key, so refreshing metadata does not replace the Paper ID.
+
+The Board toolbar can create an inline-editable Text Node. Its body accepts Collection
+paper drops as PaperBlocks, saves text after a short debounce or blur, and allows an
+embedded block to be removed independently. A library-backed PaperBlock is draggable and
+can be copied onto blank Board space as another standalone paper-node instance.
 
 ## Derived relations index
 
@@ -160,7 +172,13 @@ It reaches the add-on only through the plain-object API passed as `window.argume
   Papers open as window tabs, but only one detail view exists in the DOM. `TabState` owns
   the item/kind, snapshot, busy and request generations, raw graph, detail graph filters,
   search/year filters, and scroll position. Switching projects that state into the shared
-  DOM. Every asynchronous operation captures its context generation, tab reference,
+  DOM. Transient Collection previews additionally use a bounded window LRU keyed by
+  `libraryID + itemKey + kind`; it stores completed References/Citations snapshots, not
+  provider cache ownership. Before a disk-backed snapshot read, the bridge performs a
+  cache-only status probe. Provider progress is shown only after that probe confirms a
+  miss; cache deserialisation uses a neutral saved-data status.
+
+  Every asynchronous operation captures its context generation, tab reference,
   item key, kind, and request generation; completion may update only that owner, and may
   update the live DOM only while the owner is active.
 - A context reload increments the context generation, destroys both simulations, cancels

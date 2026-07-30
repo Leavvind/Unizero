@@ -18,14 +18,18 @@ import {
 } from "../modules/literatureRelations";
 import type { RelationSourceKey } from "../modules/mergeRelations";
 import {
+  addDefaultBoardPaperBlock,
   createDefaultBoardManualEdge,
   createDefaultBoardPaperNode,
+  createDefaultBoardTextNode,
+  deleteDefaultBoardContentBlock,
   deleteDefaultBoardEdge,
   deleteDefaultBoardNode,
   ensureProjectForScope,
   listDefaultBoardEdges,
   listDefaultBoardNodes,
   moveDefaultBoardNode,
+  updateDefaultBoardTextBlock,
 } from "../projects/projectRepository";
 import {
   ensureCatalogPaper,
@@ -33,8 +37,11 @@ import {
 } from "../projects/paperCatalog";
 import type {
   BoardNodeGeometry,
+  BoardContentBlock,
   BoardManualEdgeDocument,
+  BoardNodeDocument,
   BoardPaperNodeDocument,
+  BoardTextNodeDocument,
   PaperDocument,
   ProjectBundle,
 } from "../projects/types";
@@ -112,6 +119,20 @@ function strings() {
       "Select another card",
     ),
     boardDelete: read("literature-board-delete-label", "Delete"),
+    boardAddText: read("literature-board-add-text-label", "Text"),
+    boardTextNode: read("literature-board-text-node-label", "Text note"),
+    boardTextPlaceholder: read(
+      "literature-board-text-placeholder",
+      "Write a note…",
+    ),
+    boardEmbedPaper: read(
+      "literature-board-embed-paper-label",
+      "Drop a paper here",
+    ),
+    boardRemoveBlock: read(
+      "literature-board-remove-block-label",
+      "Remove block",
+    ),
     boardFit: read("literature-board-fit-label", "Fit Board"),
     boardZoomIn: read("literature-board-zoom-in-label", "Zoom in"),
     boardZoomOut: read("literature-board-zoom-out-label", "Zoom out"),
@@ -275,6 +296,10 @@ function strings() {
     refresh: read("relatedbox-refresh-label", "Refresh"),
     loadMore: read("citationsbox-more-label", "Load more"),
     loading: read("literature-loading-label", "Loading…"),
+    readingCache: read(
+      "literature-reading-cache-label",
+      "Reading saved data…",
+    ),
     empty: read("literature-empty-label", "No papers found"),
     influential: read("literature-influential-label", "Influential"),
     add: read("literature-add-label", "Add to current Zotero library"),
@@ -285,20 +310,56 @@ function strings() {
   };
 }
 
-interface BoardNodeView {
+interface BoardPaperNodeView {
   node: BoardPaperNodeDocument;
   paper: PaperDocument;
   itemKey?: string;
 }
 
-function boardNodeView(
+interface BoardContentBlockView {
+  block: BoardContentBlock;
+  paper?: PaperDocument;
+  itemKey?: string;
+}
+
+interface BoardTextNodeView {
+  node: BoardTextNodeDocument;
+  blocks: BoardContentBlockView[];
+}
+
+type BoardNodeView = BoardPaperNodeView | BoardTextNodeView;
+
+function paperNodeView(
   node: BoardPaperNodeDocument,
   paper: PaperDocument,
   libraryID: number,
-): BoardNodeView {
+): BoardPaperNodeView {
   const binding = paper.bindings.find((entry) =>
     Boolean(Zotero.Items.getByLibraryAndKey(libraryID, entry.itemKey)));
   return { node, paper, itemKey: binding?.itemKey };
+}
+
+async function boardNodeView(
+  node: BoardNodeDocument,
+  libraryID: number,
+): Promise<BoardNodeView> {
+  if (node.kind === "paper") {
+    return paperNodeView(
+      node,
+      await readCatalogPaper(node.paperID),
+      libraryID,
+    );
+  }
+  return {
+    node,
+    blocks: await Promise.all(node.blocks.map(async (block) => {
+      if (block.kind === "text") { return { block }; }
+      const paper = await readCatalogPaper(block.paperID);
+      const binding = paper.bindings.find((entry) =>
+        Boolean(Zotero.Items.getByLibraryAndKey(libraryID, entry.itemKey)));
+      return { block, paper, itemKey: binding?.itemKey };
+    })),
+  };
 }
 
 async function projectSnapshot(
@@ -315,8 +376,8 @@ async function projectSnapshot(
   return {
     ...bundle,
     edges,
-    nodes: await Promise.all(nodes.map(async (node) =>
-      boardNodeView(node, await readCatalogPaper(node.paperID), scope.libraryID))),
+    nodes: await Promise.all(nodes.map((node) =>
+      boardNodeView(node, scope.libraryID))),
   };
 }
 
@@ -345,7 +406,19 @@ function explorerApi() {
         paper.id,
         geometry,
       );
-      return boardNodeView(node, paper, targetScope.libraryID);
+      return paperNodeView(node, paper, targetScope.libraryID);
+    },
+    addBoardTextNode: async (
+      geometry: Partial<BoardNodeGeometry>,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      return boardNodeView(
+        await createDefaultBoardTextNode(bundle, geometry),
+        targetScope.libraryID,
+      );
     },
     moveBoardNode: async (
       nodeID: string,
@@ -356,8 +429,55 @@ function explorerApi() {
       const targetScope = scope || explorerContext.scope;
       const bundle = await ensureProjectForScope(targetScope);
       const node = await moveDefaultBoardNode(bundle, nodeID, geometry);
-      const paper = await readCatalogPaper(node.paperID);
-      return boardNodeView(node, paper, targetScope.libraryID);
+      return boardNodeView(node, targetScope.libraryID);
+    },
+    updateBoardTextBlock: async (
+      nodeID: string,
+      blockID: string,
+      text: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      return boardNodeView(
+        await updateDefaultBoardTextBlock(
+          bundle,
+          nodeID,
+          blockID,
+          text,
+        ),
+        targetScope.libraryID,
+      );
+    },
+    embedBoardPaper: async (
+      nodeID: string,
+      itemKey: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      const paper = await ensureCatalogPaper(
+        contextItem(itemKey, targetScope.libraryID),
+      );
+      return boardNodeView(
+        await addDefaultBoardPaperBlock(bundle, nodeID, paper.id),
+        targetScope.libraryID,
+      );
+    },
+    deleteBoardBlock: async (
+      nodeID: string,
+      blockID: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      return boardNodeView(
+        await deleteDefaultBoardContentBlock(bundle, nodeID, blockID),
+        targetScope.libraryID,
+      );
     },
     addBoardEdge: async (
       sourceNodeID: string,
@@ -417,6 +537,18 @@ function explorerApi() {
         kind,
         refresh,
       );
+    },
+    snapshotStatus: async (
+      itemKey: string,
+      kind: LiteratureRelationKind,
+      libraryID?: number,
+    ) => {
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
+      if (kind === "relation") { return { loaded: true }; }
+      const statuses = await explorerViews.relationStatuses(
+        contextItem(itemKey, libraryID),
+      );
+      return statuses[kind];
     },
     // Derived library graph for the overview. Read-only: it neither fetches from
     // providers nor writes cache records, so calling it is always cheap after the

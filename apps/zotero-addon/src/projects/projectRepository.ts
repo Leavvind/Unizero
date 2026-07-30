@@ -21,8 +21,12 @@ import {
   BOARD_SCHEMA,
   PROJECT_SCHEMA,
   type BoardNodeGeometry,
+  type BoardContentBlock,
   type BoardManualEdgeDocument,
+  type BoardNodeDocument,
   type BoardPaperNodeDocument,
+  type BoardPaperContentBlock,
+  type BoardTextNodeDocument,
   type BoardDocument,
   type ProjectBundle,
   type ProjectDocument,
@@ -41,7 +45,13 @@ interface ProjectRepositoryOptions {
   createID?: (kind: ProjectObjectKind) => string;
 }
 
-export type ProjectObjectKind = "project" | "board" | "node" | "edge" | "paper";
+export type ProjectObjectKind =
+  | "project"
+  | "board"
+  | "node"
+  | "edge"
+  | "block"
+  | "paper";
 
 function isMissingFile(error: any): boolean {
   return error?.name === "NotFoundError" || error?.name === "NotAllowedError";
@@ -86,6 +96,25 @@ export function validBoardGeometry(
     width: Math.max(160, Math.min(720, finite(value.width, DEFAULT_NODE_WIDTH))),
     height: Math.max(80, Math.min(520, finite(value.height, DEFAULT_NODE_HEIGHT))),
   };
+}
+
+function validBoardBlocks(value: unknown): BoardContentBlock[] | undefined {
+  if (!Array.isArray(value)) { return; }
+  const seen = new Set<string>();
+  const blocks: BoardContentBlock[] = [];
+  for (const raw of value) {
+    const id = typeof raw?.id === "string" ? raw.id : "";
+    if (!id || seen.has(id)) { return; }
+    seen.add(id);
+    if (raw?.kind === "text" && typeof raw?.text === "string") {
+      blocks.push({ id, kind: "text", text: raw.text.slice(0, 200_000) });
+    } else if (raw?.kind === "paper" && typeof raw?.paperID === "string") {
+      blocks.push({ id, kind: "paper", paperID: raw.paperID });
+    } else {
+      return;
+    }
+  }
+  return blocks;
 }
 
 export function projectSubjectForScope(
@@ -144,7 +173,7 @@ export class ProjectRepository {
   public async listBoardNodes(
     projectID: string,
     boardID: string,
-  ): Promise<BoardPaperNodeDocument[]> {
+  ): Promise<BoardNodeDocument[]> {
     await this.writes.catch(() => undefined);
     const directory = this.nodesPath(projectID, boardID);
     let paths: string[];
@@ -154,21 +183,13 @@ export class ProjectRepository {
       if (isMissingFile(error)) { return []; }
       throw error;
     }
-    const nodes: BoardPaperNodeDocument[] = [];
+    const nodes: BoardNodeDocument[] = [];
     for (const path of paths) {
       if (!String(path).endsWith(".json")) { continue; }
       try {
         const node = await this.readJSON(path);
-        if (
-          node?.schema === BOARD_NODE_SCHEMA &&
-          node?.projectID === projectID &&
-          node?.boardID === boardID &&
-          node?.kind === "paper" &&
-          typeof node?.paperID === "string" &&
-          !node.deletedAt
-        ) {
-          nodes.push({ ...node, geometry: validBoardGeometry(node.geometry || {}) });
-        }
+        const valid = this.validBoardNode(node, projectID, boardID);
+        if (valid && !valid.deletedAt) { nodes.push(valid); }
       } catch (error) {
         ztoolkit.log(`Board node unreadable at ${path}: ${error}`);
       }
@@ -201,6 +222,133 @@ export class ProjectRepository {
           updatedAt: timestamp,
         };
         await this.writeJSON(this.nodePath(projectID, boardID, result.id), result);
+      });
+    this.writes = operation;
+    await operation;
+    return result;
+  }
+
+  public async createTextNode(
+    projectID: string,
+    boardID: string,
+    geometry: Partial<BoardNodeGeometry>,
+  ): Promise<BoardTextNodeDocument> {
+    let result!: BoardTextNodeDocument;
+    const operation = this.writes
+      .catch(() => undefined)
+      .then(async () => {
+        await this.assertBoard(projectID, boardID);
+        const timestamp = this.now();
+        result = {
+          schema: BOARD_NODE_SCHEMA,
+          id: this.createID("node"),
+          projectID,
+          boardID,
+          kind: "text",
+          geometry: validBoardGeometry({
+            width: 320,
+            height: 240,
+            ...geometry,
+          }),
+          blocks: [{
+            id: this.createID("block"),
+            kind: "text",
+            text: "",
+          }],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        await this.writeJSON(this.nodePath(projectID, boardID, result.id), result);
+      });
+    this.writes = operation;
+    await operation;
+    return result;
+  }
+
+  public async updateTextBlock(
+    projectID: string,
+    boardID: string,
+    nodeID: string,
+    blockID: string,
+    text: string,
+  ): Promise<BoardTextNodeDocument> {
+    let result!: BoardTextNodeDocument;
+    const operation = this.writes
+      .catch(() => undefined)
+      .then(async () => {
+        const current = await this.readBoardNode(projectID, boardID, nodeID);
+        if (current.kind !== "text") {
+          throw new Error(`Board node is not a text container: ${nodeID}`);
+        }
+        let found = false;
+        const blocks = current.blocks.map((block) => {
+          if (block.id !== blockID) { return block; }
+          if (block.kind !== "text") {
+            throw new Error(`Board block is not editable text: ${blockID}`);
+          }
+          found = true;
+          return { ...block, text: String(text || "").slice(0, 200_000) };
+        });
+        if (!found) { throw new Error(`Board text block not found: ${blockID}`); }
+        result = { ...current, blocks, updatedAt: this.now() };
+        await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
+      });
+    this.writes = operation;
+    await operation;
+    return result;
+  }
+
+  public async addPaperBlock(
+    projectID: string,
+    boardID: string,
+    nodeID: string,
+    paperID: string,
+  ): Promise<BoardTextNodeDocument> {
+    let result!: BoardTextNodeDocument;
+    const operation = this.writes
+      .catch(() => undefined)
+      .then(async () => {
+        const current = await this.readBoardNode(projectID, boardID, nodeID);
+        if (current.kind !== "text") {
+          throw new Error(`Board node is not a text container: ${nodeID}`);
+        }
+        const block: BoardPaperContentBlock = {
+          id: this.createID("block"),
+          kind: "paper",
+          paperID,
+        };
+        result = {
+          ...current,
+          blocks: [...current.blocks, block],
+          updatedAt: this.now(),
+        };
+        await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
+      });
+    this.writes = operation;
+    await operation;
+    return result;
+  }
+
+  public async deleteContentBlock(
+    projectID: string,
+    boardID: string,
+    nodeID: string,
+    blockID: string,
+  ): Promise<BoardTextNodeDocument> {
+    let result!: BoardTextNodeDocument;
+    const operation = this.writes
+      .catch(() => undefined)
+      .then(async () => {
+        const current = await this.readBoardNode(projectID, boardID, nodeID);
+        if (current.kind !== "text") {
+          throw new Error(`Board node is not a text container: ${nodeID}`);
+        }
+        const blocks = current.blocks.filter((block) => block.id !== blockID);
+        if (blocks.length === current.blocks.length) {
+          throw new Error(`Board content block not found: ${blockID}`);
+        }
+        result = { ...current, blocks, updatedAt: this.now() };
+        await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
       });
     this.writes = operation;
     await operation;
@@ -285,8 +433,8 @@ export class ProjectRepository {
     boardID: string,
     nodeID: string,
     geometry: Partial<BoardNodeGeometry>,
-  ): Promise<BoardPaperNodeDocument> {
-    let result!: BoardPaperNodeDocument;
+  ): Promise<BoardNodeDocument> {
+    let result!: BoardNodeDocument;
     const operation = this.writes
       .catch(() => undefined)
       .then(async () => {
@@ -315,8 +463,8 @@ export class ProjectRepository {
     projectID: string,
     boardID: string,
     nodeID: string,
-  ): Promise<BoardPaperNodeDocument> {
-    let result!: BoardPaperNodeDocument;
+  ): Promise<BoardNodeDocument> {
+    let result!: BoardNodeDocument;
     const operation = this.writes
       .catch(() => undefined)
       .then(async () => {
@@ -445,19 +593,37 @@ export class ProjectRepository {
     projectID: string,
     boardID: string,
     nodeID: string,
-  ): Promise<BoardPaperNodeDocument> {
+  ): Promise<BoardNodeDocument> {
     const node = await this.readJSON(this.nodePath(projectID, boardID, nodeID));
-    if (
-      node?.schema !== BOARD_NODE_SCHEMA ||
-      node?.id !== nodeID ||
-      node?.projectID !== projectID ||
-      node?.boardID !== boardID ||
-      node?.kind !== "paper" ||
-      node?.deletedAt
-    ) {
+    const valid = this.validBoardNode(node, projectID, boardID);
+    if (!valid || valid.id !== nodeID || valid.deletedAt) {
       throw new Error(`Unsupported or invalid Board node: ${nodeID}`);
     }
-    return { ...node, geometry: validBoardGeometry(node.geometry || {}) };
+    return valid;
+  }
+
+  private validBoardNode(
+    node: any,
+    projectID: string,
+    boardID: string,
+  ): BoardNodeDocument | undefined {
+    if (
+      node?.schema !== BOARD_NODE_SCHEMA ||
+      typeof node?.id !== "string" ||
+      node?.projectID !== projectID ||
+      node?.boardID !== boardID
+    ) {
+      return;
+    }
+    const geometry = validBoardGeometry(node.geometry || {});
+    if (node.kind === "paper" && typeof node.paperID === "string") {
+      return { ...node, geometry };
+    }
+    if (node.kind === "text") {
+      const blocks = validBoardBlocks(node.blocks);
+      if (blocks) { return { ...node, geometry, blocks }; }
+    }
+    return;
   }
 
   private async readBoardEdge(
@@ -588,7 +754,7 @@ export async function ensureProjectForScope(
 
 export async function listDefaultBoardNodes(
   bundle: ProjectBundle,
-): Promise<BoardPaperNodeDocument[]> {
+): Promise<BoardNodeDocument[]> {
   return defaultRepository().listBoardNodes(
     bundle.project.id,
     bundle.defaultBoard.id,
@@ -617,11 +783,63 @@ export async function createDefaultBoardPaperNode(
   );
 }
 
+export async function createDefaultBoardTextNode(
+  bundle: ProjectBundle,
+  geometry: Partial<BoardNodeGeometry>,
+): Promise<BoardTextNodeDocument> {
+  return defaultRepository().createTextNode(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+    geometry,
+  );
+}
+
+export async function updateDefaultBoardTextBlock(
+  bundle: ProjectBundle,
+  nodeID: string,
+  blockID: string,
+  text: string,
+): Promise<BoardTextNodeDocument> {
+  return defaultRepository().updateTextBlock(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+    nodeID,
+    blockID,
+    text,
+  );
+}
+
+export async function addDefaultBoardPaperBlock(
+  bundle: ProjectBundle,
+  nodeID: string,
+  paperID: string,
+): Promise<BoardTextNodeDocument> {
+  return defaultRepository().addPaperBlock(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+    nodeID,
+    paperID,
+  );
+}
+
+export async function deleteDefaultBoardContentBlock(
+  bundle: ProjectBundle,
+  nodeID: string,
+  blockID: string,
+): Promise<BoardTextNodeDocument> {
+  return defaultRepository().deleteContentBlock(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+    nodeID,
+    blockID,
+  );
+}
+
 export async function moveDefaultBoardNode(
   bundle: ProjectBundle,
   nodeID: string,
   geometry: Partial<BoardNodeGeometry>,
-): Promise<BoardPaperNodeDocument> {
+): Promise<BoardNodeDocument> {
   return defaultRepository().moveBoardNode(
     bundle.project.id,
     bundle.defaultBoard.id,
@@ -646,7 +864,7 @@ export async function createDefaultBoardManualEdge(
 export async function deleteDefaultBoardNode(
   bundle: ProjectBundle,
   nodeID: string,
-): Promise<BoardPaperNodeDocument> {
+): Promise<BoardNodeDocument> {
   return defaultRepository().deleteBoardNode(
     bundle.project.id,
     bundle.defaultBoard.id,

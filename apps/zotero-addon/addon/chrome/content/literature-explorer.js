@@ -45,6 +45,9 @@ var LiteratureExplorer = {
    * tab strip. An explicit Open action may promote it into a real paper tab.
    */
   collectionPreview: null,
+  /** Completed References/Citations snapshots reused by transient previews. */
+  previewSnapshots: new Map(),
+  boardTextSaveTimers: new Map(),
   /** "combined" or a RelationSourceKey — which source's list the table shows. */
   activeSource: "combined",
   /** "graph" or "table" — which surface leads the collection overview. */
@@ -86,6 +89,8 @@ var LiteratureExplorer = {
       .addEventListener("click", () => this.showCollection());
     document.getElementById("board-connect")
       .addEventListener("click", () => this.toggleBoardConnect());
+    document.getElementById("board-add-text")
+      .addEventListener("click", () => this.createBoardTextNode());
     document.getElementById("board-delete")
       .addEventListener("click", () => this.deleteBoardSelection());
     document.getElementById("board-zoom-out")
@@ -206,6 +211,8 @@ var LiteratureExplorer = {
     document.getElementById("toggle-library-pane").title = s.collapseLibrary;
     document.getElementById("collapse-detail").textContent = "▶";
     document.getElementById("collapse-detail").title = s.collapseDetail;
+    document.getElementById("board-add-text").textContent = s.boardAddText;
+    document.getElementById("board-add-text").title = s.boardAddText;
     document.getElementById("board-connect").textContent = s.boardConnect;
     document.getElementById("board-delete").textContent = s.boardDelete;
     document.getElementById("board-zoom-out").title = s.boardZoomOut;
@@ -535,6 +542,9 @@ var LiteratureExplorer = {
     this._settingsSave = null;
     this.destroyGraphs();
     this.collectionPreview = null;
+    this.previewSnapshots.clear();
+    this.boardTextSaveTimers.forEach((timer) => window.clearTimeout(timer));
+    this.boardTextSaveTimers.clear();
     this._boardInteraction = null;
     this.cancelRowPreview();
     this.hideGraphMenu();
@@ -543,6 +553,8 @@ var LiteratureExplorer = {
   reloadContext() {
     this.contextGeneration += 1;
     this.collectionRequest += 1;
+    this.boardTextSaveTimers.forEach((timer) => window.clearTimeout(timer));
+    this.boardTextSaveTimers.clear();
     this.destroyGraphs();
     let nextContext = api.getContext();
     this.context = nextContext
@@ -620,6 +632,7 @@ var LiteratureExplorer = {
     tab.graphData = this.graphData.detail;
     tab.graphLoaded = this.graphLoaded.detail;
     tab.busy = this.busy;
+    this.rememberPreviewSnapshot(tab.itemKey, tab.kind, tab.snapshot);
   },
 
   /** Put a paper state's data back into the one detail view and redraw from it. */
@@ -679,13 +692,15 @@ var LiteratureExplorer = {
   },
 
   newPaperState(itemKey, kind) {
+    let relationKind = kind || "references";
     let known = this.collectionSnapshot && this.collectionSnapshot.items
       .find((item) => item.itemKey === itemKey);
+    let cached = this.cachedPreviewSnapshot(itemKey, relationKind);
     return {
       itemKey,
-      title: known ? known.title : "",
-      kind: kind || "references",
-      snapshot: null,
+      title: cached?.seed?.title || (known ? known.title : ""),
+      kind: relationKind,
+      snapshot: cached,
       activeSource: "combined",
       // Same starting point resetFilters uses; a fresh paper state is not the
       // previous detail owner's filters carried over.
@@ -694,7 +709,7 @@ var LiteratureExplorer = {
         influence: "all",
         publicationType: "all",
         publicationLevel: "all",
-        order: kind === "citations" ? "influential" : "original",
+        order: relationKind === "citations" ? "influential" : "original",
       },
       search: "",
       yearFrom: "",
@@ -714,6 +729,33 @@ var LiteratureExplorer = {
       },
       contextGeneration: this.contextGeneration,
     };
+  },
+
+  previewSnapshotKey(itemKey, kind) {
+    let libraryID = this.context?.scope?.libraryID;
+    return `${libraryID == null ? "none" : libraryID}:${itemKey}:${kind}`;
+  },
+
+  cachedPreviewSnapshot(itemKey, kind) {
+    if (kind !== "references" && kind !== "citations") return null;
+    let key = this.previewSnapshotKey(itemKey, kind);
+    let snapshot = this.previewSnapshots.get(key) || null;
+    if (snapshot) {
+      // Map insertion order doubles as a small LRU for a long-lived Home window.
+      this.previewSnapshots.delete(key);
+      this.previewSnapshots.set(key, snapshot);
+    }
+    return snapshot;
+  },
+
+  rememberPreviewSnapshot(itemKey, kind, snapshot) {
+    if (!snapshot || (kind !== "references" && kind !== "citations")) return;
+    let key = this.previewSnapshotKey(itemKey, kind);
+    this.previewSnapshots.delete(key);
+    this.previewSnapshots.set(key, snapshot);
+    while (this.previewSnapshots.size > 48) {
+      this.previewSnapshots.delete(this.previewSnapshots.keys().next().value);
+    }
   },
 
   /**
@@ -1949,6 +1991,7 @@ var LiteratureExplorer = {
       let geometry = node.geometry || {};
       let card = document.createElement("article");
       card.className = "board-paper-node";
+      if (node.kind === "text") card.classList.add("board-text-node");
       if (node.id === this.boardSelectedNodeID) card.classList.add("selected");
       card.dataset.nodeId = node.id;
       card.style.left = `${Number(geometry.x) || 0}px`;
@@ -1956,48 +1999,25 @@ var LiteratureExplorer = {
       card.style.width = `${Number(geometry.width) || 228}px`;
       card.style.height = `${Number(geometry.height) || 118}px`;
       card.tabIndex = 0;
-      let title = document.createElement("div");
-      title.className = "board-node-title";
-      title.textContent = view.paper.title || "Untitled";
-      let meta = document.createElement("div");
-      meta.className = "board-node-meta";
-      meta.textContent = [
-        (view.paper.authors || [])[0],
-        view.paper.year,
-      ].filter(Boolean).join(" · ");
-      card.append(title, meta);
-      ["top", "right", "bottom", "left"].forEach((side) => {
-        let port = document.createElement("button");
-        port.type = "button";
-        port.className = "board-node-port";
-        port.dataset.side = side;
-        port.title = this.strings.boardConnectHandle;
-        port.setAttribute("aria-label", this.strings.boardConnectHandle);
-        port.addEventListener("pointerdown", (event) => {
-          event.stopPropagation();
-          this.startBoardConnection(event, view, side);
-        });
-        port.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          event.stopPropagation();
-          this.boardSelectedNodeID = view.node.id;
-          this.boardSelectedEdgeID = null;
-          this.boardConnectSourceID = view.node.id;
-          document.querySelectorAll(".board-paper-node").forEach((element) => {
-            element.classList.toggle(
-              "selected",
-              element.dataset.nodeId === view.node.id,
-            );
-          });
-          this.renderBoardEdges();
-          this.updateBoardControls();
-        });
-        card.append(port);
-      });
-      card.addEventListener("pointerdown", (event) =>
-        this.startBoardNodeDrag(event, view, card));
+      if (node.kind === "text") {
+        this.renderBoardTextNode(card, view);
+      } else {
+        let title = document.createElement("div");
+        title.className = "board-node-title";
+        title.textContent = view.paper.title || "Untitled";
+        let meta = document.createElement("div");
+        meta.className = "board-node-meta";
+        meta.textContent = [
+          (view.paper.authors || [])[0],
+          view.paper.year,
+        ].filter(Boolean).join(" · ");
+        card.append(title, meta);
+        card.addEventListener("pointerdown", (event) =>
+          this.startBoardNodeDrag(event, view, card));
+      }
+      this.appendBoardNodePorts(card, view);
       card.addEventListener("keydown", (event) => {
+        if (event.target !== card) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           this.selectBoardNode(view);
@@ -2007,6 +2027,125 @@ var LiteratureExplorer = {
     });
     this.applyBoardCamera();
     this.updateBoardControls();
+  },
+
+  appendBoardNodePorts(card, view) {
+    ["top", "right", "bottom", "left"].forEach((side) => {
+      let port = document.createElement("button");
+      port.type = "button";
+      port.className = "board-node-port";
+      port.dataset.side = side;
+      port.title = this.strings.boardConnectHandle;
+      port.setAttribute("aria-label", this.strings.boardConnectHandle);
+      port.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+        this.startBoardConnection(event, view, side);
+      });
+      port.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        event.stopPropagation();
+        this.boardSelectedNodeID = view.node.id;
+        this.boardSelectedEdgeID = null;
+        this.boardConnectSourceID = view.node.id;
+        document.querySelectorAll(".board-paper-node").forEach((element) => {
+          element.classList.toggle(
+            "selected",
+            element.dataset.nodeId === view.node.id,
+          );
+        });
+        this.renderBoardEdges();
+        this.updateBoardControls();
+      });
+      card.append(port);
+    });
+  },
+
+  renderBoardTextNode(card, view) {
+    let header = document.createElement("div");
+    header.className = "board-text-node-header";
+    header.textContent = this.strings.boardTextNode;
+    header.addEventListener("pointerdown", (event) =>
+      this.startBoardNodeDrag(event, view, card));
+    let body = document.createElement("div");
+    body.className = "board-text-node-body";
+    body.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      body.classList.add("drop-target");
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    });
+    body.addEventListener("dragleave", (event) => {
+      if (!body.contains(event.relatedTarget)) {
+        body.classList.remove("drop-target");
+      }
+    });
+    body.addEventListener("drop", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      body.classList.remove("drop-target");
+      void this.dropPaperInTextNode(event, view);
+    });
+    (view.blocks || []).forEach((blockView) => {
+      let block = blockView.block;
+      if (block.kind === "text") {
+        let editor = document.createElement("textarea");
+        editor.className = "board-text-editor";
+        editor.dataset.blockId = block.id;
+        editor.placeholder = this.strings.boardTextPlaceholder;
+        editor.value = block.text || "";
+        editor.addEventListener("input", () => {
+          block.text = editor.value;
+          this.scheduleBoardTextSave(view, block, editor.value);
+        });
+        editor.addEventListener("blur", () =>
+          this.scheduleBoardTextSave(view, block, editor.value, true));
+        body.append(editor);
+        return;
+      }
+      let embedded = document.createElement("div");
+      embedded.className = "board-embedded-paper";
+      embedded.dataset.blockId = block.id;
+      if (blockView.itemKey) {
+        embedded.draggable = true;
+        embedded.addEventListener("dragstart", (event) => {
+          if (!event.dataTransfer) return;
+          event.dataTransfer.effectAllowed = "copy";
+          event.dataTransfer.setData(
+            "application/x-unizero-paper",
+            blockView.itemKey,
+          );
+          event.dataTransfer.setData("text/plain", blockView.itemKey);
+        });
+        embedded.addEventListener("dblclick", () =>
+          this.showCollectionPreview(blockView.itemKey));
+      }
+      let title = document.createElement("div");
+      title.className = "board-embedded-paper-title";
+      title.textContent = blockView.paper?.title || "Untitled";
+      let meta = document.createElement("div");
+      meta.className = "board-embedded-paper-meta";
+      meta.textContent = [
+        (blockView.paper?.authors || [])[0],
+        blockView.paper?.year,
+      ].filter(Boolean).join(" · ");
+      let remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "board-block-remove";
+      remove.textContent = "×";
+      remove.title = this.strings.boardRemoveBlock;
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void this.deleteBoardContentBlock(view, block.id);
+      });
+      embedded.append(title, meta, remove);
+      body.append(embedded);
+    });
+    let hint = document.createElement("div");
+    hint.className = "board-embed-hint";
+    hint.textContent = this.strings.boardEmbedPaper;
+    body.append(hint);
+    card.append(header, body);
   },
 
   renderBoardEdges() {
@@ -2266,6 +2405,141 @@ var LiteratureExplorer = {
       x: (event.clientX - rect.left - camera.x) / camera.scale,
       y: (event.clientY - rect.top - camera.y) / camera.scale,
     };
+  },
+
+  async createBoardTextNode() {
+    if (!api.addBoardTextNode || !this.project) return;
+    let viewport = document.getElementById("project-board-viewport");
+    let rect = viewport.getBoundingClientRect();
+    let point = this.boardPoint({
+      clientX: rect.left + (viewport.clientWidth || rect.width || 800) / 2,
+      clientY: rect.top + (viewport.clientHeight || rect.height || 600) / 2,
+    });
+    let scope = this.context?.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let generation = this.contextGeneration;
+    try {
+      let view = await api.addBoardTextNode({
+        x: point.x - 160,
+        y: point.y - 120,
+        width: 320,
+        height: 240,
+      }, scope);
+      if (!this.contextIsCurrent(generation) || !this.project) return;
+      this.project.nodes.push(view);
+      this.boardSelectedNodeID = view.node.id;
+      this.boardSelectedEdgeID = null;
+      this.renderProjectBoard();
+      window.setTimeout(() => {
+        document.querySelector(
+          `[data-node-id="${view.node.id}"] .board-text-editor`,
+        )?.focus();
+      }, 0);
+    } catch (error) {
+      if (this.contextIsCurrent(generation)) {
+        this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+      }
+    }
+  },
+
+  replaceBoardNodeView(updated) {
+    if (!this.project || !updated?.node?.id) return;
+    let index = this.project.nodes.findIndex(
+      (view) => view.node.id === updated.node.id,
+    );
+    if (index >= 0) this.project.nodes[index] = updated;
+  },
+
+  async dropPaperInTextNode(event, view) {
+    if (!api.embedBoardPaper || !this.project) return;
+    let itemKey = event.dataTransfer &&
+      (event.dataTransfer.getData("application/x-unizero-paper") ||
+        event.dataTransfer.getData("text/plain"));
+    if (!itemKey) return;
+    let scope = this.context?.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let generation = this.contextGeneration;
+    try {
+      let updated = await api.embedBoardPaper(view.node.id, itemKey, scope);
+      if (!this.contextIsCurrent(generation) || !this.project) return;
+      this.replaceBoardNodeView(updated);
+      this.boardSelectedNodeID = view.node.id;
+      this.renderProjectBoard();
+    } catch (error) {
+      if (this.contextIsCurrent(generation)) {
+        this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+      }
+    }
+  },
+
+  scheduleBoardTextSave(view, block, text, immediate = false) {
+    if (!api.updateBoardTextBlock) return;
+    let key = `${view.node.id}:${block.id}`;
+    let timer = this.boardTextSaveTimers.get(key);
+    if (timer) window.clearTimeout(timer);
+    this.boardTextSaveTimers.delete(key);
+    if (immediate) {
+      void this.persistBoardTextBlock(view.node.id, block.id, text);
+      return;
+    }
+    this.boardTextSaveTimers.set(key, window.setTimeout(() => {
+      this.boardTextSaveTimers.delete(key);
+      void this.persistBoardTextBlock(view.node.id, block.id, text);
+    }, 420));
+  },
+
+  async persistBoardTextBlock(nodeID, blockID, text) {
+    let scope = this.context?.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let generation = this.contextGeneration;
+    try {
+      let updated = await api.updateBoardTextBlock(
+        nodeID,
+        blockID,
+        text,
+        scope,
+      );
+      if (!this.contextIsCurrent(generation) || !this.project) return;
+      this.replaceBoardNodeView(updated);
+    } catch (error) {
+      if (this.contextIsCurrent(generation)) {
+        this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+      }
+    }
+  },
+
+  async deleteBoardContentBlock(view, blockID) {
+    if (!api.deleteBoardBlock || !this.project) return;
+    let key = `${view.node.id}:${blockID}`;
+    let timer = this.boardTextSaveTimers.get(key);
+    if (timer) window.clearTimeout(timer);
+    this.boardTextSaveTimers.delete(key);
+    let scope = this.context?.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let generation = this.contextGeneration;
+    try {
+      let updated = await api.deleteBoardBlock(view.node.id, blockID, scope);
+      if (!this.contextIsCurrent(generation) || !this.project) return;
+      this.replaceBoardNodeView(updated);
+      this.renderProjectBoard();
+    } catch (error) {
+      if (this.contextIsCurrent(generation)) {
+        this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+      }
+    }
+  },
+
+  clearBoardTextSavesForNode(nodeID) {
+    let prefix = `${nodeID}:`;
+    for (let [key, timer] of this.boardTextSaveTimers) {
+      if (!key.startsWith(prefix)) continue;
+      window.clearTimeout(timer);
+      this.boardTextSaveTimers.delete(key);
+    }
   },
 
   async dropPaperOnBoard(event) {
@@ -2655,6 +2929,7 @@ var LiteratureExplorer = {
       ? Object.assign({}, this.context.scope)
       : null;
     let generation = this.contextGeneration;
+    this.clearBoardTextSavesForNode(nodeID);
     try {
       let deleted = await api.deleteBoardNode(nodeID, scope);
       if (!this.contextIsCurrent(generation) || !this.project) return;
@@ -3070,6 +3345,7 @@ var LiteratureExplorer = {
       );
       if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
       tab.snapshot = snapshot;
+      this.rememberPreviewSnapshot(itemKey, kind, snapshot);
       tab.busy = false;
       if (this.tabIsActive(tab)) {
         this.snapshot = snapshot;
@@ -3136,24 +3412,34 @@ var LiteratureExplorer = {
   async switchKind(kind) {
     let tab = this.activeTabState();
     if (!tab || kind === tab.kind) return;
+    this.rememberPreviewSnapshot(tab.itemKey, tab.kind, tab.snapshot);
     // Supersede a provider request owned by the old surface. It may still finish,
     // but its generation can no longer write into this tab.
     this.beginTabRequest(tab, "snapshot");
     tab.busy = false;
     tab.error = "";
     tab.kind = kind;
-    tab.snapshot = null;
+    tab.snapshot = this.cachedPreviewSnapshot(tab.itemKey, kind);
+    if (tab.snapshot) tab.title = tab.snapshot.seed.title;
     tab.activeSource = "combined";
     tab.search = "";
     tab.yearFrom = "";
     tab.yearTo = "";
     this.kind = kind;
-    this.snapshot = null;
+    this.snapshot = tab.snapshot;
     this.activeSource = "combined";
     this.setBusy(false, tab);
     this.stopProgress();
     this.configureSort(true);
     this.configureKindPresentation();
+    if (tab.snapshot) {
+      this.syncCollectionRelationStatus();
+      this.setPaperTitle(tab.snapshot.seed.title);
+      this.configureSources();
+      this.configurePublicationLevels();
+      this.render();
+      return;
+    }
     await this.load(false);
   },
 
@@ -3181,11 +3467,37 @@ var LiteratureExplorer = {
     if (this.tabIsActive(tab)) {
       this.activeSource = "combined";
       document.getElementById("refresh").title = "";
-      this.setStatus(this.strings.loading);
-      this.startProgress(kind);
+      this.stopProgress();
+      this.setStatus(refresh
+        ? this.strings.loading
+        : this.strings.readingCache);
+      if (refresh) this.startProgress(kind);
     }
     this.setBusy(true, tab);
     try {
+      let cacheStatus = null;
+      if (!refresh && kind !== "relation" && api.snapshotStatus) {
+        try {
+          cacheStatus = await api.snapshotStatus(itemKey, kind, libraryID);
+        } catch (error) {
+          console.warn("Preview cache status unavailable", error);
+        }
+        if (!this.tabRequestIsCurrent(
+          tab,
+          "snapshot",
+          request,
+          generation,
+        )) return;
+      }
+      if (
+        this.tabIsActive(tab) &&
+        kind !== "relation" &&
+        !refresh &&
+        (!cacheStatus || !cacheStatus.loaded)
+      ) {
+        this.setStatus(this.strings.loading);
+        this.startProgress(kind);
+      }
       let snapshot = await api.snapshot(
         itemKey,
         kind,
@@ -3195,6 +3507,7 @@ var LiteratureExplorer = {
       if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
       tab.snapshot = snapshot;
       tab.title = snapshot.seed.title;
+      this.rememberPreviewSnapshot(itemKey, kind, snapshot);
       tab.busy = false;
       if (this.tabIsActive(tab) && tab.kind === kind) {
         this.snapshot = snapshot;
@@ -3246,6 +3559,7 @@ var LiteratureExplorer = {
       let snapshot = await api.loadMoreCitations(itemKey, libraryID);
       if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
       tab.snapshot = snapshot;
+      this.rememberPreviewSnapshot(itemKey, tab.kind, snapshot);
       tab.busy = false;
       if (this.tabIsActive(tab)) {
         this.snapshot = snapshot;

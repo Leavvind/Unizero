@@ -1,7 +1,8 @@
 # 同步状态与文献数据源设计
 
 > 状态：同步引擎尚未实现；Project/Board/Paper 的第一版 typed schema、稳定
-> Project、库内 Paper catalog、Board paper-node 与 manual-edge documents 已落地。Project View 的产品决定见
+> Project、库内 Paper catalog、Board paper/text-node、内嵌 content blocks 与
+> manual-edge documents 已落地。Project View 的产品决定见
 > [UNIZERO_HOME.md](UNIZERO_HOME.md)。未完成工作以
 > [ROADMAP.md](ROADMAP.md) 为准。
 
@@ -412,6 +413,10 @@ Citations 是第二优先级，因为它持续增长、可能分页很多，而�
 - 新 total 不能简单证明旧 entries 已过期；
 - 不同 source 的 page cursor 不能互换；
 - 展示“截至何时”的 provenance，不把 citation count 当成永恒事实。
+
+当前本机 `Citations-v4` 也保存有证据的空结果：至少一个 provider 必须明确返回
+`empty`，negative cache 才有效，且有效期为 24 小时。纯 provider failure 不会被
+固化成“0 Citations”，下次启动仍会重试。
 
 ### 10.3 Pull/push 时机
 

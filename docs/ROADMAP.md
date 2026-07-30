@@ -25,6 +25,9 @@ READMEs and `docs/ARCHITECTURE.md`.
 - In Zotero, verify a References query where OpenAlex and Crossref are empty while
   Semantic Scholar is restricted: all three source states must remain visible after
   closing and reopening Unizero Home.
+- In Zotero, verify Collection Preview A → B → A reuses A without provider progress,
+  a real cache miss does show current-source progress, and a completed zero-Citations
+  result survives one restart without turning an all-provider failure into a cache hit.
 - Verify graph behaviour beyond a first look: dark theme, layout persistence across a
   restart, a library large enough to stress readability, the graph status line after an
   induced callback failure, rapid switching/closing of paper tabs, personal/group library
@@ -78,6 +81,10 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Unizero Home
 
+- Extend the current TextBlock/PaperBlock MVP with block reordering, additional block
+  kinds, rich Markdown editing, move-versus-copy gestures, and external PaperBlocks.
+  Evaluate extracting blocks into independent sync objects only when real merge
+  requirements justify changing the current text-node conflict boundary.
 - Add notes, resizing, colours, multi-selection tools, edge labels/direction, camera
   persistence if user testing justifies it, and per-object sync metadata. A shared
   pan/zoom transform, Pointer interaction state machine, handle-drag connection preview,

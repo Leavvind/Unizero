@@ -164,6 +164,45 @@ function boardNodeView(
   };
 }
 
+function boardTextNodeView(
+  id: string,
+  geometry: Record<string, number>,
+  blocks: any[] = [{
+    id: `block-${id}-text`,
+    kind: "text",
+    text: "",
+  }],
+) {
+  return {
+    node: {
+      id,
+      projectID: "project-1",
+      boardID: "board-1",
+      kind: "text",
+      geometry,
+      blocks: blocks.map((entry) => entry.block || entry),
+      createdAt: 1,
+      updatedAt: 1,
+    },
+    blocks: blocks.map((entry) => {
+      if (entry.block) return entry;
+      if (entry.kind === "text") return { block: entry };
+      const itemKey = entry.itemKey || "P1";
+      return {
+        block: entry,
+        paper: {
+          id: entry.paperID,
+          title: itemKey === "P1" ? "First Paper" : "Second Paper",
+          authors: ["Tester"],
+          year: "2026",
+          bindings: [{ library: "library", itemKey }],
+        },
+        itemKey,
+      };
+    }),
+  };
+}
+
 function strings(): Record<string, string> {
   return new Proxy({}, {
     get: (_target, property) => String(property),
@@ -224,6 +263,8 @@ function createHarness(overrides: Record<string, unknown> = {}) {
   };
   let nextBoardNode = 0;
   let nextBoardEdge = 0;
+  let nextBoardBlock = 0;
+  const textNodes = new Map<string, any>();
   const api = {
     strings: strings(),
     getContext: () => context.current,
@@ -246,8 +287,86 @@ function createHarness(overrides: Record<string, unknown> = {}) {
       nodeID: string,
       geometry: Record<string, number>,
     ) => {
+      const text = textNodes.get(nodeID);
+      if (text) {
+        const updated = boardTextNodeView(
+          nodeID,
+          { ...text.node.geometry, ...geometry },
+          text.blocks,
+        );
+        textNodes.set(nodeID, updated);
+        return updated;
+      }
       const itemKey = nodeID === "node-2" ? "P2" : "P1";
       return boardNodeView(nodeID, itemKey, geometry);
+    }),
+    addBoardTextNode: vi.fn(async (geometry: Record<string, number>) => {
+      const view = boardTextNodeView(
+        `node-${++nextBoardNode}`,
+        geometry,
+        [{
+          id: `block-${++nextBoardBlock}`,
+          kind: "text",
+          text: "",
+        }],
+      );
+      textNodes.set(view.node.id, view);
+      return view;
+    }),
+    updateBoardTextBlock: vi.fn(async (
+      nodeID: string,
+      blockID: string,
+      text: string,
+    ) => {
+      const current = textNodes.get(nodeID);
+      const blocks = current.blocks.map((entry: any) => ({
+        ...entry,
+        block: entry.block.id === blockID
+          ? { ...entry.block, text }
+          : entry.block,
+      }));
+      const updated = boardTextNodeView(
+        nodeID,
+        current.node.geometry,
+        blocks,
+      );
+      textNodes.set(nodeID, updated);
+      return updated;
+    }),
+    embedBoardPaper: vi.fn(async (nodeID: string, itemKey: string) => {
+      const current = textNodes.get(nodeID);
+      const blocks = [...current.blocks, {
+        block: {
+          id: `block-${++nextBoardBlock}`,
+          kind: "paper",
+          paperID: `paper-${itemKey}`,
+        },
+        paper: {
+          id: `paper-${itemKey}`,
+          title: itemKey === "P1" ? "First Paper" : "Second Paper",
+          authors: ["Tester"],
+          year: "2026",
+          bindings: [{ library: "library", itemKey }],
+        },
+        itemKey,
+      }];
+      const updated = boardTextNodeView(
+        nodeID,
+        current.node.geometry,
+        blocks,
+      );
+      textNodes.set(nodeID, updated);
+      return updated;
+    }),
+    deleteBoardBlock: vi.fn(async (nodeID: string, blockID: string) => {
+      const current = textNodes.get(nodeID);
+      const updated = boardTextNodeView(
+        nodeID,
+        current.node.geometry,
+        current.blocks.filter((entry: any) => entry.block.id !== blockID),
+      );
+      textNodes.set(nodeID, updated);
+      return updated;
     }),
     addBoardEdge: vi.fn(async (
       sourceNodeID: string,
@@ -271,6 +390,7 @@ function createHarness(overrides: Record<string, unknown> = {}) {
       collection(scope.libraryID, scope.name),
     snapshot: async (itemKey: string) =>
       snapshot(itemKey, itemKey === "P1" ? "First Paper" : "Second Paper"),
+    snapshotStatus: async () => ({ loaded: false }),
     graph: async (scope: any) => ({
       scope: { libraryID: scope.libraryID },
       nodes: [],
@@ -594,6 +714,65 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
+  it("creates an editable Text Node and embeds a Collection paper as a block", async () => {
+    const harness = createHarness();
+    await flush();
+
+    await harness.explorer.createBoardTextNode();
+    expect(harness.api.addBoardTextNode).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 320, height: 240 }),
+      expect.any(Object),
+    );
+    expect(harness.explorer.project.nodes).toHaveLength(1);
+    expect(harness.explorer.project.nodes[0].node.kind).toBe("text");
+    const editor = harness.win.document.querySelector(
+      ".board-text-editor",
+    ) as HTMLTextAreaElement;
+    expect(editor).not.toBeNull();
+
+    editor.value = "Paper as a reusable content block";
+    editor.dispatchEvent(new harness.win.Event("input"));
+    editor.dispatchEvent(new harness.win.Event("blur"));
+    await flush();
+    expect(harness.api.updateBoardTextBlock).toHaveBeenCalledWith(
+      "node-1",
+      "block-1",
+      "Paper as a reusable content block",
+      expect.any(Object),
+    );
+
+    await harness.explorer.dropPaperInTextNode({
+      dataTransfer: {
+        getData: (type: string) =>
+          type === "application/x-unizero-paper" ? "P1" : "",
+      },
+    }, harness.explorer.project.nodes[0]);
+    expect(harness.api.embedBoardPaper).toHaveBeenCalledWith(
+      "node-1",
+      "P1",
+      expect.any(Object),
+    );
+    expect(harness.win.document.querySelector(
+      ".board-embedded-paper-title",
+    )?.textContent).toBe("First Paper");
+
+    const current = harness.explorer.project.nodes[0];
+    const paperBlock = current.blocks.find(
+      (entry: any) => entry.block.kind === "paper",
+    );
+    await harness.explorer.deleteBoardContentBlock(
+      current,
+      paperBlock.block.id,
+    );
+    expect(harness.api.deleteBoardBlock).toHaveBeenCalledWith(
+      "node-1",
+      paperBlock.block.id,
+      expect.any(Object),
+    );
+    expect(harness.win.document.querySelector(".board-embedded-paper")).toBeNull();
+    harness.win.close();
+  });
+
   it("replaces the Collection preview when another node is selected", async () => {
     const harness = createHarness();
     await flush();
@@ -607,6 +786,68 @@ describe("Unizero Home async ownership and Board interaction", () => {
     expect(harness.win.document.getElementById("rows")?.textContent)
       .toContain("row-of-P2");
     expect(harness.win.document.querySelectorAll(".page-tab")).toHaveLength(1);
+    harness.win.close();
+  });
+
+  it("reuses completed snapshots when a Collection preview returns A → B → A", async () => {
+    const readSnapshot = vi.fn(async (itemKey: string) =>
+      snapshot(itemKey, itemKey === "P1" ? "First Paper" : "Second Paper"));
+    const harness = createHarness({ snapshot: readSnapshot });
+    await flush();
+
+    await harness.explorer.showCollectionPreview("P1");
+    await harness.explorer.showCollectionPreview("P2");
+    await harness.explorer.showCollectionPreview("P1");
+
+    expect(readSnapshot).toHaveBeenCalledTimes(2);
+    expect(readSnapshot.mock.calls.map((call) => call[0]))
+      .toEqual(["P1", "P2"]);
+    expect(harness.explorer.collectionPreview.itemKey).toBe("P1");
+    expect(harness.win.document.getElementById("rows")?.textContent)
+      .toContain("row-of-P1");
+    harness.win.close();
+  });
+
+  it("keeps provider progress hidden while reading a known disk cache hit", async () => {
+    const pending = deferred<any>();
+    const snapshotStatus = vi.fn(async () => ({ loaded: true }));
+    const harness = createHarness({
+      snapshotStatus,
+      snapshot: () => pending.promise,
+    });
+    await flush();
+
+    const opening = harness.explorer.showCollectionPreview("P1");
+    await flush();
+
+    expect(snapshotStatus).toHaveBeenCalledWith("P1", "references", 1);
+    expect(harness.win.document.getElementById("status")?.textContent)
+      .toBe("readingCache");
+    expect(harness.win.document.getElementById("progress")?.hidden).toBe(true);
+
+    pending.resolve(snapshot("P1", "First Paper"));
+    await opening;
+    harness.win.close();
+  });
+
+  it("shows provider progress only after the cache probe confirms a miss", async () => {
+    const pending = deferred<any>();
+    const harness = createHarness({
+      snapshotStatus: async () => ({ loaded: false }),
+      snapshot: () => pending.promise,
+    });
+    await flush();
+
+    const opening = harness.explorer.showCollectionPreview("P1");
+    await flush();
+
+    expect(harness.win.document.getElementById("status")?.textContent)
+      .toBe("loading");
+    expect(harness.win.document.getElementById("progress")?.hidden).toBe(false);
+
+    pending.resolve(snapshot("P1", "First Paper"));
+    await opening;
+    expect(harness.win.document.getElementById("progress")?.hidden).toBe(true);
     harness.win.close();
   });
 

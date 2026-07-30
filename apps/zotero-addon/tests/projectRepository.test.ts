@@ -230,4 +230,67 @@ describe("ProjectRepository", () => {
       bundle.defaultBoard.id,
     )).toEqual([]);
   });
+
+  it("persists ordered text and embedded-paper blocks beside legacy paper nodes", async () => {
+    const store = repository();
+    const subject = projectSubjectForScope({
+      libraryID: 1,
+      collectionID: 44,
+      collectionKey: "COLLKEY1",
+      name: "Block Board",
+    });
+    const bundle = await store.ensureProject(subject, "Block Board");
+    const legacyPaper = await store.createPaperNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      "paper_A",
+      { x: 10, y: 20 },
+    );
+    const textNode = await store.createTextNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      { x: 400, y: 300 },
+    );
+    const textBlock = textNode.blocks[0];
+
+    const edited = await store.updateTextBlock(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      textNode.id,
+      textBlock.id,
+      "A connected reading note",
+    );
+    expect(edited.blocks[0]).toMatchObject({
+      id: textBlock.id,
+      kind: "text",
+      text: "A connected reading note",
+    });
+
+    const embedded = await store.addPaperBlock(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      textNode.id,
+      "paper_A",
+    );
+    expect(embedded.blocks).toEqual([
+      edited.blocks[0],
+      expect.objectContaining({ kind: "paper", paperID: "paper_A" }),
+    ]);
+
+    const withoutPaper = await store.deleteContentBlock(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      textNode.id,
+      embedded.blocks[1].id,
+    );
+    expect(withoutPaper.blocks).toEqual([edited.blocks[0]]);
+
+    const listed = await store.listBoardNodes(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+    );
+    expect(listed.map((node) => node.kind)).toEqual(["paper", "text"]);
+    expect(listed[0]).toEqual(legacyPaper);
+    expect(listed[1]).toEqual(withoutPaper);
+  });
 });

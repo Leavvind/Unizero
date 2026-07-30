@@ -16,6 +16,7 @@ import type { RelationSourceResult } from "./mergeRelations";
 
 export const CACHE_KEY_REFERENCES = "References-Resolved-v4";
 export const CACHE_KEY_CITATIONS = "Citations-v4";
+export const CITATIONS_NEGATIVE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface ReferencesCache {
   savedAt: number;
@@ -39,6 +40,35 @@ export interface CitationsCache {
   total: number;
   all: ItemBaseInfo[];
   perSource?: RelationSourceResult[];
+}
+
+/**
+ * Empty citation lists are useful negative results only when at least one
+ * provider completed normally. A page where every provider failed must be
+ * retried next session instead of becoming a durable "0 citations" claim.
+ */
+export function completedEmptyCitations(
+  cache: Pick<CitationsCache, "all" | "perSource">,
+): boolean {
+  return cache.all.length === 0 && Boolean(cache.perSource?.some((source) =>
+    source.status === "empty" || source.status === "ok"));
+}
+
+export function citationsCacheIsUsable(
+  cache: CitationsCache | undefined,
+  identifiers: ItemPaperIdentifiers,
+  now = Date.now(),
+): cache is CitationsCache {
+  if (
+    !cache ||
+    !Array.isArray(cache.all) ||
+    !cacheMatchesIdentifiers(cache, identifiers)
+  ) {
+    return false;
+  }
+  if (cache.all.length) { return true; }
+  return completedEmptyCitations(cache) &&
+    now - cache.savedAt <= CITATIONS_NEGATIVE_CACHE_TTL_MS;
 }
 
 function sameIdentifier(left: unknown, right: unknown): boolean {

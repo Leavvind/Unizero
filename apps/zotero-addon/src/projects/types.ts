@@ -78,6 +78,45 @@ export interface BoardPaperNodeDocument {
   deletedAt?: number;
 }
 
+export interface BoardTextContentBlock {
+  id: string;
+  kind: "text";
+  text: string;
+}
+
+export interface BoardPaperContentBlock {
+  id: string;
+  kind: "paper";
+  paperID: string;
+}
+
+export type BoardContentBlock =
+  | BoardTextContentBlock
+  | BoardPaperContentBlock;
+
+/**
+ * A text node is a Canvas frame with an ordered block body. Paper blocks reference
+ * the same stable Paper catalog as standalone paper nodes, so embedding never
+ * copies bibliographic identity or creates a Zotero item.
+ */
+export interface BoardTextNodeDocument {
+  schema: typeof BOARD_NODE_SCHEMA;
+  id: string;
+  projectID: string;
+  boardID: string;
+  kind: "text";
+  geometry: BoardNodeGeometry;
+  blocks: BoardContentBlock[];
+  colour?: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
+}
+
+export type BoardNodeDocument =
+  | BoardPaperNodeDocument
+  | BoardTextNodeDocument;
+
 /**
  * Manual edges connect card instances, not papers. The same paper may occur more
  * than once on a board, and each occurrence can participate in a different
