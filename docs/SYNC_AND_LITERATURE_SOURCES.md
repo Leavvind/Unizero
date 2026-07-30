@@ -1,7 +1,7 @@
 # 同步状态与文献数据源设计
 
-> 状态：同步引擎尚未实现；Project/Board/Paper 的第一版 typed schema 与稳定
-> Project 初始化已落地。Project View 的产品决定见
+> 状态：同步引擎尚未实现；Project/Board/Paper 的第一版 typed schema、稳定
+> Project、库内 Paper catalog 和 Board paper-node documents 已落地。Project View 的产品决定见
 > [UNIZERO_HOME.md](UNIZERO_HOME.md)。未完成工作以
 > [ROADMAP.md](ROADMAP.md) 为准。
 

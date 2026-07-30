@@ -23,6 +23,11 @@ beforeEach(() => {
       return files.get(path);
     }),
     makeDirectory: vi.fn(async () => undefined),
+    getChildren: vi.fn(async (directory: string) => {
+      const prefix = `${directory}/`;
+      return [...files.keys()].filter((path) =>
+        path.startsWith(prefix) && !path.slice(prefix.length).includes("/"));
+    }),
     writeUTF8: vi.fn(async (path: string, value: string) => {
       files.set(path, value);
     }),
@@ -118,5 +123,59 @@ describe("ProjectRepository", () => {
       collectionID: 44,
       name: "Broken scope",
     })).toThrow("Collection key is required");
+  });
+
+  it("persists duplicate paper nodes independently and tombstones deletion", async () => {
+    const store = repository();
+    const subject = projectSubjectForScope({
+      libraryID: 1,
+      collectionID: 44,
+      collectionKey: "COLLKEY1",
+      name: "Board Project",
+    });
+    const bundle = await store.ensureProject(subject, "Board Project");
+
+    const first = await store.createPaperNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      "paper_A",
+      { x: 10, y: 20 },
+    );
+    const duplicate = await store.createPaperNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      "paper_A",
+      { x: 300, y: 400 },
+    );
+
+    expect(first.id).not.toBe(duplicate.id);
+    expect((await store.listBoardNodes(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+    )).map((node) => node.id)).toEqual([first.id, duplicate.id]);
+
+    const moved = await store.moveBoardNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      first.id,
+      { x: Number.POSITIVE_INFINITY, y: -45, width: 20, height: 9999 },
+    );
+    expect(moved.geometry).toEqual({
+      x: 10,
+      y: -45,
+      width: 160,
+      height: 520,
+    });
+
+    const deleted = await store.deleteBoardNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      first.id,
+    );
+    expect(deleted.deletedAt).toBeTypeOf("number");
+    expect((await store.listBoardNodes(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+    )).map((node) => node.id)).toEqual([duplicate.id]);
   });
 });

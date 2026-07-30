@@ -60,8 +60,8 @@ checked, and not covered by any automated test.
 | --- | --- |
 | `panel.xhtml` / `panel.js` | Runtime jobs, service notices, template editor |
 | `literature-explorer.xhtml` | Explorer markup, CSS variables, and light/dark theming |
-| `literature-explorer.js` | View state, filters, tables, detail tabs, graph hosting |
-| `literature-graph.js` | Force simulation and canvas rendering |
+| `literature-explorer.js` | Home Board state, drag/move interaction, filters, detail tabs, legacy graph hosting |
+| `literature-graph.js` | Shelved Collection graph and optional detail force simulation |
 | `vendor/force-graph.min.js` | Vendored MIT force-graph UMD build; see the sibling LICENSE |
 
 These files talk to the add-on only through the plain-object API supplied as

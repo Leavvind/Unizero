@@ -14,6 +14,8 @@ var LiteratureExplorer = {
   context: null,
   /** Stable Project and default Board documents for the active Collection scope. */
   project: null,
+  boardSelectedNodeID: null,
+  boardViewportProjectID: null,
   mode: "collection",
   collectionSnapshot: null,
   collectionBusy: false,
@@ -75,6 +77,18 @@ var LiteratureExplorer = {
       .addEventListener("input", () => this.renderCollection());
     document.getElementById("collection-refresh")
       .addEventListener("click", () => this.loadCollection());
+    document.getElementById("toggle-library-pane")
+      .addEventListener("click", () => this.toggleLibraryPane());
+    document.getElementById("collapse-detail")
+      .addEventListener("click", () => this.showCollection());
+    let boardSurface = document.getElementById("project-board-surface");
+    boardSurface.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    });
+    boardSurface.addEventListener("drop", (event) => this.dropPaperOnBoard(event));
+    window.addEventListener("mousemove", (event) => this.moveBoardNodeDrag(event));
+    window.addEventListener("mouseup", (event) => this.finishBoardNodeDrag(event));
     document.getElementById("search").addEventListener("input", (event) => {
       let tab = this.activeTabState();
       if (tab) tab.search = event.target.value;
@@ -136,6 +150,12 @@ var LiteratureExplorer = {
         this.closeGraphPanels();
         return;
       }
+      if (event.key === "Delete" && this.boardSelectedNodeID &&
+          !event.target?.closest?.("input, textarea")) {
+        event.preventDefault();
+        void this.deleteSelectedBoardNode();
+        return;
+      }
       // Ctrl+W closes the paper, never the window: the Collection tab is not
       // closable, so on it the shortcut does nothing rather than quitting.
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "w") {
@@ -154,6 +174,13 @@ var LiteratureExplorer = {
     document.getElementById("label-collection-search").textContent = s.searchLabel;
     document.getElementById("collection-search").placeholder = s.collectionSearch;
     document.getElementById("collection-refresh").textContent = s.refresh;
+    document.getElementById("project-library-title").textContent = s.projectLibrary;
+    document.getElementById("project-board-empty-title").textContent = s.boardEmpty;
+    document.getElementById("project-board-empty-hint").textContent = s.boardHint;
+    document.getElementById("toggle-library-pane").textContent = "◀";
+    document.getElementById("toggle-library-pane").title = s.collapseLibrary;
+    document.getElementById("collapse-detail").textContent = "▶";
+    document.getElementById("collapse-detail").title = s.collapseDetail;
     document.getElementById("collection-head-title").textContent = s.titleColumn;
     document.getElementById("collection-head-creator").textContent = s.creatorColumn;
     document.getElementById("collection-head-year").textContent = s.yearColumn;
@@ -493,11 +520,15 @@ var LiteratureExplorer = {
       : null;
     this.collectionSnapshot = null;
     this.project = null;
+    this.boardSelectedNodeID = null;
+    this._boardPointer = null;
     let workspace = document.getElementById("explorer-workspace");
     if (workspace) {
       delete workspace.dataset.projectId;
       delete workspace.dataset.boardId;
     }
+    this.renderProjectLibrary([]);
+    this.renderProjectBoard();
     this.collectionBusy = false;
     this.snapshot = null;
     this.busy = false;
@@ -823,6 +854,7 @@ var LiteratureExplorer = {
         workspace.dataset.projectId = project.project.id;
         workspace.dataset.boardId = project.defaultBoard.id;
       }
+      this.positionBoardViewport(project.project.id);
       document.getElementById("paper-title").textContent =
         this.collectionSnapshot.scope.name;
       // The Collection tab is labelled with the scope, which is only known now.
@@ -1821,6 +1853,8 @@ var LiteratureExplorer = {
     }
 
     let items = this.visibleCollectionItems();
+    this.renderProjectLibrary(items);
+    this.renderProjectBoard();
     if (!items.length) {
       this.renderEmpty(rows, this.strings.collectionEmpty, 7);
     } else {
@@ -1830,13 +1864,240 @@ var LiteratureExplorer = {
       `${items.length}/${this.collectionSnapshot.items.length} · ` +
       this.collectionSnapshot.scope.name,
     );
-    if (this.collectionMode !== "graph") return;
-    // The board follows the same search box as the table: re-filter when the
-    // graph is already loaded, otherwise fetch it once.
-    if (this.graphData.collection) {
-      this.renderGraph("collection", false);
-    } else {
-      this.loadCollectionGraph();
+  },
+
+  renderProjectLibrary(items) {
+    let host = document.getElementById("project-library-list");
+    host.replaceChildren();
+    items.forEach((item) => {
+      let entry = document.createElement("button");
+      entry.className = "project-library-item";
+      entry.draggable = true;
+      entry.dataset.itemKey = item.itemKey;
+      entry.title = item.title || "Untitled";
+      let title = document.createElement("span");
+      title.className = "project-library-item-title";
+      title.textContent = item.title || "Untitled";
+      let meta = document.createElement("span");
+      meta.className = "project-library-item-meta";
+      meta.textContent = [
+        (item.creators || [])[0],
+        item.year,
+      ].filter(Boolean).join(" · ") || item.publicationTitle || "";
+      entry.append(title, meta);
+      entry.addEventListener("click", () =>
+        this.showCollectionPreview(item.itemKey));
+      entry.addEventListener("dragstart", (event) => {
+        if (!event.dataTransfer) return;
+        event.dataTransfer.effectAllowed = "copy";
+        event.dataTransfer.setData(
+          "application/x-unizero-paper",
+          item.itemKey,
+        );
+        event.dataTransfer.setData("text/plain", item.itemKey);
+      });
+      host.append(entry);
+    });
+  },
+
+  renderProjectBoard() {
+    let surface = document.getElementById("project-board-surface");
+    surface.querySelectorAll(".board-paper-node").forEach((node) => node.remove());
+    let nodes = this.project && Array.isArray(this.project.nodes)
+      ? this.project.nodes
+      : [];
+    document.getElementById("project-board-empty").hidden = nodes.length > 0;
+    nodes.forEach((view) => {
+      let node = view.node;
+      let geometry = node.geometry || {};
+      let card = document.createElement("article");
+      card.className = "board-paper-node";
+      if (node.id === this.boardSelectedNodeID) card.classList.add("selected");
+      card.dataset.nodeId = node.id;
+      card.style.left = `${Number(geometry.x) || 0}px`;
+      card.style.top = `${Number(geometry.y) || 0}px`;
+      card.style.width = `${Number(geometry.width) || 228}px`;
+      card.style.height = `${Number(geometry.height) || 118}px`;
+      card.tabIndex = 0;
+      let title = document.createElement("div");
+      title.className = "board-node-title";
+      title.textContent = view.paper.title || "Untitled";
+      let meta = document.createElement("div");
+      meta.className = "board-node-meta";
+      meta.textContent = [
+        (view.paper.authors || [])[0],
+        view.paper.year,
+      ].filter(Boolean).join(" · ");
+      card.append(title, meta);
+      card.addEventListener("mousedown", (event) =>
+        this.startBoardNodeDrag(event, view, card));
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          this.selectBoardNode(view);
+        }
+      });
+      surface.append(card);
+    });
+  },
+
+  toggleLibraryPane() {
+    let view = document.getElementById("collection-view");
+    let collapsed = view.classList.toggle("library-collapsed");
+    let button = document.getElementById("toggle-library-pane");
+    button.textContent = collapsed ? "▶" : "◀";
+    button.title = collapsed
+      ? this.strings.expandLibrary
+      : this.strings.collapseLibrary;
+  },
+
+  positionBoardViewport(projectID) {
+    if (!projectID || this.boardViewportProjectID === projectID) return;
+    this.boardViewportProjectID = projectID;
+    let viewport = document.getElementById("project-board-viewport");
+    // The persisted coordinate plane has generous room in every direction. Start
+    // a new Project near its centre rather than at the top-left corner.
+    window.setTimeout(() => {
+      if (this.boardViewportProjectID !== projectID) return;
+      viewport.scrollLeft = Math.max(0, (3200 - viewport.clientWidth) / 2);
+      viewport.scrollTop = Math.max(0, (2200 - viewport.clientHeight) / 2);
+    }, 0);
+  },
+
+  boardPoint(event) {
+    let viewport = document.getElementById("project-board-viewport");
+    let rect = viewport.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left + viewport.scrollLeft,
+      y: event.clientY - rect.top + viewport.scrollTop,
+    };
+  },
+
+  async dropPaperOnBoard(event) {
+    event.preventDefault();
+    if (!api.addBoardNode || !this.project) return;
+    let itemKey = event.dataTransfer &&
+      (event.dataTransfer.getData("application/x-unizero-paper") ||
+        event.dataTransfer.getData("text/plain"));
+    if (!itemKey) return;
+    let point = this.boardPoint(event);
+    let scope = this.context && this.context.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let generation = this.contextGeneration;
+    this.setCollectionStatus(this.strings.loading);
+    try {
+      let view = await api.addBoardNode(itemKey, {
+        x: point.x - 114,
+        y: point.y - 59,
+        width: 228,
+        height: 118,
+      }, scope);
+      if (!this.contextIsCurrent(generation) || !this.project) return;
+      this.project.nodes.push(view);
+      this.boardSelectedNodeID = view.node.id;
+      this.renderCollection();
+      await this.showCollectionPreview(view.itemKey);
+    } catch (error) {
+      if (this.contextIsCurrent(generation)) {
+        this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+      }
+    }
+  },
+
+  startBoardNodeDrag(event, view, element) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    let geometry = view.node.geometry;
+    this._boardPointer = {
+      view,
+      element,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: geometry.x,
+      startY: geometry.y,
+      moved: false,
+    };
+  },
+
+  moveBoardNodeDrag(event) {
+    let drag = this._boardPointer;
+    if (!drag) return;
+    let dx = event.clientX - drag.startClientX;
+    let dy = event.clientY - drag.startClientY;
+    if (!drag.moved && Math.hypot(dx, dy) < 3) return;
+    drag.moved = true;
+    drag.element.classList.add("dragging");
+    drag.element.style.left = `${drag.startX + dx}px`;
+    drag.element.style.top = `${drag.startY + dy}px`;
+  },
+
+  async finishBoardNodeDrag() {
+    let drag = this._boardPointer;
+    if (!drag) return;
+    this._boardPointer = null;
+    drag.element.classList.remove("dragging");
+    if (!drag.moved) {
+      this.selectBoardNode(drag.view);
+      return;
+    }
+    let x = Number.parseFloat(drag.element.style.left);
+    let y = Number.parseFloat(drag.element.style.top);
+    let previous = { ...drag.view.node.geometry };
+    drag.view.node.geometry = { ...previous, x, y };
+    let scope = this.context && this.context.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let generation = this.contextGeneration;
+    try {
+      let updated = await api.moveBoardNode(
+        drag.view.node.id,
+        drag.view.node.geometry,
+        scope,
+      );
+      if (!this.contextIsCurrent(generation)) return;
+      drag.view.node = updated.node;
+    } catch (error) {
+      drag.view.node.geometry = previous;
+      if (this.contextIsCurrent(generation)) {
+        this.renderProjectBoard();
+        this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+      }
+    }
+  },
+
+  selectBoardNode(view) {
+    this.boardSelectedNodeID = view.node.id;
+    document.querySelectorAll(".board-paper-node").forEach((element) => {
+      element.classList.toggle(
+        "selected",
+        element.dataset.nodeId === view.node.id,
+      );
+    });
+    if (view.itemKey) void this.showCollectionPreview(view.itemKey);
+  },
+
+  async deleteSelectedBoardNode() {
+    let nodeID = this.boardSelectedNodeID;
+    if (!nodeID || !this.project || !api.deleteBoardNode) return;
+    let scope = this.context && this.context.scope
+      ? Object.assign({}, this.context.scope)
+      : null;
+    let generation = this.contextGeneration;
+    try {
+      await api.deleteBoardNode(nodeID, scope);
+      if (!this.contextIsCurrent(generation) || !this.project) return;
+      this.project.nodes = this.project.nodes.filter(
+        (view) => view.node.id !== nodeID,
+      );
+      this.boardSelectedNodeID = null;
+      this.collectionPreview = null;
+      this.showCollection();
+      this.renderCollection();
+    } catch (error) {
+      if (this.contextIsCurrent(generation)) {
+        this.setCollectionStatus(this.strings.error + ": " + String(error), true);
+      }
     }
   },
 

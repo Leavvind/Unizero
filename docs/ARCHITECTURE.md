@@ -86,8 +86,15 @@ name without replacing either ID.
 Project and Board are separate schema-versioned documents under
 `<dataDir>/unizero/projects/`. Their local paths are not a sync protocol. Board nodes and
 manual edges already have independent document shapes so future edits do not require a
-whole-board last-write-wins merge. The current Home window only initializes and exposes
-the Project bundle; the editable Board renderer remains planned.
+whole-board last-write-wins merge.
+
+The current Home window renders a three-pane Project View. Collection papers drag onto a
+scrollable HTML Board; every drop first creates or reuses a stable Zotero-bound Paper,
+then creates a new paper-node instance. The same Paper may therefore occur more than
+once. Moving a card updates only its geometry document, and Delete writes a tombstone.
+Selecting a card reuses the existing Detail View on the right. The Paper catalog is
+stored separately under `<dataDir>/unizero/literature/`; a Zotero binding uses portable
+library scope plus item key, so refreshing metadata does not replace the Paper ID.
 
 ## Derived relations index
 
@@ -133,12 +140,13 @@ Design detail and the reasoning behind these constraints are in
 [UNICONNECTION.md](UNICONNECTION.md); the graph views are in
 [UNICONNECTION_GRAPH.md](UNICONNECTION_GRAPH.md).
 
-## Graph rendering
+## Board and graph rendering
 
 Unizero Home is a privileged XHTML dialog, not part of the TypeScript bundle.
 It reaches the add-on only through the plain-object API passed as `window.arguments[0]`.
 
-- `literature-explorer.js` owns view state, filtering, tables, and the detail tabs.
+- `literature-explorer.js` owns the Home Board, drag/move/selection state, filtering,
+  tables, and the detail tabs.
   Papers open as window tabs, but only one detail view exists in the DOM. `TabState` owns
   the item/kind, snapshot, busy and request generations, raw graph, detail graph filters,
   search/year filters, and scroll position. Switching projects that state into the shared
@@ -150,7 +158,9 @@ It reaches the add-on only through the plain-object API passed as `window.argume
   Collection filters and each paper tab's graph filters are independent.
 - `literature-graph.js` owns force simulation and canvas drawing, and consumes only the
   plain `LiteratureGraph` structure, so the renderer can be replaced without touching the
-  data layer.
+  data layer. The automatic Collection graph is shelved and no longer loads with Home;
+  the renderer remains for the optional full-paper Graph tab and migration/regression
+  checks.
 - A detail graph is not a one-hop topology. The bridge's `focusedGraph` endpoint asks
   `views.getLiteratureFocusedGraph` for the same complete scoped graph as Collection,
   marks the selected node, and centres the renderer on it.
@@ -219,7 +229,8 @@ Neither component reaches through the HTTP boundary to reuse the other's impleme
 | Data | Owner |
 | --- | --- |
 | Bibliographic fields and item relations | Zotero items |
-| Project identity, Board objects, manual layout and edges | Versioned Project documents |
+| Project identity, Board objects and paper-node layout | Versioned Project documents |
+| Stable library/external paper identity and Zotero bindings | UniZero Paper catalog |
 | Highlight and underline annotations | Zotero attachment annotations |
 | Provider responses | Refreshable add-on cache, one shard per item |
 | Reverse-reference index, coupling, graph topology | Derived from the reference cache; rebuildable, never authoritative |

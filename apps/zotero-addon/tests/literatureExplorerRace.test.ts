@@ -137,6 +137,33 @@ function graph(libraryID: number, itemKey: string) {
   };
 }
 
+function boardNodeView(
+  id: string,
+  itemKey: string,
+  geometry: Record<string, number>,
+) {
+  return {
+    node: {
+      id,
+      projectID: "project-1",
+      boardID: "board-1",
+      paperID: `paper-${itemKey}`,
+      kind: "paper",
+      geometry,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+    paper: {
+      id: `paper-${itemKey}`,
+      title: itemKey === "P1" ? "First Paper" : "Second Paper",
+      authors: ["Tester"],
+      year: "2026",
+      bindings: [{ library: "library", itemKey }],
+    },
+    itemKey,
+  };
+}
+
 function strings(): Record<string, string> {
   return new Proxy({}, {
     get: (_target, property) => String(property),
@@ -195,6 +222,7 @@ function createHarness(overrides: Record<string, unknown> = {}) {
       scope: { libraryID: 1, name: "Library A" },
     } as any,
   };
+  let nextBoardNode = 0;
   const api = {
     strings: strings(),
     getContext: () => context.current,
@@ -206,7 +234,20 @@ function createHarness(overrides: Record<string, unknown> = {}) {
       defaultBoard: {
         id: `board-${scope.libraryID}`,
       },
+      nodes: [],
     }),
+    addBoardNode: vi.fn(async (
+      itemKey: string,
+      geometry: Record<string, number>,
+    ) => boardNodeView(`node-${++nextBoardNode}`, itemKey, geometry)),
+    moveBoardNode: vi.fn(async (
+      nodeID: string,
+      geometry: Record<string, number>,
+    ) => {
+      const itemKey = nodeID === "node-2" ? "P2" : "P1";
+      return boardNodeView(nodeID, itemKey, geometry);
+    }),
+    deleteBoardNode: vi.fn(async (nodeID: string) => ({ id: nodeID })),
     collectionSnapshot: async (scope: any) =>
       collection(scope.libraryID, scope.name),
     snapshot: async (itemKey: string) =>
@@ -234,7 +275,7 @@ function createHarness(overrides: Record<string, unknown> = {}) {
   return { win, explorer, context, api };
 }
 
-describe("Literature Explorer async ownership", () => {
+describe("Unizero Home async ownership and Board interaction", () => {
   it("opens a Collection node in the shared split detail view", async () => {
     const harness = createHarness();
     await flush();
@@ -244,10 +285,6 @@ describe("Literature Explorer async ownership", () => {
         projectId: "project-1",
         boardId: "board-1",
       });
-    const renderer = (harness.win as any).LiteratureGraph;
-    renderer.resize.mockClear();
-    renderer.centerOnSelection.mockClear();
-
     await harness.explorer.showCollectionPreview("P1");
 
     expect(harness.explorer.mode).toBe("split");
@@ -264,15 +301,66 @@ describe("Literature Explorer async ownership", () => {
     expect(harness.explorer.tabs).toHaveLength(0);
     expect(harness.explorer.activeTab).toBe(-1);
     expect(harness.explorer.collectionPreview.itemKey).toBe("P1");
-    expect(renderer.resize).toHaveBeenCalledWith(
-      harness.explorer.graphs.collection,
+    expect(harness.explorer.graphs.collection).toBeNull();
+    harness.win.close();
+  });
+
+  it("creates duplicate Board cards from Collection papers and persists movement", async () => {
+    const harness = createHarness();
+    await flush();
+    const surface = harness.win.document.getElementById("project-board-surface")!;
+    const drop = async (itemKey: string, x: number, y: number) => {
+      await harness.explorer.dropPaperOnBoard({
+        preventDefault: () => undefined,
+        clientX: x,
+        clientY: y,
+        dataTransfer: {
+          getData: (type: string) =>
+            type === "application/x-unizero-paper" ? itemKey : "",
+        },
+      });
+    };
+
+    await drop("P1", 300, 240);
+    await drop("P1", 560, 420);
+
+    expect((harness.api.addBoardNode as any).mock.calls).toHaveLength(2);
+    expect(harness.explorer.project.nodes).toHaveLength(2);
+    expect(surface.querySelectorAll(".board-paper-node")).toHaveLength(2);
+    expect([...surface.querySelectorAll(".board-node-title")]
+      .map((element) => element.textContent))
+      .toEqual(["First Paper", "First Paper"]);
+
+    const firstView = harness.explorer.project.nodes[0];
+    const firstCard = surface.querySelector(
+      `[data-node-id="${firstView.node.id}"]`,
     );
-    expect(renderer.centerOnSelection).toHaveBeenCalledWith(
-      harness.explorer.graphs.collection,
-      0,
+    harness.explorer.startBoardNodeDrag({
+      button: 0,
+      preventDefault: () => undefined,
+      clientX: 100,
+      clientY: 100,
+    }, firstView, firstCard);
+    harness.explorer.moveBoardNodeDrag({ clientX: 150, clientY: 135 });
+    await harness.explorer.finishBoardNodeDrag();
+
+    expect(harness.api.moveBoardNode).toHaveBeenCalledWith(
+      firstView.node.id,
+      expect.objectContaining({
+        x: firstView.node.geometry.x,
+        y: firstView.node.geometry.y,
+      }),
+      expect.any(Object),
     );
-    expect(renderer.resize.mock.invocationCallOrder[0])
-      .toBeLessThan(renderer.centerOnSelection.mock.invocationCallOrder[0]);
+
+    await harness.explorer.deleteSelectedBoardNode();
+    expect(harness.api.deleteBoardNode).toHaveBeenCalledWith(
+      "node-2",
+      expect.any(Object),
+    );
+    expect(harness.explorer.project.nodes).toHaveLength(1);
+    expect(surface.querySelectorAll(".board-paper-node")).toHaveLength(1);
+    expect(harness.explorer.mode).toBe("collection");
     harness.win.close();
   });
 
@@ -650,7 +738,7 @@ describe("Literature Explorer async ownership", () => {
     harness.win.close();
   });
 
-  it("reloads topology only after a References action resolves", async () => {
+  it("invalidates legacy topology without rebuilding the shelved graph", async () => {
     const relation = deferred<any>();
     const graphCalls = vi.fn(async (scope: any) => ({
       scope: { libraryID: scope.libraryID },
@@ -679,7 +767,9 @@ describe("Literature Explorer async ownership", () => {
     });
     await action;
     await flush();
-    expect(graphCalls).toHaveBeenCalledTimes(before + 1);
+    expect(graphCalls).toHaveBeenCalledTimes(before);
+    expect(harness.explorer.graphData.collection).toBeNull();
+    expect(harness.explorer.graphLoaded.collection).toBe(false);
     harness.win.close();
   });
 

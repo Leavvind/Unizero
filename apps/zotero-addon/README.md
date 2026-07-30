@@ -13,9 +13,11 @@ the client for the local paper runtime.
   own detail tab. Papers open as tabs beside a pinned Project tab, so several
   can be read at once and returning to one costs no provider call;
 - one stable Project and default Board per Zotero Collection (or library root),
-  keyed by portable Zotero scope and Collection key. The current Home surface is
-  transitional: it still renders the former graph/table overview while the editable
-  three-pane Board is built on these Project documents;
+  keyed by portable Zotero scope and Collection key;
+- a three-pane Project View: collapsible Collection paper list, scrollable editable
+  Board, and collapsible References/Relation/Citations Detail View. Library papers can
+  be dragged onto the Board more than once, producing independent card instances whose
+  positions and deletion tombstones are persisted;
 - Collection paper status for Markdown conversion and cached References/Citations,
   with per-paper quick actions and relation drill-down;
 - a Relation view per paper: which library papers cite it, and which share the most of
@@ -60,8 +62,8 @@ responsibility when a feature change needs it.
 
 `addon/chrome/content/panel.js`, `literature-explorer.js`, and `literature-graph.js` are
 plain JavaScript outside the TypeScript bundle: not compiled and not type checked. They
-implement the runtime-backed template editor, the transitional Home workbench and relation
-browser, and the force-directed graph renderer. Vitest loads the real Explorer XHTML and
+implement the runtime-backed template editor, the Home Board and relation browser, and the
+shelved force-directed graph renderer/detail graph. Vitest loads the real Home XHTML and
 plain scripts in `happy-dom`, with bridge and renderer mocks, to cover request ownership,
 tab restoration, filtering, and renderer lifecycle. Zotero APIs, privileged-window
 lifecycle, and the real canvas still require a manual Zotero check.
@@ -89,6 +91,8 @@ Two graph constraints are easy to break and expensive to diagnose:
 | --- | --- |
 | Per-item provider caches | `<Zotero data dir>/unizero/cache/` shard tree |
 | Project and default Board documents | `<Zotero data dir>/unizero/projects/` typed object tree |
+| Board paper nodes, geometry, and tombstones | Per-Board typed documents under `unizero/projects/` |
+| Stable Zotero-bound Paper catalog | `<Zotero data dir>/unizero/literature/` |
 | Graph layout coordinates | `<Zotero data dir>/unizero/graph/<libraryID>.json` |
 | Graph display and force settings | `<Zotero data dir>/unizero/graph/settings.json` |
 | Zotero item ↔ Obsidian URL bindings | `<Zotero data dir>/unizero/markdown-links/<libraryID>.json` |

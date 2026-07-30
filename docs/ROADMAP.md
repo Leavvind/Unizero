@@ -78,13 +78,10 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Unizero Home
 
-- Replace the transitional force-directed Collection overview with a three-pane Project
-  View: collapsible Zotero paper list, editable Board, and collapsible Detail View.
-- Persist independently addressable paper-node instances, geometry, manual edges,
-  tombstones, notes, and visual properties. The same Paper may have several nodes.
-- Let library papers and Detail discoveries drag onto the Board. Dropping an external
-  paper must not create a Zotero item; a later explicit import adds a binding to the same
-  stable Paper.
+- Add manual edge CRUD and rendering, then notes, resizing, colours, selection tools,
+  pan/zoom beyond the current scrollable coordinate plane, and per-object sync metadata.
+- Let Detail discoveries drag onto the Board. Dropping an external paper must not create
+  a Zotero item; a later explicit import adds a binding to the same stable Paper.
 - Project automatic Relations onto Board instances only as hover/selection hints.
   UniConnection remains derived and must not write those hints as manual edges.
 - Replace the hard-coded node menu with capability-based actions, then add named raw

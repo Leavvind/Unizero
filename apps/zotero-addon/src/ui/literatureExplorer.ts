@@ -17,7 +17,23 @@ import {
   type LiteratureRelationKind,
 } from "../modules/literatureRelations";
 import type { RelationSourceKey } from "../modules/mergeRelations";
-import { ensureProjectForScope } from "../projects/projectRepository";
+import {
+  createDefaultBoardPaperNode,
+  deleteDefaultBoardNode,
+  ensureProjectForScope,
+  listDefaultBoardNodes,
+  moveDefaultBoardNode,
+} from "../projects/projectRepository";
+import {
+  ensureCatalogPaper,
+  readCatalogPaper,
+} from "../projects/paperCatalog";
+import type {
+  BoardNodeGeometry,
+  BoardPaperNodeDocument,
+  PaperDocument,
+  ProjectBundle,
+} from "../projects/types";
 import { getString } from "../utils/locale";
 import {
   markdownAttachment,
@@ -65,6 +81,27 @@ function strings() {
   return {
     title: read("literature-explorer-title", "Unizero Home"),
     collectionOverview: read("literature-collection-overview-label", "Project"),
+    projectLibrary: read("literature-project-library-label", "Collection papers"),
+    boardEmpty: read(
+      "literature-board-empty-label",
+      "Drag papers here to start the Board",
+    ),
+    boardHint: read(
+      "literature-board-hint-label",
+      "Drop the same paper more than once to create another card",
+    ),
+    collapseLibrary: read(
+      "literature-collapse-library-label",
+      "Collapse paper list",
+    ),
+    expandLibrary: read(
+      "literature-expand-library-label",
+      "Expand paper list",
+    ),
+    collapseDetail: read(
+      "literature-collapse-detail-label",
+      "Collapse Detail View",
+    ),
     collectionSearch: read(
       "literature-collection-search-placeholder",
       "Search this Collection",
@@ -231,6 +268,34 @@ function strings() {
   };
 }
 
+interface BoardNodeView {
+  node: BoardPaperNodeDocument;
+  paper: PaperDocument;
+  itemKey?: string;
+}
+
+function boardNodeView(
+  node: BoardPaperNodeDocument,
+  paper: PaperDocument,
+  libraryID: number,
+): BoardNodeView {
+  const binding = paper.bindings.find((entry) =>
+    Boolean(Zotero.Items.getByLibraryAndKey(libraryID, entry.itemKey)));
+  return { node, paper, itemKey: binding?.itemKey };
+}
+
+async function projectSnapshot(
+  scope: LiteratureCollectionScope,
+): Promise<ProjectBundle & { nodes: BoardNodeView[] }> {
+  const bundle = await ensureProjectForScope(scope);
+  const nodes = await listDefaultBoardNodes(bundle);
+  return {
+    ...bundle,
+    nodes: await Promise.all(nodes.map(async (node) =>
+      boardNodeView(node, await readCatalogPaper(node.paperID), scope.libraryID))),
+  };
+}
+
 function explorerApi() {
   return {
     strings: strings(),
@@ -239,7 +304,45 @@ function explorerApi() {
       : null,
     project: async (scope?: LiteratureCollectionScope) => {
       if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
-      return ensureProjectForScope(scope || explorerContext.scope);
+      return projectSnapshot(scope || explorerContext.scope);
+    },
+    addBoardNode: async (
+      itemKey: string,
+      geometry: Partial<BoardNodeGeometry>,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      const item = contextItem(itemKey, targetScope.libraryID);
+      const paper = await ensureCatalogPaper(item);
+      const node = await createDefaultBoardPaperNode(
+        bundle,
+        paper.id,
+        geometry,
+      );
+      return boardNodeView(node, paper, targetScope.libraryID);
+    },
+    moveBoardNode: async (
+      nodeID: string,
+      geometry: Partial<BoardNodeGeometry>,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      const node = await moveDefaultBoardNode(bundle, nodeID, geometry);
+      const paper = await readCatalogPaper(node.paperID);
+      return boardNodeView(node, paper, targetScope.libraryID);
+    },
+    deleteBoardNode: async (
+      nodeID: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const bundle = await ensureProjectForScope(scope || explorerContext.scope);
+      await deleteDefaultBoardNode(bundle, nodeID);
+      return { id: nodeID };
     },
     collectionSnapshot: async (scope?: LiteratureCollectionScope) => {
       if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }

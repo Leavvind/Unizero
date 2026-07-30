@@ -233,6 +233,147 @@
     .collection-toolbar .shared-field { width: 92px; }
     /* Graph-only controls have no meaning once the table leads. */
     #collection-view.table-mode .graph-filter { display: none; }
+    /* ----------------------------------------------------------- Project Board */
+    .project-layout {
+      display: grid;
+      grid-template-columns: minmax(210px, 260px) minmax(360px, 1fr);
+      min-height: 520px;
+      height: calc(100vh - 205px);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--card);
+    }
+    .project-library-pane {
+      min-width: 0;
+      overflow: hidden;
+      border-right: 1px solid var(--border);
+      background: color-mix(in srgb, var(--card) 94%, var(--soft));
+    }
+    .project-pane-title {
+      padding: 10px 11px 7px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .project-library-list {
+      height: calc(100% - 34px);
+      overflow-y: auto;
+      padding: 0 7px 10px;
+    }
+    .project-library-item {
+      display: block;
+      width: 100%;
+      min-height: 0;
+      margin: 2px 0;
+      padding: 8px 9px;
+      border-color: transparent;
+      background: transparent;
+      text-align: left;
+      cursor: grab;
+    }
+    .project-library-item:active { cursor: grabbing; }
+    .project-library-item-title {
+      display: block;
+      overflow: hidden;
+      font-weight: 650;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .project-library-item-meta {
+      display: block;
+      overflow: hidden;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .project-board-pane { min-width: 0; min-height: 0; position: relative; }
+    .project-board-viewport {
+      position: absolute;
+      inset: 0;
+      overflow: auto;
+      overscroll-behavior: contain;
+      background: var(--bg);
+    }
+    .project-board-surface {
+      position: relative;
+      width: 3200px;
+      height: 2200px;
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(color-mix(in srgb, var(--border) 42%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--border) 42%, transparent) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+    .project-board-empty {
+      position: absolute;
+      z-index: 0;
+      top: 50%;
+      left: 50%;
+      max-width: 360px;
+      color: var(--muted);
+      text-align: center;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    .project-board-empty strong { display: block; color: var(--fg); font-size: 14px; }
+    .project-board-empty span { display: block; margin-top: 5px; font-size: 11px; }
+    .board-paper-node {
+      position: absolute;
+      z-index: 1;
+      overflow: hidden;
+      padding: 11px 12px;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 9px;
+      background: var(--card);
+      box-shadow: 0 3px 10px rgba(0, 0, 0, .12);
+      cursor: grab;
+      user-select: none;
+    }
+    .board-paper-node:hover {
+      border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+      border-left-color: var(--accent);
+      box-shadow: 0 5px 16px rgba(0, 0, 0, .16);
+    }
+    .board-paper-node.selected {
+      z-index: 2;
+      outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+      outline-offset: 1px;
+    }
+    .board-paper-node.dragging { cursor: grabbing; opacity: .92; }
+    .board-node-title {
+      display: -webkit-box;
+      overflow: hidden;
+      font-weight: 700;
+      line-height: 1.35;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+    }
+    .board-node-meta {
+      overflow: hidden;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #collection-view.library-collapsed .project-layout {
+      grid-template-columns: 0 minmax(360px, 1fr);
+    }
+    #collection-view.library-collapsed .project-library-pane {
+      border: none;
+      visibility: hidden;
+    }
+    /* The old force graph and management table remain callable for regression and
+       migration checks, but are no longer a user-facing Home surface. */
+    #collection-view .collection-graph-area,
+    #collection-view .table-panel,
+    #collection-view .graph-filter,
+    #collection-view #collection-view-toggle { display: none !important; }
     .view[hidden] { display: none !important; }
     .status {
       min-height: 22px;
@@ -667,7 +808,7 @@
     }
     #explorer-workspace.split-mode {
       display: grid;
-      grid-template-columns: minmax(280px, 1.05fr) minmax(400px, .95fr);
+      grid-template-columns: minmax(580px, 1.2fr) minmax(400px, .8fr);
       align-items: start;
       gap: 14px;
     }
@@ -684,7 +825,8 @@
       flex-basis: 100%;
       max-width: none;
     }
-    #explorer-workspace.split-mode #collection-view .graph-wrap {
+    #explorer-workspace.split-mode #collection-view .project-layout {
+      grid-template-columns: minmax(180px, 210px) minmax(340px, 1fr);
       height: calc(100vh - 246px);
     }
     #explorer-workspace.split-mode #detail-view {
@@ -699,6 +841,10 @@
     #explorer-workspace.split-mode #detail-view .table-wrap {
       min-height: 360px;
       max-height: calc(100vh - 330px);
+    }
+    .detail-collapse {
+      margin-left: auto;
+      color: var(--muted);
     }
 
     /* Floating preview card shown on row hover. */
@@ -822,9 +968,27 @@
         <button id="collection-mode-graph" class="active"></button>
         <button id="collection-mode-table"></button>
       </div>
+      <button id="toggle-library-pane"></button>
       <button id="collection-refresh"></button>
     </div>
     <div class="status" id="collection-status" role="status"></div>
+
+    <div class="project-layout" id="project-layout">
+      <aside class="project-library-pane" id="project-library-pane">
+        <div class="project-pane-title" id="project-library-title"></div>
+        <div class="project-library-list" id="project-library-list"></div>
+      </aside>
+      <section class="project-board-pane">
+        <div class="project-board-viewport" id="project-board-viewport">
+          <div class="project-board-surface" id="project-board-surface">
+            <div class="project-board-empty" id="project-board-empty">
+              <strong id="project-board-empty-title"></strong>
+              <span id="project-board-empty-hint"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <div class="collection-graph-area">
       <div class="graph-wrap" id="collection-graph-wrap">
@@ -862,6 +1026,7 @@
       <button class="tab" id="tab-references" data-kind="references"></button>
       <button class="tab" id="tab-relation" data-kind="relation"></button>
       <button class="tab" id="tab-citations" data-kind="citations"></button>
+      <button class="detail-collapse" id="collapse-detail"></button>
     </nav>
 
     <div class="graph-wrap" id="detail-graph-wrap" hidden="hidden">

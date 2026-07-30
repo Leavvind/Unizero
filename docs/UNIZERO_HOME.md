@@ -1,7 +1,8 @@
 # Unizero Home — Project View 设计
 
-> 状态：Project/Board/Paper schema、每 Collection 的稳定 Project 初始化和产品改名已实现；
-> 三栏 Board、统一 Paper catalog 与同步仍在施工。未完成工作以
+> 状态：Project/Board/Paper schema、每 Collection 的稳定 Project、三栏 Board MVP、
+> 库内 Paper catalog、重复节点、移动和删除 tombstone 已实现；库外 Paper、手工连线、
+> 自动关系提示与同步仍在施工。未完成工作以
 > [ROADMAP.md](ROADMAP.md) 为准。
 
 ## 1. 产品决定
@@ -67,6 +68,10 @@ Zotero + References → UniConnection → transient Board hints
 
 同一 Paper 有多个 Node 时，hover 应高亮所有实例。为避免边爆炸，自动边默认只做
 临时 overlay，绝不写入 manual edge 文档。
+
+当前 Board 使用可滚动 HTML coordinate plane。左栏库内论文可重复拖入；每次 drop
+创建独立 Node，移动只更新该 Node geometry，Delete 写入 tombstone。点击 Node
+复用右侧现有 Detail View。自动关系 overlay 与手工 Edge 尚未接入。
 
 ## 5. 本地持久化与同步边界
 

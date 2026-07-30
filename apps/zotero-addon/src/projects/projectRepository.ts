@@ -16,8 +16,11 @@ import { config } from "../../package.json";
 import type { LiteratureCollectionScope } from "../modules/literatureRelations";
 import { libraryScope } from "../zotero/libraryScope";
 import {
+  BOARD_NODE_SCHEMA,
   BOARD_SCHEMA,
   PROJECT_SCHEMA,
+  type BoardNodeGeometry,
+  type BoardPaperNodeDocument,
   type BoardDocument,
   type ProjectBundle,
   type ProjectDocument,
@@ -33,8 +36,10 @@ interface ProjectIndexDocument {
 
 interface ProjectRepositoryOptions {
   now?: () => number;
-  createID?: (kind: "project" | "board") => string;
+  createID?: (kind: ProjectObjectKind) => string;
 }
+
+export type ProjectObjectKind = "project" | "board" | "node" | "paper";
 
 function isMissingFile(error: any): boolean {
   return error?.name === "NotFoundError" || error?.name === "NotAllowedError";
@@ -59,8 +64,26 @@ function randomHex(bytes: number): string {
   throw new Error("A secure ID generator is unavailable");
 }
 
-function createStableID(kind: "project" | "board"): string {
+export function createProjectObjectID(kind: ProjectObjectKind): string {
   return `${kind}_${randomHex(16)}`;
+}
+
+const DEFAULT_NODE_WIDTH = 228;
+const DEFAULT_NODE_HEIGHT = 118;
+
+export function validBoardGeometry(
+  value: Partial<BoardNodeGeometry>,
+): BoardNodeGeometry {
+  const finite = (input: unknown, fallback: number) => {
+    const number = Number(input);
+    return Number.isFinite(number) ? number : fallback;
+  };
+  return {
+    x: Math.max(-100_000, Math.min(100_000, finite(value.x, 0))),
+    y: Math.max(-100_000, Math.min(100_000, finite(value.y, 0))),
+    width: Math.max(160, Math.min(720, finite(value.width, DEFAULT_NODE_WIDTH))),
+    height: Math.max(80, Math.min(520, finite(value.height, DEFAULT_NODE_HEIGHT))),
+  };
 }
 
 export function projectSubjectForScope(
@@ -89,7 +112,7 @@ function sameSubject(left: ProjectSubject, right: ProjectSubject): boolean {
 
 export class ProjectRepository {
   private readonly now: () => number;
-  private readonly createID: (kind: "project" | "board") => string;
+  private readonly createID: (kind: ProjectObjectKind) => string;
   private index?: ProjectIndexDocument;
   private writes: Promise<void> = Promise.resolve();
 
@@ -98,7 +121,7 @@ export class ProjectRepository {
     options: ProjectRepositoryOptions = {},
   ) {
     this.now = options.now || (() => Date.now());
-    this.createID = options.createID || createStableID;
+    this.createID = options.createID || createProjectObjectID;
   }
 
   public async ensureProject(
@@ -110,6 +133,122 @@ export class ProjectRepository {
       .catch(() => undefined)
       .then(async () => {
         result = await this.ensureProjectExclusive(subject, name);
+      });
+    this.writes = operation;
+    await operation;
+    return result;
+  }
+
+  public async listBoardNodes(
+    projectID: string,
+    boardID: string,
+  ): Promise<BoardPaperNodeDocument[]> {
+    await this.writes.catch(() => undefined);
+    const directory = this.nodesPath(projectID, boardID);
+    let paths: string[];
+    try {
+      paths = await IOUtils.getChildren(directory);
+    } catch (error) {
+      if (isMissingFile(error)) { return []; }
+      throw error;
+    }
+    const nodes: BoardPaperNodeDocument[] = [];
+    for (const path of paths) {
+      if (!String(path).endsWith(".json")) { continue; }
+      try {
+        const node = await this.readJSON(path);
+        if (
+          node?.schema === BOARD_NODE_SCHEMA &&
+          node?.projectID === projectID &&
+          node?.boardID === boardID &&
+          node?.kind === "paper" &&
+          typeof node?.paperID === "string" &&
+          !node.deletedAt
+        ) {
+          nodes.push({ ...node, geometry: validBoardGeometry(node.geometry || {}) });
+        }
+      } catch (error) {
+        ztoolkit.log(`Board node unreadable at ${path}: ${error}`);
+      }
+    }
+    return nodes.sort((left, right) =>
+      left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+  }
+
+  public async createPaperNode(
+    projectID: string,
+    boardID: string,
+    paperID: string,
+    geometry: Partial<BoardNodeGeometry>,
+  ): Promise<BoardPaperNodeDocument> {
+    let result!: BoardPaperNodeDocument;
+    const operation = this.writes
+      .catch(() => undefined)
+      .then(async () => {
+        await this.assertBoard(projectID, boardID);
+        const timestamp = this.now();
+        result = {
+          schema: BOARD_NODE_SCHEMA,
+          id: this.createID("node"),
+          projectID,
+          boardID,
+          kind: "paper",
+          paperID,
+          geometry: validBoardGeometry(geometry),
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        await this.writeJSON(this.nodePath(projectID, boardID, result.id), result);
+      });
+    this.writes = operation;
+    await operation;
+    return result;
+  }
+
+  public async moveBoardNode(
+    projectID: string,
+    boardID: string,
+    nodeID: string,
+    geometry: Partial<BoardNodeGeometry>,
+  ): Promise<BoardPaperNodeDocument> {
+    let result!: BoardPaperNodeDocument;
+    const operation = this.writes
+      .catch(() => undefined)
+      .then(async () => {
+        const current = await this.readBoardNode(projectID, boardID, nodeID);
+        const patch: Partial<BoardNodeGeometry> = {};
+        for (const key of ["x", "y", "width", "height"] as const) {
+          const value = geometry[key];
+          if (Number.isFinite(Number(value))) { patch[key] = Number(value); }
+        }
+        result = {
+          ...current,
+          geometry: validBoardGeometry({
+            ...current.geometry,
+            ...patch,
+          }),
+          updatedAt: this.now(),
+        };
+        await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
+      });
+    this.writes = operation;
+    await operation;
+    return result;
+  }
+
+  public async deleteBoardNode(
+    projectID: string,
+    boardID: string,
+    nodeID: string,
+  ): Promise<BoardPaperNodeDocument> {
+    let result!: BoardPaperNodeDocument;
+    const operation = this.writes
+      .catch(() => undefined)
+      .then(async () => {
+        const current = await this.readBoardNode(projectID, boardID, nodeID);
+        const timestamp = this.now();
+        result = { ...current, updatedAt: timestamp, deletedAt: timestamp };
+        await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
       });
     this.writes = operation;
     await operation;
@@ -197,6 +336,36 @@ export class ProjectRepository {
     return { project, defaultBoard };
   }
 
+  private async assertBoard(projectID: string, boardID: string): Promise<void> {
+    const board = await this.readJSON(this.boardPath(projectID, boardID));
+    if (
+      board?.schema !== BOARD_SCHEMA ||
+      board?.id !== boardID ||
+      board?.projectID !== projectID
+    ) {
+      throw new Error(`Unsupported or invalid Board document: ${boardID}`);
+    }
+  }
+
+  private async readBoardNode(
+    projectID: string,
+    boardID: string,
+    nodeID: string,
+  ): Promise<BoardPaperNodeDocument> {
+    const node = await this.readJSON(this.nodePath(projectID, boardID, nodeID));
+    if (
+      node?.schema !== BOARD_NODE_SCHEMA ||
+      node?.id !== nodeID ||
+      node?.projectID !== projectID ||
+      node?.boardID !== boardID ||
+      node?.kind !== "paper" ||
+      node?.deletedAt
+    ) {
+      throw new Error(`Unsupported or invalid Board node: ${nodeID}`);
+    }
+    return { ...node, geometry: validBoardGeometry(node.geometry || {}) };
+  }
+
   private async loadIndex(): Promise<ProjectIndexDocument> {
     if (this.index) { return this.index; }
     try {
@@ -250,6 +419,21 @@ export class ProjectRepository {
       `${boardID}.json`,
     );
   }
+
+  private nodesPath(projectID: string, boardID: string): string {
+    return PathUtils.join(
+      this.root,
+      "objects",
+      projectID,
+      "boards",
+      boardID,
+      "nodes",
+    );
+  }
+
+  private nodePath(projectID: string, boardID: string, nodeID: string): string {
+    return PathUtils.join(this.nodesPath(projectID, boardID), `${nodeID}.json`);
+  }
 }
 
 let repository: ProjectRepository | undefined;
@@ -271,5 +455,51 @@ export async function ensureProjectForScope(
   return defaultRepository().ensureProject(
     projectSubjectForScope(scope),
     scope.name,
+  );
+}
+
+export async function listDefaultBoardNodes(
+  bundle: ProjectBundle,
+): Promise<BoardPaperNodeDocument[]> {
+  return defaultRepository().listBoardNodes(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+  );
+}
+
+export async function createDefaultBoardPaperNode(
+  bundle: ProjectBundle,
+  paperID: string,
+  geometry: Partial<BoardNodeGeometry>,
+): Promise<BoardPaperNodeDocument> {
+  return defaultRepository().createPaperNode(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+    paperID,
+    geometry,
+  );
+}
+
+export async function moveDefaultBoardNode(
+  bundle: ProjectBundle,
+  nodeID: string,
+  geometry: Partial<BoardNodeGeometry>,
+): Promise<BoardPaperNodeDocument> {
+  return defaultRepository().moveBoardNode(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+    nodeID,
+    geometry,
+  );
+}
+
+export async function deleteDefaultBoardNode(
+  bundle: ProjectBundle,
+  nodeID: string,
+): Promise<BoardPaperNodeDocument> {
+  return defaultRepository().deleteBoardNode(
+    bundle.project.id,
+    bundle.defaultBoard.id,
+    nodeID,
   );
 }
