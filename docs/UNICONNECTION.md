@@ -12,7 +12,7 @@
 | Relation 面板 | 在用 | `views.ts` 生产端 + 详情页标签 |
 | Board hover 关系提示 | 在用 | `boardConnections()` → `boardRelationHints` |
 | 单篇 Graph 标签 | 在用 | `focusedGraph` + `literature-graph.js` |
-| 全库总览图、管理表 | **已下线**，见 §4 | 源码仍在，被 CSS 隐藏 |
+| 全库总览图、管理表 | **已删除**，见 §4 | — |
 
 现行行为的权威描述在 [ARCHITECTURE.md](ARCHITECTURE.md)，未做的事在 [ROADMAP.md](ROADMAP.md)。
 本文按「设计依据 + 事故记录」读，不按待办清单读；§3 的约束是最该反复读的部分。
@@ -72,17 +72,18 @@ citations 由 `views.getLiteratureGraph` 事后富化，索引层因此保持宿
 8. **Relation 完整度受 references 覆盖率限制。** publisher elision 和无 DOI 的论文是图里的
    哑节点。这是真正的上限，不是机制问题。
 
-## 4. 图视图：全库图已下线
+## 4. 图视图：全库图已删除
 
-Home 的主视图改为三栏 Project View 之后，`#collection-view` 里的全库总览图和管理表被
-`literature-explorer.xhtml` 的 CSS 隐藏，不再是用户可见的 Home 界面。保留下来的是：
+Home 的主视图改为三栏 Project View 之后，全库总览图和管理表先被隐藏，随后连同它们专属的
+状态刷新、表格快捷操作和筛选一起删除。保留下来的是：
 
 - **Board hover 关系提示**——`boardConnections` 把 UniConnection 的边投影到当前 Board 的
   Paper 集合上，画成临时 overlay，**绝不写入 manual edge 文档**；
 - **单篇 Graph 标签**——`focusedGraph` 取同一张完整库内图并标记居中焦点。它刻意不裁成 1 跳
   邻域：与焦点没有直接边的论文可能只隔一步，砍掉就把这层结构丢了。
 
-下面几条是实机事故换来的。它们对现存的 Graph 标签仍然全部有效，重启全库图前也要先读。
+下面几条是实机事故换来的。它们对现存的 Graph 标签仍然全部有效，日后若要重建全库图，
+先读这一节。
 
 ### 4.1 force-graph 的渲染循环是单点故障
 

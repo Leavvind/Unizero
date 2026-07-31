@@ -63,7 +63,7 @@ data are not part of this structure.
 | `panel.xhtml` / `panel.js` | Runtime jobs, service notices, template editor |
 | `literature-explorer.xhtml` | Home markup, CSS variables, and light/dark theming |
 | `literature-explorer.js` | Home Board state, pointer interaction, filters, detail tabs, graph hosting |
-| `literature-graph.js` | Per-paper Graph tab force simulation; also the retired Collection graph |
+| `literature-graph.js` | Force simulation and canvas drawing for the per-paper Graph tab |
 | `vendor/force-graph.min.js` | Vendored MIT force-graph UMD build; see the sibling LICENSE |
 
 These files talk to the add-on only through the plain-object API supplied as

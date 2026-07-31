@@ -43,9 +43,9 @@ portable Zotero scope and Collection key.
   incomplete pages and provider failures preserve prior evidence. Explicit identity merges
   leave redirects for old Paper IDs.
 - A force-directed Graph tab per paper, centred on it, with adjustable display and force
-  settings and a per-node menu for PDF, Markdown, and relation actions. The full-library
-  Collection graph and the management table it toggled with are retired surfaces — still
-  in the source for regression checks, but no longer shown.
+  settings and a per-node menu for PDF, Obsidian, and relation actions. This is the only
+  graph surface: the full-library Collection graph and the management table it toggled
+  with were removed when the Board replaced them.
 
 **Conversion, annotations, and sync**
 

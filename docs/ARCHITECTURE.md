@@ -78,103 +78,95 @@ environment. The derived index and Unizero Home belong to
 ## Project identity and persistence
 
 Opening Unizero Home for a Zotero Collection ensures one stable Project and one default
-Board. The subject is the portable personal/group library scope plus the Zotero
-Collection key; numeric `libraryID` and `collectionID` remain local lookup values and are
-not persisted as project identity. Renaming a Collection updates the Project display
-name without replacing either ID.
+Board. The subject is the portable personal/group library scope plus the Zotero Collection
+key; numeric `libraryID` and `collectionID` remain local lookup values and are never
+persisted as project identity. Renaming a Collection updates the display name only.
 
 Project and Board are separate schema-versioned documents under
-`<dataDir>/unizero/projects/`. Their local paths are not a sync protocol. Board nodes and
-manual edges are independent documents, so moving a card or changing one connection does
-not require a whole-board last-write-wins merge.
+`<dataDir>/unizero/projects/`, and their local paths are not a sync protocol. Board nodes
+and manual edges are independent documents, so moving a card or changing one connection
+does not force a whole-board last-write-wins merge. Card geometry, edges, and tombstones
+are persisted per object; the Board camera is transient window state and shares no
+document with them. The same Paper may back more than one node, so edges and geometry
+belong to node instances, not to Papers.
+
+Board node schema 1 is a discriminated union: existing `kind: "paper"` documents remain
+valid standalone-paper shorthand, while `kind: "text"` documents own an ordered block
+array whose blocks carry stable IDs. Embedding copies no Paper metadata and creates no
+Zotero item.
+
+## Sync
 
 Project documents sync through a backend-neutral engine using per-device manifests and
-immutable packs. The WebDAV adapter owns only HTTPS, Basic authorization, collections,
-and conditional requests. A process-wide scheduler can run after a delayed startup and
-then at a user-selected interval of 30 minutes or longer; completion-based timers and the
-service's in-flight promise prevent overlapping runs. Background result notifications
-are separately configurable.
+immutable packs. The WebDAV adapter owns only HTTPS, Basic authorization, collections, and
+conditional requests. A process-wide scheduler runs after a delayed startup and then at a
+user-selected interval of 30 minutes or longer; completion-based timers and the service's
+in-flight promise prevent overlapping runs.
 
-One run transfers a bounded number of packs, so a large first sync completes over several
-runs rather than one long transfer. A run that reports remaining work is a continuation,
-not a result: the scheduler retries it in seconds instead of waiting out the interval,
-a manual sync loops until nothing remains, and neither reports success mid-transfer.
+Three rules keep a device from being stranded or misreported:
 
-A pack written by a newer build may carry a namespace this one has not registered. Those
-documents are skipped and reported, never fatal: throwing would stop the pack — and every
-later pack — from applying, permanently stranding that device. The checkpoint records the
-skipped packs and the namespaces responsible, and a build that registers one of them
-replays exactly those packs. Everything a checksum or pack ID is computed over uses
-code-unit ordering and invariant case folding, so two devices in different locales agree
-on the identity of identical data.
+- **A run that reports remaining work is a continuation, not a result.** One run transfers
+  a bounded number of packs, so a large first sync spans several. The scheduler retries in
+  seconds rather than waiting out the interval, a manual sync loops until nothing remains,
+  and neither claims success mid-transfer.
+- **An unknown namespace is skipped, never fatal.** A pack from a newer build may carry a
+  namespace this one has not registered; throwing would stop that pack and every later one
+  from applying, permanently stranding the device. The checkpoint records the skipped packs
+  and the namespaces responsible, and a build that registers one replays exactly those.
+- **Content addressing is locale-independent.** Everything a checksum or pack ID is
+  computed over uses code-unit ordering and invariant case folding, so two devices in
+  different locales agree on the identity of identical data.
 
-The WebDAV application password is device-local secret state. It is stored in Firefox's
-Login Manager under the WebDAV origin and an add-on-specific realm, following Zotero's
-own credential-storage boundary without reading or overwriting Zotero's WebDAV entry.
-URLs, usernames, schedule preferences, and last-run diagnostics remain ordinary local
-preferences; no credential enters a typed document, pack, checkpoint, or log.
+The WebDAV application password is device-local secret state, stored in Firefox's Login
+Manager under the WebDAV origin and an add-on-specific realm — Zotero's own credential
+boundary, without reading or overwriting Zotero's WebDAV entry. URLs, usernames, schedule
+preferences, and last-run diagnostics are ordinary local preferences. No credential enters
+a typed document, pack, checkpoint, or log. Remote Project object IDs are validated as
+bounded portable names both at the namespace boundary and again before repository path
+construction.
 
-Remote Project object IDs are validated as bounded portable names both at the sync
-namespace boundary and again before repository path construction. Catalog ingestion is
-additive and cannot prevent the established References/Citations cache from being written
-when catalog data is damaged or ambiguous.
+## Paper catalog
 
-Board node schema 1 is a discriminated union. Existing `kind: "paper"` documents remain
-valid standalone-paper shorthand. `kind: "text"` documents own an ordered block array;
-each text or paper-reference block has a stable block ID, and paper blocks reference the
-same Paper catalog used by standalone nodes. No Paper metadata is copied into the node
-and no Zotero item is created by embedding.
+The catalog is stored separately under `<dataDir>/unizero/literature/`. A Zotero binding
+uses portable library scope plus item key, so refreshing metadata never replaces a Paper
+ID. Dropping an out-of-library result creates or reuses an identifier-aliased Paper
+without creating a Zotero item; a later Zotero-bound observation with a matching
+identifier adds a binding to that same Paper instead of replacing its ID.
 
-Card geometry, manual edges, and tombstones are persisted per object; the Board camera is
-transient window state and shares no document with them. The same Paper may back more than
-one node, so node instances — not Papers — are what edges and geometry belong to.
-
-The Paper catalog is stored separately under `<dataDir>/unizero/literature/`. A Zotero
-binding uses portable library scope plus item key, so refreshing metadata does not replace
-the Paper ID. Dropping an out-of-library result creates or reuses an identifier-aliased
-Paper without creating a Zotero item; a later Zotero-bound observation with a matching
-identifier adds a binding to that same Paper rather than replacing its ID.
-
-Loading a References or Citations snapshot materializes every result in this catalog with
-`cache` retention, whether or not it reaches the Board. Reliable DOI, arXiv, Semantic
-Scholar, and OpenAlex aliases converge provider results. An unidentified result receives a
-query-scoped provisional mapping keyed by bibliographic fingerprint rather than provider
-list position, so reopening the same saved snapshot reuses its Paper without making title
-or author a global merge key. Retention is monotonic:
+Loading a References or Citations snapshot materializes every result at `cache` retention,
+whether or not it reaches the Board, and retention only ever climbs:
 
 ```text
 cache → pinned → zotero
 ```
 
-The same snapshot writes `LiteratureCitationObservation` documents under
-`unizero/literature/observations/`: References records `seed → result`, Citations records
-`result → seed`, and provider, query kind, retrieval time, and source order stay on the
-observation rather than being flattened into a sourceless permanent fact. Repeated reads
-update the same provider/query observation and never move its retrieval time backwards.
-An index maps each endpoint Paper ID to its observation IDs, so Board-scoped relation
-reads open only observations adjacent to Papers on that Board.
+Reliable DOI, arXiv, Semantic Scholar, and OpenAlex aliases converge provider results. An
+unidentified result gets a query-scoped provisional mapping keyed by bibliographic
+fingerprint rather than by position in a provider's list, so reopening a saved snapshot
+reuses its Paper — without title or author ever becoming a global merge key. Where an
+alias set resolves to more than one Paper, identifier inspection reports the conflict
+rather than silently picking one; an explicit merge chooses the canonical Paper, keeps its
+Zotero binding as metadata owner, rewrites and deduplicates observations, and leaves a
+`paper-redirect` so existing Board and future sync references stay valid.
 
-Only a successful terminal provider snapshot may replace older observations for the same
-seed, query kind, and provider. An incomplete citation page or provider failure never
-compacts prior evidence. After a replacement, cache-only Papers with no remaining
-observation are removed; pinned and Zotero-bound Papers are never garbage-collected.
-
-Identifier inspection reports when a proposed alias set resolves to more than one Paper
-instead of selecting one silently. An explicit merge chooses a canonical Paper, preserves
-the canonical Zotero binding as metadata owner, rewrites and deduplicates observations,
-and writes a `paper-redirect` document under `unizero/literature/redirects/`. Reads through
-an old Paper ID resolve the redirect, allowing existing Board and future sync references
-to remain valid.
+The same snapshot writes `LiteratureCitationObservation` documents: References records
+`seed → result`, Citations records `result → seed`, and provider, query kind, retrieval
+time, and source order stay on the observation rather than being flattened into a
+sourceless permanent fact. Repeated reads update the same observation and never move its
+retrieval time backwards. Only a successful terminal snapshot may replace older
+observations for the same seed, query kind, and provider — an incomplete page or a
+provider failure never compacts prior evidence. After a replacement, cache-only Papers
+with no remaining observation are collected; pinned and Zotero-bound Papers never are.
 
 Board relation hints project `UniConnection` and catalog observation edges onto the Paper
-IDs present on the current Board. The catalog side queries the Paper adjacency index with
-the Board's distinct Paper IDs and discards observations whose other endpoint is outside
-that set. These hints are recomputed data: they never create or update manual-edge
-documents, and a failure to derive them does not prevent the Project from opening.
+IDs currently on the Board, querying the adjacency index with that set rather than
+scanning every observation. They are recomputed data: they never create or update
+manual-edge documents, and failing to derive them does not prevent the Project from
+opening.
 
-The Board's interaction surface — panes, camera gestures, drag handles, resize, and Text
-Node editing — is described in [apps/zotero-addon/README.md](../apps/zotero-addon/README.md)
-and its design constraints in [UNIZERO_HOME.md](UNIZERO_HOME.md).
+The Board's interaction surface is described in
+[apps/zotero-addon/README.md](../apps/zotero-addon/README.md) and its design constraints in
+[UNIZERO_HOME.md](UNIZERO_HOME.md).
 
 ## Derived relations index
 
@@ -182,17 +174,10 @@ and its design constraints in [UNIZERO_HOME.md](UNIZERO_HOME.md).
 from the per-item `References-Resolved-v4` caches and from item identifiers, so it can be
 discarded and rebuilt at any time.
 
-| Structure | Meaning |
-| --- | --- |
-| `inverted: EdgeKey → Set<ScopedItemKey>` | Which library papers cite this reference |
-| `forward: ScopedItemKey → Set<EdgeKey>` | Which references a library paper declares |
-| `selfEdge` / `edgeOwner` | A library paper's own identity edge, and its inverse |
-
-One index answers both queries: `relationsOf(item)` reads `inverted` at the item's own
-edge; `coupledWith(item)` walks `forward` then `inverted` and tallies shared references.
-`libraryGraph(libraryID, options)` derives whole-library topology from the same structures
-and memoizes it per library and effective option set. Build, ingest, retract, trash, and
-delete invalidate that library's memoized topology.
+One reverse index answers every query it serves — the Relation tab, bibliographic
+coupling, whole-library topology, and the Board's relation hints — so a change to how
+edges are stored affects all four. Topology is memoized per library and invalidated by
+build, ingest, retract, trash, and delete.
 
 Rules this layer keeps:
 
@@ -225,50 +210,39 @@ constraints are in [UNICONNECTION.md](UNICONNECTION.md).
 Unizero Home is a privileged XHTML dialog, not part of the TypeScript bundle. It reaches
 the add-on only through the plain-object API passed as `window.arguments[0]`.
 
-`literature-explorer.js` owns the Board camera and pointer state machine, drag, move,
-connection, selection, filtering, and the detail tabs. Papers open as window tabs, but
-only one detail view exists in the DOM: `TabState` owns each tab's item, kind, snapshot,
-request generations, filters, and scroll position, and switching projects that state into
-the shared DOM. Every asynchronous operation captures its context generation, tab, item
-key, kind, and request generation; completion may update only that owner, and may touch
-the live DOM only while the owner is active. A context reload increments the context
-generation, destroys the simulations, cancels timers and settle listeners, and drops
-library-scoped state.
+`literature-explorer.js` owns the Board and the detail tabs; `literature-graph.js` owns
+force simulation and canvas drawing and consumes only the plain `LiteratureGraph`
+structure, so the renderer can be replaced without touching the data layer. Its one
+surface is the per-paper Graph tab. The full-library Collection graph and the management
+table that preceded the Board were deleted.
 
-Rendering the Board and interacting with it are separate concerns. A background refresh
-that lands mid-gesture defers the rebuild rather than replacing the DOM under the pointer,
-because a rebuild would drop the caret out of a Text Node being typed into and detach the
-element a drag is following. The deferred render runs when the gesture ends.
+Four rules hold this dialog together. Breaking any of them produces a bug that is
+expensive to trace back:
 
-Transient Collection previews use a bounded window LRU keyed by `libraryID + itemKey +
-kind`, holding completed References/Citations snapshots rather than provider cache
-ownership. Before a disk-backed snapshot read the bridge performs a cache-only status
-probe, so provider progress appears only after that probe confirms a miss.
+- **Every async result belongs to exactly one owner.** Papers open as tabs but share a
+  single detail view in the DOM, so each operation captures its context generation, tab,
+  item key, kind, and request generation, and may write only to that owner — and to the
+  live DOM only while the owner is active. A context reload increments the generation and
+  drops everything scoped to the old library.
+- **Rendering the Board and interacting with it are separate.** A refresh landing
+  mid-gesture defers its rebuild instead of replacing the DOM under the pointer; a rebuild
+  would drop the caret out of a Text Node being typed into and detach the element a drag
+  is following. The deferred render runs when the gesture ends.
+- **Every callback handed to force-graph passes through `guard()`.** They run
+  synchronously inside an animation loop with no error handling, so one unguarded throw
+  stops rendering permanently.
+- **Saved layout coordinates are valid only at the force scale that produced them.**
+  `GRAPH_LAYOUT_VERSION` covers changes made in code and a force signature covers the
+  user's own settings; either mismatch is a cold start.
 
-`literature-graph.js` owns force simulation and canvas drawing and consumes only the plain
-`LiteratureGraph` structure, so the renderer can be replaced without touching the data
-layer. The full-library Collection graph and the management table are retired surfaces:
-still present for regression and migration checks, but hidden and no longer part of Home.
-What remains live is the per-paper Graph tab, whose `focusedGraph` endpoint asks
-`views.getLiteratureFocusedGraph` for the same complete scoped graph and marks the
-selected node — deliberately not a one-hop neighbourhood, which would discard structure
-one step away. `vendor/force-graph.min.js` is a vendored MIT build; dialog content is
-fully local, with no CDN or external fetch.
-
-Two renderer constraints are load-bearing and easy to break. Every callback handed to
-force-graph runs synchronously inside an animation loop that has no error handling, so an
-unguarded throw stops rendering for good: all callbacks pass through `guard()`, swallowed
-failures surface on the graph status line, and a watchdog restarts a stalled loop. Saved
-layout coordinates are meaningful only at the scale of the forces that produced them, so
-the layout file carries both `GRAPH_LAYOUT_VERSION` for changes made in code and a force
-signature for the settings the user chose; either mismatch is a cold start. Display and
-force settings live in the renderer, which owns their meaning, bounds, and sanitisation.
-The reasoning behind all of these is in [UNICONNECTION.md](UNICONNECTION.md).
-
-The host-independent dialog harness loads the real XHTML and plain JavaScript under
-`happy-dom`, covering tab/context races, Board interaction survival, graph ownership,
-per-tab filters, settle/refit lifecycle, error recovery, and layout serialization.
-Privileged Zotero APIs and the real canvas remain manual checks.
+The window's preview LRU is not a provider cache: it holds completed snapshots so a
+Collection preview returning A → B → A does not rebuild A, and it never stands in for the
+disk cache the providers write. Reasoning and the incidents behind the last two rules are
+in [UNICONNECTION.md](UNICONNECTION.md).
+`vendor/force-graph.min.js` is a vendored MIT build; dialog content is fully local, with
+no CDN or external fetch. The `happy-dom` harness loads the real XHTML and plain
+JavaScript and covers all four rules; privileged Zotero APIs and the real canvas remain
+manual checks.
 
 ## Runtime layers
 

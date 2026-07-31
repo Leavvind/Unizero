@@ -41,9 +41,9 @@ var LiteratureExplorer = {
   tabs: [],
   activeTab: -1,
   /**
-   * Transient owner of the Detail View beside the Collection graph. It deliberately
-   * lives outside `tabs`: selecting another node replaces it instead of growing the
-   * tab strip. An explicit Open action may promote it into a real paper tab.
+   * Transient owner of the Detail View beside the Board. It deliberately lives
+   * outside `tabs`: selecting another paper replaces it instead of growing the tab
+   * strip. An explicit Open action may promote it into a real paper tab.
    */
   collectionPreview: null,
   /** Completed References/Citations snapshots reused by transient previews. */
@@ -51,18 +51,14 @@ var LiteratureExplorer = {
   boardTextSaveTimers: new Map(),
   /** "combined" or a RelationSourceKey — which source's list the table shows. */
   activeSource: "combined",
-  /** "graph" or "table" — which surface leads the collection overview. */
-  collectionMode: "graph",
-  /** Live force-graph views, created lazily on first use. */
-  graphs: { collection: null, detail: null },
-  graphLoaded: { collection: false, detail: null },
-  /** Unfiltered graphs as returned by the API; filters derive views from these. */
-  graphData: { collection: null, detail: null },
-  /** Collection-board filters. Detail graph filters live on their paper state. */
-  graphFilters: { links: "all", minShared: 1 },
+  /** The one live force-graph view, created lazily when a Graph tab first opens. */
+  graphs: { detail: null },
+  graphLoaded: { detail: null },
+  /** Unfiltered graph as returned by the API; filters derive views from it. */
+  graphData: { detail: null },
   /** Saved node coordinates for this library, seeded into the simulation. */
   graphLayout: null,
-  /** Display and force settings, shared by both graphs and stored across sessions. */
+  /** Display and force settings, stored across sessions. */
   graphSettings: null,
   dropdowns: {},
   filters: {
@@ -76,7 +72,6 @@ var LiteratureExplorer = {
   init() {
     this.applyStrings();
     this.configureControls();
-    this.setCollectionMode(this.collectionMode);
     document.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", () => this.switchKind(tab.dataset.kind));
     });
@@ -140,10 +135,6 @@ var LiteratureExplorer = {
     }
     window.addEventListener("blur", () => this.cancelRowPreview());
     window.addEventListener("unload", () => this.destroy());
-    document.getElementById("collection-mode-graph")
-      .addEventListener("click", () => this.setCollectionMode("graph"));
-    document.getElementById("collection-mode-table")
-      .addEventListener("click", () => this.setCollectionMode("table"));
     // Canvas size is not derivable from CSS alone; force-graph needs explicit
     // pixel dimensions, so every layout change has to be pushed into it.
     window.addEventListener("resize", () => this.resizeGraphs());
@@ -151,15 +142,13 @@ var LiteratureExplorer = {
     window.addEventListener("mousemove", (event) => {
       this._pointer = { x: event.clientX, y: event.clientY };
     });
-    ["collection", "detail"].forEach((which) => {
-      let gear = document.getElementById(which + "-graph-gear");
-      if (gear) {
-        gear.addEventListener("click", (event) => {
-          event.stopPropagation();
-          this.toggleGraphPanel(which);
-        });
-      }
-    });
+    let gear = document.getElementById("detail-graph-gear");
+    if (gear) {
+      gear.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.toggleGraphPanel("detail");
+      });
+    }
     // One dismissal path for both transient surfaces: anything that is not a click
     // inside them closes them. The menu has to exclude itself, because mousedown
     // precedes click — dismissing on it would hide every entry before its own
@@ -221,22 +210,9 @@ var LiteratureExplorer = {
     document.getElementById("board-zoom-in").title = s.boardZoomIn;
     document.getElementById("board-zoom-fit").title = s.boardFit;
     this.updateBoardControls();
-    document.getElementById("collection-head-title").textContent = s.titleColumn;
-    document.getElementById("collection-head-creator").textContent = s.creatorColumn;
-    document.getElementById("collection-head-year").textContent = s.yearColumn;
-    document.getElementById("collection-head-date-added").textContent =
-      s.dateAddedColumn;
-    document.getElementById("collection-head-markdown").textContent = s.markdownColumn;
-    document.getElementById("collection-head-references").textContent = s.references;
-    document.getElementById("collection-head-citations").textContent = s.citations;
     document.getElementById("tab-graph").textContent = s.graphTab;
-    document.getElementById("collection-mode-graph").textContent = s.graphView;
-    document.getElementById("collection-mode-table").textContent = s.tableView;
-    document.getElementById("label-collection-links").textContent = s.graphLinksLabel;
-    document.getElementById("label-collection-shared").textContent = s.graphMinShared;
     document.getElementById("label-detail-links").textContent = s.graphLinksLabel;
     document.getElementById("label-detail-shared").textContent = s.graphMinShared;
-    document.getElementById("collection-graph-empty").textContent = s.graphEmpty;
     document.getElementById("detail-graph-empty").textContent = s.graphEmpty;
     document.getElementById("tab-references").textContent = s.references;
     document.getElementById("tab-relation").textContent = s.relation;
@@ -305,20 +281,6 @@ var LiteratureExplorer = {
       "all",
       rerender("publicationLevel"),
     );
-    this.dropdowns.collectionLinks = this.createDropdown("filter-collection-links", [
-      ["all", this.strings.graphLinksAll],
-      ["cites", this.strings.graphLinksCites],
-      ["coupled", this.strings.graphLinksCoupled],
-    ], "all", (value) => {
-      this.graphFilters.links = value;
-      this.applyGraphFilters("collection");
-    });
-    document.getElementById("collection-min-shared")
-      .addEventListener("input", (event) => {
-        let value = Number.parseInt(event.target.value, 10);
-        this.graphFilters.minShared = Number.isFinite(value) && value > 0 ? value : 1;
-        this.applyGraphFilters("collection");
-      });
     this.dropdowns.detailLinks = this.createDropdown("filter-detail-links", [
       ["all", this.strings.graphLinksAll],
       ["cites", this.strings.graphLinksCites],
@@ -522,19 +484,16 @@ var LiteratureExplorer = {
    * the new library ID, so the views are destroyed rather than merely emptied.
    */
   destroyGraphs() {
-    ["collection", "detail"].forEach((which) => this.cancelGraphRefit(which));
-    ["collection", "detail"].forEach((which) => {
-      if (this.graphs[which] && typeof LiteratureGraph !== "undefined") {
-        LiteratureGraph.destroy(this.graphs[which]);
-      }
-    });
-    this.graphs = { collection: null, detail: null };
-    this.graphLoaded = { collection: false, detail: null };
-    this.graphData = { collection: null, detail: null };
+    this.cancelGraphRefit("detail");
+    if (this.graphs.detail && typeof LiteratureGraph !== "undefined") {
+      LiteratureGraph.destroy(this.graphs.detail);
+    }
+    this.graphs = { detail: null };
+    this.graphLoaded = { detail: null };
+    this.graphData = { detail: null };
     this.graphLayout = null;
     this._layoutHooked = {};
     this._graphErrors = {};
-    this._graphRequests = { collection: 0 };
   },
 
   destroy() {
@@ -920,9 +879,6 @@ var LiteratureExplorer = {
       this.context && this.context.scope ? this.context.scope.name :
         this.strings.collectionOverview;
     this.setCollectionStatus(this.strings.loading);
-    // An explicit refresh should rebuild the board as well as the table.
-    this.graphLoaded.collection = false;
-    this.graphData.collection = null;
     try {
       let [project, snapshot] = await Promise.all([
         api.project ? api.project(scope) : Promise.resolve(null),
@@ -970,35 +926,6 @@ var LiteratureExplorer = {
       this.collectionSnapshot.scope.name;
     this.renderCollection();
     this.renderProjectBoard();
-    // Pick up anything loaded since the overview was built — a detail visit here, or
-    // the item pane / a prior session — so the badges stop lying about "not loaded".
-    this.refreshCollectionStatuses();
-  },
-
-  async refreshCollectionStatuses() {
-    if (!this.collectionSnapshot || !api.refreshCollectionStatuses) return;
-    let generation = this.contextGeneration;
-    let snapshot = this.collectionSnapshot;
-    let libraryID = this.context && this.context.scope
-      ? this.context.scope.libraryID
-      : null;
-    let keys = snapshot.items.map((item) => item.itemKey);
-    if (!keys.length) return;
-    try {
-      let statuses = await api.refreshCollectionStatuses(libraryID, keys);
-      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
-      let changed = false;
-      snapshot.items.forEach((item) => {
-        let next = statuses[item.itemKey];
-        if (!next) return;
-        item.references = next.references;
-        item.citations = next.citations;
-        changed = true;
-      });
-      if (changed && this.mode === "collection") this.renderCollection();
-    } catch (error) {
-      // Best-effort: a status refresh failure must not disrupt the overview.
-    }
   },
 
   visibleCollectionItems() {
@@ -1022,40 +949,20 @@ var LiteratureExplorer = {
 
   // ------------------------------------------------------------------ Graph
 
-  setCollectionMode(mode) {
-    this.collectionMode = mode;
-    document.getElementById("collection-view")
-      .classList.toggle("table-mode", mode === "table");
-    document.getElementById("collection-mode-graph")
-      .classList.toggle("active", mode === "graph");
-    document.getElementById("collection-mode-table")
-      .classList.toggle("active", mode === "table");
-    if (mode === "table" && this.mode === "split") {
-      this.captureTab();
-      this.showCollection();
-    }
-    if (mode === "graph") {
-      this.loadCollectionGraph();
-      this.resizeGraphs();
-    }
-  },
-
   /**
-   * Build a graph view on demand.
+   * Build the graph view on demand.
    *
    * Creating it eagerly would start a force simulation for a surface the user may
    * never open, and force-graph needs a laid-out container to size its canvas.
    */
   ensureGraph(which) {
     if (this.graphs[which]) return this.graphs[which];
-    let containerId = which === "collection" ? "collection-graph" : "detail-graph";
-    let container = document.getElementById(containerId);
+    let container = document.getElementById("detail-graph");
     if (!container || typeof LiteratureGraph === "undefined") return null;
     try {
       this.graphs[which] = LiteratureGraph.create(container, {
         settings: this.graphSettings || undefined,
         onHover: (node) => this.onGraphHover(which, node),
-        onSelect: (node) => this.onGraphSelect(which, node),
         onOpen: (node) => this.onGraphOpen(node),
         onContext: (node, event) => this.showGraphMenu(which, node, event),
         onError: (message) => this.onGraphError(which, message),
@@ -1069,43 +976,6 @@ var LiteratureExplorer = {
     return this.graphs[which];
   },
 
-  async loadCollectionGraph(force) {
-    // The graph is scoped to the same Collection as the table, so it waits for the
-    // overview snapshot rather than racing it.
-    if (!this.collectionSnapshot) return;
-    if (this.graphLoaded.collection && !force) {
-      this.resizeGraphs();
-      return;
-    }
-    let view = this.ensureGraph("collection");
-    if (!view || !api.graph) return;
-    this._graphRequests = this._graphRequests || { collection: 0 };
-    let request = ++this._graphRequests.collection;
-    let generation = this.contextGeneration;
-    let scope = this.context && this.context.scope
-      ? Object.assign({}, this.context.scope)
-      : null;
-    let libraryID = scope && scope.libraryID;
-    this.graphLoaded.collection = true;
-    try {
-      let [data] = await Promise.all([
-        api.graph(scope),
-        this.ensureGraphLayout(libraryID),
-      ]);
-      if (!this.contextIsCurrent(generation) ||
-          request !== this._graphRequests.collection) {
-        return;
-      }
-      this.applyGraphData("collection", data);
-    } catch (error) {
-      if (!this.contextIsCurrent(generation) ||
-          request !== this._graphRequests.collection) {
-        return;
-      }
-      this.graphLoaded.collection = false;
-      this.setGraphEmpty("collection", this.strings.error + ": " + String(error));
-    }
-  },
 
   async loadDetailGraph(force) {
     let tab = this.activeTabState();
@@ -1165,16 +1035,13 @@ var LiteratureExplorer = {
     this.renderGraph(which, true);
   },
 
-  /** Re-derive one or both graphs from their raw data after a filter change. */
+  /** Re-derive the graph from its raw data after a filter change. */
   applyGraphFilters(which) {
-    let targets = which ? [which] : ["collection", "detail"];
-    targets.forEach((target) => {
-      if (this.graphData[target] && this.graphs[target]) this.renderGraph(target, false);
-    });
+    let target = which || "detail";
+    if (this.graphData[target] && this.graphs[target]) this.renderGraph(target, false);
   },
 
-  graphFiltersFor(which) {
-    if (which === "collection") return this.graphFilters;
+  graphFiltersFor() {
     let tab = this.activeTabState();
     return tab ? tab.graphFilters : { links: "all", minShared: 1 };
   },
@@ -1301,14 +1168,7 @@ var LiteratureExplorer = {
     let filters = this.graphFiltersFor(which);
     let links = filters.links;
     let minShared = filters.minShared;
-    let allowed = null;
-    if (which === "collection") {
-      // Same predicate as the table, so the two surfaces cannot disagree.
-      allowed = new Set(this.visibleCollectionItems().map((item) => item.itemKey));
-    }
-    let nodes = (data.nodes || []).filter(
-      (node) => !allowed || allowed.has(node.itemKey) || node.id === data.center,
-    );
+    let nodes = (data.nodes || []).slice();
     let present = new Set(nodes.map((node) => node.id));
     let edges = (data.edges || []).filter((edge) => {
       if (!present.has(edge.source) || !present.has(edge.target)) return false;
@@ -1351,11 +1211,9 @@ var LiteratureExplorer = {
     }
     this.graphSettings = LiteratureGraph.sanitizeSettings(stored);
     // A view created before the read finished is still on defaults.
-    ["collection", "detail"].forEach((which) => {
-      if (this.graphs[which]) {
-        LiteratureGraph.applySettings(this.graphs[which], this.graphSettings);
-      }
-    });
+    if (this.graphs.detail) {
+      LiteratureGraph.applySettings(this.graphs.detail, this.graphSettings);
+    }
     return this.graphSettings;
   },
 
@@ -1445,25 +1303,7 @@ var LiteratureExplorer = {
   },
 
   resizeGraphs() {
-    ["collection", "detail"].forEach((which) => {
-      if (this.graphs[which]) LiteratureGraph.resize(this.graphs[which]);
-    });
-  },
-
-  /**
-   * The node click is centred while Collection still owns the full width. Once
-   * split mode narrows the canvas, resize first and calculate the screen centre
-   * again from the selected node's unchanged graph coordinates.
-   */
-  recenterCollectionSelection() {
-    let view = this.graphs.collection;
-    if (!view || this.mode !== "split") return;
-    try {
-      LiteratureGraph.resize(view);
-      LiteratureGraph.centerOnSelection(view, 0);
-    } catch (error) {
-      this.onGraphError("collection", String(error));
-    }
+    if (this.graphs.detail) LiteratureGraph.resize(this.graphs.detail);
   },
 
   /** Reuse the table's hover card so both surfaces describe a paper identically. */
@@ -1482,12 +1322,6 @@ var LiteratureExplorer = {
         width: 0, height: 0,
       }),
     });
-  },
-
-  onGraphSelect(which, node) {
-    if (which !== "collection" || !node) return;
-    this.cancelRowPreview();
-    void this.showCollectionPreview(node.itemKey);
   },
 
   onGraphOpen(node) {
@@ -1509,12 +1343,7 @@ var LiteratureExplorer = {
     this.captureTab();
     this.activeTab = -1;
     this.collectionPreview = this.newPaperState(itemKey, "references");
-    let restoring = this.restoreTab(this.collectionPreview, "split");
-    // restoreTab enters split mode synchronously before its provider request waits.
-    // Correct the viewport immediately instead of leaving a full-width canvas
-    // cropped until References finishes loading.
-    this.recenterCollectionSelection();
-    await restoring;
+    await this.restoreTab(this.collectionPreview, "split");
   },
 
   // ------------------------------------------------------------ Graph settings
@@ -1532,12 +1361,10 @@ var LiteratureExplorer = {
   },
 
   closeGraphPanels() {
-    ["collection", "detail"].forEach((which) => {
-      let panel = document.getElementById(which + "-graph-panel");
-      if (panel) panel.hidden = true;
-      let gear = document.getElementById(which + "-graph-gear");
-      if (gear) gear.classList.remove("open");
-    });
+    let panel = document.getElementById("detail-graph-panel");
+    if (panel) panel.hidden = true;
+    let gear = document.getElementById("detail-graph-gear");
+    if (gear) gear.classList.remove("open");
   },
 
   /**
@@ -1650,11 +1477,9 @@ var LiteratureExplorer = {
    * is debounced, because a drag would otherwise mean one file write per pixel.
    */
   applyGraphSettings() {
-    ["collection", "detail"].forEach((which) => {
-      if (this.graphs[which]) {
-        LiteratureGraph.applySettings(this.graphs[which], this.graphSettings);
-      }
-    });
+    if (this.graphs.detail) {
+      LiteratureGraph.applySettings(this.graphs.detail, this.graphSettings);
+    }
     if (!api.saveGraphSettings) return;
     window.clearTimeout(this._settingsSave);
     this._settingsSave = window.setTimeout(() => {
@@ -1744,6 +1569,10 @@ var LiteratureExplorer = {
       if (node.hasMarkdown) {
         entry(s.graphOpenObsidian, Boolean(api.openMarkdown), () =>
           this.runGraphAction(key, () => api.openMarkdown(key)));
+        // Editing the URL only ever edits text; it never opens a file picker, and
+        // this menu is the only place the binding can be corrected.
+        entry(s.markdownRelink, Boolean(api.editMarkdownLink), () =>
+          this.runGraphAction(key, () => api.editMarkdownLink(key)));
       } else {
         entry(s.generateMarkdown, Boolean(node.hasPDF) && Boolean(api.convertItem), () =>
           this.runGraphAction(key, () => api.convertItem(key), "metadata"));
@@ -1800,18 +1629,13 @@ var LiteratureExplorer = {
       Object.assign(preview.snapshot.seed, updated);
       if (updated.title) preview.title = updated.title;
     }
-    let graphs = new Set([this.graphData.collection, this.graphData.detail]);
+    let graphs = new Set([this.graphData.detail]);
     this.tabs.forEach((tab) => graphs.add(tab.graphData));
     if (preview) graphs.add(preview.graphData);
     graphs.forEach((data) => this.patchGraphPaper(data, itemKey, updated));
   },
 
   invalidateGraphTopology() {
-    this._graphRequests = this._graphRequests || { collection: 0 };
-    this._graphRequests.collection += 1;
-    this.graphLoaded.collection = false;
-    this.graphData.collection = null;
-    this.cancelGraphRefit("collection");
     let paperStates = this.tabs.slice();
     if (this.collectionPreview && !paperStates.includes(this.collectionPreview)) {
       paperStates.push(this.collectionPreview);
@@ -1855,25 +1679,19 @@ var LiteratureExplorer = {
   },
 
   async runGraphAction(itemKey, run, changeKind) {
-    let which = this._menuWhich === "detail" ? "detail" : "collection";
     let generation = this.contextGeneration;
-    let tab = which === "detail" ? this.activeTabState() : null;
-    let request = tab
-      ? this.beginTabRequest(tab, "action")
-      : ((this._collectionActionRequest || 0) + 1);
-    if (!tab) this._collectionActionRequest = request;
+    // The menu only ever opens over the detail graph, so the owner is that paper's
+    // state. A menu action fired with no active paper state has no status line to
+    // report onto, but its mutation must still be applied.
+    let tab = this.activeTabState();
+    let request = tab ? this.beginTabRequest(tab, "action") : 0;
     let current = () => {
       if (!this.contextIsCurrent(generation)) return false;
-      if (tab) return this.tabRequestIsCurrent(tab, "action", request, generation);
-      return this._collectionActionRequest === request;
+      return !tab || this.tabRequestIsCurrent(tab, "action", request, generation);
     };
     let report = (message, isError) => {
       if (!current()) return;
-      if (which === "detail") {
-        if (this.tabIsActive(tab)) this.setStatus(message, isError);
-      } else if (this.mode === "collection") {
-        this.setCollectionStatus(message, isError);
-      }
+      if (this.tabIsActive(tab)) this.setStatus(message, isError);
     };
     report(this.strings.loading);
     try {
@@ -1928,27 +1746,24 @@ var LiteratureExplorer = {
     };
   },
 
+  /**
+   * Redraw the Board's library pane and status line.
+   *
+   * The Board itself is deliberately not rendered here. This runs on every search
+   * keystroke and every async refresh, and a full Board rebuild costs a focused
+   * Text Node its caret and detaches an in-flight drag's element. Callers that
+   * actually changed Board state call renderProjectBoard.
+   */
   renderCollection() {
-    let rows = document.getElementById("collection-rows");
-    rows.replaceChildren();
     if (!this.collectionSnapshot) {
-      this.renderEmpty(rows, this.collectionBusy
+      this.renderProjectLibrary([]);
+      this.setCollectionStatus(this.collectionBusy
         ? this.strings.loading
-        : this.strings.collectionEmpty, 7);
+        : this.strings.collectionEmpty);
       return;
     }
-
-    // The Board is deliberately not rendered here. This runs on every search
-    // keystroke and on every async status refresh, and a full Board rebuild
-    // costs a focused Text Node its caret and detaches an in-flight drag's
-    // element. Callers that actually changed Board state call renderProjectBoard.
     let items = this.visibleCollectionItems();
     this.renderProjectLibrary(items);
-    if (!items.length) {
-      this.renderEmpty(rows, this.strings.collectionEmpty, 7);
-    } else {
-      items.forEach((item) => rows.append(this.renderCollectionRow(item)));
-    }
     this.setCollectionStatus(
       `${items.length}/${this.collectionSnapshot.items.length} · ` +
       this.collectionSnapshot.scope.name,
@@ -3320,208 +3135,8 @@ var LiteratureExplorer = {
     }
   },
 
-  renderCollectionRow(item) {
-    let row = document.createElement("tr");
-    // Lets the graph scroll its selected paper into view in the table.
-    row.dataset.itemKey = item.itemKey;
-
-    let titleCell = document.createElement("td");
-    let title = document.createElement("button");
-    title.className = "collection-paper-link";
-    title.textContent = item.title || "Untitled";
-    title.title = this.strings.openRelations;
-    title.addEventListener("click", () =>
-      this.showDetail(item.itemKey, "references"));
-    let meta = document.createElement("div");
-    meta.className = "paper-meta";
-    meta.textContent = item.publicationTitle || "";
-    titleCell.append(title, meta);
-    row.append(titleCell);
-
-    row.append(this.cell((item.creators || []).slice(0, 3).join(", ") || "—", "creator"));
-    row.append(this.cell(item.year || "—", "numeric"));
-    row.append(this.cell(this.displayDate(item.dateAdded), "date-added"));
-    row.append(this.collectionMarkdownCell(item));
-    row.append(this.collectionRelationCell(item, "references"));
-    row.append(this.collectionRelationCell(item, "citations"));
-    return row;
-  },
-
-  collectionMarkdownCell(item) {
-    let cell = document.createElement("td");
-    cell.className = "state";
-    let button = document.createElement("button");
-    button.className = "state-action";
-    if (item.hasMarkdown) {
-      button.classList.add("ready");
-      button.textContent = "✓ MD";
-      button.title = this.strings.markdownReady;
-      button.addEventListener("click", (event) => this.showMarkdownMenu(item, event));
-    } else if (item.hasPDF) {
-      button.classList.add("pending");
-      button.textContent = "↻ MD";
-      button.title = this.strings.generateMarkdown;
-      button.addEventListener("click", () =>
-        this.runCollectionAction(button, item, "markdown"));
-    } else {
-      button.classList.add("unavailable");
-      button.textContent = "—";
-      button.title = this.strings.noPdf;
-      button.disabled = true;
-    }
-    cell.append(button);
-    return cell;
-  },
-
-  /**
-   * Obsidian URL manager for a converted paper.
-   *
-   * Opening and editing deliberately ignore Zotero's device-local attachment
-   * path. Conversion supplies a default Obsidian URL and this menu lets the user
-   * replace that URL directly.
-   */
-  async showMarkdownMenu(item, event) {
-    let s = this.strings;
-    let point = event ? { x: event.clientX, y: event.clientY } : null;
-    let link = null;
-    try {
-      link = api.markdownLink ? await api.markdownLink(item.itemKey) : null;
-    } catch (error) {
-      link = null;
-    }
-    this.showMenu(point, item.title || "", ({ entry, note }) => {
-      if (link && link.url) note(link.url);
-      entry(s.graphOpenObsidian, Boolean(api.openMarkdown), () =>
-        this.runCollectionMarkdownAction(item, () => api.openMarkdown(item.itemKey)));
-      entry(s.select, Boolean(item.itemID), () => api.selectItem(item.itemID));
-      // One action edits the URL text; it never opens a filesystem picker.
-      entry(s.markdownRelink, Boolean(api.editMarkdownLink),
-        () => this.runCollectionMarkdownAction(
-          item, () => api.editMarkdownLink(item.itemKey), true));
-      entry(s.markdownRegenerate, Boolean(item.hasPDF) && Boolean(api.convertItem),
-        () => this.runCollectionAction(null, item, "markdown"));
-    });
-  },
-
-  /** Run a link action against the table, reporting on the Collection status line. */
-  async runCollectionMarkdownAction(item, run, refreshRow) {
-    let generation = this.contextGeneration;
-    let snapshot = this.collectionSnapshot;
-    this.setCollectionStatus(this.strings.loading);
-    try {
-      let result = await run();
-      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
-      // A cancelled file picker is not a failure and must not claim one.
-      if (refreshRow && result && result.url) {
-        item.hasMarkdown = true;
-        await this.applyPaperChange(item.itemKey, { hasMarkdown: true }, "metadata");
-      }
-      this.setCollectionStatus("");
-    } catch (error) {
-      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
-      this.setCollectionStatus(this.strings.error + ": " + String(error), true);
-    }
-  },
-
-  collectionRelationCell(item, kind) {
-    let cell = document.createElement("td");
-    cell.className = "state";
-    let status = item[kind];
-    let button = document.createElement("button");
-    button.className = "state-action " + (status.loaded ? "ready" : "pending");
-    if (status.loaded) {
-      let count = status.total || status.count;
-      button.textContent = `✓ ${new Intl.NumberFormat().format(count)}`;
-      button.title = this.loadedTooltip(status);
-      button.addEventListener("click", () => this.showDetail(item.itemKey, kind));
-      // Right-click re-fetches from the providers, so a stale or partial load can be
-      // refreshed in place. Kept off left-click, which stays the far more common
-      // "open detail" and must not spend API calls (or trip rate limits) by accident.
-      button.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        this.refreshCollectionRelation(button, item, kind);
-      });
-    } else {
-      button.textContent = "↻";
-      button.title = kind === "references"
-        ? this.strings.loadReferences
-        : this.strings.loadCitations;
-      button.addEventListener("click", () =>
-        this.runCollectionAction(button, item, kind));
-    }
-    cell.append(button);
-    return cell;
-  },
-
-  /** Tooltip for a loaded badge: "Loaded · <when> · <right-click hint>". */
-  loadedTooltip(status) {
-    let when = this.formatTimestamp(status && status.savedAt);
-    let base = when ? `${this.strings.loaded} · ${when}` : this.strings.loaded;
-    return this.strings.refreshHint ? `${base} · ${this.strings.refreshHint}` : base;
-  },
-
-  formatTimestamp(value) {
-    if (!value) return "";
-    let date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleString();
-  },
-
-  async refreshCollectionRelation(button, item, kind) {
-    if (button.disabled) return;
-    button.disabled = true;
-    let generation = this.contextGeneration;
-    let snapshot = this.collectionSnapshot;
-    let previous = button.textContent;
-    button.textContent = "…";
-    try {
-      let updated = await api.loadRelation(item.itemKey, kind, true);
-      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
-      await this.applyPaperChange(item.itemKey, updated, kind);
-    } catch (error) {
-      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
-      button.disabled = false;
-      button.textContent = previous;
-      this.setCollectionStatus(this.strings.error + ": " + String(error), true);
-    }
-  },
-
-  /** `button` is optional: the same actions are also reachable from a menu. */
-  async runCollectionAction(button, item, action) {
-    let generation = this.contextGeneration;
-    let snapshot = this.collectionSnapshot;
-    let previous = button ? button.textContent : "";
-    if (button) {
-      button.disabled = true;
-      button.textContent = "…";
-    }
-    try {
-      let updated = action === "markdown"
-        ? await api.convertItem(item.itemKey)
-        : await api.loadRelation(item.itemKey, action);
-      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
-      await this.applyPaperChange(
-        item.itemKey,
-        updated,
-        action === "markdown" ? "metadata" : action,
-      );
-    } catch (error) {
-      if (!this.contextIsCurrent(generation) || this.collectionSnapshot !== snapshot) return;
-      if (button) {
-        button.disabled = false;
-        button.textContent = previous;
-      }
-      this.setCollectionStatus(this.strings.error + ": " + String(error), true);
-    }
-  },
-
   setCollectionStatus(text, error) {
     this.writeStatus("collection-status", text, error);
-  },
-
-  displayDate(value) {
-    let match = String(value || "").match(/^\d{4}-\d{2}-\d{2}/);
-    return match ? match[0] : (value || "—");
   },
 
   resetFilters() {

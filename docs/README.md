@@ -16,7 +16,7 @@ Two kinds of document live here, and they are read differently.
 | [ROADMAP.md](ROADMAP.md) | Plan | Looking for unfinished work; nothing here is implemented |
 | [UNIZERO_HOME.md](UNIZERO_HOME.md) | Design and handoff | Working on Project View, the editable Board, or the unified Paper catalog |
 | [UNICONNECTION.md](UNICONNECTION.md) | Design and handoff | Working on the derived reverse-reference index, Board relation hints, or the force-graph renderer |
-| [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md) | Design and handoff | Working on portable state sync, WebDAV, or optional literature data sources |
+| [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md) | Design and handoff | Working on portable state sync or WebDAV — and before extending sync past Project/Board, where it is the only design that exists |
 
 Component behaviour and commands are documented next to the code:
 [apps/zotero-addon/README.md](../apps/zotero-addon/README.md),

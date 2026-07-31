@@ -151,15 +151,10 @@ function strings() {
       "Search this Collection",
     ),
     closeTab: read("literature-close-tab-label", "Close tab"),
-    creatorColumn: read("literature-column-creator-label", "Creator"),
-    dateAddedColumn: read("literature-column-date-added-label", "Date Added"),
-    markdownColumn: read("literature-column-markdown-label", "Markdown"),
     collectionEmpty: read(
       "literature-collection-empty-label",
       "No regular items in this Collection",
     ),
-    loaded: read("literature-loaded-label", "Loaded"),
-    refreshHint: read("literature-loaded-refresh-hint", "Right-click to refresh"),
     loadReferences: read(
       "literature-load-references-label",
       "Load references",
@@ -169,13 +164,7 @@ function strings() {
       "literature-generate-markdown-label",
       "Generate Markdown",
     ),
-    markdownReady: read("literature-markdown-ready-label", "Markdown ready"),
     markdownRelink: read("literature-markdown-relink-label", "Change Markdown link…"),
-    markdownRegenerate: read(
-      "literature-markdown-regenerate-label",
-      "Convert again",
-    ),
-    noPdf: read("literature-no-pdf-label", "No PDF attachment"),
     openRelations: read(
       "literature-open-relations-label",
       "Open References and Citations",
@@ -256,8 +245,6 @@ function strings() {
       "No library citations or bibliographic coupling found",
     ),
     graphTab: read("literature-graph-tab-label", "Graph"),
-    graphView: read("literature-graph-view-label", "Graph"),
-    tableView: read("literature-table-view-label", "Table"),
     graphEmpty: read(
       "literature-graph-empty-label",
       "No connections yet — load References for more papers to grow the graph",
@@ -685,20 +672,14 @@ function explorerApi() {
       );
       return statuses[kind];
     },
-    // Derived library graph for the overview. Read-only: it neither fetches from
-    // providers nor writes cache records, so calling it is always cheap after the
-    // first (index-building) call.
-    graph: async (scope?: LiteratureCollectionScope) => {
-      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
-      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
-      return explorerViews.getLiteratureGraph(scope || explorerContext.scope);
-    },
+    // Derived library graph centred on one paper. Read-only: it neither fetches
+    // from providers nor writes cache records, so calling it is always cheap after
+    // the first (index-building) call.
     focusedGraph: async (
       itemKey: string,
       scope?: LiteratureCollectionScope,
     ) => {
       if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
-      // Same scope as the overview board, so both surfaces show one graph.
       return explorerViews.getLiteratureFocusedGraph(
         contextItem(itemKey, scope?.libraryID),
         scope || explorerContext?.scope,
@@ -775,25 +756,6 @@ function explorerApi() {
     // of the providers' diagnostics, safe to poll while a load is in flight.
     relationProgress: (kind: LiteratureRelationKind) =>
       explorerViews ? explorerViews.relationProgress(kind) : [],
-    // Cache-only re-probe of the given papers' loaded state, so returning to the
-    // collection view reflects anything loaded meanwhile (item pane, prior session).
-    refreshCollectionStatuses: async (
-      libraryID: number,
-      itemKeys: string[],
-    ) => {
-      if (!explorerViews) { return {}; }
-      const out: Record<
-        string,
-        Awaited<ReturnType<Views["relationStatuses"]>>
-      > = {};
-      for (const key of itemKeys) {
-        const item = Zotero.Items.getByLibraryAndKey(libraryID, key) as
-          | Zotero.Item
-          | false;
-        if (item) { out[key] = await explorerViews.relationStatuses(item); }
-      }
-      return out;
-    },
     convertItem: async (itemKey: string) => {
       if (!explorerOwner || !explorerViews) {
         throw new Error("Unizero Home is unavailable");

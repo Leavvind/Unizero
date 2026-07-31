@@ -32,6 +32,13 @@ Neither type checking nor Vitest exercises Zotero itself. These manual checks re
   removes only UniZero's credential; automatic sync keeps its interval across a restart;
   offline startup is quiet; each notification mode behaves as labelled. A first sync
   spanning several runs continues promptly and claims success only when nothing remains.
+- **Sync across two real devices.** Personal and group libraries, with the two machines
+  holding different local `libraryID`s for the same portable scope. Device settings and
+  secrets are never overwritten from the remote. WebDAV authentication failure, TLS
+  failure, and insufficient quota each surface a visible, distinguishable error. Once
+  Literature namespaces land: device A fetches References, device B restores them and
+  rebuilds Relation/Graph without calling a provider, and editing an item's DOI causes
+  the old cached record to be rejected rather than loosely matched.
 - **Graph tab.** Dark theme, layout persistence across a restart, a library large enough
   to stress readability, the status line after an induced callback failure, rapid tab
   switching and closing, personal/group context changes, topology refresh after References
@@ -77,11 +84,9 @@ Neither type checking nor Vitest exercises Zotero itself. These manual checks re
 
 ## Graph
 
-The full-library Collection graph and the management table were replaced by the Board as
-Home's leading surface. Their code is still built and still reachable in the dialog, but
-hidden. Decide between the two honest endings rather than leaving it in this state:
-delete them and keep only the per-paper Graph tab, or give the full-library graph a
-purpose the Board does not already serve. Until then, nothing below should be built.
+The full-library Collection graph and the management table were deleted; the Board
+replaced them and the per-paper Graph tab is the only remaining force-graph surface. Do
+not reintroduce a whole-library graph without a purpose the Board does not already serve.
 
 - Grouping and faceting — colouring or clustering by tag, collection, or another facet,
   beyond the year option that exists now. What the groups should be is the open question,

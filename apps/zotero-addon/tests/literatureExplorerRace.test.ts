@@ -416,18 +416,12 @@ function createHarness(overrides: Record<string, unknown> = {}) {
     snapshot: async (itemKey: string) =>
       snapshot(itemKey, itemKey === "P1" ? "First Paper" : "Second Paper"),
     snapshotStatus: async () => ({ loaded: false }),
-    graph: async (scope: any) => ({
-      scope: { libraryID: scope.libraryID },
-      nodes: [],
-      edges: [],
-    }),
     focusedGraph: async (itemKey: string, scope: any) =>
       graph(scope.libraryID, itemKey),
     graphLayout: async () => ({}),
     saveGraphLayout: async () => undefined,
     graphSettings: async () => ({}),
     saveGraphSettings: async () => undefined,
-    refreshCollectionStatuses: async () => ({}),
     relationProgress: () => [],
     ...overrides,
   };
@@ -458,14 +452,11 @@ describe("Unizero Home async ownership and Board interaction", () => {
       .toBe(false);
     expect(harness.win.document.getElementById("rows")?.textContent)
       .toContain("row-of-P1");
-    expect(harness.win.document.getElementById("collection-table-panel")
-      ?.querySelector("summary")).toBeNull();
     expect(harness.win.document.getElementById("explorer-workspace")
       ?.classList.contains("split-mode")).toBe(true);
     expect(harness.explorer.tabs).toHaveLength(0);
     expect(harness.explorer.activeTab).toBe(-1);
     expect(harness.explorer.collectionPreview.itemKey).toBe("P1");
-    expect(harness.explorer.graphs.collection).toBeNull();
     harness.win.close();
   });
 
@@ -1218,22 +1209,6 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
-  it("returns to the full management table when Table mode is selected", async () => {
-    const harness = createHarness();
-    await flush();
-    await harness.explorer.showCollectionPreview("P1");
-
-    harness.explorer.setCollectionMode("table");
-
-    expect(harness.explorer.mode).toBe("collection");
-    expect(harness.explorer.activeTab).toBe(-1);
-    expect(harness.explorer.collectionPreview).toBeNull();
-    expect(harness.win.document.getElementById("detail-view")?.hidden).toBe(true);
-    expect(harness.win.document.getElementById("collection-view")
-      ?.classList.contains("table-mode")).toBe(true);
-    harness.win.close();
-  });
-
   it("keeps slow snapshot results on their owning inactive tab", async () => {
     const first = deferred<any>();
     const second = deferred<any>();
@@ -1394,8 +1369,8 @@ describe("Unizero Home async ownership and Board interaction", () => {
     const saveGraphLayout = vi.fn(async () => undefined);
     const harness = createHarness({ saveGraphLayout });
     await flush();
-    await harness.explorer.loadCollectionGraph(true);
-    const oldView = harness.explorer.graphs.collection;
+    await harness.explorer.showDetail("P1", "graph");
+    const oldView = harness.explorer.graphs.detail;
     const renderer = (harness.win as any).LiteratureGraph;
     renderer.snapshotPositions = () => ({ "1:P1": [10, 20] });
 
@@ -1412,7 +1387,7 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
-  it("stores detail graph filters per paper instead of inheriting Collection", async () => {
+  it("stores graph filters per paper instead of sharing one set", async () => {
     const harness = createHarness();
     await flush();
     await harness.explorer.showDetail("P1", "graph");
@@ -1422,7 +1397,6 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.explorer.tabs[1].graphFilters = { links: "coupled", minShared: 4 };
     await harness.explorer.activateTab(0);
 
-    expect(harness.explorer.graphFilters).toEqual({ links: "all", minShared: 1 });
     expect(harness.explorer.graphFiltersFor("detail"))
       .toEqual({ links: "cites", minShared: 2 });
     expect((harness.win.document.getElementById("detail-min-shared") as HTMLInputElement)
@@ -1435,8 +1409,8 @@ describe("Unizero Home async ownership and Board interaction", () => {
     await flush();
     harness.explorer.graphSettings = { colourBy: "none" };
 
-    harness.explorer.buildGraphPanel("collection");
-    const panel = harness.win.document.getElementById("collection-graph-panel")!;
+    harness.explorer.buildGraphPanel("detail");
+    const panel = harness.win.document.getElementById("detail-graph-panel")!;
     expect(panel.querySelector("select")).toBeNull();
     expect(panel.querySelector(".dropdown-label")?.textContent)
       .toBe("graphColourNone");
@@ -1451,45 +1425,38 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
-  it("shows the stored Obsidian URL and one link-change action", async () => {
-    const uri = "obsidian://adv-uri?vault=Academic&uid=P1";
-    const harness = createHarness({
-      markdownLink: async () => ({ url: uri }),
-      openMarkdown: async () => undefined,
-      editMarkdownLink: async () => undefined,
+  it("offers exactly one Markdown link-change action, and only when one exists",
+    async () => {
+      const harness = createHarness({
+        openMarkdown: async () => undefined,
+        editMarkdownLink: async () => undefined,
+      });
+      await flush();
+
+      // The node menu is the only surface left that can correct an Obsidian
+      // binding, so losing this entry silently strands every existing link.
+      harness.explorer.showGraphMenu("detail", {
+        itemKey: "P1",
+        title: "First Paper",
+        hasMarkdown: true,
+      }, null);
+      const menu = harness.win.document.getElementById("graph-menu")!;
+      const relink = Array.from(menu.querySelectorAll("button"))
+        .filter((button) => button.textContent === "markdownRelink");
+      expect(relink).toHaveLength(1);
+      expect(relink[0].disabled).toBe(false);
+
+      // Nothing to relink before a conversion has produced an attachment.
+      harness.explorer.showGraphMenu("detail", {
+        itemKey: "P2",
+        title: "Second Paper",
+        hasMarkdown: false,
+        hasPDF: true,
+      }, null);
+      expect(Array.from(menu.querySelectorAll("button"))
+        .filter((button) => button.textContent === "markdownRelink")).toHaveLength(0);
+      harness.win.close();
     });
-    await flush();
-
-    await harness.explorer.showMarkdownMenu(paper("P1", "First Paper"), null);
-    const menu = harness.win.document.getElementById("graph-menu")!;
-    expect(menu.querySelector(".graph-menu-note")?.textContent).toBe(uri);
-    const linkActions = Array.from(menu.querySelectorAll("button"))
-      .filter((button) => button.textContent === "markdownRelink");
-    expect(linkActions).toHaveLength(1);
-    expect(linkActions[0].disabled).toBe(false);
-    harness.win.close();
-  });
-
-  it("never presents an absolute attachment path as the Markdown link", async () => {
-    const harness = createHarness({
-      markdownLink: async () => ({
-        url: "obsidian://adv-uri?uid=P1",
-      }),
-      openMarkdown: async () => undefined,
-      editMarkdownLink: async () => undefined,
-    });
-    await flush();
-
-    await harness.explorer.showMarkdownMenu(paper("P1", "Legacy"), null);
-    const menu = harness.win.document.getElementById("graph-menu")!;
-    expect(menu.textContent).not.toContain("D:\\");
-    expect(menu.textContent).toContain("obsidian://adv-uri");
-    const linkActions = Array.from(menu.querySelectorAll("button"))
-      .filter((button) => button.textContent === "markdownRelink");
-    expect(linkActions).toHaveLength(1);
-    expect(linkActions[0].disabled).toBe(false);
-    harness.win.close();
-  });
 
   it("keeps layout saving and final fit as separate settle listeners", async () => {
     const harness = createHarness();
@@ -1511,22 +1478,18 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
-  it("invalidates legacy topology without rebuilding the shelved graph", async () => {
+  it("rebuilds only the visible graph after references change", async () => {
     const relation = deferred<any>();
-    const graphCalls = vi.fn(async (scope: any) => ({
-      scope: { libraryID: scope.libraryID },
-      nodes: [],
-      edges: [],
-    }));
+    const graphCalls = vi.fn(async (itemKey: string, scope: any) =>
+      graph(scope.libraryID, itemKey));
     const harness = createHarness({
-      graph: graphCalls,
+      focusedGraph: graphCalls,
       loadRelation: () => relation.promise,
     });
     await flush();
-    await harness.explorer.loadCollectionGraph(true);
+    await harness.explorer.showDetail("P1", "graph");
     const before = graphCalls.mock.calls.length;
 
-    harness.explorer._menuWhich = "collection";
     const action = harness.explorer.runGraphAction(
       "P1",
       () => (harness.api as any).loadRelation("P1", "references"),
@@ -1540,20 +1503,20 @@ describe("Unizero Home async ownership and Board interaction", () => {
     });
     await action;
     await flush();
-    expect(graphCalls).toHaveBeenCalledTimes(before);
-    expect(harness.explorer.graphData.collection).toBeNull();
-    expect(harness.explorer.graphLoaded.collection).toBe(false);
+    // New references change the topology, so the cached graph is dropped. The tab
+    // the user is looking at then rebuilds once — not once per cached graph.
+    expect(graphCalls).toHaveBeenCalledTimes(before + 1);
     harness.win.close();
   });
 
   it("patches Markdown metadata without rebuilding topology", async () => {
-    const graphCalls = vi.fn(async () => graph(1, "P1"));
-    const harness = createHarness({ graph: graphCalls });
+    const graphCalls = vi.fn(async (itemKey: string, scope: any) =>
+      graph(scope.libraryID, itemKey));
+    const harness = createHarness({ focusedGraph: graphCalls });
     await flush();
-    await harness.explorer.loadCollectionGraph(true);
+    await harness.explorer.showDetail("P1", "graph");
     const before = graphCalls.mock.calls.length;
 
-    harness.explorer._menuWhich = "collection";
     await harness.explorer.runGraphAction(
       "P1",
       async () => ({ title: "Converted Paper", hasMarkdown: true }),
@@ -1561,30 +1524,31 @@ describe("Unizero Home async ownership and Board interaction", () => {
     );
 
     expect(graphCalls).toHaveBeenCalledTimes(before);
-    expect(harness.explorer.graphData.collection.nodes[0]).toMatchObject({
+    expect(harness.explorer.graphData.detail.nodes[0]).toMatchObject({
       title: "Converted Paper",
       hasMarkdown: true,
     });
     harness.win.close();
   });
 
-  it("updates citation status without invalidating cached graphs", async () => {
-    const graphCalls = vi.fn(async () => graph(1, "P1"));
-    const harness = createHarness({ graph: graphCalls });
+  it("updates citation status without invalidating the cached graph", async () => {
+    const graphCalls = vi.fn(async (itemKey: string, scope: any) =>
+      graph(scope.libraryID, itemKey));
+    const harness = createHarness({ focusedGraph: graphCalls });
     await flush();
-    await harness.explorer.loadCollectionGraph(true);
-    const cached = harness.explorer.graphData.collection;
+    await harness.explorer.showDetail("P1", "graph");
+    const cached = harness.explorer.graphData.detail;
     const before = graphCalls.mock.calls.length;
 
-    harness.explorer._menuWhich = "collection";
     await harness.explorer.runGraphAction(
       "P1",
       async () => ({ citations: { loaded: true, count: 7, total: 7 } }),
       "citations",
     );
 
+    // Citations do not feed the topology, so the graph must survive untouched.
     expect(graphCalls).toHaveBeenCalledTimes(before);
-    expect(harness.explorer.graphData.collection).toBe(cached);
+    expect(harness.explorer.graphData.detail).toBe(cached);
     expect(harness.explorer.collectionSnapshot.items[0].citations)
       .toMatchObject({ loaded: true, count: 7 });
     harness.win.close();
@@ -1600,7 +1564,7 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.explorer.destroy();
 
     expect(renderer.destroy).toHaveBeenCalledWith(detailView);
-    expect(harness.explorer.graphs).toEqual({ collection: null, detail: null });
+    expect(harness.explorer.graphs).toEqual({ detail: null });
     expect(harness.explorer._refitTimers || {}).toEqual({});
     harness.win.close();
   });

@@ -16,9 +16,9 @@
    - 中栏：可编辑 Board；
    - 右栏：References / Relation / Citations / metadata Detail View。
 5. 左右栏均可折叠。
-6. 全库自动图与管理表退场：源码仍在，但已被隐藏，不再是 Home 的界面。UniConnection
-   本身保留并且更重要了——它现在同时供 hover 高亮、临时关系提示、筛选、单篇 Graph
-   标签和未来的推荐使用。取舍与遗留约束见 [UNICONNECTION.md](UNICONNECTION.md)。
+6. 全库自动图与管理表已删除。UniConnection 本身保留并且更重要了——它现在同时供 hover
+   高亮、临时关系提示、筛选、单篇 Graph 标签和未来的推荐使用。取舍与遗留约束见
+   [UNICONNECTION.md](UNICONNECTION.md)。
 
 ## 2. 身份
 

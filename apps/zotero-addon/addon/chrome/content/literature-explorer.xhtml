@@ -229,10 +229,6 @@
       margin-bottom: 10px;
     }
     .collection-toolbar .search-field { max-width: 520px; }
-    .collection-toolbar .graph-filter { flex: 0 0 auto; width: 150px; }
-    .collection-toolbar .shared-field { width: 92px; }
-    /* Graph-only controls have no meaning once the table leads. */
-    #collection-view.table-mode .graph-filter { display: none; }
     /* ----------------------------------------------------------- Project Board */
     .project-layout {
       display: grid;
@@ -625,12 +621,6 @@
       border: none;
       visibility: hidden;
     }
-    /* The old force graph and management table remain callable for regression and
-       migration checks, but are no longer a user-facing Home surface. */
-    #collection-view .collection-graph-area,
-    #collection-view .table-panel,
-    #collection-view .graph-filter,
-    #collection-view #collection-view-toggle { display: none !important; }
     .view[hidden] { display: none !important; }
     .status {
       min-height: 22px;
@@ -681,14 +671,8 @@
     #detail-view.relation-mode th.library-col { width: 9%; }
     #detail-view.relation-mode th.source-col,
     #detail-view.relation-mode td.source { display: none; }
-    .collection-table th.title-col { width: 34%; }
-    .collection-table th.creator-col { width: 20%; }
-    .collection-table th.year-col { width: 7%; }
-    .collection-table th.date-added-col { width: 12%; }
-    .collection-table th.state-col { width: 9%; text-align: center; }
     td.numeric { font-variant-numeric: tabular-nums; }
     td.library { text-align: center; }
-    td.state { text-align: center; }
     tr.in-library { background: var(--green-soft); }
     tr.not-in-library { background: var(--orange-soft); }
     tr.board-draggable-paper { cursor: grab; }
@@ -736,47 +720,6 @@
     }
     .library-action.present { border-color: var(--green); color: var(--green); }
     .library-action.add { border-color: var(--orange); color: var(--orange); }
-    .state-action {
-      min-width: 34px;
-      min-height: 29px;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-    }
-    .state-action.ready {
-      border-color: var(--green);
-      background: var(--green-soft);
-      color: var(--green);
-    }
-    .state-action.pending {
-      border-color: var(--orange);
-      background: var(--orange-soft);
-      color: var(--orange);
-    }
-    .state-action.unavailable {
-      border-color: var(--border);
-      color: var(--muted);
-    }
-    .collection-paper-link {
-      display: block;
-      width: 100%;
-      min-height: 0;
-      padding: 0;
-      overflow: hidden;
-      border: 0;
-      background: transparent;
-      color: inherit;
-      font-weight: 650;
-      text-align: left;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .collection-paper-link:hover {
-      background: transparent;
-      color: var(--accent);
-      text-decoration: underline;
-    }
     .footer {
       display: flex;
       justify-content: center;
@@ -1035,36 +978,11 @@
     }
     .graph-menu button:hover:not(:disabled) { background: var(--soft); }
     .graph-menu button:disabled { color: var(--muted); cursor: default; }
-    .view-toggle {
-      display: inline-flex;
-      flex: none;
-      gap: 0;
-    }
-    .view-toggle button {
-      border-radius: 0;
-      font-size: 12px;
-    }
-    .view-toggle button:first-child { border-radius: 6px 0 0 6px; }
-    .view-toggle button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
-    .view-toggle button.active {
-      z-index: 1;
-      border-color: var(--accent);
-      background: var(--soft);
-      color: var(--accent);
-      font-weight: 700;
-    }
     /* The Graph tab replaces the table surface entirely. */
     #detail-view.graph-mode .toolbar,
     #detail-view.graph-mode .table-wrap,
     #detail-view.graph-mode .footer,
     #detail-view.graph-mode .progress { display: none !important; }
-    /* Graph and Table are mutually exclusive Collection surfaces. */
-    #collection-view:not(.table-mode) .table-panel { display: none; }
-    #collection-view.table-mode .collection-graph-area { display: none; }
-    #collection-view.table-mode .table-panel .table-wrap {
-      max-height: calc(100vh - 165px);
-      min-height: 420px;
-    }
     #explorer-workspace.split-mode {
       display: grid;
       grid-template-columns: minmax(580px, 1.2fr) minmax(400px, .8fr);
@@ -1184,11 +1102,6 @@
       .filter-field.search-field { flex-basis: 100%; }
       th.source-col, td.source { display: none; }
       th.title-col { width: 52%; }
-      .collection-table th.creator-col,
-      .collection-table td.creator,
-      .collection-table th.date-added-col,
-      .collection-table td.date-added { display: none; }
-      .collection-table th.title-col { width: 55%; }
     }
   </style>
   <!-- Vendored force-graph (MIT, self-contained UMD → window.ForceGraph). Bundled
@@ -1214,18 +1127,6 @@
         <label class="filter-label" id="label-collection-search"
           for="collection-search"></label>
         <input id="collection-search" type="search"/>
-      </div>
-      <div class="filter-field graph-filter" id="collection-links-field">
-        <div class="filter-label" id="label-collection-links"></div>
-        <div id="filter-collection-links"></div>
-      </div>
-      <div class="filter-field graph-filter shared-field" id="collection-shared-field">
-        <div class="filter-label" id="label-collection-shared"></div>
-        <input id="collection-min-shared" type="number" min="1" step="1" value="1"/>
-      </div>
-      <div class="view-toggle" id="collection-view-toggle">
-        <button id="collection-mode-graph" class="active"></button>
-        <button id="collection-mode-table"></button>
       </div>
       <button id="toggle-library-pane"></button>
       <button id="collection-refresh"></button>
@@ -1260,34 +1161,6 @@
       </section>
     </div>
 
-    <div class="collection-graph-area">
-      <div class="graph-wrap" id="collection-graph-wrap">
-        <div class="graph-canvas" id="collection-graph"></div>
-        <div class="graph-overlay" id="collection-graph-overlay"></div>
-        <button class="graph-gear" id="collection-graph-gear">⚙</button>
-        <div class="graph-panel" id="collection-graph-panel" hidden="hidden"></div>
-        <div class="graph-empty" id="collection-graph-empty" hidden="hidden"></div>
-      </div>
-    </div>
-
-    <div class="table-panel" id="collection-table-panel">
-      <div class="table-wrap">
-        <table class="collection-table">
-          <thead>
-            <tr>
-              <th class="title-col" id="collection-head-title"></th>
-              <th class="creator-col" id="collection-head-creator"></th>
-              <th class="year-col" id="collection-head-year"></th>
-              <th class="date-added-col" id="collection-head-date-added"></th>
-              <th class="state-col" id="collection-head-markdown"></th>
-              <th class="state-col" id="collection-head-references"></th>
-              <th class="state-col" id="collection-head-citations"></th>
-            </tr>
-          </thead>
-          <tbody id="collection-rows"></tbody>
-        </table>
-      </div>
-    </div>
   </section>
 
   <section class="view" id="detail-view" hidden="hidden">
