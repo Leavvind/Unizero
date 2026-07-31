@@ -6,58 +6,62 @@ the client for the local paper runtime.
 
 ## Capabilities
 
-- metadata candidate lookup and identifier updates;
-- compact References and Citations item-pane previews plus Collection-level
-  Unizero Home, available from the item-list toolbar, Collection context
-  menu, and Tools. The item context menu opens the selected paper directly in its
-  own detail tab. Papers open as tabs beside a pinned Project tab, so several
-  can be read at once and returning to one costs no provider call. Transient
-  Collection previews also reuse completed snapshots by library, item, and relation
-  kind, so A → B → A does not rebuild A;
-- one stable Project and default Board per Zotero Collection (or library root),
-  keyed by portable Zotero scope and Collection key;
-- a three-pane Project View: collapsible Collection paper list, pannable and zoomable
-  Board, and collapsible References/Relation/Citations Detail View;
-- Board cards: library papers drag on more than once as independent instances, with
-  persisted position, size, and deletion tombstones. References and Citations rows drag
-  on directly; an out-of-library result becomes a durable pinned Paper without creating a
-  Zotero item;
-- Board connections: four directional drag handles create persisted manual edges, drawn
-  as curves that are independently selectable and deletable. Hovering an identifiable
-  card highlights every related instance with derived, non-persisted relation hints;
+**Unizero Home** opens from Tools, the item-list toolbar, or the Collection context menu;
+the item context menu opens the selected paper straight into its own tab. Each Zotero
+Collection — or a library root — gets one stable Project and default Board, keyed by
+portable Zotero scope and Collection key.
+
+- A three-pane Project View: collapsible Collection paper list, pannable and zoomable
+  Board, and collapsible References/Relation/Citations Detail View.
+- Board cards. Library papers drag on more than once as independent instances, with
+  persisted position, size, and deletion tombstones. References and Citations rows drag on
+  directly; an out-of-library result becomes a durable pinned Paper without creating a
+  Zotero item.
+- Board connections. Four directional drag handles create persisted manual edges, drawn as
+  independently selectable curves. Hovering an identifiable card highlights every related
+  instance with derived, non-persisted relation hints.
 - Text Nodes: ordered, stable-ID content blocks. Collection papers embed as PaperBlocks
   without creating another Zotero item, and a library-backed block can be copied back out
-  as a standalone card;
-- Collection paper status for Markdown conversion and cached References/Citations,
-  with per-paper quick actions and relation drill-down;
-- a Relation view per paper: which library papers cite it, and which share the most of
-  its references, both derived locally with no extra network access;
-- graph views in the Explorer: a full-library graph that toggles with the management
-  table and previews the existing References/Relation/Citations detail surface beside
-  the graph without opening a paper tab when a node is selected, plus a graph tab per
-  paper that centres the same graph on it, with adjustable display and force settings
-  and a per-node menu for PDF, Markdown, and relation actions;
-- filtering discovered works by library status, influence, year, publication type, and
-  order, plus importing missing papers into the current library;
-- a stable Paper catalog: every loaded References/Citations candidate gets a Paper ID at
+  as a standalone card.
+- Papers open as tabs beside a pinned Project tab, so several can be read at once and
+  returning to one costs no provider call. Transient Collection previews also reuse
+  completed snapshots by library, item, and relation kind, so A → B → A does not rebuild A.
+
+**Literature data**
+
+- Metadata candidate lookup and identifier updates.
+- Compact References and Citations item-pane previews; per-paper Markdown-conversion and
+  cache status with quick actions and relation drill-down.
+- A Relation view per paper: which library papers cite it, and which share the most of its
+  references — both derived locally with no extra network access.
+- Filtering discovered works by library status, influence, year, publication type, and
+  order, plus importing missing papers into the current library.
+- A stable Paper catalog. Every loaded References/Citations candidate gets a Paper ID at
   `cache` retention, which Board pinning and Zotero binding promote to `pinned` or
   `zotero`. Observations use one directed citation model. Only a successful terminal
   provider snapshot replaces stale observations and collects orphaned cache-only Papers;
-  incomplete pages and provider failures preserve prior evidence. Explicit identity
-  merges leave redirects for old Paper IDs;
-- relating discovered works;
-- PDF conversion commands and generated-artifact registration, including a versioned
-  structured References JSON attachment produced from the PDF bibliography;
-- annotation export and Markdown injection;
-- runtime lifecycle, jobs, service notices, and templates;
-- manual and scheduled WebDAV sync for Project, Board, node, edge, and tombstone
-  documents. Jianguoyun's URL is prefilled; its third-party application password is
-  held in Zotero's Login Manager under an add-on-specific realm and is never placed in
-  preferences or sync packs. Automatic sync is opt-in, runs no more often than every
-  30 minutes, and can report errors only, every result, or nothing.
+  incomplete pages and provider failures preserve prior evidence. Explicit identity merges
+  leave redirects for old Paper IDs.
+- A force-directed Graph tab per paper, centred on it, with adjustable display and force
+  settings and a per-node menu for PDF, Markdown, and relation actions. The full-library
+  Collection graph and the management table it toggled with are retired surfaces — still
+  in the source for regression checks, but no longer shown.
 
-Document conversion and annotation injection require
-`services/paper-runtime`. Other features run without it.
+**Conversion, annotations, and sync**
+
+- PDF conversion commands and generated-artifact registration, including a versioned
+  structured References JSON attachment produced from the PDF bibliography.
+- Annotation export and Markdown injection.
+- Runtime lifecycle, jobs, service notices, and templates.
+- Manual and scheduled WebDAV sync for Project, Board, node, edge, and tombstone
+  documents. Jianguoyun's URL is prefilled; its third-party application password lives in
+  Zotero's Login Manager under an add-on-specific realm and never reaches preferences or
+  sync packs. Automatic sync is opt-in, runs no more often than every 30 minutes, and can
+  report errors only, every result, or nothing. A large first sync spans several runs and
+  continues promptly between them.
+
+Document conversion and annotation injection require `services/paper-runtime`. Everything
+else runs without it.
 
 ## Source map
 
@@ -105,6 +109,9 @@ Two graph constraints are easy to break and expensive to diagnose:
   user's own force settings are covered by the signature stored with the layout; a code
   change that alters what a coordinate means is not, so bump `GRAPH_LAYOUT_VERSION` in
   `src/modules/views.ts` for that.
+
+The rest of the graph's traps, and why the full-library view was retired, are in
+[UNICONNECTION.md](../../docs/UNICONNECTION.md).
 
 ## Stored state
 
@@ -198,6 +205,6 @@ Changes in those areas require a manual Zotero check.
 - [Documentation map](../../docs/README.md)
 - [Repository architecture](../../docs/ARCHITECTURE.md)
 - [Project structure](../../docs/PROJECT_STRUCTURE.md)
-- [Derived relation index](../../docs/UNICONNECTION.md)
-- [Graph views](../../docs/UNICONNECTION_GRAPH.md)
+- [Unizero Home design](../../docs/UNIZERO_HOME.md)
+- [Derived relation index and graph](../../docs/UNICONNECTION.md)
 - [Legacy data support](../../docs/LEGACY_SUPPORT.md)

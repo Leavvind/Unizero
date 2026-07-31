@@ -147,15 +147,12 @@ cache → pinned → zotero
 ```
 
 The same snapshot writes `LiteratureCitationObservation` documents under
-`unizero/literature/observations/`. References records `seed → result`; Citations records
-`result → seed`. Provider, query kind, retrieval time, and source order remain on the
-observation. Repeated reads update the same provider/query observation and never move its
-retrieval time backwards. The observation index maps each endpoint Paper ID to its
-observation IDs. Board-scoped relation reads therefore open only observations adjacent
-to Papers on that Board, instead of every observation in the catalog. Schema 1 indexes
-are rebuilt once from their observation documents and persisted as schema 2. The Paper
-and observation indexes are batch-flushed so a large snapshot does not rewrite an index
-once per result.
+`unizero/literature/observations/`: References records `seed → result`, Citations records
+`result → seed`, and provider, query kind, retrieval time, and source order stay on the
+observation rather than being flattened into a sourceless permanent fact. Repeated reads
+update the same provider/query observation and never move its retrieval time backwards.
+An index maps each endpoint Paper ID to its observation IDs, so Board-scoped relation
+reads open only observations adjacent to Papers on that Board.
 
 Only a successful terminal provider snapshot may replace older observations for the same
 seed, query kind, and provider. An incomplete citation page or provider failure never
@@ -219,62 +216,59 @@ Rules this layer keeps:
   cache write and `ingestItem` before the bridge resolves. Citations only update status,
   while Markdown conversion patches live node metadata without rebuilding topology.
 
-Design detail and the reasoning behind these constraints are in
-[UNICONNECTION.md](UNICONNECTION.md); the graph views are in
-[UNICONNECTION_GRAPH.md](UNICONNECTION_GRAPH.md).
+The index has three consumers: the per-paper Relation tab, the Board's transient relation
+hints, and the force-graph renderer. Design detail and the reasoning behind these
+constraints are in [UNICONNECTION.md](UNICONNECTION.md).
 
 ## Board and graph rendering
 
-Unizero Home is a privileged XHTML dialog, not part of the TypeScript bundle.
-It reaches the add-on only through the plain-object API passed as `window.arguments[0]`.
+Unizero Home is a privileged XHTML dialog, not part of the TypeScript bundle. It reaches
+the add-on only through the plain-object API passed as `window.arguments[0]`.
 
-- `literature-explorer.js` owns the Home Board camera and pointer state machine,
-  drag/move/connection/selection state, filtering,
-  tables, and the detail tabs.
-  Papers open as window tabs, but only one detail view exists in the DOM. `TabState` owns
-  the item/kind, snapshot, busy and request generations, raw graph, detail graph filters,
-  search/year filters, and scroll position. Switching projects that state into the shared
-  DOM. Transient Collection previews additionally use a bounded window LRU keyed by
-  `libraryID + itemKey + kind`; it stores completed References/Citations snapshots, not
-  provider cache ownership. Before a disk-backed snapshot read, the bridge performs a
-  cache-only status probe. Provider progress is shown only after that probe confirms a
-  miss; cache deserialisation uses a neutral saved-data status.
+`literature-explorer.js` owns the Board camera and pointer state machine, drag, move,
+connection, selection, filtering, and the detail tabs. Papers open as window tabs, but
+only one detail view exists in the DOM: `TabState` owns each tab's item, kind, snapshot,
+request generations, filters, and scroll position, and switching projects that state into
+the shared DOM. Every asynchronous operation captures its context generation, tab, item
+key, kind, and request generation; completion may update only that owner, and may touch
+the live DOM only while the owner is active. A context reload increments the context
+generation, destroys the simulations, cancels timers and settle listeners, and drops
+library-scoped state.
 
-  Every asynchronous operation captures its context generation, tab reference,
-  item key, kind, and request generation; completion may update only that owner, and may
-  update the live DOM only while the owner is active.
-- A context reload increments the context generation, destroys both simulations, cancels
-  refit/settings timers and settle listeners, and drops library-scoped data/layout state.
-  Collection filters and each paper tab's graph filters are independent.
-- `literature-graph.js` owns force simulation and canvas drawing, and consumes only the
-  plain `LiteratureGraph` structure, so the renderer can be replaced without touching the
-  data layer. The automatic Collection graph is shelved and no longer loads with Home;
-  the renderer remains for the optional full-paper Graph tab and migration/regression
-  checks.
-- A detail graph is not a one-hop topology. The bridge's `focusedGraph` endpoint asks
-  `views.getLiteratureFocusedGraph` for the same complete scoped graph as Collection,
-  marks the selected node, and centres the renderer on it.
-- `vendor/force-graph.min.js` is a vendored MIT build. Dialog content is fully local; no
-  CDN or external fetch is permitted.
+Rendering the Board and interacting with it are separate concerns. A background refresh
+that lands mid-gesture defers the rebuild rather than replacing the DOM under the pointer,
+because a rebuild would drop the caret out of a Text Node being typed into and detach the
+element a drag is following. The deferred render runs when the gesture ends.
 
-Two constraints are load-bearing and easy to break:
+Transient Collection previews use a bounded window LRU keyed by `libraryID + itemKey +
+kind`, holding completed References/Citations snapshots rather than provider cache
+ownership. Before a disk-backed snapshot read the bridge performs a cache-only status
+probe, so provider progress appears only after that probe confirms a miss.
 
-- Every callback handed to force-graph runs synchronously inside its animation loop, and
-  that loop has no error handling. An unguarded throw stops rendering permanently. All
-  callbacks pass through `guard()`, swallowed failures surface on the graph status line,
-  and a watchdog restarts a stalled loop.
-- Saved layout coordinates are only meaningful at the scale of the forces that produced
-  them, so the layout file carries two guards: `GRAPH_LAYOUT_VERSION` for changes made in
-  code, and a force signature for the settings the user chose. Either mismatch is a cold
-  start. Reads and writes also discard non-finite coordinates and node IDs outside the
-  current `${libraryID}:` namespace; writes for the same library are serialized.
-- Display and force settings live in the renderer, which owns their meaning, their
-  bounds, and their sanitisation; the layers below only carry them to and from disk.
+`literature-graph.js` owns force simulation and canvas drawing and consumes only the plain
+`LiteratureGraph` structure, so the renderer can be replaced without touching the data
+layer. The full-library Collection graph and the management table are retired surfaces:
+still present for regression and migration checks, but hidden and no longer part of Home.
+What remains live is the per-paper Graph tab, whose `focusedGraph` endpoint asks
+`views.getLiteratureFocusedGraph` for the same complete scoped graph and marks the
+selected node — deliberately not a one-hop neighbourhood, which would discard structure
+one step away. `vendor/force-graph.min.js` is a vendored MIT build; dialog content is
+fully local, with no CDN or external fetch.
+
+Two renderer constraints are load-bearing and easy to break. Every callback handed to
+force-graph runs synchronously inside an animation loop that has no error handling, so an
+unguarded throw stops rendering for good: all callbacks pass through `guard()`, swallowed
+failures surface on the graph status line, and a watchdog restarts a stalled loop. Saved
+layout coordinates are meaningful only at the scale of the forces that produced them, so
+the layout file carries both `GRAPH_LAYOUT_VERSION` for changes made in code and a force
+signature for the settings the user chose; either mismatch is a cold start. Display and
+force settings live in the renderer, which owns their meaning, bounds, and sanitisation.
+The reasoning behind all of these is in [UNICONNECTION.md](UNICONNECTION.md).
 
 The host-independent dialog harness loads the real XHTML and plain JavaScript under
-`happy-dom`. It covers tab/context races, graph ownership, per-tab filters, settle/refit
-lifecycle, geometry callbacks, error recovery, and layout serialization. Privileged
-Zotero APIs and the real force-graph canvas remain manual checks.
+`happy-dom`, covering tab/context races, Board interaction survival, graph ownership,
+per-tab filters, settle/refit lifecycle, error recovery, and layout serialization.
+Privileged Zotero APIs and the real canvas remain manual checks.
 
 ## Runtime layers
 

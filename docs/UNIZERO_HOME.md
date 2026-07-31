@@ -16,8 +16,9 @@
    - 中栏：可编辑 Board；
    - 右栏：References / Relation / Citations / metadata Detail View。
 5. 左右栏均可折叠。
-6. 现有自动图不再作为主视图。UniConnection 保留，用于 hover 高亮、临时关系提示、
-   筛选和未来推荐。
+6. 全库自动图与管理表退场：源码仍在，但已被隐藏，不再是 Home 的界面。UniConnection
+   本身保留并且更重要了——它现在同时供 hover 高亮、临时关系提示、筛选、单篇 Graph
+   标签和未来的推荐使用。取舍与遗留约束见 [UNICONNECTION.md](UNICONNECTION.md)。
 
 ## 2. 身份
 
@@ -164,7 +165,7 @@ Project 对象是非重建状态，优先于 provider cache。远端删除必须
 - 复用 `views.ts` 的 Detail snapshot、三源查询与库内 membership。
 - 复用 `UniConnection` 计算 hover hint，不把它变成 Board owner。
 - 复用 `src/ui/literatureExplorer.ts` 的 plain-object window bridge。
-- `literature-graph.js` 保留为旧自动图 renderer，不改造成白板。
+- `literature-graph.js` 保留为 force-graph renderer（现供单篇 Graph 标签），不改造成白板。
 - 新 Board renderer 只消费 Project/Paper/Node/Edge 纯数据。
 - Node context menu 改为 capability action registry；Raw Markdown、详细 Notes、
   Canvas Obsidian 等成为命名 action/binding。

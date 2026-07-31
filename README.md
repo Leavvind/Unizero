@@ -1,20 +1,14 @@
 # UniZero
 
-UniZero is a Zotero extension for managing research metadata, literature relations, PDF
-conversion, and Markdown annotations.
+UniZero is a Zotero extension featuring:
 
-## Features
+- metadata completion for Zotero items;
+- PDF attachment conversion to Markdown;
+- annotation export and injection into Markdown;
+- a whiteboard for literature connections and exploration.
 
-| Area | Capability | Local runtime |
-| --- | --- | --- |
-| Metadata | Find identifiers, compare candidates, update Zotero items | Not required |
-| Relations | Browse references and citations, import and relate items and creating connections | Not required |
-| Graph View | Visualize the related and connected papers | Not Required 
-| Conversions | Convert PDFs to Markdown and making connection to Obsidian| Required |
-| Annotations | Export or inject Zotero annotations into Markdown(Obsidian) | Required |
-
-The runtime-dependent features use a local Python service. 
-Zotero remains the source of bibliographic metadata and annotations.
+The runtime-dependent features use a local Python service. Zotero remains the source of
+bibliographic metadata and annotations.
 
 ## Repository
 
@@ -59,9 +53,11 @@ uv pip install -e ".[dev]"
 The add-on build writes `apps/zotero-addon/build/unizero.xpi`. Runtime installation,
 launch options, and development-profile setup are documented in the component READMEs.
 
-There is no root build command. `npm test` covers the host-independent derived-index and
-graph logic only. Add-on UI and Zotero API changes also require a manual Zotero check;
-neither type checking nor the test suite exercises the host application.
+There is no root build command. `npm test` covers only the host-independent parts: the
+derived relation index, graph builders, Project and Paper persistence, the sync engine,
+and the Home dialog under `happy-dom`. Add-on UI and Zotero API changes also require a
+manual Zotero check; neither type checking nor the test suite exercises the host
+application.
 
 ## License
 

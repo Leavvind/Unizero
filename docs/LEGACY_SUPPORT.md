@@ -12,6 +12,7 @@ They are compatibility boundaries, not the organizing model for new code.
 | `apps/zotero-addon/src/modules/zomReferences.ts` | Legacy `zominer.references/1` reference envelopes alongside current `unizero.references/2` attachments | Retire only the legacy envelope compatibility after existing libraries have been migrated; the current structured-reference reader remains |
 | `apps/zotero-addon/src/runtime-client/launch.ts` | Explicit legacy `server.py` launch setting | Support for that user-configured launch mode is intentionally ended |
 | `apps/zotero-addon/src/zotero/markdownLinkRegistry.ts` | Generated Obsidian URLs whose uid is `unizero-<libraryID>-<itemKey>` | The URL is rewritten to the item key after that paper is successfully reconverted |
+| `apps/zotero-addon/src/projects/paperCatalog.ts` | Schema 1 observation indexes, rebuilt once from their observation documents and persisted as schema 2 | Existing catalogs have been read at least once by a build that writes schema 2 |
 | `UNIZERO_RUNTIME_HOME` | An existing compatible runtime-state directory | Supported indefinitely as an explicit runtime-home choice |
 
 Rules:

@@ -53,15 +53,17 @@ data are not part of this structure.
 
 ## Dialog content
 
-`addon/chrome/content/` is plain JavaScript and XHTML. It is not compiled, not type
-checked, and not covered by any automated test.
+`addon/chrome/content/` is plain JavaScript and XHTML: not compiled and not type checked.
+`literature-explorer.xhtml` and its scripts are loaded by the `happy-dom` harness in
+`tests/literatureExplorerRace.test.ts`, so their host-independent behaviour is covered;
+`panel.js`, Zotero APIs, privileged-window lifecycle, and the real canvas are not.
 
 | File | Responsibility |
 | --- | --- |
 | `panel.xhtml` / `panel.js` | Runtime jobs, service notices, template editor |
-| `literature-explorer.xhtml` | Explorer markup, CSS variables, and light/dark theming |
-| `literature-explorer.js` | Home Board state, drag/move interaction, filters, detail tabs, legacy graph hosting |
-| `literature-graph.js` | Shelved Collection graph and optional detail force simulation |
+| `literature-explorer.xhtml` | Home markup, CSS variables, and light/dark theming |
+| `literature-explorer.js` | Home Board state, pointer interaction, filters, detail tabs, graph hosting |
+| `literature-graph.js` | Per-paper Graph tab force simulation; also the retired Collection graph |
 | `vendor/force-graph.min.js` | Vendored MIT force-graph UMD build; see the sibling LICENSE |
 
 These files talk to the add-on only through the plain-object API supplied as
@@ -82,7 +84,7 @@ bundle modules.
 | Change index maintenance or reference backfill | `apps/zotero-addon/src/modules/uniConnectionSync.ts` |
 | Change Project/Board/Paper persisted shapes | `apps/zotero-addon/src/projects/` |
 | Add data Unizero Home needs | `views.ts` producer, then the `src/ui/literatureExplorer.ts` bridge |
-| Change Explorer layout, filters, or tables | `addon/chrome/content/literature-explorer.js` |
+| Change Board layout, interaction, or detail tabs | `addon/chrome/content/literature-explorer.js` |
 | Change graph visuals, forces, or interaction | `addon/chrome/content/literature-graph.js` |
 | Change cached or persisted add-on state | `apps/zotero-addon/src/modules/localStorage.ts` |
 | Change runtime HTTP behavior | schema, both contract models, client, then `api/` |

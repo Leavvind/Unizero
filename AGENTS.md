@@ -56,7 +56,7 @@ The process boundary is described in `docs/ARCHITECTURE.md`.
 | `apps/zotero-addon/src/zotero` | Zotero item, attachment, annotation, and identity adapters |
 | `apps/zotero-addon/src/ui` | Menus, panel bridge, progress, and service notices |
 | `apps/zotero-addon/src/modules` | Established relations, metadata, cache, and item-pane code |
-| `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, Literature Explorer, graph renderer |
+| `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, Unizero Home, graph renderer |
 | `services/paper-runtime/src/unizero_runtime/api` | FastAPI transport |
 | `services/paper-runtime/src/unizero_runtime/application` | Jobs, configuration, and use cases |
 | `services/paper-runtime/src/unizero_runtime/pipeline` | Workflow templates and document steps |
@@ -127,9 +127,10 @@ npm run build
 ```
 
 `npm run check` includes TypeScript and shared-contract drift checks. `npm test` runs
-Vitest over the derived relation index and the graph builders, which are deliberately
-free of Zotero and DOM dependencies. Everything else in the add-on — UI, lifecycle,
-dialogs, providers — has no host-independent test and needs a manual Zotero check.
+Vitest over the parts that are deliberately free of Zotero: the derived relation index,
+the graph builders, Project and Paper persistence, the sync engine and WebDAV backend,
+and the Home dialog loaded under `happy-dom`. Lifecycle, menus, providers, and every
+privileged Zotero API remain untested and need a manual Zotero check.
 
 From `services/paper-runtime`:
 
