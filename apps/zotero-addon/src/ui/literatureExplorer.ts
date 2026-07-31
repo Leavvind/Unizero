@@ -298,6 +298,11 @@ function strings() {
       "Reading saved data…",
     ),
     empty: read("literature-empty-label", "No papers found"),
+    notCached: read(
+      "literature-not-cached-label",
+      "Nothing saved for this paper yet",
+    ),
+    fetchNow: read("literature-fetch-now-label", "Fetch from providers"),
     influential: read("literature-influential-label", "Influential"),
     add: read("literature-add-label", "Add to current Zotero library"),
     present: read("literature-present-label", "Already in current Zotero library"),

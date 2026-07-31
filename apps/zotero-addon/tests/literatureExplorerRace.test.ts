@@ -415,7 +415,10 @@ function createHarness(overrides: Record<string, unknown> = {}) {
       collection(scope.libraryID, scope.name),
     snapshot: async (itemKey: string) =>
       snapshot(itemKey, itemKey === "P1" ? "First Paper" : "Second Paper"),
-    snapshotStatus: async () => ({ loaded: false }),
+    // A cache hit is the default these tests are written against: opening a paper
+    // only reaches the providers when the probe reports a miss, and the cases that
+    // care about a miss override this.
+    snapshotStatus: async () => ({ loaded: true }),
     focusedGraph: async (itemKey: string, scope: any) =>
       graph(scope.libraryID, itemKey),
     graphLayout: async () => ({}),
@@ -1123,7 +1126,26 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
-  it("shows provider progress only after the cache probe confirms a miss", async () => {
+  it("offers to fetch instead of calling providers when the probe confirms a miss", async () => {
+    const fetched = vi.fn(async () => snapshot("P1", "First Paper"));
+    const harness = createHarness({
+      snapshotStatus: async () => ({ loaded: false }),
+      snapshot: fetched,
+    });
+    await flush();
+
+    await harness.explorer.showCollectionPreview("P1");
+    await flush();
+
+    expect(fetched).not.toHaveBeenCalled();
+    expect(harness.win.document.getElementById("status")?.textContent)
+      .toBe("notCached");
+    expect(harness.win.document.getElementById("progress")?.hidden).toBe(true);
+    expect(harness.explorer.activeTabState().needsFetch).toBe(true);
+    harness.win.close();
+  });
+
+  it("reaches the providers, with progress, once the fetch prompt is clicked", async () => {
     const pending = deferred<any>();
     const harness = createHarness({
       snapshotStatus: async () => ({ loaded: false }),
@@ -1131,7 +1153,13 @@ describe("Unizero Home async ownership and Board interaction", () => {
     });
     await flush();
 
-    const opening = harness.explorer.showCollectionPreview("P1");
+    await harness.explorer.showCollectionPreview("P1");
+    await flush();
+
+    const prompt = harness.win.document
+      .querySelector("#rows .fetch-now") as HTMLButtonElement;
+    expect(prompt?.textContent).toBe("fetchNow");
+    prompt.click();
     await flush();
 
     expect(harness.win.document.getElementById("status")?.textContent)
@@ -1139,8 +1167,9 @@ describe("Unizero Home async ownership and Board interaction", () => {
     expect(harness.win.document.getElementById("progress")?.hidden).toBe(false);
 
     pending.resolve(snapshot("P1", "First Paper"));
-    await opening;
+    await flush();
     expect(harness.win.document.getElementById("progress")?.hidden).toBe(true);
+    expect(harness.explorer.activeTabState().needsFetch).toBe(false);
     harness.win.close();
   });
 

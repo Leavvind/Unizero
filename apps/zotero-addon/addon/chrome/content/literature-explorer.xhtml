@@ -815,6 +815,9 @@
       color: var(--muted);
       text-align: center;
     }
+    /* Shown in place of the table when a paper has no saved relations: fetching
+       is an explicit action, never a side effect of opening the paper. */
+    .empty-cell .fetch-now { margin-top: 12px; }
     /* In-window load progress: shown while sources are being fetched. */
     .progress {
       display: flex;

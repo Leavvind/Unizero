@@ -31,6 +31,7 @@ import {
   cacheMatchesIdentifiers,
   citationsCacheIsUsable,
   completedEmptyCitations,
+  identifiersGained,
   makeReferencesCache,
   persistRelationSources,
   type CitationsCache,
@@ -480,6 +481,12 @@ export default class Views {
     if (!cached || !Array.isArray(cached.references)) { return; }
     const identifiers = readItemPaperIdentifiers(item);
     if (!cacheMatchesIdentifiers(cached, identifiers)) {
+      return;
+    }
+    // The shard is this paper's, but an identifier it was saved without may
+    // unlock a provider that was skipped last time. Worth another fetch only
+    // when there is nothing to show for the last one.
+    if (!cached.references.length && identifiersGained(cached, identifiers)) {
       return;
     }
     return cached;
@@ -2429,10 +2436,14 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
   ): Promise<void> {
     const pending = state.references
       .map((reference, index) => ({ reference, index }))
-      .filter(({ reference }) => !reference.title && reference.identifiers?.DOI);
+      .filter(({ reference }) =>
+        !reference.title &&
+        reference.identifiers?.DOI &&
+        !reference._placeholderUnresolved);
     if (!pending.length) { return; }
     let changed = false;
-    await resolveMany(
+    const unresolved: number[] = [];
+    const { failed } = await resolveMany(
       pending.map(({ reference }) => ({
         raw: reference.text || "",
         identifiers: reference.identifiers,
@@ -2440,7 +2451,10 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       (position, info) => {
         // A low-confidence guess or a titleless result leaves the placeholder as it
         // was; only a confident, titled match is worth writing over the DOI row.
-        if (!info || info.lowConfidence || !info.title) { return; }
+        if (!info || info.lowConfidence || !info.title) {
+          unresolved.push(position);
+          return;
+        }
         const { reference } = pending[position];
         if (info.identifiers.DOI) {
           reference.identifiers = { ...reference.identifiers, DOI: info.identifiers.DOI };
@@ -2467,6 +2481,21 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
         changed = true;
       },
     );
+    // Record the rows the providers answered about but could not identify. Without
+    // this the whole batch is retried on every open — resolveOne's memo only spans
+    // the session — so a shard full of unresolvable DOI rows spent the same
+    // requests, and the same wait, after every restart. A transport failure
+    // anywhere in the batch leaves every entry retryable: the per-entry callback
+    // cannot tell "no such paper" from "never reached the API". An explicit
+    // refresh rebuilds the rows from the providers and so clears the marks.
+    if (!failed) {
+      for (const position of unresolved) {
+        const { reference } = pending[position];
+        if (reference._placeholderUnresolved) { continue; }
+        reference._placeholderUnresolved = true;
+        changed = true;
+      }
+    }
     // Persist so the enrichment survives the session; unchanged runs (nothing
     // resolved) skip the write to avoid needless cache churn and a bumped savedAt.
     if (changed) {

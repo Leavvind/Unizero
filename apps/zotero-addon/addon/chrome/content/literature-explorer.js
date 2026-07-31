@@ -805,6 +805,10 @@ var LiteratureExplorer = {
       graphError: "",
       graphFilters: { links: "all", minShared: 1 },
       busy: false,
+      // Set once the cache probe says this paper has nothing saved: the prompt to
+      // fetch replaces the empty table, and no provider call happens until it is
+      // clicked.
+      needsFetch: false,
       error: "",
       requests: {
         snapshot: 0,
@@ -3547,6 +3551,7 @@ var LiteratureExplorer = {
     this.beginTabRequest(tab, "snapshot");
     tab.busy = false;
     tab.error = "";
+    tab.needsFetch = false;
     tab.kind = kind;
     tab.snapshot = this.cachedPreviewSnapshot(tab.itemKey, kind);
     if (tab.snapshot) tab.title = tab.snapshot.seed.title;
@@ -3593,6 +3598,7 @@ var LiteratureExplorer = {
     // from the fresh snapshot below.
     tab.activeSource = "combined";
     tab.error = "";
+    tab.needsFetch = false;
     if (this.tabIsActive(tab)) {
       this.activeSource = "combined";
       document.getElementById("refresh").title = "";
@@ -3618,11 +3624,37 @@ var LiteratureExplorer = {
           generation,
         )) return;
       }
+      // Nothing saved for this paper. Opening one is not an instruction to call
+      // the providers, so the fetch waits to be asked for: that is what keeps a
+      // click from turning into an unannounced round of network work, and it puts
+      // every cache miss on screen instead of hiding it behind a progress bar.
+      // A missing cacheStatus means the probe itself failed rather than that the
+      // cache is empty, so it falls through to the fetch and surfaces the error.
+      if (kind !== "relation" && !refresh && cacheStatus && !cacheStatus.loaded) {
+        tab.snapshot = null;
+        tab.needsFetch = true;
+        // Before rendering, not only in the `finally`: the prompt is the
+        // not-busy empty state, and a still-busy view would draw "Loading…" over
+        // the very thing that says nothing is being loaded.
+        this.setBusy(false, tab);
+        if (this.tabIsActive(tab) && tab.kind === kind) {
+          this.snapshot = null;
+          // Including the source picker: without a snapshot behind them, the
+          // previous paper's per-source options would otherwise stay on screen.
+          this.configureSources();
+          this.configurePublicationLevels();
+          this.configureKindPresentation();
+          this.render();
+        } else {
+          this.renderTabs();
+        }
+        return;
+      }
       if (
         this.tabIsActive(tab) &&
         kind !== "relation" &&
         !refresh &&
-        (!cacheStatus || !cacheStatus.loaded)
+        !cacheStatus
       ) {
         this.setStatus(this.strings.loading);
         this.startProgress(kind);
@@ -3902,7 +3934,15 @@ var LiteratureExplorer = {
     rows.replaceChildren();
     let items = this.visibleItems();
     if (!this.snapshot) {
-      this.renderEmpty(rows, this.busy ? this.strings.loading : this.strings.empty, 6);
+      let tab = this.activeTabState();
+      if (this.busy) {
+        this.renderEmpty(rows, this.strings.loading, 6);
+      } else if (tab && tab.needsFetch && this.kind !== "relation") {
+        this.renderFetchPrompt(rows, 6);
+        this.setStatus(this.strings.notCached);
+      } else {
+        this.renderEmpty(rows, this.strings.empty, 6);
+      }
       return;
     }
     if (!items.length) {
@@ -3951,6 +3991,30 @@ var LiteratureExplorer = {
       this.activeSource !== "combined" ||
       this.kind !== "citations" ||
       !this.snapshot.hasMore;
+  },
+
+  /**
+   * Empty state for a paper with nothing saved yet.
+   *
+   * The providers are reached from here and from Refresh, and from nowhere else,
+   * so opening a paper never starts network work on its own — and a paper whose
+   * shard went missing is visible as such rather than as another wait.
+   */
+  renderFetchPrompt(rows, columnCount) {
+    let row = document.createElement("tr");
+    let cell = document.createElement("td");
+    cell.colSpan = columnCount;
+    cell.className = "empty-cell";
+    let message = document.createElement("div");
+    message.textContent = this.strings.notCached;
+    let action = document.createElement("button");
+    action.className = "fetch-now";
+    action.textContent = this.strings.fetchNow;
+    action.addEventListener("click", () => void this.load(true));
+    cell.append(message, action);
+    row.append(cell);
+    rows.append(row);
+    document.getElementById("load-more").hidden = true;
   },
 
   renderEmpty(rows, message, columnCount) {

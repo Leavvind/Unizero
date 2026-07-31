@@ -67,12 +67,30 @@ export function citationsCacheIsUsable(
     return false;
   }
   if (cache.all.length) { return true; }
+  // An identifier gained since the save could be exactly what the providers were
+  // missing, so an empty list is not a durable answer once one arrives.
+  if (identifiersGained(cache, identifiers)) { return false; }
   return completedEmptyCitations(cache) &&
     now - cache.savedAt <= CITATIONS_NEGATIVE_CACHE_TTL_MS;
 }
 
-function sameIdentifier(left: unknown, right: unknown): boolean {
-  return String(left || "").toLowerCase() === String(right || "").toLowerCase();
+function normalizeIdentifier(value: unknown): string {
+  return String(value || "").trim().toLowerCase();
+}
+
+/**
+ * True when a saved identifier and the item's current one name different papers.
+ *
+ * Absence on either side is "unknown", not a disagreement: the enrichment run
+ * that writes a Semantic Scholar ID into Extra long after a list was fetched is
+ * describing the same work, and treating that as a new identity threw away a
+ * perfectly good shard — intermittently, because it only happened on the runs
+ * that actually found an identifier.
+ */
+function identifierConflicts(saved: unknown, current: unknown): boolean {
+  const left = normalizeIdentifier(saved);
+  const right = normalizeIdentifier(current);
+  return Boolean(left) && Boolean(right) && left !== right;
 }
 
 /**
@@ -84,11 +102,29 @@ export function cacheMatchesIdentifiers(
   cache: Pick<ReferencesCache, "doi" | "semanticScholarPaperId">,
   identifiers: ItemPaperIdentifiers,
 ): boolean {
-  return sameIdentifier(cache.doi, identifiers.doi) &&
-    sameIdentifier(
+  return !identifierConflicts(cache.doi, identifiers.doi) &&
+    !identifierConflicts(
       cache.semanticScholarPaperId,
       identifiers.semanticScholarPaperId,
     );
+}
+
+/**
+ * True when the item now carries an identifier the shard was saved without.
+ *
+ * The shard still belongs to this paper — `cacheMatchesIdentifiers` keeps it —
+ * but a provider that was skipped for want of that identifier could now answer.
+ * That only justifies fetching again when the shard has nothing to show; a
+ * populated list is kept and upgraded on the next explicit refresh.
+ */
+export function identifiersGained(
+  cache: Pick<ReferencesCache, "doi" | "semanticScholarPaperId">,
+  identifiers: ItemPaperIdentifiers,
+): boolean {
+  const gained = (saved: unknown, current: unknown) =>
+    !normalizeIdentifier(saved) && Boolean(normalizeIdentifier(current));
+  return gained(cache.doi, identifiers.doi) ||
+    gained(cache.semanticScholarPaperId, identifiers.semanticScholarPaperId);
 }
 
 export function cacheMatchesItem(
