@@ -1,12 +1,10 @@
 # Unizero Home — Project View 设计
 
-> 状态：Project/Board/Paper schema、每 Collection 的稳定 Project、三栏 Board MVP、
-> 库内 Paper catalog、重复节点、统一平移/缩放、移动、删除 tombstone 与拖拽式手工
-> 连线、Node 缩放、Text Node 与嵌入式 PaperBlock、Detail 库外 Paper 拖入及自动
-> 关系 hover 提示、统一 cache/pinned/zotero Paper、citation observation、
-> 完整快照压缩、cache GC、显式 Paper merge/redirect，以及手动/定时 WebDAV
-> Project/Board pack sync 第一阶段已实现；同步仍在施工。未完成工作以
-> [ROADMAP.md](ROADMAP.md) 为准。
+> 状态：三栏 Project View、Board MVP（重复节点、平移缩放、移动、缩放、tombstone、
+> 手工连线、Text Node 与嵌入式 PaperBlock、hover 关系提示）、统一 Paper catalog
+> （cache/pinned/zotero、citation observation、快照压缩、GC、显式 merge/redirect）
+> 与手动/定时 WebDAV Project/Board sync 已实现。Literature 命名空间同步、冲突审阅
+> UI 与 Project 身份迁移仍未完成，以 [ROADMAP.md](ROADMAP.md) 为准。
 
 ## 1. 产品决定
 
@@ -139,18 +137,24 @@ Block 交互目前保留为实验能力；下一轮扩展前应先重新评估�
 Project、Board、Node、Edge 和 tombstone 都按独立、带 schema 的对象保存，避免一个
 巨大 Board JSON 造成整板冲突。本机目录不是远端协议；同步层传输 typed documents。
 
-推荐 namespace：
+已实现的 sync namespace（见 `src/sync/types.ts`）：
 
 ```text
 project.meta
 project.board
 project.board-node
 project.board-edge
-literature.paper
-literature.references
-literature.citations
-settings.portable
 ```
+
+已定义但尚未接入 sync engine：
+
+```text
+literature.paper
+literature.paper-redirect
+literature.observation
+```
+
+`settings.portable` 仍是设计设想，尚未定义。
 
 Project 对象是非重建状态，优先于 provider cache。远端删除必须通过 tombstone
 传播。Graph layout 仍可丢弃；Board geometry 不可丢弃，二者不得复用 namespace。

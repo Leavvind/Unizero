@@ -95,6 +95,14 @@ then at a user-selected interval of 30 minutes or longer; completion-based timer
 service's in-flight promise prevent overlapping runs. Background result notifications
 are separately configurable.
 
+A pack written by a newer build may carry a namespace this one has not registered. Those
+documents are skipped and reported, never fatal: throwing would stop the pack — and every
+later pack — from applying, permanently stranding that device. The checkpoint records the
+skipped packs and the namespaces responsible, and a build that registers one of them
+replays exactly those packs. Everything a checksum or pack ID is computed over uses
+code-unit ordering and invariant case folding, so two devices in different locales agree
+on the identity of identical data.
+
 The WebDAV application password is device-local secret state. It is stored in Firefox's
 Login Manager under the WebDAV origin and an add-on-specific realm, following Zotero's
 own credential-storage boundary without reading or overwriting Zotero's WebDAV entry.
@@ -102,47 +110,32 @@ URLs, usernames, schedule preferences, and last-run diagnostics remain ordinary 
 preferences; no credential enters a typed document, pack, checkpoint, or log.
 
 Remote Project object IDs are validated as bounded portable names both at the sync
-namespace boundary and again before repository path construction. Literature discovery
-uses bibliographic fingerprints rather than provider-list positions for unresolved
-provisional Paper identity. Catalog ingestion is additive and cannot prevent the
-established References/Citations cache from being written when catalog data is damaged
-or ambiguous.
+namespace boundary and again before repository path construction. Catalog ingestion is
+additive and cannot prevent the established References/Citations cache from being written
+when catalog data is damaged or ambiguous.
 
 Board node schema 1 is a discriminated union. Existing `kind: "paper"` documents remain
 valid standalone-paper shorthand. `kind: "text"` documents own an ordered block array;
 each text or paper-reference block has a stable block ID, and paper blocks reference the
-same Paper catalog used by standalone nodes. Editing or embedding updates the containing
-text-node document. No Paper metadata is copied into the node and no Zotero item is
-created by embedding.
+same Paper catalog used by standalone nodes. No Paper metadata is copied into the node
+and no Zotero item is created by embedding.
 
-The current Home window renders a three-pane Project View. Collection papers drag onto a
-DOM/SVG Board whose world layer has one camera transform for cards and edges. Wheel
-gestures pan, Ctrl/Cmd-wheel and toolbar controls zoom, blank-space drag pans, and Fit
-frames the current cards. The camera is transient window state; card geometry remains the
-persisted state.
+Card geometry, manual edges, and tombstones are persisted per object; the Board camera is
+transient window state and shares no document with them. The same Paper may back more than
+one node, so node instances — not Papers — are what edges and geometry belong to.
 
-Every Collection-list drop first creates or reuses a stable Zotero-bound Paper. A
-References or Citations result can also be dropped directly; an out-of-library result
-creates or reuses an identifier-aliased, `pinned` Paper and does not create a Zotero
-item. A later Zotero-bound observation with the same DOI, arXiv, or Semantic Scholar
-identifier adds a binding to that Paper and upgrades its retention instead of replacing
-its ID. Each drop then creates a new paper-node instance, so the same Paper may occur
-more than once. Moving a card updates only its geometry document, and Delete or Backspace
-writes a tombstone. Four
-directional handles start a connection drag with a live SVG preview; a successful drop
-creates a persisted manual edge rendered as a boundary-to-boundary curve. Selecting a
-curve allows that edge to be deleted independently. Deleting a node also tombstones its
-incident manual edges. Selecting a card reuses the existing Detail View on the right. The
-Paper catalog is stored separately under
-`<dataDir>/unizero/literature/`; a Zotero binding uses portable library scope plus item
-key, so refreshing metadata does not replace the Paper ID.
+The Paper catalog is stored separately under `<dataDir>/unizero/literature/`. A Zotero
+binding uses portable library scope plus item key, so refreshing metadata does not replace
+the Paper ID. Dropping an out-of-library result creates or reuses an identifier-aliased
+Paper without creating a Zotero item; a later Zotero-bound observation with a matching
+identifier adds a binding to that same Paper rather than replacing its ID.
 
-Loading a References or Citations snapshot also materializes every result in this
-catalog with `cache` retention, whether or not it is dragged onto the Board. Reliable
-DOI, arXiv, Semantic Scholar, and OpenAlex aliases converge provider results. An
-unidentified result receives a query-scoped provisional mapping, so reopening the same
-saved snapshot reuses its Paper without making title or author a global merge key.
-Retention is monotonic:
+Loading a References or Citations snapshot materializes every result in this catalog with
+`cache` retention, whether or not it reaches the Board. Reliable DOI, arXiv, Semantic
+Scholar, and OpenAlex aliases converge provider results. An unidentified result receives a
+query-scoped provisional mapping keyed by bibliographic fingerprint rather than provider
+list position, so reopening the same saved snapshot reuses its Paper without making title
+or author a global merge key. Retention is monotonic:
 
 ```text
 cache → pinned → zotero
@@ -171,23 +164,15 @@ and writes a `paper-redirect` document under `unizero/literature/redirects/`. Re
 an old Paper ID resolve the redirect, allowing existing Board and future sync references
 to remain valid.
 
-Hovering an identifiable paper card projects `UniConnection` and catalog observation
-edges onto stable Paper IDs present on the current Board as transient SVG paths and
-highlights every instance of the related Papers. The catalog side queries the Paper
-adjacency index with the Board's distinct Paper IDs and then discards observations whose
-other endpoint is outside that set. A Zotero-bound source can therefore hint an external
-Board-pinned reference when their DOI, arXiv, or Semantic Scholar endpoints match. These
-hints are recomputed data: they never create or update manual-edge documents, and a
-failure to derive them does not prevent the Project from opening.
+Board relation hints project `UniConnection` and catalog observation edges onto the Paper
+IDs present on the current Board. The catalog side queries the Paper adjacency index with
+the Board's distinct Paper IDs and discards observations whose other endpoint is outside
+that set. These hints are recomputed data: they never create or update manual-edge
+documents, and a failure to derive them does not prevent the Project from opening.
 
-Paper and Text cards expose a bottom-right resize handle. Pointer deltas are converted
-through the current camera scale, edge paths update during the gesture, and the final
-width and height are persisted in the same per-node geometry document as position.
-
-The Board toolbar can create an inline-editable Text Node. Its body accepts Collection
-paper drops as PaperBlocks, saves text after a short debounce or blur, and allows an
-embedded block to be removed independently. A library-backed PaperBlock is draggable and
-can be copied onto blank Board space as another standalone paper-node instance.
+The Board's interaction surface — panes, camera gestures, drag handles, resize, and Text
+Node editing — is described in [apps/zotero-addon/README.md](../apps/zotero-addon/README.md)
+and its design constraints in [UNIZERO_HOME.md](UNIZERO_HOME.md).
 
 ## Derived relations index
 

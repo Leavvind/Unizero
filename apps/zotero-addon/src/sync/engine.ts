@@ -1,3 +1,4 @@
+import { compareCodeUnits } from "../utils/ordering";
 import {
   parseSyncDocument,
   stableJSONString,
@@ -124,7 +125,8 @@ function namespaceOrder(document: SyncDocument): number {
 function sortDocuments(documents: SyncDocument[]): SyncDocument[] {
   return [...documents].sort((left, right) =>
     namespaceOrder(left) - namespaceOrder(right) ||
-    syncObjectKey(left.namespace, left.id).localeCompare(
+    compareCodeUnits(
+      syncObjectKey(left.namespace, left.id),
       syncObjectKey(right.namespace, right.id),
     ));
 }
@@ -134,6 +136,8 @@ function emptyCheckpoint(): SyncCheckpoint {
     schema: SYNC_CHECKPOINT_SCHEMA,
     appliedPackIDs: [],
     exportedChecksums: {},
+    deferredPackIDs: [],
+    deferredNamespaces: [],
   };
 }
 
@@ -191,7 +195,7 @@ export class SyncEngine {
   }
 
   private async syncAttempt(): Promise<SyncRunResult> {
-    const checkpoint = await this.loadCheckpoint();
+    const checkpoint = this.replayDeferredPacks(await this.loadCheckpoint());
     const applied = new Set(checkpoint.appliedPackIDs);
     const result: SyncRunResult = {
       uploaded: 0,
@@ -201,6 +205,7 @@ export class SyncEngine {
       packsUploaded: 0,
       packsDownloaded: 0,
       remaining: 0,
+      skipped: 0,
     };
 
     const manifests = await this.loadRemoteManifests();
@@ -208,7 +213,8 @@ export class SyncEngine {
       manifests
         .flatMap(({ manifest }) => Object.values(manifest.packs))
         .sort((left, right) =>
-          left.createdAt - right.createdAt || left.id.localeCompare(right.id))
+          left.createdAt - right.createdAt ||
+          compareCodeUnits(left.id, right.id))
         .map((descriptor) => [descriptor.id, descriptor]),
     ).values()];
     const pendingDownloads = descriptors.filter(
@@ -306,7 +312,16 @@ export class SyncEngine {
     result: SyncRunResult,
   ): Promise<void> {
     for (const remoteDocument of sortDocuments(pack.documents)) {
-      const namespace = this.namespace(remoteDocument.namespace);
+      const namespace = this.namespaces.get(remoteDocument.namespace);
+      if (!namespace) {
+        // A newer build wrote a namespace this one cannot interpret. Skipping
+        // keeps the rest of the pack — and every later pack — applying, which a
+        // throw here would block permanently. The pack is recorded so a build
+        // that understands the namespace replays it.
+        this.deferPack(checkpoint, pack.id, remoteDocument.namespace);
+        result.skipped += 1;
+        continue;
+      }
       const remote = namespace.migrate(remoteDocument);
       const local = await this.local.get(remote.namespace, remote.id);
       if (!local) {
@@ -405,12 +420,41 @@ export class SyncEngine {
     };
   }
 
-  private namespace(name: SyncNamespaceName): SyncNamespace {
-    const namespace = this.namespaces.get(name);
-    if (!namespace) {
-      throw new Error(`No sync namespace registered for ${name}`);
-    }
-    return namespace;
+  private deferPack(
+    checkpoint: SyncCheckpoint,
+    packID: string,
+    namespace: SyncNamespaceName,
+  ): void {
+    checkpoint.deferredPackIDs = [...new Set([
+      ...checkpoint.deferredPackIDs || [],
+      packID,
+    ])].sort(compareCodeUnits);
+    checkpoint.deferredNamespaces = [...new Set([
+      ...checkpoint.deferredNamespaces || [],
+      namespace,
+    ])].sort(compareCodeUnits);
+  }
+
+  /**
+   * Re-arm packs that an earlier build skipped, now that this build registers at
+   * least one of the namespaces that caused the deferral. Dropping them from the
+   * applied set is what makes them download and apply again.
+   */
+  private replayDeferredPacks(checkpoint: SyncCheckpoint): SyncCheckpoint {
+    const deferredPackIDs = checkpoint.deferredPackIDs || [];
+    const deferredNamespaces = checkpoint.deferredNamespaces || [];
+    if (!deferredPackIDs.length) { return checkpoint; }
+    const understood = deferredNamespaces.filter((name) =>
+      this.namespaces.has(name as SyncNamespaceName));
+    if (!understood.length) { return checkpoint; }
+    const replay = new Set(deferredPackIDs);
+    return {
+      ...checkpoint,
+      appliedPackIDs: checkpoint.appliedPackIDs.filter((id) =>
+        !replay.has(id)),
+      deferredPackIDs: [],
+      deferredNamespaces: [],
+    };
   }
 
   private async loadCheckpoint(): Promise<SyncCheckpoint> {
@@ -423,6 +467,14 @@ export class SyncEngine {
     ) {
       return emptyCheckpoint();
     }
-    return checkpoint;
+    return {
+      ...checkpoint,
+      deferredPackIDs: Array.isArray(checkpoint.deferredPackIDs)
+        ? checkpoint.deferredPackIDs
+        : [],
+      deferredNamespaces: Array.isArray(checkpoint.deferredNamespaces)
+        ? checkpoint.deferredNamespaces
+        : [],
+    };
   }
 }

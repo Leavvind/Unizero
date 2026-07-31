@@ -343,9 +343,20 @@ async function bindWebDAVSync(doc: Document): Promise<void> {
         `Done: ${result.uploaded} uploaded, ${result.downloaded} downloaded, ` +
           `${result.merged} merged, ${result.remaining} batches remaining`,
       );
-      status.textContent = credentialWarning
-        ? `${done} ${credentialWarning}`
-        : done;
+      // Deferred data is not lost, but the user should know this build did not
+      // apply all of it rather than believing the sync was complete.
+      const deferredNotice = result.skipped
+        ? await localized(
+          doc,
+          "sync-status-deferred",
+          result as unknown as Record<string, unknown>,
+          `${result.skipped} documents need a newer UniZero version and were ` +
+            "left on the server.",
+        )
+        : "";
+      status.textContent = [done, deferredNotice, credentialWarning]
+        .filter(Boolean)
+        .join(" ");
       webDAVSyncScheduler.reconfigure();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

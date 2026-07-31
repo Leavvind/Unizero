@@ -942,11 +942,13 @@ var LiteratureExplorer = {
       // The Collection tab is labelled with the scope, which is only known now.
       this.renderTabs();
       this.renderCollection();
+      this.renderProjectBoard();
     } catch (error) {
       if (!this.contextIsCurrent(generation) || request !== this.collectionRequest) return;
       this.collectionSnapshot = null;
       this.setCollectionStatus(this.strings.error + ": " + String(error), true);
       this.renderCollection();
+      this.renderProjectBoard();
     } finally {
       if (this.contextIsCurrent(generation) && request === this.collectionRequest) {
         this.collectionBusy = false;
@@ -967,6 +969,7 @@ var LiteratureExplorer = {
     document.getElementById("paper-title").textContent =
       this.collectionSnapshot.scope.name;
     this.renderCollection();
+    this.renderProjectBoard();
     // Pick up anything loaded since the overview was built — a detail visit here, or
     // the item pane / a prior session — so the badges stop lying about "not loaded".
     this.refreshCollectionStatuses();
@@ -1935,9 +1938,12 @@ var LiteratureExplorer = {
       return;
     }
 
+    // The Board is deliberately not rendered here. This runs on every search
+    // keystroke and on every async status refresh, and a full Board rebuild
+    // costs a focused Text Node its caret and detaches an in-flight drag's
+    // element. Callers that actually changed Board state call renderProjectBoard.
     let items = this.visibleCollectionItems();
     this.renderProjectLibrary(items);
-    this.renderProjectBoard();
     if (!items.length) {
       this.renderEmpty(rows, this.strings.collectionEmpty, 7);
     } else {
@@ -1983,7 +1989,32 @@ var LiteratureExplorer = {
     });
   },
 
+  /** True while a Text Node editor inside the Board owns the caret. */
+  boardEditorHasFocus() {
+    let active = document.activeElement;
+    return Boolean(active && active.closest &&
+      active.closest(".board-text-node-body"));
+  },
+
+  /** Re-render a Board rebuild that was deferred while the user was busy. */
+  flushDeferredBoardRender() {
+    if (!this._boardRenderDeferred) return;
+    this._boardRenderDeferred = false;
+    this.renderProjectBoard();
+  },
+
   renderProjectBoard() {
+    // Rebuilding replaces every card element. During a pointer gesture that
+    // detaches the element the interaction still writes to — the card stops
+    // moving while its stored geometry keeps changing — and during text editing
+    // it drops the caret. Defer the rebuild and keep the cheap parts current.
+    if (this._boardInteraction || this.boardEditorHasFocus()) {
+      this._boardRenderDeferred = true;
+      this.renderBoardEdges();
+      this.updateBoardControls();
+      return;
+    }
+    this._boardRenderDeferred = false;
     let surface = document.getElementById("project-board-surface");
     surface.querySelectorAll(".board-paper-node").forEach((node) => node.remove());
     let nodes = this.project && Array.isArray(this.project.nodes)
@@ -2138,8 +2169,10 @@ var LiteratureExplorer = {
           block.text = editor.value;
           this.scheduleBoardTextSave(view, block, editor.value);
         });
-        editor.addEventListener("blur", () =>
-          this.scheduleBoardTextSave(view, block, editor.value, true));
+        editor.addEventListener("blur", () => {
+          this.scheduleBoardTextSave(view, block, editor.value, true);
+          this.flushDeferredBoardRender();
+        });
         body.append(editor);
         return;
       }
@@ -2726,6 +2759,7 @@ var LiteratureExplorer = {
       await this.refreshBoardRelationHints();
       if (!this.contextIsCurrent(generation) || !this.project) return;
       this.renderCollection();
+      this.renderProjectBoard();
       if (view.itemKey) await this.showCollectionPreview(view.itemKey);
     } catch (error) {
       if (this.contextIsCurrent(generation)) {
@@ -2909,44 +2943,51 @@ var LiteratureExplorer = {
   async finishBoardPointer(event, cancelled = false) {
     let interaction = this._boardInteraction;
     if (!interaction || !this.boardPointerMatches(interaction, event)) return;
-    if (interaction.kind === "node") {
-      await this.finishBoardNodeDrag(event, cancelled);
-      return;
-    }
-    if (interaction.kind === "resize") {
-      await this.finishBoardNodeResize(event, cancelled);
-      return;
-    }
-    this._boardInteraction = null;
-    if (interaction.kind === "pan") {
-      document.getElementById("project-board-viewport")
-        .classList.remove("panning");
-      if (cancelled) {
-        this.boardCamera = {
-          ...this.boardCamera,
-          x: interaction.startX,
-          y: interaction.startY,
-        };
-        this.applyBoardCamera();
-      } else if (!interaction.moved) {
-        this.clearBoardSelection();
+    // Every branch below ends the gesture, so this is where a rebuild deferred
+    // during it becomes safe again. Some branches already render; the flush is
+    // a no-op then.
+    try {
+      if (interaction.kind === "node") {
+        await this.finishBoardNodeDrag(event, cancelled);
+        return;
       }
-      return;
-    }
-    if (interaction.kind === "connect") {
-      let target = event.target?.closest?.(".board-paper-node");
-      let targetNodeID = interaction.targetNodeID ||
-        (target && target.dataset.nodeId !== interaction.view.node.id
-          ? target.dataset.nodeId
-          : null);
-      this.markBoardConnectionTarget(null);
-      this.renderBoardEdges();
-      if (!cancelled && targetNodeID) {
-        await this.createBoardEdge(
-          interaction.view.node.id,
-          targetNodeID,
-        );
+      if (interaction.kind === "resize") {
+        await this.finishBoardNodeResize(event, cancelled);
+        return;
       }
+      this._boardInteraction = null;
+      if (interaction.kind === "pan") {
+        document.getElementById("project-board-viewport")
+          .classList.remove("panning");
+        if (cancelled) {
+          this.boardCamera = {
+            ...this.boardCamera,
+            x: interaction.startX,
+            y: interaction.startY,
+          };
+          this.applyBoardCamera();
+        } else if (!interaction.moved) {
+          this.clearBoardSelection();
+        }
+        return;
+      }
+      if (interaction.kind === "connect") {
+        let target = event.target?.closest?.(".board-paper-node");
+        let targetNodeID = interaction.targetNodeID ||
+          (target && target.dataset.nodeId !== interaction.view.node.id
+            ? target.dataset.nodeId
+            : null);
+        this.markBoardConnectionTarget(null);
+        this.renderBoardEdges();
+        if (!cancelled && targetNodeID) {
+          await this.createBoardEdge(
+            interaction.view.node.id,
+            targetNodeID,
+          );
+        }
+      }
+    } finally {
+      this.flushDeferredBoardRender();
     }
   },
 
@@ -3079,6 +3120,7 @@ var LiteratureExplorer = {
       } else {
         this.renderBoardEdges();
       }
+      this.flushDeferredBoardRender();
       return true;
     }
     if (this.boardConnectSourceID) {
@@ -3207,8 +3249,9 @@ var LiteratureExplorer = {
       this.boardSelectedNodeID = null;
       this.boardConnectSourceID = null;
       this.collectionPreview = null;
+      // Closes the detail pane, which may still be showing the deleted card's
+      // paper, and renders both the list and the Board.
       this.showCollection();
-      this.renderCollection();
     } catch (error) {
       if (this.contextIsCurrent(generation)) {
         this.setCollectionStatus(this.strings.error + ": " + String(error), true);

@@ -61,7 +61,7 @@ export function syncProjectsWithWebDAV(
     new ProjectSyncLocalStore(settings.deviceID),
     defaultSyncCheckpointStore(syncChecksum({
       baseURL: settings.baseURL,
-      username: settings.username.toLocaleLowerCase(),
+      username: settings.username.toLowerCase(),
       remoteRoot: settings.remoteRoot,
     })),
     PROJECT_SYNC_NAMESPACES,

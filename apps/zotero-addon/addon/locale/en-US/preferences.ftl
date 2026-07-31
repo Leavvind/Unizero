@@ -105,6 +105,7 @@ sync-notifications-none = None
 sync-now = Sync now
 sync-status-running = Syncing…
 sync-status-done = Done: { $uploaded } uploaded, { $downloaded } downloaded, { $merged } merged, { $remaining } batches remaining
+sync-status-deferred = { $skipped } documents need a newer UniZero version and were left on the server.
 sync-status-error = Sync failed: { $message }
 sync-status-password-save-error = Sync completed, but the application password could not be saved.
 sync-status-last-success = Last synced: { $time }

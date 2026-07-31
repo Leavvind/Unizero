@@ -1,13 +1,10 @@
 import { config } from "../../package.json";
+import { isMissingFile } from "../utils/fileState";
 import {
   SYNC_CHECKPOINT_SCHEMA,
   type SyncCheckpoint,
   type SyncCheckpointStore,
 } from "./types";
-
-function isMissingFile(error: any): boolean {
-  return error?.name === "NotFoundError" || error?.name === "NotAllowedError";
-}
 
 function defaultDataDirectory(): string {
   const dir = (Zotero as any).DataDirectory?.dir;

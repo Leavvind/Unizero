@@ -14,6 +14,8 @@
 
 import { config } from "../../package.json";
 import type { LiteratureCollectionScope } from "../modules/literatureRelations";
+import { isMissingFile } from "../utils/fileState";
+import { compareCodeUnits } from "../utils/ordering";
 import { libraryScope } from "../zotero/libraryScope";
 import {
   BOARD_EDGE_SCHEMA,
@@ -55,10 +57,6 @@ export type ProjectObjectKind =
   | "block"
   | "paper"
   | "observation";
-
-function isMissingFile(error: any): boolean {
-  return error?.name === "NotFoundError" || error?.name === "NotAllowedError";
-}
 
 function defaultDataDirectory(): string {
   const dir = (Zotero as any).DataDirectory?.dir;
@@ -198,7 +196,7 @@ export class ProjectRepository {
       }
     }
     return nodes.sort((left, right) =>
-      left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+      left.createdAt - right.createdAt || compareCodeUnits(left.id, right.id));
   }
 
   public async listPortableObjects(): Promise<PortableProjectObject[]> {
@@ -423,7 +421,7 @@ export class ProjectRepository {
       }
     }
     return edges.sort((left, right) =>
-      left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+      left.createdAt - right.createdAt || compareCodeUnits(left.id, right.id));
   }
 
   public async createManualEdge(
@@ -556,7 +554,7 @@ export class ProjectRepository {
       nodes.push(node);
     }
     return nodes.sort((left, right) =>
-      left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+      left.createdAt - right.createdAt || compareCodeUnits(left.id, right.id));
   }
 
   private async listBoardEdgesRaw(
@@ -584,7 +582,7 @@ export class ProjectRepository {
       edges.push(edge);
     }
     return edges.sort((left, right) =>
-      left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+      left.createdAt - right.createdAt || compareCodeUnits(left.id, right.id));
   }
 
   private async applyPortableObjectExclusive(

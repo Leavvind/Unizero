@@ -946,6 +946,92 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
+  it("keeps a focused Text Node editor alive across a Collection re-render", async () => {
+    const harness = createHarness();
+    await flush();
+
+    await harness.explorer.createBoardTextNode();
+    await flush();
+    const editor = harness.win.document.querySelector(
+      ".board-text-editor",
+    ) as HTMLTextAreaElement;
+    editor.focus();
+    editor.value = "half-typed";
+    editor.dispatchEvent(new harness.win.Event("input"));
+
+    // A background status refresh, a search keystroke, or a Zotero change all
+    // land here. None of them may take the caret away mid-sentence.
+    harness.explorer.renderCollection();
+    harness.explorer.renderProjectBoard();
+
+    const after = harness.win.document.querySelector(
+      ".board-text-editor",
+    ) as HTMLTextAreaElement;
+    expect(after).toBe(editor);
+    expect(harness.win.document.activeElement).toBe(editor);
+    expect(after.value).toBe("half-typed");
+
+    // Blur releases the deferral and the rebuild happens then.
+    editor.blur();
+    await flush();
+    expect(harness.explorer._boardRenderDeferred).toBe(false);
+    harness.win.close();
+  });
+
+  it("does not detach the dragged card when a re-render lands mid-gesture", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.dropPaperOnBoard({
+      preventDefault: () => undefined,
+      clientX: 300,
+      clientY: 240,
+      dataTransfer: {
+        getData: (type: string) =>
+          type === "application/x-unizero-paper" ? "P1" : "",
+      },
+    });
+    const view = harness.explorer.project.nodes[0];
+    const startX = view.node.geometry.x;
+    const startY = view.node.geometry.y;
+    const card = harness.win.document.querySelector(
+      `[data-node-id="${view.node.id}"]`,
+    );
+
+    harness.explorer.startBoardNodeDrag({
+      button: 0,
+      pointerId: 21,
+      preventDefault: () => undefined,
+      clientX: 100,
+      clientY: 100,
+    }, view, card);
+    harness.explorer.moveBoardPointer({
+      pointerId: 21,
+      clientX: 140,
+      clientY: 120,
+      target: card,
+    });
+
+    // A background status refresh lands mid-drag.
+    harness.explorer.renderCollection();
+    harness.explorer.renderProjectBoard();
+
+    // The element the gesture is still writing to must remain the live one,
+    // otherwise the card stops moving while its geometry keeps changing.
+    expect(harness.win.document.querySelector(
+      `[data-node-id="${view.node.id}"]`,
+    )).toBe(card);
+    expect(harness.explorer._boardRenderDeferred).toBe(true);
+
+    await harness.explorer.finishBoardPointer({ pointerId: 21, target: card });
+    expect(harness.api.moveBoardNode).toHaveBeenCalledWith(
+      view.node.id,
+      expect.objectContaining({ x: startX + 40, y: startY + 20 }),
+      expect.any(Object),
+    );
+    expect(harness.explorer._boardRenderDeferred).toBe(false);
+    harness.win.close();
+  });
+
   it("replaces the Collection preview when another node is selected", async () => {
     const harness = createHarness();
     await flush();

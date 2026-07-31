@@ -8,6 +8,8 @@
  */
 
 import { config } from "../../package.json";
+import { isMissingFile } from "../utils/fileState";
+import { compareCodeUnits } from "../utils/ordering";
 import { literatureCandidateFromItem } from "../zotero/literatureCollectionAdapter";
 import { libraryScope } from "../zotero/libraryScope";
 import {
@@ -102,10 +104,6 @@ export interface PaperCatalogGarbageCollection {
   removedPaperIDs: string[];
 }
 
-function isMissingFile(error: any): boolean {
-  return error?.name === "NotFoundError" || error?.name === "NotAllowedError";
-}
-
 function defaultDataDirectory(): string {
   const dir = (Zotero as any).DataDirectory?.dir;
   if (typeof dir === "string" && dir) { return dir; }
@@ -116,8 +114,12 @@ function bindingKey(binding: ZoteroPaperBinding): string {
   return `${binding.library}:${binding.itemKey}`;
 }
 
+/**
+ * Alias keys are persisted and compared across devices, so this folds case with
+ * the invariant mapping rather than the host locale's. See `utils/ordering`.
+ */
 function normalIdentifier(value: string | undefined): string | undefined {
-  const normal = String(value || "").trim().toLocaleLowerCase();
+  const normal = String(value || "").trim().toLowerCase();
   return normal || undefined;
 }
 
@@ -176,7 +178,7 @@ function observationNaturalKey(
 ): string {
   return [
     input.queryKind,
-    String(input.provider || "unknown").trim().toLocaleLowerCase(),
+    String(input.provider || "unknown").trim().toLowerCase(),
     input.citingPaperID,
     input.citedPaperID,
   ].join("\u0000");
@@ -266,9 +268,9 @@ type DiscoveryFingerprintInput = Pick<
 
 function discoveryMatchKey(seed: DiscoveryFingerprintInput): string {
   return JSON.stringify([
-    String(seed.title || "").normalize("NFKC").trim().toLocaleLowerCase(),
+    String(seed.title || "").normalize("NFKC").trim().toLowerCase(),
     String(seed.year || "").trim(),
-    String(seed.authors?.[0] || "").normalize("NFKC").trim().toLocaleLowerCase(),
+    String(seed.authors?.[0] || "").normalize("NFKC").trim().toLowerCase(),
   ]);
 }
 
@@ -282,7 +284,7 @@ function provisionalPaperKey(
   return [
     seedPaperID,
     queryKind,
-    String(route || "combined").trim().toLocaleLowerCase(),
+    String(route || "combined").trim().toLowerCase(),
     discoveryMatchKey(seed),
     occurrence,
   ].join("\u0000");
@@ -640,7 +642,7 @@ export class PaperCatalog {
         .sort(([left], [right]) => {
           const position = (key: string) =>
             Number(key.slice(legacyProvisionalPrefix.length));
-          return position(left) - position(right) || left.localeCompare(right);
+          return position(left) - position(right) || compareCodeUnits(left, right);
         });
       for (const [, legacy] of legacyMappings) {
         const legacyID = resolveIndexedPaperID(index, legacy);
@@ -920,7 +922,7 @@ export class PaperCatalog {
     const index = await this.loadObservationIndex();
     const normalProvider = String(provider || "unknown")
       .trim()
-      .toLocaleLowerCase();
+      .toLowerCase();
     const removed: string[] = [];
     const nextKeys = { ...index.keys };
     let nextByPaper = index.byPaper;
@@ -1120,7 +1122,7 @@ export class PaperCatalog {
     const winners: LiteratureCitationObservation[] = [];
     for (const [key, entries] of groups) {
       entries.sort((left, right) =>
-        right.retrievedAt - left.retrievedAt || left.id.localeCompare(right.id));
+        right.retrievedAt - left.retrievedAt || compareCodeUnits(left.id, right.id));
       const winner = entries[0];
       nextKeys[key] = winner.id;
       winners.push(winner);

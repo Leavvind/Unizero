@@ -9,6 +9,7 @@
  */
 
 import { config } from "../../package.json";
+import { isMissingFile } from "../utils/fileState";
 
 const REGISTRY_SCHEMA = 2;
 
@@ -116,10 +117,6 @@ async function persistDocument(document: RegistryDocument): Promise<void> {
   await IOUtils.writeUTF8(path, JSON.stringify(document), {
     tmpPath: `${path}.tmp`,
   });
-}
-
-function isMissingFile(error: any): boolean {
-  return error?.name === "NotFoundError" || error?.name === "NotAllowedError";
 }
 
 /** Default URL generated for a conversion. No absolute path participates. */

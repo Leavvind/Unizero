@@ -17,19 +17,17 @@ the client for the local paper runtime.
 - one stable Project and default Board per Zotero Collection (or library root),
   keyed by portable Zotero scope and Collection key;
 - a three-pane Project View: collapsible Collection paper list, pannable and zoomable
-  Board, and collapsible References/Relation/Citations Detail View. Library papers can
-  be dragged onto the Board more than once, producing independent card instances whose
-  positions and deletion tombstones are persisted. Selected cards can be joined by
-  persisted manual connections using four directional drag handles; curved connections
-  are independently selectable and deletable. Text Nodes contain ordered, stable-ID
-  content blocks; Collection papers can be embedded as PaperBlocks without creating
-  another Zotero item, and a library-backed embedded block can be copied back out as a
-  standalone paper card. References and Citations rows can also be dragged directly
-  onto the Board: out-of-library results become durable pinned Papers without creating
-  Zotero items. Hovering an identifiable library or external card temporarily
-  highlights every related Board instance and draws derived relation hints without
-  persisting manual edges. Paper and Text cards have a zoom-aware resize handle, and
-  their updated geometry remains durable;
+  Board, and collapsible References/Relation/Citations Detail View;
+- Board cards: library papers drag on more than once as independent instances, with
+  persisted position, size, and deletion tombstones. References and Citations rows drag
+  on directly; an out-of-library result becomes a durable pinned Paper without creating a
+  Zotero item;
+- Board connections: four directional drag handles create persisted manual edges, drawn
+  as curves that are independently selectable and deletable. Hovering an identifiable
+  card highlights every related instance with derived, non-persisted relation hints;
+- Text Nodes: ordered, stable-ID content blocks. Collection papers embed as PaperBlocks
+  without creating another Zotero item, and a library-backed block can be copied back out
+  as a standalone card;
 - Collection paper status for Markdown conversion and cached References/Citations,
   with per-paper quick actions and relation drill-down;
 - a Relation view per paper: which library papers cite it, and which share the most of
@@ -40,13 +38,13 @@ the client for the local paper runtime.
   paper that centres the same graph on it, with adjustable display and force settings
   and a per-node menu for PDF, Markdown, and relation actions;
 - filtering discovered works by library status, influence, year, publication type, and
-  order, plus importing missing papers into the current library. Every loaded
-  References/Citations candidate receives a stable catalog Paper ID with `cache`
-  retention; Board pinning and Zotero binding promote the same Paper to `pinned` or
-  `zotero`. Provider/query observations use one directed citation model. Successful
-  terminal provider snapshots replace stale observations and collect orphaned
-  cache-only Papers, while incomplete pages and provider failures preserve prior
-  evidence. Explicit identity merges retain redirects for old Paper IDs;
+  order, plus importing missing papers into the current library;
+- a stable Paper catalog: every loaded References/Citations candidate gets a Paper ID at
+  `cache` retention, which Board pinning and Zotero binding promote to `pinned` or
+  `zotero`. Observations use one directed citation model. Only a successful terminal
+  provider snapshot replaces stale observations and collects orphaned cache-only Papers;
+  incomplete pages and provider failures preserve prior evidence. Explicit identity
+  merges leave redirects for old Paper IDs;
 - relating discovered works;
 - PDF conversion commands and generated-artifact registration, including a versioned
   structured References JSON attachment produced from the PDF bibliography;

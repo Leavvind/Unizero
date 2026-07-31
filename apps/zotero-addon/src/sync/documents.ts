@@ -1,3 +1,4 @@
+import { compareCodeUnits } from "../utils/ordering";
 import {
   SYNC_DOCUMENT_SCHEMA,
   type SyncDocument,
@@ -11,7 +12,9 @@ function stableValue(value: unknown): unknown {
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
       .filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
+      // Code-unit order, never locale order: this key order is what every pack
+      // ID and checksum is computed over, and it must not vary by device.
+      .sort(([left], [right]) => compareCodeUnits(left, right))
       .map(([key, entry]) => [key, stableValue(entry)]),
   );
 }

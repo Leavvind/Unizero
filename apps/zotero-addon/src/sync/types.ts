@@ -63,6 +63,15 @@ export interface SyncCheckpoint {
   schema: typeof SYNC_CHECKPOINT_SCHEMA;
   appliedPackIDs: string[];
   exportedChecksums: Record<string, string>;
+  /**
+   * Packs that carried at least one document this build could not apply, and
+   * the namespaces responsible. A pack is still marked applied so the run can
+   * make progress; once a later build registers one of those namespaces, the
+   * engine replays exactly these packs instead of leaving the data unreachable.
+   * Absent on checkpoints written before deferral existed.
+   */
+  deferredPackIDs?: string[];
+  deferredNamespaces?: string[];
 }
 
 export interface RemoteObject {
@@ -134,6 +143,8 @@ export interface SyncRunResult {
   packsUploaded: number;
   packsDownloaded: number;
   remaining: number;
+  /** Documents in a namespace this build does not know; deferred, not lost. */
+  skipped: number;
 }
 
 export function syncObjectKey(

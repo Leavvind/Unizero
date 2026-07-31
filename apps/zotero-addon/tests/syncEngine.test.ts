@@ -15,6 +15,7 @@ import {
   type SyncCheckpointStore,
   type SyncDocument,
   type SyncLocalStore,
+  type SyncNamespace,
   type SyncNamespaceName,
   type WriteCondition,
   syncObjectKey,
@@ -120,6 +121,17 @@ const projectNamespace = latestWriteWinsNamespace(
   (payload) => {
     if (!payload || typeof (payload as any).title !== "string") {
       throw new Error("invalid project");
+    }
+    return payload as { title: string };
+  },
+);
+
+const paperNamespace = latestWriteWinsNamespace(
+  "literature.paper",
+  1,
+  (payload) => {
+    if (!payload || typeof (payload as any).title !== "string") {
+      throw new Error("invalid paper");
     }
     return payload as { title: string };
   },
@@ -326,5 +338,84 @@ describe("SyncEngine", () => {
       key.startsWith("packs/"))).toHaveLength(1);
     expect([...backend.files.keys()].filter((key) =>
       key.startsWith("manifests/"))).toHaveLength(1);
+  });
+
+  it("defers a namespace it cannot apply instead of failing the run", async () => {
+    const backend = new MemoryBackend();
+    const author = new MemoryLocalStore();
+    await author.put(document("device-a", 10, "Project A"));
+    await author.put({
+      ...document("device-a", 10, "Paper A"),
+      namespace: "literature.paper",
+      id: "paper_1",
+      scope: { kind: "project", id: "paper_1" },
+    });
+    await new SyncEngine(
+      backend,
+      author,
+      new MemoryCheckpointStore(),
+      [projectNamespace, paperNamespace],
+      { deviceID: "device-a" },
+    ).sync();
+
+    // device-b is an older build: it has no literature.paper namespace.
+    const reader = new MemoryLocalStore();
+    const readerCheckpoint = new MemoryCheckpointStore();
+    const result = await new SyncEngine(
+      backend,
+      reader,
+      readerCheckpoint,
+      [projectNamespace],
+      { deviceID: "device-b" },
+    ).sync();
+
+    expect(result).toMatchObject({ downloaded: 1, skipped: 1 });
+    expect(reader.documents.has(syncObjectKey("project.meta", "project_1")))
+      .toBe(true);
+    expect(reader.documents.has(syncObjectKey("literature.paper", "paper_1")))
+      .toBe(false);
+    expect(readerCheckpoint.checkpoint.deferredNamespaces)
+      .toEqual(["literature.paper"]);
+    expect(readerCheckpoint.checkpoint.deferredPackIDs).toHaveLength(1);
+    // The pack still counts as applied, so the run made progress.
+    expect(readerCheckpoint.checkpoint.appliedPackIDs).toContain(
+      readerCheckpoint.checkpoint.deferredPackIDs![0],
+    );
+  });
+
+  it("replays a deferred pack once the namespace becomes known", async () => {
+    const backend = new MemoryBackend();
+    const author = new MemoryLocalStore();
+    await author.put({
+      ...document("device-a", 10, "Paper A"),
+      namespace: "literature.paper",
+      id: "paper_1",
+      scope: { kind: "project", id: "paper_1" },
+    });
+    await new SyncEngine(
+      backend,
+      author,
+      new MemoryCheckpointStore(),
+      [projectNamespace, paperNamespace],
+      { deviceID: "device-a" },
+    ).sync();
+
+    const reader = new MemoryLocalStore();
+    const readerCheckpoint = new MemoryCheckpointStore();
+    const engine = (namespaces: SyncNamespace[]) =>
+      new SyncEngine(backend, reader, readerCheckpoint, namespaces, {
+        deviceID: "device-b",
+      });
+
+    await engine([projectNamespace]).sync();
+    expect(reader.documents.size).toBe(0);
+
+    // Same remote, same checkpoint, newer build.
+    const upgraded = await engine([projectNamespace, paperNamespace]).sync();
+    expect(upgraded).toMatchObject({ downloaded: 1, skipped: 0 });
+    expect(reader.documents.has(syncObjectKey("literature.paper", "paper_1")))
+      .toBe(true);
+    expect(readerCheckpoint.checkpoint.deferredPackIDs).toEqual([]);
+    expect(readerCheckpoint.checkpoint.deferredNamespaces).toEqual([]);
   });
 });

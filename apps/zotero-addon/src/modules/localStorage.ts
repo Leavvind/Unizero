@@ -24,6 +24,7 @@
  */
 
 import { config } from "../../package.json";
+import { isMissingFile } from "../utils/fileState";
 import {
   effectiveLibraryID,
   libraryItemIdentity,
@@ -483,10 +484,6 @@ function dataDirectory(): string {
   const dir = (Zotero as any).DataDirectory?.dir;
   if (typeof dir === "string" && dir) { return dir; }
   return Zotero.getTempDirectory().parent.path;
-}
-
-function isMissingFile(error: any): boolean {
-  return error?.name === "NotFoundError" || error?.name === "NotAllowedError";
 }
 
 export default LocalStorage

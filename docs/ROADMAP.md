@@ -38,6 +38,9 @@ READMEs and `docs/ARCHITECTURE.md`.
   unchecking remember removes only UniZero's credential, automatic sync observes the
   selected interval after restart, offline startup is quiet, and each background
   notification mode behaves as labelled.
+- Verify a Board survives interruption: typing in a Text Node keeps its caret while a
+  background status refresh lands, and a card dragged while one lands still follows the
+  pointer and saves the position it visibly ends at.
 
 ## Contracts and artifacts
 
