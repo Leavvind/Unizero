@@ -209,6 +209,12 @@ describe("suggestCitekeys", () => {
     expect(results.map((entry) => entry.itemKey)).toEqual(["BBB"]);
   });
 
+  it("matches on an author name when the citekey does not start with it", async () => {
+    // The derived key is lecunDeep…, so "breiman" only hits via the author field.
+    const results = await suggestCitekeys("breiman", 10);
+    expect(results.map((entry) => entry.itemKey)).toEqual(["BBB"]);
+  });
+
   it("returns everything for an empty query", async () => {
     expect(await suggestCitekeys("", 10)).toHaveLength(2);
   });

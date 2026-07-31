@@ -218,8 +218,16 @@ export interface CitekeySuggestion extends CitekeyLocation {
 /**
  * Prefix and substring matches for an editor's `@` completion.
  *
- * Ranking is deliberately crude — citekey prefix, then title — because the
- * caller shows a short list and the user is still typing.
+ * Ranking is deliberately crude because the caller shows a short list and the
+ * user is still typing:
+ *
+ *   0  citekey prefix
+ *   1  citekey substring
+ *   2  author (last or first name) prefix / substring
+ *   3  title substring
+ *
+ * Author matching is what makes typing `@richardson` useful: a citekey is often
+ * long camelCase, and users reach for the name they remember, not the key.
  */
 export async function suggestCitekeys(
   query: string,
@@ -233,20 +241,15 @@ export async function suggestCitekeys(
     const index = await libraryIndex(libraryID);
     for (const [citekey, locations] of index) {
       for (const location of locations) {
-        const lowered = citekey.toLowerCase();
-        let rank = -1;
-        if (!needle) {
-          rank = 2;
-        } else if (lowered.startsWith(needle)) {
-          rank = 0;
-        } else if (lowered.includes(needle)) {
-          rank = 1;
-        }
-
         const item = libraryItem(location.libraryID, location.itemKey);
         if (!item) { continue; }
+
         const title = String(item.getField("title") || "");
-        if (rank < 0 && needle && title.toLowerCase().includes(needle)) { rank = 2; }
+        const authors = item.getCreators()
+          .map((creator) => String(creator.lastName || creator.firstName || "").trim())
+          .filter(Boolean);
+
+        let rank = rankSuggestion(needle, citekey, title, authors);
         if (rank < 0) { continue; }
 
         scored.push({
@@ -255,9 +258,7 @@ export async function suggestCitekeys(
             ...location,
             citekey,
             title,
-            authors: item.getCreators()
-              .map((creator) => String(creator.lastName || creator.firstName || "").trim())
-              .filter(Boolean),
+            authors,
             year: yearSegment(item) || undefined,
           },
         });
@@ -269,6 +270,27 @@ export async function suggestCitekeys(
     .sort((a, b) => a.rank - b.rank || a.suggestion.citekey.localeCompare(b.suggestion.citekey))
     .slice(0, Math.max(1, limit))
     .map((entry) => entry.suggestion);
+}
+
+function rankSuggestion(
+  needle: string,
+  citekey: string,
+  title: string,
+  authors: string[],
+): number {
+  if (!needle) { return 3; }
+
+  const key = citekey.toLowerCase();
+  if (key.startsWith(needle)) { return 0; }
+  if (key.includes(needle)) { return 1; }
+
+  for (const author of authors) {
+    const name = author.toLowerCase();
+    if (name.startsWith(needle) || name.includes(needle)) { return 2; }
+  }
+
+  if (title.toLowerCase().includes(needle)) { return 3; }
+  return -1;
 }
 
 export function invalidateCitekeyIndex(libraryID?: number): void {

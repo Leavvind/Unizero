@@ -59,6 +59,57 @@ interface RequestQuery {
   [name: string]: string | undefined;
 }
 
+/**
+ * Pull query parameters out of whatever shape Zotero's server handed us.
+ *
+ * Zotero 7+ calls single-argument `init` with
+ * `{ method, pathname, pathParams, searchParams, headers, data }`, where
+ * `searchParams` is a `URLSearchParams`. Older docs and a few third-party
+ * examples still talk about a plain `query` object or a raw query string; accept
+ * those too so a future server change does not blank every endpoint again.
+ *
+ * This is load-bearing: reading the wrong field makes every paper lookup report
+ * "citekey is required" and every `@` completion dump the alphabetically-first
+ * slice of the library (empty needle → rank everything equally).
+ */
+function queryFromRequest(request: {
+  searchParams?: { entries?: () => IterableIterator<[string, string]> };
+  query?: RequestQuery | string;
+} | null | undefined): RequestQuery {
+  if (!request) { return {}; }
+
+  const params = request.searchParams;
+  if (params && typeof params.entries === "function") {
+    const out: RequestQuery = {};
+    for (const [key, value] of params.entries()) {
+      out[key] = value;
+    }
+    return out;
+  }
+
+  if (typeof request.query === "string" && request.query) {
+    const out: RequestQuery = {};
+    for (const part of request.query.split("&")) {
+      if (!part) { continue; }
+      const split = part.indexOf("=");
+      const rawName = split < 0 ? part : part.slice(0, split);
+      const rawValue = split < 0 ? "" : part.slice(split + 1);
+      try {
+        out[decodeURIComponent(rawName)] = decodeURIComponent(rawValue);
+      } catch {
+        out[rawName] = rawValue;
+      }
+    }
+    return out;
+  }
+
+  if (request.query && typeof request.query === "object") {
+    return request.query;
+  }
+
+  return {};
+}
+
 function json(status: number, body: unknown): BridgeResponse {
   return [status, "application/json", JSON.stringify(body)];
 }
@@ -216,9 +267,12 @@ function endpointFor(
   return function BridgeEndpoint(this: Record<string, unknown>) {
     this.supportedMethods = ["GET"];
     this.supportedDataTypes = ["application/json"];
-    this.init = async (request: { query?: RequestQuery }): Promise<BridgeResponse> => {
+    this.init = async (request: {
+      searchParams?: { entries?: () => IterableIterator<[string, string]> };
+      query?: RequestQuery | string;
+    }): Promise<BridgeResponse> => {
       try {
-        return await handler(request?.query || {});
+        return await handler(queryFromRequest(request));
       } catch (error) {
         ztoolkit.log(`[bridge:${name}] failed`, error);
         Zotero.logError(error as Error);

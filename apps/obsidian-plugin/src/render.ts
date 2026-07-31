@@ -129,10 +129,18 @@ class CitationWidget extends WidgetType {
     this.teardown = undefined;
   }
 
-  ignoreEvent(): boolean {
-    // The pill handles its own clicks; CodeMirror must not also move the caret
-    // into a range that is not there.
-    return false;
+  ignoreEvent(event: Event): boolean {
+    // Pointer events belong to the pill (open pane / context menu). If CM also
+    // handles them it places the caret on the replace range, which tears the
+    // widget down and looks like "clicking just enters edit mode". Keyboard
+    // events stay with the editor so arrow keys still move across a pill.
+    return event.type === "mousedown" ||
+      event.type === "mouseup" ||
+      event.type === "click" ||
+      event.type === "contextmenu" ||
+      event.type === "pointerdown" ||
+      event.type === "pointerup" ||
+      event.type === "pointercancel";
   }
 }
 
