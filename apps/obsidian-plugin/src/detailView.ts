@@ -19,7 +19,7 @@ import {
   type BridgeRelations,
   type RelationKind,
 } from "./bridge";
-import { paperRefKey, type PaperRef } from "./citation";
+import { enableCitationDrag, paperRefKey, type PaperRef } from "./citation";
 import type { PaperState } from "./paperStore";
 import type UnizeroPlugin from "./main";
 import { openInZotero, openMarkdownNote, openZoteroPdf } from "./actions";
@@ -161,6 +161,16 @@ export class UnizeroDetailView extends ItemView {
     if (state.status !== "ready") { return; }
     const paper = state.paper;
     const header = container.createDiv({ cls: "unizero-detail__header" });
+    const selfRef: PaperRef = {
+      libraryID: paper.libraryID,
+      itemKey: paper.itemKey,
+    };
+    // Drag the open paper into a note (same affordance as library rows).
+    enableCitationDrag(header, selfRef);
+    header.setAttr(
+      "title",
+      `Drag into a note to insert @${paper.libraryID}/${paper.itemKey}`,
+    );
 
     header.createEl("h2", {
       cls: "unizero-detail__title",
@@ -315,11 +325,20 @@ export class UnizeroDetailView extends ItemView {
         libraryID: related.libraryID,
         itemKey: related.itemKey,
       };
+      enableCitationDrag(row, ref);
+      row.setAttr(
+        "title",
+        `Drag into a note to insert @${ref.libraryID}/${ref.itemKey}`,
+      );
+
       const open = actions.createEl("button", { text: "Open" });
       open.addEventListener("click", () => this.show(ref));
 
       const insert = actions.createEl("button", { text: "Insert" });
-      insert.setAttr("aria-label", "Insert this citation at the cursor");
+      insert.setAttr(
+        "aria-label",
+        "Insert this citation at the cursor of the last open note",
+      );
       insert.addEventListener("click", () => this.plugin.insertCitation(ref));
     } else if (related.inLibrary) {
       actions.createSpan({ cls: "unizero-row__note", text: "in library" });

@@ -20,6 +20,11 @@ from), the library pane lets you **switch libraries and collections** inside Obs
 The last choice is remembered across sessions. Click a row to open it in the paper
 pane; right-click for insert / Zotero / PDF / note.
 
+**Insert & drag.** *Insert citation* (library context menu or paper-pane Relation row)
+writes `@libraryID/itemKey` into the **last Markdown note you had open**, even while a
+sidebar holds focus. You can also **drag** a library row, the paper-pane header, or an
+in-library Relation row onto the note body.
+
 ## Syntax
 
 | Written | Click does |

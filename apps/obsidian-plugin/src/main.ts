@@ -10,7 +10,14 @@
  * pill shows Author (year) or title so the opaque key never has to be read.
  */
 
-import { Menu, Notice, Plugin, type WorkspaceLeaf } from "obsidian";
+import {
+  MarkdownView,
+  Menu,
+  Notice,
+  Plugin,
+  type Editor,
+  type WorkspaceLeaf,
+} from "obsidian";
 import { openInZotero, openMarkdownNote, openZoteroPdf } from "./actions";
 import { UnizeroBridge, BRIDGE_API, type BridgePaper } from "./bridge";
 import {
@@ -34,6 +41,11 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
   settings: UnizeroSettings = { ...DEFAULT_SETTINGS };
   bridge!: UnizeroBridge;
   store!: PaperStore;
+  /**
+   * Last Markdown leaf the user focused. Sidebars steal `activeEditor`, so
+   * Insert citation falls back to this rather than failing with "no editor".
+   */
+  private lastMarkdownLeaf: WorkspaceLeaf | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -47,6 +59,17 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     this.registerEditorExtension(citationLivePreview(this));
     this.registerEditorSuggest(new CitationSuggest(this.app, this));
     this.addSettingTab(new UnizeroSettingTab(this.app, this));
+
+    // Remember the note the user was editing so sidebar Insert still has a target.
+    this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
+      if (leaf?.view instanceof MarkdownView) {
+        this.lastMarkdownLeaf = leaf;
+      }
+    }));
+    const currentMd = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (currentMd) {
+      this.lastMarkdownLeaf = currentMd.leaf;
+    }
 
     this.addRibbonIcon("graduation-cap", "UniZero paper pane", () => {
       void this.revealDetailView();
@@ -189,14 +212,53 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     return leaf.view instanceof UnizeroLibraryView ? leaf.view : undefined;
   }
 
-  /** Insert a citation at the cursor of the active Markdown editor. */
-  insertCitation(ref: PaperRef): void {
-    const editor = this.app.workspace.activeEditor?.editor;
+  /**
+   * Insert a citation at the cursor of a Markdown editor.
+   *
+   * Clicking a sidebar steals focus, so `activeEditor` is usually null when
+   * Insert is chosen from the library or paper pane. Fall back to the last
+   * Markdown note the user had open (and any still-open Markdown leaf).
+   */
+  insertCitation(ref: PaperRef): boolean {
+    const editor = this.resolveCitationEditor();
     if (!editor) {
-      new Notice("No editor is focused — click into a note or card first.");
-      return;
+      new Notice(
+        "Open a Markdown note first, then insert — or drag the paper into the note.",
+      );
+      return false;
     }
     editor.replaceSelection(citationText(ref));
+    // Keep the sidebar focused so the user can insert several papers in a row.
+    return true;
+  }
+
+  /**
+   * Best available editor for citation insert, in priority order:
+   * active editor (note / canvas card) → active Markdown view → last Markdown
+   * leaf → any open Markdown leaf.
+   */
+  private resolveCitationEditor(): Editor | null {
+    const activeEditor = this.app.workspace.activeEditor?.editor;
+    if (activeEditor) { return activeEditor; }
+
+    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeView?.editor) { return activeView.editor; }
+
+    if (this.lastMarkdownLeaf) {
+      const view = this.lastMarkdownLeaf.view;
+      if (view instanceof MarkdownView && view.editor) {
+        return view.editor;
+      }
+    }
+
+    const leaves = this.app.workspace.getLeavesOfType("markdown");
+    for (let i = leaves.length - 1; i >= 0; i -= 1) {
+      const view = leaves[i].view;
+      if (view instanceof MarkdownView && view.editor) {
+        return view.editor;
+      }
+    }
+    return null;
   }
 
   async testConnection(): Promise<void> {

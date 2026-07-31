@@ -137,3 +137,42 @@ export function citationText(ref: PaperRef, action: CitationAction = "detail"): 
   const suffix = action === "markdown" ? ".md" : action === "pdf" ? ".pdf" : "";
   return `@${paperRefKey(ref)}${suffix}`;
 }
+
+/** Custom MIME for internal drags; editors also receive `text/plain`. */
+export const CITATION_DRAG_MIME = "application/x-unizero-citation";
+
+/**
+ * Populate a drag payload so dropping on a Markdown editor inserts the citation.
+ * Obsidian's editor accepts `text/plain` natively.
+ */
+export function setCitationDragData(
+  dataTransfer: DataTransfer,
+  ref: PaperRef,
+  action: CitationAction = "detail",
+): void {
+  const text = citationText(ref, action);
+  dataTransfer.setData("text/plain", text);
+  dataTransfer.setData(CITATION_DRAG_MIME, text);
+  dataTransfer.effectAllowed = "copy";
+}
+
+/**
+ * Wire an element so it can be dragged into a note as `@libraryID/itemKey`.
+ * Uses plain DOM APIs so this module stays free of Obsidian imports.
+ */
+export function enableCitationDrag(
+  element: HTMLElement,
+  ref: PaperRef,
+  action: CitationAction = "detail",
+): void {
+  element.draggable = true;
+  element.classList.add("unizero-draggable");
+  element.addEventListener("dragstart", (event) => {
+    if (!event.dataTransfer) { return; }
+    setCitationDragData(event.dataTransfer, ref, action);
+    element.classList.add("is-dragging");
+  });
+  element.addEventListener("dragend", () => {
+    element.classList.remove("is-dragging");
+  });
+}

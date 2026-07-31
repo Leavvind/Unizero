@@ -146,6 +146,14 @@
   padding: var(--size-4-2) 0;
 }
 
+.unizero-row.unizero-draggable {
+  cursor: grab;
+}
+
+.unizero-detail__header.unizero-draggable {
+  cursor: grab;
+}
+
 .unizero-row__title {
   display: flex;
   align-items: baseline;
@@ -268,6 +276,15 @@
   min-height: 0;
 }
 
+.unizero-draggable {
+  cursor: grab;
+}
+
+.unizero-draggable.is-dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
 .unizero-library__item {
   display: flex;
   flex-direction: column;
@@ -279,9 +296,10 @@
   padding: var(--size-2-2) var(--size-4-1);
   border-radius: var(--radius-s);
   background: transparent;
-  cursor: pointer;
+  cursor: grab;
   color: var(--text-normal);
   white-space: normal;
+  user-select: none;
 }
 
 .unizero-library__item:hover {

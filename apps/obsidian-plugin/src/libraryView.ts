@@ -15,7 +15,7 @@ import type {
   BridgeCollections,
   BridgeLibrary,
 } from "./bridge";
-import type { PaperRef } from "./citation";
+import { enableCitationDrag, type PaperRef } from "./citation";
 import { openInZotero, openMarkdownNote, openZoteroPdf } from "./actions";
 import type UnizeroPlugin from "./main";
 
@@ -407,9 +407,12 @@ export class UnizeroLibraryView extends ItemView {
       "is-selected",
       this.selectedKey === item.itemKey && this.libraryID === item.libraryID,
     );
-    row.setAttr("title", item.title || "Untitled");
-
     const titleText = item.title?.trim() || "Untitled";
+    row.setAttr(
+      "title",
+      `${titleText}\nDrag into a note to insert @${item.libraryID}/${item.itemKey}`,
+    );
+
     row.createDiv({
       cls: "unizero-library__item-title",
       text: titleText,
@@ -429,6 +432,12 @@ export class UnizeroLibraryView extends ItemView {
     if (item.hasMarkdown) {
       badges.createSpan({ cls: "unizero-badge", text: "MD" });
     }
+
+    const ref: PaperRef = {
+      libraryID: item.libraryID,
+      itemKey: item.itemKey,
+    };
+    enableCitationDrag(row, ref);
 
     row.addEventListener("click", () => this.openItem(item));
     row.addEventListener("keydown", (event) => {
