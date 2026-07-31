@@ -10,6 +10,7 @@
 import { config } from "../../package.json";
 import { isMissingFile } from "../utils/fileState";
 import { compareCodeUnits } from "../utils/ordering";
+import { SerialQueue } from "../utils/serialQueue";
 import { literatureCandidateFromItem } from "../zotero/literatureCollectionAdapter";
 import { libraryScope } from "../zotero/libraryScope";
 import {
@@ -328,7 +329,7 @@ export class PaperCatalog {
   private readonly createID: (kind: ProjectObjectKind) => string;
   private index?: PaperIndexDocument;
   private observationIndex?: ObservationIndexDocument;
-  private writes: Promise<void> = Promise.resolve();
+  private readonly writes = new SerialQueue();
   private batchDepth = 0;
   private paperIndexDirty = false;
   private observationIndexDirty = false;
@@ -343,52 +344,32 @@ export class PaperCatalog {
   }
 
   public async ensureZoteroPaper(item: Zotero.Item): Promise<PaperDocument> {
-    let result!: PaperDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        result = await this.ensureZoteroPaperExclusive(item);
-      });
-    this.writes = operation;
-    await operation;
-    return result;
+    return this.writes.run(() => this.ensureZoteroPaperExclusive(item));
   }
 
   public async ensureExternalPaper(
     seed: PaperCatalogSeed,
   ): Promise<PaperDocument> {
-    let result!: PaperDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        result = await this.ensureExternalPaperExclusive(seed);
-      });
-    this.writes = operation;
-    await operation;
-    return result;
+    return this.writes.run(() => this.ensureExternalPaperExclusive(seed));
   }
 
   public async pinPaper(paperID: string): Promise<PaperDocument> {
     let result!: PaperDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        const existing = await this.readPaperDirect(
-          await this.resolvePaperIDDirect(paperID),
-        );
-        if (retentionRank(existing.retention) >= retentionRank("pinned")) {
-          result = existing;
-          return;
-        }
-        result = {
-          ...existing,
-          retention: "pinned",
-          updatedAt: this.now(),
-        };
-        await this.writeJSON(this.paperPath(existing.id), result);
-      });
-    this.writes = operation;
-    await operation;
+    await this.writes.run(async () => {
+      const existing = await this.readPaperDirect(
+        await this.resolvePaperIDDirect(paperID),
+      );
+      if (retentionRank(existing.retention) >= retentionRank("pinned")) {
+        result = existing;
+        return;
+      }
+      result = {
+        ...existing,
+        retention: "pinned",
+        updatedAt: this.now(),
+      };
+      await this.writeJSON(this.paperPath(existing.id), result);
+    });
     return result;
   }
 
@@ -396,24 +377,16 @@ export class PaperCatalog {
     seedItem: Zotero.Item,
     snapshot: PaperCatalogDiscoverySnapshot,
   ): Promise<PaperCatalogDiscoveryResult> {
-    let result!: PaperCatalogDiscoveryResult;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        result = await this.recordDiscoverySnapshotExclusive(
+    return this.writes.run(() => this.recordDiscoverySnapshotExclusive(
           seedItem,
           snapshot,
-        );
-      });
-    this.writes = operation;
-    await operation;
-    return result;
+        ));
   }
 
   public async listCitationObservations(
     paperID?: string,
   ): Promise<LiteratureCitationObservation[]> {
-    await this.writes.catch(() => undefined);
+    await this.writes.settled();
     const index = await this.loadObservationIndex();
     const resolvedPaperID = paperID
       ? await this.resolvePaperIDDirect(paperID)
@@ -429,7 +402,7 @@ export class PaperCatalog {
   public async listCitationObservationsForPapers(
     paperIDs: Iterable<string>,
   ): Promise<LiteratureCitationObservation[]> {
-    await this.writes.catch(() => undefined);
+    await this.writes.settled();
     const index = await this.loadObservationIndex();
     const resolvedPaperIDs = await Promise.all(
       [...new Set(paperIDs)].map((paperID) =>
@@ -441,19 +414,19 @@ export class PaperCatalog {
   }
 
   public async readPaper(paperID: string): Promise<PaperDocument> {
-    await this.writes.catch(() => undefined);
+    await this.writes.settled();
     return this.readPaperDirect(await this.resolvePaperIDDirect(paperID));
   }
 
   public async resolvePaperID(paperID: string): Promise<string> {
-    await this.writes.catch(() => undefined);
+    await this.writes.settled();
     return this.resolvePaperIDDirect(paperID);
   }
 
   public async inspectIdentifiers(
     identifiers: PaperIdentifiers,
   ): Promise<PaperIdentifierInspection> {
-    await this.writes.catch(() => undefined);
+    await this.writes.settled();
     const index = await this.loadIndex();
     const aliases = identifierAliases(identifiers);
     const paperIDs = [...new Set(
@@ -474,7 +447,7 @@ export class PaperCatalog {
   }
 
   public async listPaperRedirects(): Promise<PaperRedirectDocument[]> {
-    await this.writes.catch(() => undefined);
+    await this.writes.settled();
     const index = await this.loadIndex();
     const sources = Object.keys(index.redirects).sort();
     return Promise.all(sources.map((source) => this.readRedirectDirect(source)));
@@ -484,32 +457,16 @@ export class PaperCatalog {
     preferredPaperID: string,
     duplicatePaperID: string,
   ): Promise<PaperCatalogMergeResult> {
-    let result!: PaperCatalogMergeResult;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        result = await this.mergePapersExclusive(
+    return this.writes.run(() => this.mergePapersExclusive(
           preferredPaperID,
           duplicatePaperID,
-        );
-      });
-    this.writes = operation;
-    await operation;
-    return result;
+        ));
   }
 
   public async collectGarbage(
     protectedPaperIDs: Iterable<string> = [],
   ): Promise<PaperCatalogGarbageCollection> {
-    let result!: PaperCatalogGarbageCollection;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        result = await this.collectGarbageExclusive(protectedPaperIDs);
-      });
-    this.writes = operation;
-    await operation;
-    return result;
+    return this.writes.run(() => this.collectGarbageExclusive(protectedPaperIDs));
   }
 
   private async ensureZoteroPaperExclusive(

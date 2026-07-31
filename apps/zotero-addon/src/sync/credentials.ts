@@ -49,6 +49,9 @@ export async function saveWebDAVPassword(
   password: string,
 ): Promise<void> {
   const normalizedUsername = String(username || "").trim();
+  // Trimmed deliberately: an application password is normally copied out of a
+  // web page, and surrounding whitespace is far more often a paste artefact
+  // than part of the secret. Covered by tests/syncCredentials.test.ts.
   const normalizedPassword = String(password || "").trim();
   if (!normalizedUsername || !normalizedPassword) {
     throw new Error("A WebDAV username and application password are required");

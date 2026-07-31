@@ -30,6 +30,7 @@ export function syncProjectsWithWebDAV(
   applicationPassword: string,
 ): Promise<SyncRunResult> {
   const settings = getWebDAVSyncSettings();
+  // Trimmed to match how the credential store saves it; see sync/credentials.
   const password = String(applicationPassword || "").trim();
   if (!settings.username) {
     return Promise.reject(new Error("A WebDAV username is required"));

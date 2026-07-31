@@ -16,6 +16,7 @@ import { config } from "../../package.json";
 import type { LiteratureCollectionScope } from "../modules/literatureRelations";
 import { isMissingFile } from "../utils/fileState";
 import { compareCodeUnits } from "../utils/ordering";
+import { SerialQueue } from "../utils/serialQueue";
 import { libraryScope } from "../zotero/libraryScope";
 import {
   BOARD_EDGE_SCHEMA,
@@ -84,6 +85,22 @@ export function createProjectObjectID(kind: ProjectObjectKind): string {
 const DEFAULT_NODE_WIDTH = 228;
 const DEFAULT_NODE_HEIGHT = 118;
 
+/**
+ * The one definition of what a Board geometry may be. The Home dialog reads
+ * these through the window bridge rather than restating them, so a card can
+ * never be dragged to a size this function will silently clamp on save.
+ */
+export const BOARD_GEOMETRY_BOUNDS = {
+  minX: -100_000,
+  maxX: 100_000,
+  minY: -100_000,
+  maxY: 100_000,
+  minWidth: 160,
+  maxWidth: 720,
+  minHeight: 80,
+  maxHeight: 520,
+} as const;
+
 export function validBoardGeometry(
   value: Partial<BoardNodeGeometry>,
 ): BoardNodeGeometry {
@@ -91,11 +108,22 @@ export function validBoardGeometry(
     const number = Number(input);
     return Number.isFinite(number) ? number : fallback;
   };
+  const bounds = BOARD_GEOMETRY_BOUNDS;
+  const clamp = (input: number, low: number, high: number) =>
+    Math.max(low, Math.min(high, input));
   return {
-    x: Math.max(-100_000, Math.min(100_000, finite(value.x, 0))),
-    y: Math.max(-100_000, Math.min(100_000, finite(value.y, 0))),
-    width: Math.max(160, Math.min(720, finite(value.width, DEFAULT_NODE_WIDTH))),
-    height: Math.max(80, Math.min(520, finite(value.height, DEFAULT_NODE_HEIGHT))),
+    x: clamp(finite(value.x, 0), bounds.minX, bounds.maxX),
+    y: clamp(finite(value.y, 0), bounds.minY, bounds.maxY),
+    width: clamp(
+      finite(value.width, DEFAULT_NODE_WIDTH),
+      bounds.minWidth,
+      bounds.maxWidth,
+    ),
+    height: clamp(
+      finite(value.height, DEFAULT_NODE_HEIGHT),
+      bounds.minHeight,
+      bounds.maxHeight,
+    ),
   };
 }
 
@@ -146,7 +174,7 @@ export class ProjectRepository {
   private readonly now: () => number;
   private readonly createID: (kind: ProjectObjectKind) => string;
   private index?: ProjectIndexDocument;
-  private writes: Promise<void> = Promise.resolve();
+  private readonly writes = new SerialQueue();
 
   public constructor(
     private readonly root: string,
@@ -160,22 +188,14 @@ export class ProjectRepository {
     subject: ProjectSubject,
     name: string,
   ): Promise<ProjectBundle> {
-    let result!: ProjectBundle;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        result = await this.ensureProjectExclusive(subject, name);
-      });
-    this.writes = operation;
-    await operation;
-    return result;
+    return this.writes.run(() => this.ensureProjectExclusive(subject, name));
   }
 
   public async listBoardNodes(
     projectID: string,
     boardID: string,
   ): Promise<BoardNodeDocument[]> {
-    await this.writes.catch(() => undefined);
+    await this.writes.settled();
     const directory = this.nodesPath(projectID, boardID);
     let paths: string[];
     try {
@@ -199,8 +219,14 @@ export class ProjectRepository {
       left.createdAt - right.createdAt || compareCodeUnits(left.id, right.id));
   }
 
+  /**
+   * Everything sync may transport. This walks only each Project's default
+   * Board, which is all a Project has today. The Board schema already allows
+   * more than one, so adding a second Board without extending this listing
+   * would silently exclude it from sync — grow this first.
+   */
   public async listPortableObjects(): Promise<PortableProjectObject[]> {
-    await this.writes.catch(() => undefined);
+    await this.writes.settled();
     const index = await this.loadIndex();
     const objects: PortableProjectObject[] = [];
     for (const projectID of [...new Set(Object.values(index.subjects))].sort()) {
@@ -218,16 +244,11 @@ export class ProjectRepository {
     return objects;
   }
 
+  /** Returns what was actually written, which may be normalized. */
   public async applyPortableObject(
     object: PortableProjectObject,
-  ): Promise<void> {
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        await this.applyPortableObjectExclusive(object);
-      });
-    this.writes = operation;
-    await operation;
+  ): Promise<PortableProjectObject> {
+    return this.writes.run(() => this.applyPortableObjectExclusive(object));
   }
 
   public async createPaperNode(
@@ -237,26 +258,22 @@ export class ProjectRepository {
     geometry: Partial<BoardNodeGeometry>,
   ): Promise<BoardPaperNodeDocument> {
     let result!: BoardPaperNodeDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        await this.assertBoard(projectID, boardID);
-        const timestamp = this.now();
-        result = {
-          schema: BOARD_NODE_SCHEMA,
-          id: this.createID("node"),
-          projectID,
-          boardID,
-          kind: "paper",
-          paperID,
-          geometry: validBoardGeometry(geometry),
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
-        await this.writeJSON(this.nodePath(projectID, boardID, result.id), result);
-      });
-    this.writes = operation;
-    await operation;
+    await this.writes.run(async () => {
+      await this.assertBoard(projectID, boardID);
+      const timestamp = this.now();
+      result = {
+        schema: BOARD_NODE_SCHEMA,
+        id: this.createID("node"),
+        projectID,
+        boardID,
+        kind: "paper",
+        paperID,
+        geometry: validBoardGeometry(geometry),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      await this.writeJSON(this.nodePath(projectID, boardID, result.id), result);
+    });
     return result;
   }
 
@@ -266,34 +283,30 @@ export class ProjectRepository {
     geometry: Partial<BoardNodeGeometry>,
   ): Promise<BoardTextNodeDocument> {
     let result!: BoardTextNodeDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        await this.assertBoard(projectID, boardID);
-        const timestamp = this.now();
-        result = {
-          schema: BOARD_NODE_SCHEMA,
-          id: this.createID("node"),
-          projectID,
-          boardID,
+    await this.writes.run(async () => {
+      await this.assertBoard(projectID, boardID);
+      const timestamp = this.now();
+      result = {
+        schema: BOARD_NODE_SCHEMA,
+        id: this.createID("node"),
+        projectID,
+        boardID,
+        kind: "text",
+        geometry: validBoardGeometry({
+          width: 320,
+          height: 240,
+          ...geometry,
+        }),
+        blocks: [{
+          id: this.createID("block"),
           kind: "text",
-          geometry: validBoardGeometry({
-            width: 320,
-            height: 240,
-            ...geometry,
-          }),
-          blocks: [{
-            id: this.createID("block"),
-            kind: "text",
-            text: "",
-          }],
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
-        await this.writeJSON(this.nodePath(projectID, boardID, result.id), result);
-      });
-    this.writes = operation;
-    await operation;
+          text: "",
+        }],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      await this.writeJSON(this.nodePath(projectID, boardID, result.id), result);
+    });
     return result;
   }
 
@@ -305,28 +318,24 @@ export class ProjectRepository {
     text: string,
   ): Promise<BoardTextNodeDocument> {
     let result!: BoardTextNodeDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        const current = await this.readBoardNode(projectID, boardID, nodeID);
-        if (current.kind !== "text") {
-          throw new Error(`Board node is not a text container: ${nodeID}`);
+    await this.writes.run(async () => {
+      const current = await this.readBoardNode(projectID, boardID, nodeID);
+      if (current.kind !== "text") {
+        throw new Error(`Board node is not a text container: ${nodeID}`);
+      }
+      let found = false;
+      const blocks = current.blocks.map((block) => {
+        if (block.id !== blockID) { return block; }
+        if (block.kind !== "text") {
+          throw new Error(`Board block is not editable text: ${blockID}`);
         }
-        let found = false;
-        const blocks = current.blocks.map((block) => {
-          if (block.id !== blockID) { return block; }
-          if (block.kind !== "text") {
-            throw new Error(`Board block is not editable text: ${blockID}`);
-          }
-          found = true;
-          return { ...block, text: String(text || "").slice(0, 200_000) };
-        });
-        if (!found) { throw new Error(`Board text block not found: ${blockID}`); }
-        result = { ...current, blocks, updatedAt: this.now() };
-        await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
+        found = true;
+        return { ...block, text: String(text || "").slice(0, 200_000) };
       });
-    this.writes = operation;
-    await operation;
+      if (!found) { throw new Error(`Board text block not found: ${blockID}`); }
+      result = { ...current, blocks, updatedAt: this.now() };
+      await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
+    });
     return result;
   }
 
@@ -337,27 +346,23 @@ export class ProjectRepository {
     paperID: string,
   ): Promise<BoardTextNodeDocument> {
     let result!: BoardTextNodeDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        const current = await this.readBoardNode(projectID, boardID, nodeID);
-        if (current.kind !== "text") {
-          throw new Error(`Board node is not a text container: ${nodeID}`);
-        }
-        const block: BoardPaperContentBlock = {
-          id: this.createID("block"),
-          kind: "paper",
-          paperID,
-        };
-        result = {
-          ...current,
-          blocks: [...current.blocks, block],
-          updatedAt: this.now(),
-        };
-        await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
-      });
-    this.writes = operation;
-    await operation;
+    await this.writes.run(async () => {
+      const current = await this.readBoardNode(projectID, boardID, nodeID);
+      if (current.kind !== "text") {
+        throw new Error(`Board node is not a text container: ${nodeID}`);
+      }
+      const block: BoardPaperContentBlock = {
+        id: this.createID("block"),
+        kind: "paper",
+        paperID,
+      };
+      result = {
+        ...current,
+        blocks: [...current.blocks, block],
+        updatedAt: this.now(),
+      };
+      await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
+    });
     return result;
   }
 
@@ -368,22 +373,18 @@ export class ProjectRepository {
     blockID: string,
   ): Promise<BoardTextNodeDocument> {
     let result!: BoardTextNodeDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        const current = await this.readBoardNode(projectID, boardID, nodeID);
-        if (current.kind !== "text") {
-          throw new Error(`Board node is not a text container: ${nodeID}`);
-        }
-        const blocks = current.blocks.filter((block) => block.id !== blockID);
-        if (blocks.length === current.blocks.length) {
-          throw new Error(`Board content block not found: ${blockID}`);
-        }
-        result = { ...current, blocks, updatedAt: this.now() };
-        await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
-      });
-    this.writes = operation;
-    await operation;
+    await this.writes.run(async () => {
+      const current = await this.readBoardNode(projectID, boardID, nodeID);
+      if (current.kind !== "text") {
+        throw new Error(`Board node is not a text container: ${nodeID}`);
+      }
+      const blocks = current.blocks.filter((block) => block.id !== blockID);
+      if (blocks.length === current.blocks.length) {
+        throw new Error(`Board content block not found: ${blockID}`);
+      }
+      result = { ...current, blocks, updatedAt: this.now() };
+      await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
+    });
     return result;
   }
 
@@ -391,7 +392,7 @@ export class ProjectRepository {
     projectID: string,
     boardID: string,
   ): Promise<BoardManualEdgeDocument[]> {
-    await this.writes.catch(() => undefined);
+    await this.writes.settled();
     const directory = this.edgesPath(projectID, boardID);
     let paths: string[];
     try {
@@ -434,29 +435,25 @@ export class ProjectRepository {
       throw new Error("A manual edge needs two different Board nodes");
     }
     let result!: BoardManualEdgeDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        await Promise.all([
-          this.readBoardNode(projectID, boardID, sourceNodeID),
-          this.readBoardNode(projectID, boardID, targetNodeID),
-        ]);
-        const timestamp = this.now();
-        result = {
-          schema: BOARD_EDGE_SCHEMA,
-          id: this.createID("edge"),
-          projectID,
-          boardID,
-          kind: "manual",
-          sourceNodeID,
-          targetNodeID,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
-        await this.writeJSON(this.edgePath(projectID, boardID, result.id), result);
-      });
-    this.writes = operation;
-    await operation;
+    await this.writes.run(async () => {
+      await Promise.all([
+        this.readBoardNode(projectID, boardID, sourceNodeID),
+        this.readBoardNode(projectID, boardID, targetNodeID),
+      ]);
+      const timestamp = this.now();
+      result = {
+        schema: BOARD_EDGE_SCHEMA,
+        id: this.createID("edge"),
+        projectID,
+        boardID,
+        kind: "manual",
+        sourceNodeID,
+        targetNodeID,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      await this.writeJSON(this.edgePath(projectID, boardID, result.id), result);
+    });
     return result;
   }
 
@@ -467,27 +464,23 @@ export class ProjectRepository {
     geometry: Partial<BoardNodeGeometry>,
   ): Promise<BoardNodeDocument> {
     let result!: BoardNodeDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        const current = await this.readBoardNode(projectID, boardID, nodeID);
-        const patch: Partial<BoardNodeGeometry> = {};
-        for (const key of ["x", "y", "width", "height"] as const) {
-          const value = geometry[key];
-          if (Number.isFinite(Number(value))) { patch[key] = Number(value); }
-        }
-        result = {
-          ...current,
-          geometry: validBoardGeometry({
-            ...current.geometry,
-            ...patch,
-          }),
-          updatedAt: this.now(),
-        };
-        await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
-      });
-    this.writes = operation;
-    await operation;
+    await this.writes.run(async () => {
+      const current = await this.readBoardNode(projectID, boardID, nodeID);
+      const patch: Partial<BoardNodeGeometry> = {};
+      for (const key of ["x", "y", "width", "height"] as const) {
+        const value = geometry[key];
+        if (Number.isFinite(Number(value))) { patch[key] = Number(value); }
+      }
+      result = {
+        ...current,
+        geometry: validBoardGeometry({
+          ...current.geometry,
+          ...patch,
+        }),
+        updatedAt: this.now(),
+      };
+      await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
+    });
     return result;
   }
 
@@ -497,16 +490,12 @@ export class ProjectRepository {
     nodeID: string,
   ): Promise<BoardNodeDocument> {
     let result!: BoardNodeDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        const current = await this.readBoardNode(projectID, boardID, nodeID);
-        const timestamp = this.now();
-        result = { ...current, updatedAt: timestamp, deletedAt: timestamp };
-        await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
-      });
-    this.writes = operation;
-    await operation;
+    await this.writes.run(async () => {
+      const current = await this.readBoardNode(projectID, boardID, nodeID);
+      const timestamp = this.now();
+      result = { ...current, updatedAt: timestamp, deletedAt: timestamp };
+      await this.writeJSON(this.nodePath(projectID, boardID, nodeID), result);
+    });
     return result;
   }
 
@@ -516,16 +505,12 @@ export class ProjectRepository {
     edgeID: string,
   ): Promise<BoardManualEdgeDocument> {
     let result!: BoardManualEdgeDocument;
-    const operation = this.writes
-      .catch(() => undefined)
-      .then(async () => {
-        const current = await this.readBoardEdge(projectID, boardID, edgeID);
-        const timestamp = this.now();
-        result = { ...current, updatedAt: timestamp, deletedAt: timestamp };
-        await this.writeJSON(this.edgePath(projectID, boardID, edgeID), result);
-      });
-    this.writes = operation;
-    await operation;
+    await this.writes.run(async () => {
+      const current = await this.readBoardEdge(projectID, boardID, edgeID);
+      const timestamp = this.now();
+      result = { ...current, updatedAt: timestamp, deletedAt: timestamp };
+      await this.writeJSON(this.edgePath(projectID, boardID, edgeID), result);
+    });
     return result;
   }
 
@@ -543,15 +528,24 @@ export class ProjectRepository {
     const nodes: BoardNodeDocument[] = [];
     for (const path of paths) {
       if (!String(path).endsWith(".json")) { continue; }
-      const node = this.validBoardNode(
-        await this.readJSON(path),
-        projectID,
-        boardID,
-      );
-      if (!node) {
-        throw new Error(`Unsupported or invalid Board node at ${path}`);
+      // One damaged file must not stop every other object from syncing, which
+      // throwing here would do: this feeds the whole portable-object listing.
+      // Skipping matches how the Board's own read path already treats it.
+      try {
+        const node = this.validBoardNode(
+          await this.readJSON(path),
+          projectID,
+          boardID,
+        );
+        if (node) {
+          nodes.push(node);
+          continue;
+        }
+      } catch (error) {
+        ztoolkit.log(`Board node unreadable at ${path}: ${error}`);
+        continue;
       }
-      nodes.push(node);
+      ztoolkit.log(`Board node excluded from sync, invalid at ${path}`);
     }
     return nodes.sort((left, right) =>
       left.createdAt - right.createdAt || compareCodeUnits(left.id, right.id));
@@ -571,15 +565,21 @@ export class ProjectRepository {
     const edges: BoardManualEdgeDocument[] = [];
     for (const path of paths) {
       if (!String(path).endsWith(".json")) { continue; }
-      const edge = this.validBoardEdge(
-        await this.readJSON(path),
-        projectID,
-        boardID,
-      );
-      if (!edge) {
-        throw new Error(`Unsupported or invalid Board edge at ${path}`);
+      try {
+        const edge = this.validBoardEdge(
+          await this.readJSON(path),
+          projectID,
+          boardID,
+        );
+        if (edge) {
+          edges.push(edge);
+          continue;
+        }
+      } catch (error) {
+        ztoolkit.log(`Board edge unreadable at ${path}: ${error}`);
+        continue;
       }
-      edges.push(edge);
+      ztoolkit.log(`Board edge excluded from sync, invalid at ${path}`);
     }
     return edges.sort((left, right) =>
       left.createdAt - right.createdAt || compareCodeUnits(left.id, right.id));
@@ -587,7 +587,7 @@ export class ProjectRepository {
 
   private async applyPortableObjectExclusive(
     object: PortableProjectObject,
-  ): Promise<void> {
+  ): Promise<PortableProjectObject> {
     if (
       object.schema === PROJECT_SCHEMA &&
       "subject" in object &&
@@ -609,7 +609,7 @@ export class ProjectRepository {
         };
         await this.writeJSON(this.indexPath(), this.index);
       }
-      return;
+      return object;
     }
 
     if (
@@ -629,7 +629,7 @@ export class ProjectRepository {
         this.boardPath(object.projectID, object.id),
         object,
       );
-      return;
+      return object;
     }
 
     if (
@@ -650,7 +650,7 @@ export class ProjectRepository {
         this.edgePath(object.projectID, object.boardID, object.id),
         edge,
       );
-      return;
+      return edge;
     }
 
     if ("projectID" in object && "boardID" in object) {
@@ -667,7 +667,7 @@ export class ProjectRepository {
         this.nodePath(object.projectID, object.boardID, object.id),
         node,
       );
-      return;
+      return node;
     }
     throw new Error("Unsupported portable Project object");
   }
@@ -989,7 +989,7 @@ Promise<PortableProjectObject[]> {
 
 export async function applyPortableProjectObject(
   object: PortableProjectObject,
-): Promise<void> {
+): Promise<PortableProjectObject> {
   return defaultRepository().applyPortableObject(object);
 }
 

@@ -19,6 +19,7 @@ import {
 } from "../modules/literatureRelations";
 import type { RelationSourceKey } from "../modules/mergeRelations";
 import {
+  BOARD_GEOMETRY_BOUNDS,
   addDefaultBoardPaperBlock,
   createDefaultBoardManualEdge,
   createDefaultBoardPaperNode,
@@ -473,6 +474,9 @@ async function projectSnapshot(
 function explorerApi() {
   return {
     strings: strings(),
+    // The dialog clamps a resize to these instead of restating the numbers, so
+    // a card cannot be dragged past a size the repository would clamp on save.
+    boardGeometryBounds: { ...BOARD_GEOMETRY_BOUNDS },
     getContext: () => explorerContext
       ? { ...explorerContext, scope: { ...explorerContext.scope } }
       : null,
@@ -660,8 +664,9 @@ function explorerApi() {
       libraryID?: number,
     ) => {
       if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
-      explorerContext!.itemKey = itemKey;
-      explorerContext!.kind = kind;
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      explorerContext.itemKey = itemKey;
+      explorerContext.kind = kind;
       return explorerViews.getLiteratureSnapshot(
         contextItem(itemKey, libraryID),
         kind,

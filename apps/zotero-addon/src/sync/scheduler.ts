@@ -5,6 +5,12 @@ import { getWebDAVSyncSettings } from "./settings";
 
 const STARTUP_DELAY_MS = 60_000;
 const MINUTE_MS = 60_000;
+/**
+ * A run that stopped at its pack-batch ceiling has more to transfer right now.
+ * Waiting the configured interval — 30 minutes at minimum — would make a first
+ * sync of a large Board take hours, so a continuation runs promptly instead.
+ */
+const CONTINUATION_DELAY_MS = 15_000;
 
 /**
  * One process-wide scheduler. It uses a completion-based timeout rather than an
@@ -34,11 +40,17 @@ export class WebDAVSyncScheduler {
     this.schedule(false);
   }
 
-  private schedule(starting: boolean, fromNow = false): void {
+  private schedule(
+    starting: boolean,
+    fromNow = false,
+    continuing = false,
+  ): void {
     if (!this.started) { return; }
     const settings = getWebDAVSyncSettings();
     if (!settings.autoSync) { return; }
-    const interval = settings.intervalMinutes * MINUTE_MS;
+    const interval = continuing
+      ? CONTINUATION_DELAY_MS
+      : settings.intervalMinutes * MINUTE_MS;
     const dueAt = fromNow
       ? Date.now() + interval
       : settings.lastAttemptAt
@@ -62,6 +74,7 @@ export class WebDAVSyncScheduler {
       this.schedule(false, true);
       return;
     }
+    let continuing = false;
     try {
       const password = await getWebDAVPassword(
         settings.baseURL,
@@ -74,7 +87,10 @@ export class WebDAVSyncScheduler {
       }
       const result = await syncProjectsWithWebDAV(password);
       this.lastNotice = "";
-      if (settings.notificationMode === "all") {
+      continuing = result.remaining > 0;
+      // A continuation is mid-transfer, not a completed sync; announcing each
+      // batch would turn one large first sync into a stream of notifications.
+      if (settings.notificationMode === "all" && !continuing) {
         showSuccess(
           `WebDAV sync complete: ${result.uploaded} uploaded, ` +
             `${result.downloaded} downloaded`,
@@ -91,7 +107,7 @@ export class WebDAVSyncScheduler {
         this.lastNotice = message;
       }
     } finally {
-      this.schedule(false, true);
+      this.schedule(false, true, continuing);
     }
   }
 

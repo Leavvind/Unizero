@@ -95,6 +95,11 @@ then at a user-selected interval of 30 minutes or longer; completion-based timer
 service's in-flight promise prevent overlapping runs. Background result notifications
 are separately configurable.
 
+One run transfers a bounded number of packs, so a large first sync completes over several
+runs rather than one long transfer. A run that reports remaining work is a continuation,
+not a result: the scheduler retries it in seconds instead of waiting out the interval,
+a manual sync loops until nothing remains, and neither reports success mid-transfer.
+
 A pack written by a newer build may carry a namespace this one has not registered. Those
 documents are skipped and reported, never fatal: throwing would stop the pack — and every
 later pack — from applying, permanently stranding that device. The checkpoint records the

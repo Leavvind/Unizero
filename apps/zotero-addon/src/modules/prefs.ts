@@ -40,6 +40,7 @@ import {
 } from "../sync/credentials";
 import { webDAVSyncScheduler } from "../sync/scheduler";
 import { syncProjectsWithWebDAV } from "../sync/service";
+import type { SyncRunResult } from "../sync/types";
 
 export async function registerPrefs(): Promise<void> {
   const prefOptions = {
@@ -168,6 +169,47 @@ async function localized(
   } catch (_error) {
     return fallback;
   }
+}
+
+/** Batch ceiling per run; a first sync of a large Board needs several. */
+const MAX_SYNC_CONTINUATIONS = 40;
+
+/**
+ * Drive the engine until it reports nothing remaining. One `sync()` transfers at
+ * most a few packs by design, so a manual sync that ran once would leave a large
+ * first transfer unfinished with no way to resume except the background timer.
+ * A run that reports remaining work without making progress stops the loop
+ * rather than spinning against the server.
+ */
+async function runSyncToCompletion(
+  applicationPassword: string,
+  onContinue: (batch: SyncRunResult) => Promise<void>,
+): Promise<SyncRunResult> {
+  const total: SyncRunResult = {
+    uploaded: 0,
+    downloaded: 0,
+    merged: 0,
+    unchanged: 0,
+    packsUploaded: 0,
+    packsDownloaded: 0,
+    remaining: 0,
+    skipped: 0,
+  };
+  for (let round = 0; round < MAX_SYNC_CONTINUATIONS; round += 1) {
+    const batch = await syncProjectsWithWebDAV(applicationPassword);
+    total.uploaded += batch.uploaded;
+    total.downloaded += batch.downloaded;
+    total.merged += batch.merged;
+    total.unchanged += batch.unchanged;
+    total.packsUploaded += batch.packsUploaded;
+    total.packsDownloaded += batch.packsDownloaded;
+    total.skipped += batch.skipped;
+    total.remaining = batch.remaining;
+    const moved = batch.packsUploaded + batch.packsDownloaded;
+    if (!batch.remaining || !moved) { return total; }
+    await onContinue(total);
+  }
+  return total;
 }
 
 async function bindWebDAVSync(doc: Document): Promise<void> {
@@ -312,7 +354,17 @@ async function bindWebDAVSync(doc: Document): Promise<void> {
       "Syncing…",
     );
     try {
-      const result = await syncProjectsWithWebDAV(enteredPassword);
+      const result = await runSyncToCompletion(
+        enteredPassword,
+        async (batch) => {
+          status.textContent = await localized(
+            doc,
+            "sync-status-continuing",
+            batch as unknown as Record<string, unknown>,
+            `Syncing… ${batch.remaining} batches remaining`,
+          );
+        },
+      );
       let credentialWarning = "";
       try {
         if (shouldRemember) {

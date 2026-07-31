@@ -1989,6 +1989,19 @@ var LiteratureExplorer = {
     });
   },
 
+  /**
+   * Geometry limits owned by the repository and delivered over the bridge. The
+   * fallback only covers a bridge too old to send them.
+   */
+  boardGeometryBounds() {
+    return api.boardGeometryBounds || {
+      minWidth: 160,
+      maxWidth: 720,
+      minHeight: 80,
+      maxHeight: 520,
+    };
+  },
+
   /** True while a Text Node editor inside the Board owns the caret. */
   boardEditorHasFocus() {
     let active = document.activeElement;
@@ -2556,10 +2569,25 @@ var LiteratureExplorer = {
     this.applyBoardCamera();
   },
 
+  /**
+   * Wheel deltas are only in pixels when deltaMode is DOM_DELTA_PIXEL. Firefox
+   * reports DOM_DELTA_LINE on several platforms, where deltaY is about 3 rather
+   * than about 100 — taken literally the Board would barely pan and barely zoom.
+   */
+  boardWheelDelta(event) {
+    let unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1;
+    return { x: (event.deltaX || 0) * unit, y: (event.deltaY || 0) * unit };
+  },
+
   handleBoardWheel(event) {
+    // A Text Node body with its own overflow owns the wheel: stealing it would
+    // make a long note unreadable inside the card.
+    let editable = event.target?.closest?.(".board-text-node-body");
+    if (editable && editable.scrollHeight > editable.clientHeight) return;
     event.preventDefault();
+    let delta = this.boardWheelDelta(event);
     if (event.ctrlKey || event.metaKey) {
-      this.zoomBoard(Math.exp(-event.deltaY * .002), {
+      this.zoomBoard(Math.exp(-delta.y * .002), {
         x: event.clientX,
         y: event.clientY,
       });
@@ -2568,8 +2596,8 @@ var LiteratureExplorer = {
     let camera = this.boardCamera;
     this.boardCamera = {
       ...camera,
-      x: camera.x - (event.shiftKey ? event.deltaY : event.deltaX),
-      y: camera.y - (event.shiftKey ? 0 : event.deltaY),
+      x: camera.x - (event.shiftKey ? delta.y : delta.x),
+      y: camera.y - (event.shiftKey ? 0 : delta.y),
     };
     this.applyBoardCamera();
   },
@@ -2906,14 +2934,17 @@ var LiteratureExplorer = {
       interaction.moved = true;
       interaction.element.classList.add("resizing");
       let textNode = interaction.view.node.kind === "text";
-      let width = Math.max(
-        textNode ? 240 : 180,
+      // Clamp to what the repository will actually store. Letting the card grow
+      // past the maximum only to have it snap back on save looks like data loss.
+      let bounds = this.boardGeometryBounds();
+      let width = Math.min(bounds.maxWidth, Math.max(
+        Math.max(textNode ? 240 : 180, bounds.minWidth),
         interaction.startWidth + dx,
-      );
-      let height = Math.max(
-        textNode ? 160 : 92,
+      ));
+      let height = Math.min(bounds.maxHeight, Math.max(
+        Math.max(textNode ? 160 : 92, bounds.minHeight),
         interaction.startHeight + dy,
-      );
+      ));
       interaction.element.style.width = `${width}px`;
       interaction.element.style.height = `${height}px`;
       interaction.view.node.geometry = {

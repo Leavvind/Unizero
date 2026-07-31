@@ -112,21 +112,25 @@ export const PROJECT_SYNC_NAMESPACES: SyncNamespace[] = [
   namespace("project.board-edge", BOARD_EDGE_SCHEMA),
 ];
 
+/**
+ * One store instance serves exactly one sync run, so its snapshot of the
+ * repository is scoped to that run. Without it, applying a pack re-read every
+ * Project object once per document in the pack.
+ */
 export class ProjectSyncLocalStore implements SyncLocalStore {
+  private snapshot?: Map<string, SyncDocument>;
+
   public constructor(private readonly deviceID: string) {}
 
   public async list(): Promise<SyncDocument[]> {
-    return (await listPortableProjectObjects()).map((object) =>
-      this.document(object));
+    return [...(await this.load()).values()];
   }
 
   public async get(
     namespaceName: SyncNamespaceName,
     id: string,
   ): Promise<SyncDocument | undefined> {
-    return (await this.list()).find((document) =>
-      syncObjectKey(document.namespace, document.id) ===
-      syncObjectKey(namespaceName, id));
+    return (await this.load()).get(syncObjectKey(namespaceName, id));
   }
 
   public async put(document: SyncDocument): Promise<void> {
@@ -149,7 +153,26 @@ export class ProjectSyncLocalStore implements SyncLocalStore {
     ) {
       throw new Error(`Project sync scope mismatch: ${valid.id}`);
     }
-    await applyPortableProjectObject(object);
+    // Cache what the repository actually stored, not what arrived: geometry and
+    // block contents are normalized on write, and a snapshot holding the
+    // pre-normalization shape would make the next run see a phantom change.
+    const stored = this.document(await applyPortableProjectObject(object));
+    (await this.load()).set(
+      syncObjectKey(stored.namespace, stored.id),
+      stored,
+    );
+  }
+
+  private async load(): Promise<Map<string, SyncDocument>> {
+    if (!this.snapshot) {
+      this.snapshot = new Map(
+        (await listPortableProjectObjects()).map((object) => {
+          const entry = this.document(object);
+          return [syncObjectKey(entry.namespace, entry.id), entry];
+        }),
+      );
+    }
+    return this.snapshot;
   }
 
   private document(object: PortableProjectObject): SyncDocument {

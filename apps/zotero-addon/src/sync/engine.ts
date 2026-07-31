@@ -295,7 +295,9 @@ export class SyncEngine {
     }> = [];
     for (const entry of entries) {
       if (entry.collection || !entry.key.endsWith(".json")) { continue; }
-      const deviceID = decodeURIComponent(entry.key.slice(0, -".json".length));
+      // The backend already returns decoded keys; decoding again would corrupt
+      // any device ID that legitimately contains a percent sign.
+      const deviceID = entry.key.slice(0, -".json".length);
       const remote = await this.backend.get(`manifests/${entry.key}`);
       if (!remote) { continue; }
       manifests.push({

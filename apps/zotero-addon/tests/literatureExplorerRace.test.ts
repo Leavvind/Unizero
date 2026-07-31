@@ -785,6 +785,49 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
+  it("treats line-mode wheel deltas as a usable pan and zoom", async () => {
+    const harness = createHarness();
+    await flush();
+    const surface = harness.win.document.getElementById("project-board-surface")!;
+    harness.explorer.boardCamera = { x: 0, y: 0, scale: 1 };
+
+    // Firefox reports DOM_DELTA_LINE on several platforms, where deltaY is ~3.
+    harness.explorer.handleBoardWheel({
+      preventDefault: () => undefined,
+      deltaMode: 1,
+      deltaX: 0,
+      deltaY: 3,
+      target: surface,
+    });
+    // Read as pixels this would move the Board 3px, which reads as broken.
+    expect(harness.explorer.boardCamera.y).toBe(-48);
+
+    harness.explorer.boardCamera = { x: 0, y: 0, scale: 1 };
+    harness.explorer.handleBoardWheel({
+      preventDefault: () => undefined,
+      ctrlKey: true,
+      deltaMode: 1,
+      deltaX: 0,
+      deltaY: -3,
+      clientX: 0,
+      clientY: 0,
+      target: surface,
+    });
+    expect(harness.explorer.boardCamera.scale).toBeGreaterThan(1.05);
+
+    // Pixel mode must keep behaving exactly as before.
+    harness.explorer.boardCamera = { x: 0, y: 0, scale: 1 };
+    harness.explorer.handleBoardWheel({
+      preventDefault: () => undefined,
+      deltaMode: 0,
+      deltaX: 0,
+      deltaY: 48,
+      target: surface,
+    });
+    expect(harness.explorer.boardCamera.y).toBe(-48);
+    harness.win.close();
+  });
+
   it("moves Board nodes in world coordinates at a non-default zoom", async () => {
     const harness = createHarness();
     await flush();

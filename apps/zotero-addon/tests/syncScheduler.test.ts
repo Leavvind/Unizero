@@ -102,4 +102,30 @@ describe("WebDAVSyncScheduler", () => {
     );
     scheduler.stop();
   });
+
+  it("continues a batched run promptly instead of after a full interval", async () => {
+    settings.notificationMode = "all";
+    sync.mockResolvedValueOnce({
+      uploaded: 4,
+      downloaded: 0,
+      merged: 0,
+      remaining: 3,
+    });
+    const scheduler = new WebDAVSyncScheduler();
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sync).toHaveBeenCalledTimes(1);
+    // Mid-transfer: not announced as a completed sync.
+    expect(showSuccess).not.toHaveBeenCalled();
+
+    // The continuation must not wait out the 30-minute interval.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(sync).toHaveBeenCalledTimes(2);
+    expect(showSuccess).toHaveBeenCalledTimes(1);
+
+    // Once nothing remains, the normal interval applies again.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sync).toHaveBeenCalledTimes(2);
+    scheduler.stop();
+  });
 });

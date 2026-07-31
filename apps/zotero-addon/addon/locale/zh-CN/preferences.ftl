@@ -108,6 +108,7 @@ sync-notifications-all = 所有结果
 sync-notifications-none = 不通知
 sync-now = 立即同步
 sync-status-running = 正在同步…
+sync-status-continuing = 同步中… 还剩 { $remaining } 批
 sync-status-done = 完成：上传 { $uploaded }，下载 { $downloaded }，合并 { $merged }，剩余批次 { $remaining }
 sync-status-deferred = { $skipped } 个文档需要更新版本的 UniZero，已保留在服务器上。
 sync-status-error = 同步失败：{ $message }

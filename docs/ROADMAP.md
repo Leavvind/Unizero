@@ -41,6 +41,9 @@ READMEs and `docs/ARCHITECTURE.md`.
 - Verify a Board survives interruption: typing in a Text Node keeps its caret while a
   background status refresh lands, and a card dragged while one lands still follows the
   pointer and saves the position it visibly ends at.
+- Verify Board wheel behaviour on a platform reporting line-mode wheel deltas, that a
+  Text Node long enough to overflow scrolls its own body rather than panning the Board,
+  and that a card cannot be resized past the size that is actually saved.
 
 ## Contracts and artifacts
 
@@ -62,6 +65,13 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Literature data and sync
 
+- Reclaim remote sync packs. Packs are immutable and never deleted, so remote storage
+  grows without bound and a new device downloads every pack ever written. Deleting one
+  safely needs more than a cleanup pass: devices must publish what they have applied,
+  superseded content must be identifiable without downloading each pack, and a device
+  that has been offline for a long time must not either block reclamation forever or
+  have its unread data removed. Design this before implementing it — the operation
+  deletes remote data irreversibly.
 - Finish unified Paper lifecycle beyond the current stable IDs, monotonic retention,
   terminal-snapshot compaction, orphan cache collection, identifier inspection, and
   explicit merge/redirect operations: add a user-facing conflict-review workflow,

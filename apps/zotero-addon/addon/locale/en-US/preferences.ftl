@@ -104,6 +104,7 @@ sync-notifications-all = All results
 sync-notifications-none = None
 sync-now = Sync now
 sync-status-running = Syncing…
+sync-status-continuing = Syncing… { $remaining } batches remaining
 sync-status-done = Done: { $uploaded } uploaded, { $downloaded } downloaded, { $merged } merged, { $remaining } batches remaining
 sync-status-deferred = { $skipped } documents need a newer UniZero version and were left on the server.
 sync-status-error = Sync failed: { $message }
