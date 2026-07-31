@@ -34,8 +34,8 @@ the bridge without a separate write design. The narrow exception is
 3. `apps/zotero-addon/src/server/` only if the bridge contract or payloads change
 4. `docs/ARCHITECTURE.md` only if ownership or process boundaries move
 
-**Do not open by default:** `docs/UNIZERO_HOME.md`, `docs/UNICONNECTION.md` Board
-sections, Board/sync design in `docs/SYNC_AND_LITERATURE_SOURCES.md` — unless the task is
+**Do not open by default:** `docs/LEGACY_HOME.md`, `docs/UNICONNECTION.md` Graph traps,
+Board/sync design in `docs/SYNC_AND_LITERATURE_SOURCES.md` — unless the task is
 explicitly about that surface.
 
 **Add-on data / conversion / providers:** component README → `docs/PROJECT_STRUCTURE.md`

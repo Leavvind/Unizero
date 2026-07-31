@@ -5,26 +5,26 @@ jumps into the same Zotero library the add-on manages.
 
 The plugin stores no bibliographic data. Zotero, the reference cache, and the Paper
 catalog all live in the [Zotero add-on](../zotero-addon); this is a view of them over
-the add-on's localhost bridge. One side-effect is allowed: **Convert to Markdown**
-posts to the bridge and runs the same conversion job as Zotero's item menu. Importing
+the add-on’s localhost bridge. One side-effect is allowed: **Convert to Markdown**
+posts to the bridge and runs the same conversion job as Zotero’s item menu. Importing
 explored papers or other library write-back still needs a separate design.
 
 ## Sidebars
 
-| Command | Side | Role (Unizero Home counterpart) |
+| Command | Side | Role |
 | --- | --- | --- |
-| **Open the library pane** | Left | Collection paper list — pick a library/collection, browse, open a paper |
-| **Open the paper pane** | Right | Detail view — metadata, References, Citations, Relation |
+| **Open the library pane** | Left | Pick a library/collection, browse items, open a paper |
+| **Open the paper pane** | Right | Metadata, References, Citations, Relation |
 
-Unlike Unizero Home (which scopes the left column to the Zotero collection you opened
-from), the library pane lets you **switch libraries and collections** inside Obsidian.
-The last choice is remembered across sessions. Click a row to open it in the paper
-pane; right-click for insert / PDF / note / convert.
+The library pane can switch libraries and collections inside Obsidian; the last choice
+is remembered across sessions. Click a row to open it in the paper pane; right-click for
+insert / PDF / note / convert.
 
 **Insert & drag.** *Insert citation* (library context menu or paper-pane Relation row)
 writes `@libraryID/itemKey` into the **last Markdown note you had open**, even while a
 sidebar holds focus. You can also **drag** a library row, the paper-pane header, or an
-in-library Relation row onto the note body.
+in-library Relation row onto the note body (plain `@libraryID/itemKey` text via
+DataTransfer). Native Canvas / `app.dragManager` integration is not implemented.
 
 ## Syntax
 
@@ -76,7 +76,7 @@ citekey, but never the item key.
 ## Requirements
 
 - Zotero 7 or later, running, with the UniZero add-on installed.
-- Zotero's HTTP server enabled (it is by default; `extensions.zotero.httpServer.enabled`).
+- Zotero’s HTTP server enabled (it is by default; `extensions.zotero.httpServer.enabled`).
 - Desktop Obsidian. The plugin talks to `127.0.0.1` and opens `zotero://` links, neither
   of which exists on mobile.
 
@@ -90,7 +90,7 @@ npm run build
 ```
 
 `npm run dev` starts esbuild in watch mode. To try it in a vault, symlink or copy this
-directory's `manifest.json`, `main.js`, and `styles.css` into
+directory’s `manifest.json`, `main.js`, and `styles.css` into
 `<vault>/.obsidian/plugins/unizero/`.
 
 `npm test` covers the citation syntax, which is the part with no Obsidian dependency.

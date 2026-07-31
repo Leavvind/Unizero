@@ -2,8 +2,8 @@
 
 The Zotero application component: **library backend** for UniZero. It owns Zotero
 lifecycle, preferences, scholarly-provider access, item and attachment mutations, the
-derived relation index, the read-only bridge used by the Obsidian plugin, and the client
-for the local paper runtime.
+derived relation index, the mostly-read-only bridge used by the Obsidian plugin, and the
+client for the local paper runtime.
 
 Product framing: Zotero holds the library; Obsidian is the active note front end. See the
 repository [README](../../README.md) and [AGENTS.md](../../AGENTS.md).
@@ -14,26 +14,13 @@ says so. Prefer Obsidian-side work and the data/bridge surfaces below.
 
 ## Capabilities
 
-**Unizero Home** *(legacy)* opens from Tools, the item-list toolbar, or the Collection
-context menu; the item context menu opens the selected paper straight into its own tab.
-Each Zotero Collection — or a library root — gets one stable Project and default Board,
-keyed by portable Zotero scope and Collection key.
+**Bridge (Obsidian)**
 
-- A three-pane Project View: collapsible Collection paper list, pannable and zoomable
-  Board, and collapsible References/Relation/Citations Detail View.
-- Board cards. Library papers drag on more than once as independent instances, with
-  persisted position, size, and deletion tombstones. References and Citations rows drag on
-  directly; an out-of-library result becomes a durable pinned Paper without creating a
-  Zotero item.
-- Board connections. Four directional drag handles create persisted manual edges, drawn as
-  independently selectable curves. Hovering an identifiable card highlights every related
-  instance with derived, non-persisted relation hints.
-- Text Nodes: ordered, stable-ID content blocks. Collection papers embed as PaperBlocks
-  without creating another Zotero item, and a library-backed block can be copied back out
-  as a standalone card.
-- Papers open as tabs beside a pinned Project tab, so several can be read at once and
-  returning to one costs no provider call. Transient Collection previews also reuse
-  completed snapshots by library, item, and relation kind, so A → B → A does not rebuild A.
+- Mostly read-only localhost endpoints on Zotero’s HTTP server (`src/server/`).
+- GET: libraries, collections, paper resolve, relations from cache, citekey lookup.
+- Sole action: `POST /convert` — same conversion job as the Zotero item menu.
+- No unbidden provider fetches: a cache miss returns `loaded: false` unless
+  `fetch=1` is explicit. See [ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
 
 **Literature data**
 
@@ -45,15 +32,13 @@ keyed by portable Zotero scope and Collection key.
 - Filtering discovered works by library status, influence, year, publication type, and
   order, plus importing missing papers into the current library.
 - A stable Paper catalog. Every loaded References/Citations candidate gets a Paper ID at
-  `cache` retention, which Board pinning and Zotero binding promote to `pinned` or
-  `zotero`. Observations use one directed citation model. Only a successful terminal
-  provider snapshot replaces stale observations and collects orphaned cache-only Papers;
-  incomplete pages and provider failures preserve prior evidence. Explicit identity merges
-  leave redirects for old Paper IDs.
-- A force-directed Graph tab per paper, centred on it, with adjustable display and force
-  settings and a per-node menu for PDF, Obsidian, and relation actions. This is the only
-  graph surface: the full-library Collection graph and the management table it toggled
-  with were removed when the Board replaced them.
+  `cache` retention, which pinning and Zotero binding promote to `pinned` or `zotero`.
+  Observations use one directed citation model. Only a successful terminal provider
+  snapshot replaces stale observations and collects orphaned cache-only Papers; incomplete
+  pages and provider failures preserve prior evidence. Explicit identity merges leave
+  redirects for old Paper IDs.
+- A force-directed Graph tab per paper (item-pane / explorer detail), with adjustable
+  display and force settings. The full-library Collection graph was removed.
 
 **Conversion, annotations, and sync**
 
@@ -62,14 +47,20 @@ keyed by portable Zotero scope and Collection key.
 - Annotation export and Markdown injection.
 - Runtime lifecycle, jobs, service notices, and templates.
 - Manual and scheduled WebDAV sync for Project, Board, node, edge, and tombstone
-  documents. Jianguoyun's URL is prefilled; its third-party application password lives in
-  Zotero's Login Manager under an add-on-specific realm and never reaches preferences or
-  sync packs. Automatic sync is opt-in, runs no more often than every 30 minutes, and can
-  report errors only, every result, or nothing. A large first sync spans several runs and
-  continues promptly between them.
+  documents. Application passwords live in Zotero’s Login Manager under an add-on-specific
+  realm and never reach preferences or sync packs. Automatic sync is opt-in and runs no
+  more often than every 30 minutes.
 
 Document conversion and annotation injection require `services/paper-runtime`. Everything
 else runs without it.
+
+### Legacy: Unizero Home
+
+Still reachable from Tools, the item-list toolbar, or the Collection context menu. Each
+Collection (or library root) gets one Project and default Board. The three-pane Project
+View (collection list, Board, detail tabs), Text Nodes, manual edges, and Board relation
+hints remain for existing users. Maintenance traps and document shapes:
+[LEGACY_HOME.md](../../docs/LEGACY_HOME.md).
 
 ## Source map
 
@@ -80,12 +71,13 @@ else runs without it.
 | `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
 | `src/modules/uniConnection.ts` | Derived reverse-reference index, coupling, graph topology |
 | `src/modules/uniConnectionSync.ts` | Notifier-driven index maintenance and reference backfill |
+| `src/server/` | Bridge endpoints (GET + convert) and citekey resolution |
 | `src/projects/` | Versioned Project/Board/Paper shapes and local Project repository |
 | `src/runtime-client/` | HTTP contracts, client, launch resolution, process state |
 | `src/zotero/` | Zotero adapters, library scope, artifact identity |
-| `src/ui/` | Menus, progress, service notices, panel and Unizero Home bridges |
+| `src/ui/` | Menus, progress, service notices, panel and Home bridges |
 | `addon/` | Manifest, locales, preferences, icons, dialog markup and scripts |
-| `tests/` | Vitest suites for Projects, the derived index, graph builders, renderer facade, and Home dialog |
+| `tests/` | Vitest: Projects, derived index, graph builders, Home dialog |
 
 New Zotero mutations belong in `src/zotero`; new command orchestration belongs in
 `src/features`. Do not rewrite `src/modules` as a single refactor. Extract a focused
@@ -94,72 +86,43 @@ responsibility when a feature change needs it.
 ## Dialog content
 
 `addon/chrome/content/panel.js`, `literature-explorer.js`, and `literature-graph.js` are
-plain JavaScript outside the TypeScript bundle: not compiled and not type checked. They
-implement the runtime-backed template editor, the Home Board and relation browser, and the
-shelved force-directed graph renderer/detail graph. Vitest loads the real Home XHTML and
-plain scripts in `happy-dom`, with bridge and renderer mocks, to cover request ownership,
-tab restoration, filtering, and renderer lifecycle. Zotero APIs, privileged-window
-lifecycle, and the real canvas still require a manual Zotero check.
+plain JavaScript outside the TypeScript bundle. They implement the template editor, the
+legacy Home Board, and the per-paper force-graph renderer. Vitest covers host-independent
+dialog behaviour under `happy-dom`; Zotero APIs and the real canvas need a manual check.
 
-They reach the add-on only through the plain-object API passed as
-`window.arguments[0].api`, built in `src/ui/literatureExplorer.ts` and `src/ui/panel.ts`.
-New data for a dialog is added to that bridge and to its `views.ts` producer.
+They reach the add-on only through `window.arguments[0].api`. Graph constraints:
 
-`vendor/force-graph.min.js` is a vendored MIT build with its license alongside it. Dialog
-content must stay self-contained: no CDN, no external fetch.
+- force-graph callbacks run in an unhandled animation loop — wrap every callback in
+  `guard()`;
+- layout coordinates are valid only at the force scale that produced them — bump
+  `GRAPH_LAYOUT_VERSION` in `src/modules/views.ts` when code changes coordinate meaning.
 
-Two graph constraints are easy to break and expensive to diagnose:
-
-- force-graph invokes callbacks synchronously inside an animation loop that has no error
-  handling, so one unguarded throw freezes the canvas for good. Keep every callback inside
-  `guard()`.
-- layout coordinates are only valid at the scale of the forces that produced them. The
-  user's own force settings are covered by the signature stored with the layout; a code
-  change that alters what a coordinate means is not, so bump `GRAPH_LAYOUT_VERSION` in
-  `src/modules/views.ts` for that.
-
-The rest of the graph's traps, and why the full-library view was retired, are in
-[UNICONNECTION.md](../../docs/UNICONNECTION.md).
+Detail: [UNICONNECTION.md](../../docs/UNICONNECTION.md).
 
 ## Stored state
 
 | State | Location |
 | --- | --- |
 | Per-item provider caches | `<Zotero data dir>/unizero/cache/` shard tree |
-| Project and default Board documents | `<Zotero data dir>/unizero/projects/` typed object tree |
-| Board paper/text nodes, content blocks, manual edges, geometry, and tombstones | Per-Board typed documents under `unizero/projects/` |
-| Stable cache/pinned/Zotero Paper catalog and citation observations | `<Zotero data dir>/unizero/literature/` |
+| Project and Board documents | `<Zotero data dir>/unizero/projects/` typed object tree |
+| Paper catalog and citation observations | `<Zotero data dir>/unizero/literature/` |
 | Graph layout coordinates | `<Zotero data dir>/unizero/graph/<libraryID>.json` |
 | Graph display and force settings | `<Zotero data dir>/unizero/graph/settings.json` |
 | Zotero item ↔ Obsidian URL bindings | `<Zotero data dir>/unizero/markdown-links/<libraryID>.json` |
-| Extracted PDF bibliography | Owned `ZoMiner References` Zotero JSON attachment (`unizero:references`) |
+| Extracted PDF bibliography | Owned `ZoMiner References` JSON attachment (`unizero:references`) |
 | Preferences | Zotero preference branch, defaults in `addon/prefs.js` |
 
-The derived relation index is memory-only and rebuilt on demand. Explorer tabs are
-per-window and not persisted. The small Preview snapshot LRU is also window-only.
-Completed empty Citations lookups are saved as a 24-hour negative cache only when at
-least one provider answered normally; an all-provider failure is retried next session.
+The derived relation index is memory-only and rebuilt on demand. Completed empty Citations
+lookups are a 24-hour negative cache only when at least one provider answered normally.
 
 ## Runtime connection
 
-The add-on uses `/api/v1` on `127.0.0.1`. Launch resolution is implemented in
-`src/runtime-client/launch.ts` and checks, in order:
+The add-on uses `/api/v1` on `127.0.0.1`. Launch resolution (`src/runtime-client/launch.ts`)
+checks, in order: configured server script → configured Python → `PATH` interpreter that
+imports `unizero_runtime` → `unizero-runtime` console command.
 
-1. an explicitly configured server script;
-2. an explicitly configured Python interpreter;
-3. a `PATH` interpreter that can import `unizero_runtime`;
-4. the `unizero-runtime` console command.
-
-The selected port is passed to the child process.
-
-The runtime's lifetime follows Zotero's. A main window load starts it in the background
-after a short delay, and quitting Zotero stops it again; both steps are silent, and both
-are governed by the automatic start and stop preferences. The panel therefore has no
-service controls. A start that fails, or a service that stops answering mid-session,
-appears as a notice in the panel's Jobs list, carrying a button to try the start again.
-
-Add-on preferences live under *Settings → UniZero*; runtime-backed job and template
-controls live in the UniZero panel.
+The runtime’s lifetime follows Zotero’s (delayed start on main-window load; stop on quit),
+governed by automatic start/stop preferences. Failures surface in the panel’s Jobs list.
 
 ## Build
 
@@ -170,40 +133,31 @@ npm test
 npm run build
 ```
 
-`npm run check` runs TypeScript and HTTP-contract drift checks. `npm test` runs the
-Vitest suites, which cover the derived index and graph builders plus the host-independent
-parts of the Explorer and graph renderer.
+`npm run check` runs TypeScript and HTTP-contract drift checks. `npm test` runs Vitest.
 `npm run build` writes `build/unizero.xpi`.
 
 ## Release
 
-Releases are published by `.github/workflows/release-zotero-addon.yml`. A pushed
-`v*` tag must match the version in `package.json`; the workflow installs locked
-dependencies, runs the add-on checks and tests, builds the XPI, and attaches
-`build/unizero.xpi` to a GitHub Release as `unizero.xpi`.
-
-From a clean `main` branch, create a release with:
+Releases are published by `.github/workflows/release-zotero-addon.yml`. A pushed `v*` tag
+must match `package.json`. From a clean `main` branch:
 
 ```bash
 npm run release -- patch
 ```
 
-Use `minor` or `major` instead of `patch` when appropriate. `release-it` updates
-`package.json` and `package-lock.json`, rebuilds the tracked `update.json`, commits the
-version, creates the matching `v<version>` tag, and pushes it. GitHub Actions then owns
-the GitHub Release, so no local GitHub token is required. Do not create a release tag
-manually unless `update.json` has already been regenerated for that version.
+Use `minor` or `major` when appropriate. Do not create a release tag manually unless
+`update.json` has already been regenerated for that version.
 
 ## Run in Zotero
 
-Copy `scripts/zotero-cmd-default.json` to the gitignored
-`scripts/zotero-cmd.json`, then configure a Zotero executable and development profile.
+Copy `scripts/zotero-cmd-default.json` to the gitignored `scripts/zotero-cmd.json`, then
+configure a Zotero executable and development profile.
 
 ```bash
 npm run start-watch
 ```
 
-For a packaged build, install `build/unizero.xpi` from Zotero's add-on manager.
+For a packaged build, install `build/unizero.xpi` from Zotero’s add-on manager.
 
 Type checking does not verify Zotero APIs, window lifecycle, XUL, or the external dialogs.
 Changes in those areas require a manual Zotero check.
@@ -213,6 +167,6 @@ Changes in those areas require a manual Zotero check.
 - [Documentation map](../../docs/README.md)
 - [Repository architecture](../../docs/ARCHITECTURE.md)
 - [Project structure](../../docs/PROJECT_STRUCTURE.md)
-- [Unizero Home design](../../docs/UNIZERO_HOME.md)
+- [Legacy Home maintenance](../../docs/LEGACY_HOME.md)
 - [Derived relation index and graph](../../docs/UNICONNECTION.md)
 - [Legacy data support](../../docs/LEGACY_SUPPORT.md)
