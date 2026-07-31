@@ -45,6 +45,11 @@ Metadata, literature-relations, and graph features run entirely in the add-on. P
 conversion, artifact publishing, and Markdown annotation injection require the local
 runtime.
 
+**Product surfaces (this branch):** the Obsidian plugin is the active note front end
+(read-only bridge under `src/server/`). Unizero Home (Project View / Board) remains in
+the add-on UI but is **legacy** — not the focus for new work. Item-pane previews and the
+per-paper graph stay available; they are not the main roadmap.
+
 ## Add-on layers
 
 | Layer | Current paths | Role |

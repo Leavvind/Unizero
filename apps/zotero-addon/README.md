@@ -1,15 +1,23 @@
 # UniZero Zotero Add-on
 
-The Zotero 8 application component. It owns Zotero lifecycle, UI, preferences,
-scholarly-provider access, item and attachment mutations, the derived relation index, and
-the client for the local paper runtime.
+The Zotero application component: **library backend** for UniZero. It owns Zotero
+lifecycle, preferences, scholarly-provider access, item and attachment mutations, the
+derived relation index, the read-only bridge used by the Obsidian plugin, and the client
+for the local paper runtime.
+
+Product framing: Zotero holds the library; Obsidian is the active note front end. See the
+repository [README](../../README.md) and [AGENTS.md](../../AGENTS.md).
+
+**Unizero Home (Project View / Board) is legacy on this branch.** The UI still ships and
+tests may still load it, but it is not the product focus — do not extend it unless a task
+says so. Prefer Obsidian-side work and the data/bridge surfaces below.
 
 ## Capabilities
 
-**Unizero Home** opens from Tools, the item-list toolbar, or the Collection context menu;
-the item context menu opens the selected paper straight into its own tab. Each Zotero
-Collection — or a library root — gets one stable Project and default Board, keyed by
-portable Zotero scope and Collection key.
+**Unizero Home** *(legacy)* opens from Tools, the item-list toolbar, or the Collection
+context menu; the item context menu opens the selected paper straight into its own tab.
+Each Zotero Collection — or a library root — gets one stable Project and default Board,
+keyed by portable Zotero scope and Collection key.
 
 - A three-pane Project View: collapsible Collection paper list, pannable and zoomable
   Board, and collapsible References/Relation/Citations Detail View.

@@ -1,15 +1,49 @@
 # Roadmap
 
 This file contains unfinished work only. Current behavior is documented in the component
-READMEs and `docs/ARCHITECTURE.md`.
+READMEs and `docs/ARCHITECTURE.md`. Nothing here is a work order by itself.
+
+## Active focus
+
+**Obsidian plugin** (`apps/obsidian-plugin`) against the add-on's read-only bridge.
+Zotero-side **data** work (providers, cache, relations, conversion, bridge contract)
+stays in scope when Obsidian needs it.
+
+**Unizero Home / Board** is **legacy** on this branch: do not schedule new Home UI work
+here unless product direction changes. Related items below stay under *Background* so
+constraints are not lost.
+
+## Obsidian plugin
+
+The first slice — `@libraryID/itemKey` pills (Author/year display), `.md` / `.pdf`
+jumps, free-text `@` completion, and a read-only detail pane — is implemented. Open work:
+
+- Manual verification in Obsidian against a running Zotero: rendering in both editor
+  modes (including left-click on pills), the multi-word suggester, and every jump target.
+- Dragging a Zotero item or a Detail-pane row into a note or canvas. Dropping plain
+  `@libraryID/itemKey` text already produces a working citation; a native-looking drag
+  needs `app.dragManager`, which is unofficial and should be weighed against what it buys.
+- **Write-back design (not implemented):** exploring from Obsidian and creating or
+  updating material in UniZero / Zotero. Needs its own contract; do not extend the
+  read-only bridge ad hoc.
+- Richer literature exploration in the note surface (discovery, ranking, multi-hop
+  jumps) — product headroom; each slice needs a clear scope.
 
 ## Verification
 
-Neither type checking nor Vitest exercises Zotero itself. These manual checks remain owed.
+Neither type checking nor Vitest exercises Zotero or Obsidian hosts. Manual checks:
 
-- **Smoke.** Startup, shutdown, metadata review, References/Citations previews, every
-  Unizero Home entry point, Collection status and quick actions, relation filtering,
-  current-library import, conversion, artifact registration, annotation injection.
+### Blocking for Obsidian work
+
+- Bridge ping and paper resolve with the installed XPI; free-text multi-word `@`
+  completion; pill left-click / right-click actions; detail pane relations without
+  unbidden provider fetches.
+
+### Add-on / runtime (still owed; not every iteration)
+
+- **Smoke.** Startup, shutdown, metadata review, References/Citations previews, Collection
+  status and quick actions, relation filtering, current-library import, conversion,
+  artifact registration, annotation injection. Home entry points exist but are legacy.
 - **Windows and preferences.** Closing one main window leaves the other's pane and menus
   intact. Preferences survive close/reopen, and a runtime port change reaches a manually
   started service. Service auto start/stop is silent, and a failed start appears in the
@@ -23,11 +57,8 @@ Neither type checking nor Vitest exercises Zotero itself. These manual checks re
   Scholar restricted keeps all three source states across a reopen. Preview A → B → A
   reuses A silently, a real miss shows progress, and a zero-Citations result survives a
   restart without turning an all-provider failure into a cache hit.
-- **Board.** Typing in a Text Node keeps its caret when a background refresh lands, and a
-  card dragged at that moment still follows the pointer and saves where it visibly stops.
-  Line-mode wheel deltas pan and zoom; an overflowing Text Node scrolls its own body; a
-  card cannot be resized past the size actually saved. Relation hints on a Board mixing
-  Zotero-bound and pinned Papers, with one Paper placed twice.
+- **Board / Home (legacy).** Only if touching that surface: Text Node caret under
+  background refresh, drag save, pan/zoom, relation hints with pinned Papers.
 - **Sync.** Credentials survive close/reopen through Login Manager; unchecking remember
   removes only UniZero's credential; automatic sync keeps its interval across a restart;
   offline startup is quiet; each notification mode behaves as labelled. A first sync
@@ -97,34 +128,25 @@ not reintroduce a whole-library graph without a purpose the Board does not alrea
   is already decoupled for that, and the parameter and incident notes are in
   [UNICONNECTION.md](UNICONNECTION.md).
 
-## Unizero Home
+## Background — legacy Unizero Home / Board
+
+Home is not the active product surface. Keep these only so old constraints are not
+forgotten if someone must touch the code:
 
 - Replace or remove the experimental TextBlock/PaperBlock interaction before extending
   Board content. Prefer an Obsidian Canvas-like composition of independent cards and
   containers; do not add block kinds, rich editing, deeper nesting, or sync-specific
   merge work to the current Text Node model.
 - Add notes, colours, multi-selection, edge labels and direction, per-object sync
-  metadata, and camera persistence if user testing justifies it.
+  metadata, and camera persistence only if Home is revived.
 - Replace the hard-coded node menu with capability-based actions, then add named raw
-  Markdown and detailed/canvas Obsidian bindings.
+  Markdown and detailed/canvas Obsidian bindings — **prefer doing equivalent work in
+  the Obsidian plugin** rather than reviving Board menus.
 
-## Obsidian plugin
+## Background — other product / data work
 
-The first slice — `@libraryID/itemKey` pills (Author/year display), `.md` / `.pdf`
-jumps, free-text `@` completion, and a read-only detail pane — is implemented. Open work:
-
-- Manual verification in Obsidian against a running Zotero: rendering in both editor
-  modes, the multi-word suggester, and every jump target.
-- Dragging a Zotero item or a Detail-pane row into a note or canvas. Dropping plain
-  `@libraryID/itemKey` text already produces a working citation; a native-looking drag
-  needs `app.dragManager`, which is unofficial and should be weighed against what it buys.
-- Adding an out-of-library paper to Zotero from within Obsidian. A write path needs its
-  own deliberate design, not an extension of the read bridge.
-
-## Product work
-
-- Integrate an explicit, provider-backed publication ranking before exposing Unizero
-  Home's Publication Level filter; do not infer rank from venue names.
+- Integrate an explicit, provider-backed publication ranking before any UI exposes a
+  Publication Level filter; do not infer rank from venue names.
 - Let metadata review resolve conflicts field by field, rather than accepting or
   rejecting a candidate paper whole.
 - Carry provider provenance and retrieval time for volatile scholarly data — the
@@ -133,4 +155,5 @@ jumps, free-text `@` completion, and a read-only detail pane — is implemented.
 - Allow frontmatter properties to draw on a versioned Zotero snapshot rather than
   the item's state at conversion time.
 
-Prioritize verified behavior and clear boundaries over directory reshuffling.
+Prioritize verified behavior and clear boundaries over directory reshuffling. Do not
+implement Background items unless the task asks for them.

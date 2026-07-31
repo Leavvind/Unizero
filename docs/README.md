@@ -8,28 +8,37 @@ Two kinds of document live here, and they are read differently.
   written before or during its construction. Kept for the constraints, not as a task
   list.
 
-| Document | Kind | Read it when |
-| --- | --- | --- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Current state | A change affects ownership, layering, or dependency direction |
-| [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | Current state | You need to know where code belongs |
-| [LEGACY_SUPPORT.md](LEGACY_SUPPORT.md) | Current state | You are about to remove or bypass a compatibility reader |
-| [ROADMAP.md](ROADMAP.md) | Plan | Looking for unfinished work; nothing here is implemented |
-| [UNIZERO_HOME.md](UNIZERO_HOME.md) | Design and handoff | Working on Project View, the editable Board, or the unified Paper catalog |
-| [UNICONNECTION.md](UNICONNECTION.md) | Design and handoff | Working on the derived reverse-reference index, Board relation hints, or the force-graph renderer |
-| [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md) | Design and handoff | Working on portable state sync or WebDAV — and before extending sync past Project/Board, where it is the only design that exists |
+**Product direction (this branch):** Obsidian is the active note front end; the Zotero
+add-on remains the library backend (metadata, conversion, annotations, References /
+Citations cache, bridge). **Unizero Home is legacy** — design notes stay for constraints,
+but they are not a build plan. See the root [README](../README.md) and [AGENTS.md](../AGENTS.md).
+
+| Document | Kind | Default open? | Read it when |
+| --- | --- | --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Current state | Ownership / boundary changes | A change affects ownership, layering, or dependency direction |
+| [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | Current state | Finding a path | You need to know where code belongs |
+| [LEGACY_SUPPORT.md](LEGACY_SUPPORT.md) | Current state | Removing compat code | You are about to remove or bypass a compatibility reader |
+| [ROADMAP.md](ROADMAP.md) | Plan | Looking for unfinished work | Unfinished work only; nothing here is a work order by itself. Obsidian section first. |
+| [UNIZERO_HOME.md](UNIZERO_HOME.md) | Design · **legacy surface** | **No** | Only if a task explicitly touches Home / Board / Project View |
+| [UNICONNECTION.md](UNICONNECTION.md) | Design and handoff | **No** (unless relations/graph) | Derived reverse-reference index, relation hints, force-graph constraints |
+| [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md) | Design and handoff | **No** | Portable state sync / WebDAV, or extending sync past Project/Board |
 
 Component behaviour and commands are documented next to the code:
-[apps/zotero-addon/README.md](../apps/zotero-addon/README.md),
-[services/paper-runtime/README.md](../services/paper-runtime/README.md),
-[packages/contracts/README.md](../packages/contracts/README.md). Repository rules and
-verification commands are in [AGENTS.md](../AGENTS.md).
+
+- [apps/obsidian-plugin/README.md](../apps/obsidian-plugin/README.md) — **default entry for note-side work**;
+- [apps/zotero-addon/README.md](../apps/zotero-addon/README.md) — library backend and bridge host;
+- [services/paper-runtime/README.md](../services/paper-runtime/README.md);
+- [packages/contracts/README.md](../packages/contracts/README.md).
+
+Repository rules, current focus, and verification commands are in
+[AGENTS.md](../AGENTS.md).
 
 ## Keeping these honest
 
 - A current-state document that describes something the code no longer does is a defect and should be updated.
 - Design documents record decisions and traps that are still true. When their plan lands,
   update the status table at the top instead of leaving the reader to guess whether the
-  work is done. When a surface they describe is retired, say so there too — a design
-  document that still reads as a build plan for something no longer shipped is as much a
-  defect as a wrong current-state document.
+  work is done. When a surface they describe is retired or legacy, say so there too — a
+  design document that still reads as a build plan for something no longer shipped is as
+  much a defect as a wrong current-state document.
 - Landed roadmap items are removed from the roadmap, not annotated as complete.

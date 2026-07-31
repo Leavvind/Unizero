@@ -1,10 +1,12 @@
 # UniZero for Obsidian
 
-Turns a Zotero item into a live paper citation inside Obsidian notes.
+The **active note-taking front end** of UniZero: free-text search, durable citations, and
+jumps into the same Zotero library the add-on manages.
 
 The plugin stores no bibliographic data. Zotero, the reference cache, and the Paper
 catalog all live in the [Zotero add-on](../zotero-addon); this is a view of them over
-the add-on's localhost bridge.
+the add-on's localhost bridge. A future write-back path (exploration results → Zotero /
+UniZero) needs its own design; the bridge is read-only today.
 
 ## Syntax
 

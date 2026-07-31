@@ -5,13 +5,49 @@ Operational guidance for coding agents and contributors.
 This file describes the current repository. Planned work belongs in `docs/ROADMAP.md`;
 do not implement a roadmap idea merely because it appears in documentation.
 
+## Product in one line
+
+UniZero connects **Zotero** (library, providers, cache, conversion) and **Obsidian**
+(notes, citations, exploration). Zotero stays canonical for bibliographic identity;
+Obsidian is the active note-taking front end.
+
+## Current focus
+
+| Priority | Surface | Guidance |
+| --- | --- | --- |
+| **Active** | `apps/obsidian-plugin` | Default place for new product work: citations, detail pane, search, jumps |
+| **Required backend** | `apps/zotero-addon` data plane + `src/server` bridge | Providers, reference cache, relations, Paper catalog, conversion client, read-only bridge |
+| **Legacy UI** | Unizero Home (Project View / Board) under `addon/chrome/content` and related Project/Board paths | Still in the tree; **do not extend, redesign, or “improve”** unless the user task names Home/Board explicitly |
+| **Background** | Item-pane literature UI, per-paper graph | Maintain when a task touches them; not the main roadmap |
+
+Write-back from Obsidian into Zotero / UniZero (import explored papers, etc.) is
+**planned**, not present. The bridge must stay read-only until a separate write design
+lands.
+
+### Default read order
+
+**Obsidian or citation work**
+
+1. `apps/obsidian-plugin/README.md`
+2. `apps/obsidian-plugin/src/citation.ts`, `bridge.ts`, then the file the task names
+3. `apps/zotero-addon/src/server/` only if the bridge contract or payloads change
+4. `docs/ARCHITECTURE.md` only if ownership or process boundaries move
+
+**Do not open by default:** `docs/UNIZERO_HOME.md`, `docs/UNICONNECTION.md` Board
+sections, Board/sync design in `docs/SYNC_AND_LITERATURE_SOURCES.md` — unless the task is
+explicitly about that surface.
+
+**Add-on data / conversion / providers:** component README → `docs/PROJECT_STRUCTURE.md`
+→ the owning path in the table below.
+
 ## Start here
 
 UniZero has three executable components:
 
-- `apps/zotero-addon`: the Zotero add-on;
-- `services/paper-runtime`: the optional Python service used for document processing;
-- `apps/obsidian-plugin`: the optional Obsidian plugin that renders `@libraryID/itemKey`.
+- `apps/zotero-addon`: Zotero add-on (library backend; includes legacy Home UI);
+- `services/paper-runtime`: optional Python service for document processing;
+- `apps/obsidian-plugin`: Obsidian plugin — free-text `@` search, `@libraryID/itemKey`
+  citations, detail pane against the bridge.
 
 The add-on and the runtime integrate through the versioned localhost HTTP API; the
 canonical v1 schema is `packages/contracts/http/v1.schema.json`. The add-on and the
@@ -69,8 +105,8 @@ The process boundary is described in `docs/ARCHITECTURE.md`.
 | `apps/zotero-addon/src/ui` | Menus, panel bridge, progress, and service notices |
 | `apps/zotero-addon/src/modules` | Established relations, metadata, cache, and item-pane code |
 | `apps/zotero-addon/src/server` | Read-only localhost bridge and citekey resolution |
-| `apps/obsidian-plugin/src` | Obsidian rendering, suggester, detail pane, and bridge client |
-| `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, Unizero Home, graph renderer |
+| `apps/obsidian-plugin/src` | Obsidian rendering, suggester, detail pane, and bridge client (active front end) |
+| `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, **legacy** Unizero Home, graph renderer |
 | `services/paper-runtime/src/unizero_runtime/api` | FastAPI transport |
 | `services/paper-runtime/src/unizero_runtime/application` | Jobs, configuration, and use cases |
 | `services/paper-runtime/src/unizero_runtime/pipeline` | Workflow templates and document steps |

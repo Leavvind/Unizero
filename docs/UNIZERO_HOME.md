@@ -1,10 +1,16 @@
 # Unizero Home — Project View 设计
 
-> 状态：三栏 Project View、Board MVP（重复节点、平移缩放、移动、缩放、tombstone、
-> 手工连线、Text Node 与嵌入式 PaperBlock、hover 关系提示）、统一 Paper catalog
-> （cache/pinned/zotero、citation observation、快照压缩、GC、显式 merge/redirect）
-> 与手动/定时 WebDAV Project/Board sync 已实现。Literature 命名空间同步、冲突审阅
-> UI 与 Project 身份迁移仍未完成，以 [ROADMAP.md](ROADMAP.md) 为准。
+> **产品状态（本分支）：Legacy。** Unizero Home / Project View / Board 仍在代码树中，
+> 但不再是产品重心；默认不要扩展或重构。主动开发在 Obsidian 插件与 Zotero 数据面
+> （providers、cache、relations、bridge、conversion）。见根目录 [README](../README.md)
+> 与 [AGENTS.md](../AGENTS.md)。
+>
+> **实现状态（历史）：** 三栏 Project View、Board MVP（重复节点、平移缩放、移动、
+> 缩放、tombstone、手工连线、Text Node 与嵌入式 PaperBlock、hover 关系提示）、统一
+> Paper catalog（cache/pinned/zotero、citation observation、快照压缩、GC、显式
+> merge/redirect）与手动/定时 WebDAV Project/Board sync 已实现。Literature 命名空间
+> 同步、冲突审阅 UI 与 Project 身份迁移仍未完成，见 [ROADMAP.md](ROADMAP.md) 中
+> Background 段——它们不是当前迭代目标。
 
 ## 1. 产品决定
 
