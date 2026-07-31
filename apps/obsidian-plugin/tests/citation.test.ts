@@ -5,19 +5,26 @@ import {
   isPaperRef,
   paperRefKey,
   scanCitations,
+  withPdfPage,
 } from "../src/citation";
 
 const REF = { libraryID: 1, itemKey: "HLP48L8X" };
 
 describe("scanCitations", () => {
-  it("reads the three citation forms", () => {
+  it("reads the citation forms including a PDF page", () => {
     const tokens = scanCitations(
-      "See @1/HLP48L8X, the note @1/HLP48L8X.md, and @1/HLP48L8X.pdf",
+      "See @1/HLP48L8X, the note @1/HLP48L8X.md, @1/HLP48L8X.pdf, and @1/HLP48L8X.pdf:15",
     );
-    expect(tokens.map((token) => [token.libraryID, token.itemKey, token.action])).toEqual([
-      [1, "HLP48L8X", "detail"],
-      [1, "HLP48L8X", "markdown"],
-      [1, "HLP48L8X", "pdf"],
+    expect(tokens.map((token) => [
+      token.libraryID,
+      token.itemKey,
+      token.action,
+      token.page,
+    ])).toEqual([
+      [1, "HLP48L8X", "detail", undefined],
+      [1, "HLP48L8X", "markdown", undefined],
+      [1, "HLP48L8X", "pdf", undefined],
+      [1, "HLP48L8X", "pdf", 15],
     ]);
   });
 
@@ -26,6 +33,34 @@ describe("scanCitations", () => {
     const [token] = scanCitations(text);
     expect(text.slice(token.from, token.to)).toBe("@1/HLP48L8X.pdf");
     expect(token.raw).toBe("@1/HLP48L8X.pdf");
+  });
+
+  it("includes the page suffix in offsets for .pdf:{page}", () => {
+    const text = "see @1/HLP48L8X.pdf:15 here";
+    const [token] = scanCitations(text);
+    expect(text.slice(token.from, token.to)).toBe("@1/HLP48L8X.pdf:15");
+    expect(token.raw).toBe("@1/HLP48L8X.pdf:15");
+    expect(token.action).toBe("pdf");
+    expect(token.page).toBe(15);
+  });
+
+  it("does not treat a bare colon after the key as a page", () => {
+    const [token] = scanCitations("@1/HLP48L8X:extra");
+    expect(token.itemKey).toBe("HLP48L8X");
+    expect(token.action).toBe("detail");
+    expect(token.page).toBeUndefined();
+    expect(token.raw).toBe("@1/HLP48L8X");
+  });
+
+  it("ignores page 0 and non-numeric page tails", () => {
+    const zero = scanCitations("@1/HLP48L8X.pdf:0")[0];
+    expect(zero.action).toBe("pdf");
+    expect(zero.page).toBeUndefined();
+    expect(zero.raw).toBe("@1/HLP48L8X.pdf");
+
+    const [paged] = scanCitations("@1/HLP48L8X.pdf:15andmore");
+    expect(paged.raw).toBe("@1/HLP48L8X.pdf:15");
+    expect(paged.page).toBe(15);
   });
 
   it("matches after punctuation and at the start of the text", () => {
@@ -100,6 +135,8 @@ describe("citationPrefixAt", () => {
   it("closes once the written address is complete", () => {
     expect(citationPrefixAt("@1/HLP48L8X", 11)).toBeUndefined();
     expect(citationPrefixAt("@1/HLP48L8X.md", 14)).toBeUndefined();
+    expect(citationPrefixAt("@1/HLP48L8X.pdf", 15)).toBeUndefined();
+    expect(citationPrefixAt("@1/HLP48L8X.pdf:15", 18)).toBeUndefined();
   });
 
   it("closes once the user has typed a hard terminator after the query", () => {
@@ -125,6 +162,33 @@ describe("citationText", () => {
       expect(token.itemKey).toBe(REF.itemKey);
       expect(token.action).toBe(action);
     }
+  });
+
+  it("round-trips a PDF page", () => {
+    const text = citationText(REF, "pdf", 15);
+    expect(text).toBe("@1/HLP48L8X.pdf:15");
+    const [token] = scanCitations(text);
+    expect(token.action).toBe("pdf");
+    expect(token.page).toBe(15);
+  });
+});
+
+describe("withPdfPage", () => {
+  it("appends ?page= for a positive page", () => {
+    expect(withPdfPage("zotero://open-pdf/library/items/ABC", 15))
+      .toBe("zotero://open-pdf/library/items/ABC?page=15");
+  });
+
+  it("uses & when the URL already has a query", () => {
+    expect(withPdfPage("zotero://open-pdf/library/items/ABC?foo=1", 3))
+      .toBe("zotero://open-pdf/library/items/ABC?foo=1&page=3");
+  });
+
+  it("leaves the URL alone without a valid page", () => {
+    const url = "zotero://open-pdf/library/items/ABC";
+    expect(withPdfPage(url)).toBe(url);
+    expect(withPdfPage(url, 0)).toBe(url);
+    expect(withPdfPage(url, -1)).toBe(url);
   });
 });
 

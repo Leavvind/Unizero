@@ -2,15 +2,16 @@
  * What each citation form does when clicked.
  *
  * `@libraryID/itemKey` stays inside Obsidian; `.md` resolves to a vault note;
- * `.pdf` hands off to Zotero. Conversion is the one side-effect this plugin may
- * request: it posts to the bridge's convert action, which runs the same Zotero
- * menu command — it does not edit bibliographic fields from Obsidian.
+ * `.pdf` / `.pdf:{page}` hand off to Zotero (optional physical page via `?page=`).
+ * Conversion is the one side-effect this plugin may request: it posts to the
+ * bridge's convert action, which runs the same Zotero menu command — it does
+ * not edit bibliographic fields from Obsidian.
  */
 
 import { Notice, TFile, type App } from "obsidian";
 import { shell } from "electron";
 import type { BridgePaper, UnizeroBridge } from "./bridge";
-import type { PaperRef } from "./citation";
+import { withPdfPage, type PaperRef } from "./citation";
 import type { UnizeroSettings } from "./settings";
 
 /** Fields needed to decide Open note vs Convert, and to locate a vault file. */
@@ -127,7 +128,13 @@ export async function convertToMarkdown(
   }
 }
 
-export async function openZoteroPdf(paper: BridgePaper): Promise<void> {
+/**
+ * Open the item's PDF in Zotero.
+ *
+ * `page` is the 1-based physical PDF page (Zotero `?page=N`), from a
+ * `@…pdf:{page}` citation. Menu / toolbar opens omit it.
+ */
+export async function openZoteroPdf(paper: BridgePaper, page?: number): Promise<void> {
   if (!paper.links.zoteroPdf) {
     new Notice(
       `${paper.title || `${paper.libraryID}/${paper.itemKey}`} has no PDF attachment in Zotero.`,
@@ -135,7 +142,7 @@ export async function openZoteroPdf(paper: BridgePaper): Promise<void> {
     await openExternal(paper.links.zoteroSelect);
     return;
   }
-  await openExternal(paper.links.zoteroPdf);
+  await openExternal(withPdfPage(paper.links.zoteroPdf, page));
 }
 
 /** Still used when a PDF is missing: jump to the item so the user can attach one. */

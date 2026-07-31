@@ -1,11 +1,12 @@
 /**
  * The inline citation syntax.
  *
- * Three forms, one prefix — identity is Zotero's durable pair:
+ * Forms share one prefix — identity is Zotero's durable pair:
  *
- *   @libraryID/itemKey        the paper itself — opens the detail pane
- *   @libraryID/itemKey.md     the converted Markdown note
- *   @libraryID/itemKey.pdf    the PDF, opened in Zotero
+ *   @libraryID/itemKey           the paper itself — opens the detail pane
+ *   @libraryID/itemKey.md        the converted Markdown note
+ *   @libraryID/itemKey.pdf       the PDF, opened in Zotero
+ *   @libraryID/itemKey.pdf:15    the PDF at physical page 15 (Zotero `?page=`)
  *
  * What the user *types* at the `@` prompt is free text (author, title, year).
  * What gets *written* into the note is always `libraryID/itemKey`, because the
@@ -31,6 +32,11 @@ export interface CitationToken extends PaperRef {
   /** The matched text, including the `@` and any suffix. */
   raw: string;
   action: CitationAction;
+  /**
+   * 1-based PDF physical page for `.pdf:{page}` only.
+   * Passed to Zotero as `?page=N`; not a printed page label.
+   */
+  page?: number;
   /** Offsets into the scanned string; `to` is exclusive. */
   from: number;
   to: number;
@@ -39,8 +45,9 @@ export interface CitationToken extends PaperRef {
 /**
  * Zotero item keys are short alphanumeric tokens. Library IDs are integers.
  * Excluding `.` from the key keeps `.md` / `.pdf` unambiguous.
+ * Page is only valid after `.pdf:` and must be a positive integer.
  */
-const TOKEN = /@(\d+)\/([A-Za-z0-9]+)(\.md|\.pdf)?/g;
+const TOKEN = /@(\d+)\/([A-Za-z0-9]+)(\.md|\.pdf(?::([1-9]\d*))?)?/g;
 
 /**
  * Characters that cancel a match when they immediately precede the `@`.
@@ -63,8 +70,14 @@ const SEARCH_HARD_TERMINATOR = /[,;!?)\]]|[，；、！？）】]|\.\s/;
 
 function actionFor(suffix: string | undefined): CitationAction {
   if (suffix === ".md") { return "markdown"; }
-  if (suffix === ".pdf") { return "pdf"; }
+  if (suffix?.startsWith(".pdf")) { return "pdf"; }
   return "detail";
+}
+
+function pageFor(pageText: string | undefined): number | undefined {
+  if (!pageText) { return undefined; }
+  const page = Number(pageText);
+  return Number.isInteger(page) && page > 0 ? page : undefined;
 }
 
 /** Canonical map key / display fragment: `1/ABCD1234`. */
@@ -90,11 +103,14 @@ export function scanCitations(text: string): CitationToken[] {
   while ((match = TOKEN.exec(text)) !== null) {
     const from = match.index;
     if (from > 0 && CANCELLING_PREFIX.test(text.charAt(from - 1))) { continue; }
+    const action = actionFor(match[3]);
+    const page = action === "pdf" ? pageFor(match[4]) : undefined;
     tokens.push({
       raw: match[0],
       libraryID: Number(match[1]),
       itemKey: match[2],
-      action: actionFor(match[3]),
+      action,
+      ...(page !== undefined ? { page } : {}),
       from,
       to: from + match[0].length,
     });
@@ -124,18 +140,33 @@ export function citationPrefixAt(
 
   const raw = match[1];
   // A completed written citation (with or without action suffix) is not a search.
-  if (/^\d+\/[A-Za-z0-9]+(\.md|\.pdf)?$/i.test(raw)) { return; }
-  if (/\.(md|pdf)$/i.test(raw)) { return; }
+  if (/^\d+\/[A-Za-z0-9]+(\.md|\.pdf(?::[1-9]\d*)?)?$/i.test(raw)) { return; }
+  if (/\.(md|pdf)(?::[1-9]\d*)?$/i.test(raw)) { return; }
   if (SEARCH_HARD_TERMINATOR.test(raw)) { return; }
 
   const query = raw.replace(/\s+/g, " ").trim();
   return { start, query };
 }
 
-/** The text a completion inserts. */
-export function citationText(ref: PaperRef, action: CitationAction = "detail"): string {
-  const suffix = action === "markdown" ? ".md" : action === "pdf" ? ".pdf" : "";
-  return `@${paperRefKey(ref)}${suffix}`;
+/** The text a completion inserts. Optional `page` applies only to the PDF action. */
+export function citationText(
+  ref: PaperRef,
+  action: CitationAction = "detail",
+  page?: number,
+): string {
+  if (action === "markdown") { return `@${paperRefKey(ref)}.md`; }
+  if (action === "pdf") {
+    const pageSuffix = page && page > 0 ? `:${page}` : "";
+    return `@${paperRefKey(ref)}.pdf${pageSuffix}`;
+  }
+  return `@${paperRefKey(ref)}`;
+}
+
+/** Append `?page=N` (or `&page=N`) for a positive physical PDF page. */
+export function withPdfPage(zoteroPdfUrl: string, page?: number): string {
+  if (!page || page < 1 || !Number.isInteger(page)) { return zoteroPdfUrl; }
+  const sep = zoteroPdfUrl.includes("?") ? "&" : "?";
+  return `${zoteroPdfUrl}${sep}page=${page}`;
 }
 
 /** Custom MIME for internal drags; editors also receive `text/plain`. */

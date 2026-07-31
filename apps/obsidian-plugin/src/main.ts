@@ -133,13 +133,13 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
 
   // --- PillHost -----------------------------------------------------------
 
-  activate(action: CitationAction, ref: PaperRef, paper: BridgePaper): void {
+  activate(action: CitationAction, ref: PaperRef, paper: BridgePaper, page?: number): void {
     if (action === "markdown") {
       void openMarkdownNote(this.app, paper, this.settings);
       return;
     }
     if (action === "pdf") {
-      void openZoteroPdf(paper);
+      void openZoteroPdf(paper, page);
       return;
     }
     void this.showInDetailView(ref);

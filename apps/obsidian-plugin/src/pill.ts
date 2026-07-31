@@ -25,8 +25,8 @@ import type { PillLabel, UnizeroSettings } from "./settings";
 export interface PillHost {
   readonly store: PaperStore;
   readonly settings: UnizeroSettings;
-  /** Left click: run the action the syntax names. */
-  activate(action: CitationAction, ref: PaperRef, paper: BridgePaper): void;
+  /** Left click: run the action the syntax names (`page` from `.pdf:{page}`). */
+  activate(action: CitationAction, ref: PaperRef, paper: BridgePaper, page?: number): void;
   /** Right click: offer every action, whichever form was written. */
   showMenu(event: MouseEvent, ref: PaperRef, paper: BridgePaper): void;
 }
@@ -36,6 +36,11 @@ const ACTION_MARK: Record<CitationAction, string> = {
   markdown: "MD",
   pdf: "PDF",
 };
+
+function actionMark(token: CitationToken): string {
+  if (token.action === "pdf" && token.page) { return `p${token.page}`; }
+  return ACTION_MARK[token.action];
+}
 
 function surname(author: string): string {
   const parts = String(author || "").trim().split(/\s+/);
@@ -65,7 +70,7 @@ function shortLabel(paper: BridgePaper, style: PillLabel): string {
   return paper.title || `@${paper.libraryID}/${paper.itemKey}`;
 }
 
-function tooltip(paper: BridgePaper, action: CitationAction): string {
+function tooltip(paper: BridgePaper, action: CitationAction, page?: number): string {
   const lines = [paper.title].filter(Boolean) as string[];
   const credit = [paper.authors.join(", "), paper.year].filter(Boolean).join(" · ");
   if (credit) { lines.push(credit); }
@@ -78,7 +83,9 @@ function tooltip(paper: BridgePaper, action: CitationAction): string {
   lines.push(action === "markdown"
     ? "Click to open the Markdown note"
     : action === "pdf"
-      ? "Click to open the PDF in Zotero"
+      ? (page
+        ? `Click to open the PDF in Zotero at page ${page}`
+        : "Click to open the PDF in Zotero")
       : "Click for references and metadata");
   return lines.join("\n");
 }
@@ -100,7 +107,7 @@ export function createPill(
   element.dataset.action = token.action;
 
   const label = element.createSpan({ cls: "unizero-pill__label" });
-  const mark = ACTION_MARK[token.action];
+  const mark = actionMark(token);
   if (mark) {
     element.createSpan({ cls: "unizero-pill__mark", text: mark });
   }
@@ -120,7 +127,7 @@ export function createPill(
       element.addClass("unizero-pill--ready");
       element.toggleClass("unizero-pill--ambiguous", state.paper.ambiguous);
       label.setText(shortLabel(state.paper, host.settings.pillLabel));
-      element.setAttr("aria-label", tooltip(state.paper, token.action));
+      element.setAttr("aria-label", tooltip(state.paper, token.action, token.page));
       return;
     }
 
@@ -155,7 +162,7 @@ export function createPill(
     event.preventDefault();
     event.stopPropagation();
     if (!paper) { return; }
-    host.activate(token.action, ref, paper);
+    host.activate(token.action, ref, paper, token.page);
   };
 
   const onContextMenu = (event: MouseEvent) => {

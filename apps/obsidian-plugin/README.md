@@ -33,11 +33,13 @@ DataTransfer). Native Canvas / `app.dragManager` integration is not implemented.
 | `@libraryID/itemKey` | Opens the paper pane: metadata, References, Citations, Relation |
 | `@libraryID/itemKey.md` | Opens the converted Markdown note in this vault |
 | `@libraryID/itemKey.pdf` | Opens the PDF in Zotero |
+| `@libraryID/itemKey.pdf:15` | Opens the PDF in Zotero at physical page 15 |
 
 Example: `@1/HLP48L8X`. Right-clicking a pill offers the paper pane, Markdown note,
 **Convert to Markdown**, and PDF. *Show in Zotero* was removed — *Open PDF in Zotero*
 already jumps to the item when no PDF is attached. `\@notacitation` escapes the
-syntax, and email addresses are never matched.
+syntax, and email addresses are never matched. The page after `.pdf:` is the PDF
+file's 1-based physical page (Zotero `?page=`), not a printed page label.
 
 **Open Markdown note** and **Convert to Markdown** are exclusive: if Zotero (or this
 vault) already has Markdown for the paper, only Open is shown; otherwise only Convert.
