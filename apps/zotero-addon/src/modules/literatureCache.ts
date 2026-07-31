@@ -54,6 +54,32 @@ export function completedEmptyCitations(
     source.status === "empty" || source.status === "ok"));
 }
 
+/**
+ * Whether a References record still answers for this paper.
+ *
+ * The saved shard and the in-session copy of it are the same record in two
+ * places, so both are judged here rather than only on the way off disk: a
+ * "no source" answer fetched before a DOI was filled in must stop being the
+ * answer the moment the DOI arrives, whichever copy the caller happens to read.
+ */
+export function referencesCacheIsUsable(
+  cache: ReferencesCache | undefined,
+  identifiers: ItemPaperIdentifiers,
+): cache is ReferencesCache {
+  // An empty array is a meaningful completed lookup: its per-source statuses say
+  // whether providers answered empty, were restricted, or failed. Do not turn it
+  // back into a cache miss and discard that evidence.
+  if (!cache || !Array.isArray(cache.references)) { return false; }
+  if (!cacheMatchesIdentifiers(cache, identifiers)) { return false; }
+  // The shard is this paper's, but an identifier it was saved without may
+  // unlock a provider that was skipped last time. Worth another fetch only
+  // when there is nothing to show for the last one.
+  if (!cache.references.length && identifiersGained(cache, identifiers)) {
+    return false;
+  }
+  return true;
+}
+
 export function citationsCacheIsUsable(
   cache: CitationsCache | undefined,
   identifiers: ItemPaperIdentifiers,

@@ -3,7 +3,7 @@
  *
  * Relation providers return language-neutral paper metadata. This adapter is the
  * only new code in the explorer flow that turns that derived record into a Zotero
- * item, and always targets the seed item's library rather than the globally
+ * item, and always targets an explicit destination rather than the globally
  * selected library.
  */
 
@@ -20,15 +20,49 @@ export interface DiscoveredPaper {
   abstract?: string;
 }
 
-function validCollectionIDs(seed: Zotero.Item): number[] {
-  return seed.getCollections().filter((collectionID) => {
+/**
+ * Where a discovered paper is filed.
+ *
+ * Taken from the seed item when the paper was found from one, and from Unizero
+ * Home's current scope when the seed is a Board-pinned paper with no Zotero item
+ * to inherit a library and collections from.
+ */
+export interface PaperDestination {
+  libraryID: number;
+  collectionIDs: number[];
+}
+
+function collectionsInLibrary(
+  libraryID: number,
+  collectionIDs: number[],
+): number[] {
+  return collectionIDs.filter((collectionID) => {
     const collection = Zotero.Collections.get(collectionID) as Zotero.Collection | false;
-    return Boolean(collection && collection.libraryID === seed.libraryID);
+    return Boolean(collection && collection.libraryID === libraryID);
   });
 }
 
+export function paperDestinationFromItem(seed: Zotero.Item): PaperDestination {
+  return {
+    libraryID: seed.libraryID,
+    collectionIDs: collectionsInLibrary(seed.libraryID, seed.getCollections()),
+  };
+}
+
+export function paperDestinationFromScope(
+  libraryID: number,
+  collectionID?: number,
+): PaperDestination {
+  return {
+    libraryID,
+    collectionIDs: collectionID
+      ? collectionsInLibrary(libraryID, [collectionID])
+      : [],
+  };
+}
+
 async function translateByIdentifier(
-  seed: Zotero.Item,
+  destination: PaperDestination,
   paper: DiscoveredPaper,
 ): Promise<Zotero.Item | undefined> {
   const identifiers: DiscoveredPaper["identifiers"] = {};
@@ -42,8 +76,8 @@ async function translateByIdentifier(
   if (!translators?.length) { return; }
   translate.setTranslator(translators);
   return (await translate.translate({
-    libraryID: seed.libraryID,
-    collections: validCollectionIDs(seed),
+    libraryID: destination.libraryID,
+    collections: destination.collectionIDs,
     saveAttachments: true,
   }))[0];
 }
@@ -60,11 +94,11 @@ function creators(authors: string[]) {
 }
 
 export async function createDiscoveredPaper(
-  seed: Zotero.Item,
+  destination: PaperDestination,
   paper: DiscoveredPaper,
 ): Promise<Zotero.Item> {
   try {
-    const translated = await translateByIdentifier(seed, paper);
+    const translated = await translateByIdentifier(destination, paper);
     if (translated) { return translated; }
   } catch (error) {
     ztoolkit.log("identifier import failed; falling back to provider metadata", error);
@@ -77,7 +111,7 @@ export async function createDiscoveredPaper(
     } catch { /* provider type is not a Zotero item type */ }
   }
   const item = new Zotero.Item(itemType as any);
-  (item as any).libraryID = seed.libraryID;
+  (item as any).libraryID = destination.libraryID;
   item.setField("title", paper.title || "Untitled");
   if (paper.year) { item.setField("date", paper.year); }
   if (paper.url) { item.setField("url", paper.url); }
@@ -87,7 +121,7 @@ export async function createDiscoveredPaper(
   if (paper.abstract) { item.setField("abstractNote", paper.abstract); }
   if (paper.authors.length) { item.setCreators(creators(paper.authors)); }
   await item.saveTx();
-  for (const collectionID of validCollectionIDs(seed)) {
+  for (const collectionID of destination.collectionIDs) {
     item.addToCollection(collectionID);
   }
   await item.saveTx();

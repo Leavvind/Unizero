@@ -1,0 +1,200 @@
+/*
+ * Every colour and radius comes from an Obsidian CSS variable so that pills
+ * inherit the user's theme, including inside a canvas card where the background
+ * is whatever colour the user picked for that node.
+ */
+
+.unizero-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25em;
+  padding: 0 0.35em;
+  border-radius: var(--radius-s);
+  background-color: var(--background-modifier-hover);
+  color: var(--text-accent);
+  cursor: pointer;
+  line-height: inherit;
+  white-space: nowrap;
+}
+
+.unizero-pill:hover {
+  background-color: var(--background-modifier-active-hover);
+}
+
+.unizero-pill--loading {
+  color: var(--text-muted);
+  cursor: progress;
+}
+
+.unizero-pill--missing,
+.unizero-pill--error {
+  color: var(--text-error);
+  background-color: transparent;
+  border-bottom: 1px dashed var(--text-error);
+  border-radius: 0;
+  cursor: help;
+}
+
+.unizero-pill--ambiguous {
+  border-bottom: 1px dotted var(--text-warning);
+}
+
+.unizero-pill__mark {
+  font-size: 0.7em;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+/* Detail pane ------------------------------------------------------------- */
+
+.unizero-detail {
+  padding: var(--size-4-3);
+  overflow-y: auto;
+}
+
+.unizero-detail__empty {
+  color: var(--text-muted);
+  padding: var(--size-4-4) 0;
+  text-align: center;
+}
+
+.unizero-detail__empty button {
+  margin-top: var(--size-4-2);
+}
+
+.unizero-detail__title {
+  margin: 0 0 var(--size-4-1);
+  font-size: var(--font-ui-large);
+  line-height: 1.3;
+}
+
+.unizero-detail__credit,
+.unizero-detail__venue {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.unizero-detail__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-2);
+  margin: var(--size-4-2) 0;
+}
+
+.unizero-badge {
+  padding: 0 0.4em;
+  border-radius: var(--radius-s);
+  background-color: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.unizero-badge--muted { opacity: 0.7; }
+.unizero-badge--warn { color: var(--text-warning); }
+
+.unizero-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-2);
+  margin-bottom: var(--size-4-2);
+}
+
+.unizero-detail__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+.unizero-detail__abstract {
+  margin-bottom: var(--size-4-2);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.unizero-detail__tabs {
+  display: flex;
+  gap: var(--size-2-1);
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: var(--size-4-2);
+}
+
+.unizero-detail__tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: var(--size-2-2) var(--size-4-2);
+}
+
+.unizero-detail__tab.is-active {
+  color: var(--text-normal);
+  border-bottom-color: var(--text-accent);
+}
+
+.unizero-detail__summary {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  margin-bottom: var(--size-4-2);
+}
+
+.unizero-row {
+  border-top: 1px solid var(--background-modifier-border);
+  padding: var(--size-4-2) 0;
+}
+
+.unizero-row__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-2-2);
+  font-size: var(--font-ui-small);
+  line-height: 1.35;
+}
+
+.unizero-row--in-library .unizero-row__title {
+  font-weight: var(--font-semibold);
+}
+
+.unizero-row__meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: 0.15em;
+}
+
+.unizero-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-2-2);
+  margin-top: var(--size-2-2);
+}
+
+.unizero-row__actions button {
+  font-size: var(--font-ui-smaller);
+  padding: 0.1em 0.5em;
+}
+
+.unizero-row__note {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+/* Suggester --------------------------------------------------------------- */
+
+.unizero-suggestion__key {
+  color: var(--text-accent);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+}
+
+.unizero-suggestion__title {
+  font-size: var(--font-ui-small);
+}
+
+.unizero-suggestion__meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}

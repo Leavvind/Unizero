@@ -5,23 +5,30 @@ This is a map of the repository as it exists now.
 ```text
 UniZero/
 ├── apps/
-│   └── zotero-addon/
-│       ├── addon/
-│       │   ├── chrome/content/      Privileged dialogs: panel, explorer, graph, vendor, icons
-│       │   ├── locale/              Fluent strings per locale
-│       │   ├── manifest.json        Zotero add-on manifest template
-│       │   └── prefs.js             Default preferences
-│       ├── src/
-│       │   ├── core/                Feature registry and lifecycle
-│       │   ├── features/            Conversion and annotation commands
-│       │   ├── modules/             Relations, metadata, providers, cache, derived index, item pane
-│       │   ├── projects/            Project/Board/Paper schemas and Project persistence
-│       │   ├── runtime-client/      Runtime HTTP client and process management
-│       │   ├── ui/                  Menus, panel and explorer bridges, progress, service notices
-│       │   ├── utils/               Shared add-on utilities
-│       │   └── zotero/              Zotero adapters and artifact identity
-│       ├── scripts/                 Build and local Zotero development tools
-│       ├── tests/                   Host-independent Vitest suites
+│   ├── zotero-addon/
+│   │   ├── addon/
+│   │   │   ├── chrome/content/  Privileged dialogs: panel, explorer, graph, vendor, icons
+│   │   │   ├── locale/          Fluent strings per locale
+│   │   │   ├── manifest.json    Zotero add-on manifest template
+│   │   │   └── prefs.js         Default preferences
+│   │   ├── src/
+│   │   │   ├── core/            Feature registry and lifecycle
+│   │   │   ├── features/        Conversion and annotation commands
+│   │   │   ├── modules/         Relations, metadata, providers, cache, derived index, item pane
+│   │   │   ├── projects/        Project/Board/Paper schemas and Project persistence
+│   │   │   ├── runtime-client/  Runtime HTTP client and process management
+│   │   │   ├── server/          Read-only localhost bridge and citekey resolution
+│   │   │   ├── ui/              Menus, panel and explorer bridges, progress, service notices
+│   │   │   ├── utils/           Shared add-on utilities
+│   │   │   └── zotero/          Zotero adapters and artifact identity
+│   │   ├── scripts/             Build and local Zotero development tools
+│   │   ├── tests/               Host-independent Vitest suites
+│   │   └── package.json
+│   └── obsidian-plugin/
+│       ├── src/                 Citation syntax, renderers, suggester, detail pane, bridge client
+│       ├── tests/               Vitest over the Obsidian-free citation syntax
+│       ├── manifest.json        Obsidian plugin manifest
+│       ├── styles.css           Pill and detail-pane styling
 │       └── package.json
 ├── services/
 │   └── paper-runtime/

@@ -378,7 +378,26 @@ export class PaperCatalog {
     snapshot: PaperCatalogDiscoverySnapshot,
   ): Promise<PaperCatalogDiscoveryResult> {
     return this.writes.run(() => this.recordDiscoverySnapshotExclusive(
-          seedItem,
+          (catalog) => catalog.ensureZoteroPaperExclusive(seedItem),
+          snapshot,
+        ));
+  }
+
+  /**
+   * The same recording for a seed that has no Zotero item — a Board card pinned
+   * from a reference list. Only how the seed Paper is obtained differs; the
+   * observations, provenance, and compaction are identical, because a discovery
+   * route is a property of the Paper, not of whether Zotero happens to hold it.
+   */
+  public async recordExternalDiscoverySnapshot(
+    seedPaperID: string,
+    snapshot: PaperCatalogDiscoverySnapshot,
+  ): Promise<PaperCatalogDiscoveryResult> {
+    return this.writes.run(() => this.recordDiscoverySnapshotExclusive(
+          async (catalog) =>
+            catalog.readPaperDirect(
+              await catalog.resolvePaperIDDirect(seedPaperID),
+            ),
           snapshot,
         ));
   }
@@ -490,7 +509,22 @@ export class PaperCatalog {
       ? resolveIndexedPaperID(index, index.bindings[key])
       : undefined;
     if (bindingID && aliasID && bindingID !== aliasID) {
-      throw new Error("Zotero binding conflicts with an existing Paper identity");
+      // An item catalogued before its metadata carried an identifier gets a
+      // Paper that is nothing but the binding, while the same work may already
+      // be in the catalog under the DOI another paper's reference list named.
+      // Completing the metadata makes the two meet. A binding is not a second
+      // identity, so the identifier-less record folds into the identified one
+      // and the item goes on being catalogued; only two records that each
+      // assert an identifier are a real conflict, because merging those would
+      // silently fuse papers the user still has to tell apart.
+      const bound = await this.readPaperDirect(bindingID);
+      if (identifierAliases(bound.identifiers).length) {
+        throw new Error(
+          "Zotero binding conflicts with an existing Paper identity",
+        );
+      }
+      await this.mergePapersExclusive(aliasID, bindingID);
+      return this.ensureZoteroPaperExclusive(item);
     }
     const knownID = bindingID || aliasID;
     const timestamp = this.now();
@@ -676,7 +710,7 @@ export class PaperCatalog {
   }
 
   private async recordDiscoverySnapshotExclusive(
-    seedItem: Zotero.Item,
+    resolveSeedPaper: (catalog: this) => Promise<PaperDocument>,
     snapshot: PaperCatalogDiscoverySnapshot,
   ): Promise<PaperCatalogDiscoveryResult> {
     let result!: Omit<
@@ -685,7 +719,7 @@ export class PaperCatalog {
     >;
     this.batchDepth += 1;
     try {
-      const seedPaper = await this.ensureZoteroPaperExclusive(seedItem);
+      const seedPaper = await resolveSeedPaper(this);
       const mergedPapers: PaperDocument[] = [];
       const mergedOccurrences = new Map<string, number>();
       for (let index = 0; index < snapshot.merged.length; index += 1) {
@@ -1422,6 +1456,13 @@ export async function recordCatalogDiscoverySnapshot(
   snapshot: PaperCatalogDiscoverySnapshot,
 ): Promise<PaperCatalogDiscoveryResult> {
   return defaultCatalog().recordDiscoverySnapshot(seedItem, snapshot);
+}
+
+export async function recordCatalogExternalDiscoverySnapshot(
+  seedPaperID: string,
+  snapshot: PaperCatalogDiscoverySnapshot,
+): Promise<PaperCatalogDiscoveryResult> {
+  return defaultCatalog().recordExternalDiscoverySnapshot(seedPaperID, snapshot);
 }
 
 export async function listCatalogCitationObservations(

@@ -561,6 +561,109 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
+  it("opens a Board-pinned external paper and offers to fetch its references", async () => {
+    const fetched = vi.fn(async () =>
+      snapshot("paper:paper-external", "External discovery"));
+    const harness = createHarness({
+      snapshotStatus: async () => ({ loaded: false }),
+      snapshot: fetched,
+    });
+    await flush();
+
+    await harness.explorer.dropPaperOnBoard({
+      preventDefault: () => undefined,
+      clientX: 420,
+      clientY: 300,
+      dataTransfer: {
+        getData: (type: string) =>
+          type === "application/x-unizero-literature-candidate"
+            ? JSON.stringify({
+                identifiers: { DOI: "10.1000/discovery" },
+                title: "External discovery",
+                authors: ["Outside Author"],
+                membership: { inLibrary: false, libraryID: 1 },
+              })
+            : "",
+      },
+    });
+    await flush();
+
+    // The card has no Zotero item, so Detail names it by its catalog Paper ID.
+    expect(harness.explorer.activeItemKey).toBe("paper:paper-external");
+    expect(harness.win.document.getElementById("paper-title")?.textContent)
+      .toBe("External discovery");
+    // Relation and Graph read library topology and have nothing to say here.
+    expect(harness.win.document.getElementById("tab-relation")?.hidden).toBe(true);
+    expect(harness.win.document.getElementById("tab-graph")?.hidden).toBe(true);
+    expect(harness.win.document.getElementById("tab-references")?.hidden)
+      .toBe(false);
+
+    expect(fetched).not.toHaveBeenCalled();
+    const prompt = harness.win.document
+      .querySelector("#rows .fetch-now") as HTMLButtonElement;
+    prompt.click();
+    await flush();
+    await flush();
+
+    expect(fetched).toHaveBeenCalledWith(
+      "paper:paper-external",
+      "references",
+      true,
+      1,
+    );
+    expect(harness.win.document.getElementById("rows")?.textContent)
+      .toContain("row-of-paper:paper-external");
+    harness.win.close();
+  });
+
+  it("reuses a cached external snapshot instead of fetching it again", async () => {
+    const fetched = vi.fn(async () =>
+      snapshot("paper:paper-external", "External discovery"));
+    const harness = createHarness({
+      snapshotStatus: async () => ({ loaded: true }),
+      snapshot: fetched,
+    });
+    await flush();
+
+    await harness.explorer.dropPaperOnBoard({
+      preventDefault: () => undefined,
+      clientX: 420,
+      clientY: 300,
+      dataTransfer: {
+        getData: (type: string) =>
+          type === "application/x-unizero-literature-candidate"
+            ? JSON.stringify({
+                identifiers: { DOI: "10.1000/discovery" },
+                title: "External discovery",
+                authors: ["Outside Author"],
+                membership: { inLibrary: false, libraryID: 1 },
+              })
+            : "",
+      },
+    });
+    await flush();
+
+    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(fetched).toHaveBeenCalledWith(
+      "paper:paper-external",
+      "references",
+      false,
+      1,
+    );
+
+    // Reselecting the same card is a redraw from the window's snapshot cache.
+    await harness.explorer.showCollectionPreview("P1");
+    await flush();
+    harness.explorer.selectBoardNode(harness.explorer.project.nodes[0]);
+    await flush();
+
+    const externalCalls = fetched.mock.calls
+      .filter(([key]) => key === "paper:paper-external");
+    expect(externalCalls).toHaveLength(1);
+    expect(harness.explorer.activeItemKey).toBe("paper:paper-external");
+    harness.win.close();
+  });
+
   it("shows derived relation hints for every Board instance without saving edges", async () => {
     const harness = createHarness();
     await flush();
@@ -1170,6 +1273,45 @@ describe("Unizero Home async ownership and Board interaction", () => {
     await flush();
     expect(harness.win.document.getElementById("progress")?.hidden).toBe(true);
     expect(harness.explorer.activeTabState().needsFetch).toBe(false);
+    harness.win.close();
+  });
+
+  it("offers the fetch again where the rows would be after one fails", async () => {
+    let attempt = 0;
+    const fetched = vi.fn(async () => {
+      attempt += 1;
+      if (attempt === 1) { throw new Error("fail to fetch"); }
+      return snapshot("P1", "First Paper");
+    });
+    const harness = createHarness({
+      snapshotStatus: async () => ({ loaded: false }),
+      snapshot: fetched,
+    });
+    await flush();
+
+    await harness.explorer.showCollectionPreview("P1");
+    await flush();
+    (harness.win.document
+      .querySelector("#rows .fetch-now") as HTMLButtonElement).click();
+    await flush();
+
+    const status = harness.win.document.getElementById("status");
+    expect(status?.textContent).toContain("fail to fetch");
+    expect(status?.classList.contains("error")).toBe(true);
+    const retry = harness.win.document
+      .querySelector("#rows .fetch-now") as HTMLButtonElement;
+    expect(retry?.textContent).toBe("fetchNow");
+    expect(harness.win.document.getElementById("rows")?.textContent)
+      .toContain("fail to fetch");
+
+    retry.click();
+    await flush();
+    await flush();
+
+    expect(fetched).toHaveBeenCalledTimes(2);
+    expect(harness.explorer.activeTabState().error).toBe("");
+    expect(harness.win.document.getElementById("rows")?.textContent)
+      .toContain("row-of-P1");
     harness.win.close();
   });
 

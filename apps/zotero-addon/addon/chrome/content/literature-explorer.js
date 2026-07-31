@@ -775,14 +775,35 @@ var LiteratureExplorer = {
     if (scroller) scroller.scrollTop = tab.scroll || 0;
   },
 
-  newPaperState(itemKey, kind) {
+  /**
+   * A paper the library does not hold, pinned to the Board from a reference
+   * list. Unizero Home names it by its catalog Paper ID; the bridge recognises
+   * the same prefix and routes it to the external relation cache.
+   */
+  isExternalPaper(itemKey) {
+    return String(itemKey || "").startsWith("paper:");
+  },
+
+  /**
+   * How Detail View names the paper on a Board card: its Zotero item key when
+   * the library holds it, and its catalog Paper ID otherwise. A card pinned from
+   * a reference list is the usual source of the second case.
+   */
+  boardPaperKey(paperID, itemKey) {
+    if (itemKey) return itemKey;
+    return paperID ? "paper:" + paperID : null;
+  },
+
+  newPaperState(itemKey, kind, title) {
     let relationKind = kind || "references";
     let known = this.collectionSnapshot && this.collectionSnapshot.items
       .find((item) => item.itemKey === itemKey);
     let cached = this.cachedPreviewSnapshot(itemKey, relationKind);
     return {
       itemKey,
-      title: cached?.seed?.title || (known ? known.title : ""),
+      // An external paper is in no Collection row to read a title from, so the
+      // Board card passes its own.
+      title: cached?.seed?.title || (known ? known.title : "") || title || "",
       kind: relationKind,
       snapshot: cached,
       activeSource: "combined",
@@ -853,7 +874,7 @@ var LiteratureExplorer = {
    * paper showing a different tab of the same window is a duplicate to keep in
    * sync, not a second workspace.
    */
-  async openPaper(itemKey, kind) {
+  async openPaper(itemKey, kind, title) {
     if (!itemKey) return;
     let index = this.tabs.findIndex((tab) => tab.itemKey === itemKey);
     if (index === -1) {
@@ -861,7 +882,7 @@ var LiteratureExplorer = {
       let preview = this.collectionPreview;
       let state = preview && preview.itemKey === itemKey
         ? preview
-        : this.newPaperState(itemKey, kind);
+        : this.newPaperState(itemKey, kind, title);
       this.collectionPreview = null;
       this.tabs.push(state);
       index = this.tabs.length - 1;
@@ -1490,7 +1511,7 @@ var LiteratureExplorer = {
    * When the user has collapsed Detail View, selection still updates the preview
    * owner so expand can reopen the right paper, but the panel stays hidden.
    */
-  async showCollectionPreview(itemKey) {
+  async showCollectionPreview(itemKey, title) {
     if (!itemKey) return;
     if (this.collectionPreview && this.collectionPreview.itemKey === itemKey) {
       if (this.detailCollapsed) return;
@@ -1499,7 +1520,7 @@ var LiteratureExplorer = {
     }
     this.captureTab();
     this.activeTab = -1;
-    this.collectionPreview = this.newPaperState(itemKey, "references");
+    this.collectionPreview = this.newPaperState(itemKey, "references", title);
     if (this.detailCollapsed) {
       this.mode = "split";
       this.activeItemKey = itemKey;
@@ -2192,8 +2213,17 @@ var LiteratureExplorer = {
           );
           event.dataTransfer.setData("text/plain", blockView.itemKey);
         });
+      }
+      let embeddedKey = this.boardPaperKey(
+        blockView.block.paperID,
+        blockView.itemKey,
+      );
+      if (embeddedKey) {
         embedded.addEventListener("dblclick", () =>
-          this.showCollectionPreview(blockView.itemKey));
+          this.showCollectionPreview(
+            embeddedKey,
+            blockView.paper && blockView.paper.title,
+          ));
       }
       let title = document.createElement("div");
       title.className = "board-embedded-paper-title";
@@ -2777,7 +2807,10 @@ var LiteratureExplorer = {
       if (!this.contextIsCurrent(generation) || !this.project) return;
       this.renderCollection();
       this.renderProjectBoard();
-      if (view.itemKey) await this.showCollectionPreview(view.itemKey);
+      let opened = this.boardPaperKey(view.node.paperID, view.itemKey);
+      if (opened) {
+        await this.showCollectionPreview(opened, view.paper && view.paper.title);
+      }
     } catch (error) {
       if (this.contextIsCurrent(generation)) {
         this.setCollectionStatus(this.strings.error + ": " + String(error), true);
@@ -3172,7 +3205,8 @@ var LiteratureExplorer = {
     document.querySelectorAll(".board-manual-edge").forEach((element) =>
       element.classList.remove("selected"));
     this.updateBoardControls();
-    if (view.itemKey) void this.showCollectionPreview(view.itemKey);
+    let key = this.boardPaperKey(view.node.paperID, view.itemKey);
+    if (key) void this.showCollectionPreview(key, view.paper && view.paper.title);
   },
 
   selectBoardEdge(edge) {
@@ -3378,7 +3412,15 @@ var LiteratureExplorer = {
     detail.classList.toggle("relation-mode", relation);
     detail.classList.toggle("graph-mode", graph);
     document.getElementById("detail-graph-wrap").hidden = !graph;
+    // Relation and Graph read the derived library topology, which is built from
+    // the reference shards of items the library holds. A Board-pinned paper is
+    // not one, so those two surfaces have nothing to show for it and are hidden
+    // rather than left to report an empty graph as if that were an answer.
+    let external = this.isExternalPaper(this.activeItemKey);
     document.querySelectorAll("#detail-view .tab").forEach((tab) => {
+      let libraryOnly = tab.dataset.kind === "relation" ||
+        tab.dataset.kind === "graph";
+      tab.hidden = external && libraryOnly;
       tab.classList.toggle("active", tab.dataset.kind === this.kind);
     });
     if (graph) { return; }
@@ -3538,8 +3580,8 @@ var LiteratureExplorer = {
    * Every "open this paper" path in the window goes through here, so opening one
    * is opening a tab — there is no second way in that would bypass the strip.
    */
-  async showDetail(itemKey, kind) {
-    await this.openPaper(itemKey, kind);
+  async showDetail(itemKey, kind, title) {
+    await this.openPaper(itemKey, kind, title);
   },
 
   async switchKind(kind) {
@@ -3692,8 +3734,12 @@ var LiteratureExplorer = {
     } catch (error) {
       if (!this.tabRequestIsCurrent(tab, "snapshot", request, generation)) return;
       tab.snapshot = null;
-      tab.busy = false;
       tab.error = this.strings.error + ": " + String(error);
+      // Clear busy before rendering, not only in the `finally`: the retry prompt
+      // is a not-busy empty state, and a still-busy view would draw "Loading…"
+      // over the failure — leaving a paper that failed to fetch looking like one
+      // still fetching, with nothing to click.
+      this.setBusy(false, tab);
       if (this.tabIsActive(tab) && tab.kind === kind) {
         this.snapshot = null;
         this.configurePublicationLevels();
@@ -3940,6 +3986,15 @@ var LiteratureExplorer = {
       } else if (tab && tab.needsFetch && this.kind !== "relation") {
         this.renderFetchPrompt(rows, 6);
         this.setStatus(this.strings.notCached);
+      } else if (tab && tab.error) {
+        // A failed fetch leaves nothing to show, and the status line it wrote
+        // sits above a table that says only "no results" — which reads as the
+        // paper having none. The same prompt the cache miss uses puts the retry
+        // where the missing rows are, so a fetch that failed for a reason the
+        // user has since fixed (a DOI filled in, a provider back up) can be
+        // asked for again without hunting for the toolbar.
+        this.renderFetchPrompt(rows, 6, tab.error);
+        this.setStatus(tab.error, true);
       } else {
         this.renderEmpty(rows, this.strings.empty, 6);
       }
@@ -4000,13 +4055,13 @@ var LiteratureExplorer = {
    * so opening a paper never starts network work on its own — and a paper whose
    * shard went missing is visible as such rather than as another wait.
    */
-  renderFetchPrompt(rows, columnCount) {
+  renderFetchPrompt(rows, columnCount, text) {
     let row = document.createElement("tr");
     let cell = document.createElement("td");
     cell.colSpan = columnCount;
     cell.className = "empty-cell";
     let message = document.createElement("div");
-    message.textContent = this.strings.notCached;
+    message.textContent = text || this.strings.notCached;
     let action = document.createElement("button");
     action.className = "fetch-now";
     action.textContent = this.strings.fetchNow;

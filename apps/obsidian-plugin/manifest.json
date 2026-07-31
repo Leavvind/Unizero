@@ -1,0 +1,10 @@
+{
+  "id": "unizero",
+  "name": "UniZero",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Turn @citekey into a live Zotero paper: inline pills, a references detail pane, and jumps to the Markdown note or the Zotero PDF.",
+  "author": "Leavvind",
+  "authorUrl": "https://github.com/Leavvind/Unizero",
+  "isDesktopOnly": true
+}

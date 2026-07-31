@@ -22,18 +22,20 @@ import {
 } from "./mergeRelations";
 import { resolveMany } from "./resolve";
 import { PanelStatus } from "./status";
-import { readItemPaperIdentifiers } from "./itemIdentifiers";
+import {
+  readItemPaperIdentifiers,
+  type ItemPaperIdentifiers,
+} from "./itemIdentifiers";
 import { forPersistence } from "./edgeIdentity";
 import { graphPositionsForLibrary } from "./graphLayout";
 import {
   CACHE_KEY_CITATIONS,
   CACHE_KEY_REFERENCES,
-  cacheMatchesIdentifiers,
   citationsCacheIsUsable,
   completedEmptyCitations,
-  identifiersGained,
   makeReferencesCache,
   persistRelationSources,
+  referencesCacheIsUsable,
   type CitationsCache,
   type ReferencesCache,
 } from "./literatureCache";
@@ -57,8 +59,12 @@ import {
   type LiteratureRelationKind,
   type LiteratureSnapshot,
   type LiteratureSourceView,
+  externalPaperKey,
 } from "./literatureRelations";
-import { createDiscoveredPaper } from "../zotero/literatureItemAdapter";
+import {
+  createDiscoveredPaper,
+  type PaperDestination,
+} from "../zotero/literatureItemAdapter";
 import {
   literatureCandidateFromItem,
   literatureItemsInScope,
@@ -66,10 +72,12 @@ import {
 } from "../zotero/literatureCollectionAdapter";
 import {
   recordCatalogDiscoverySnapshot,
+  recordCatalogExternalDiscoverySnapshot,
   type PaperCatalogDiscoveryResult,
   type PaperCatalogDiscoverySnapshot,
   type PaperCatalogSeed,
 } from "../projects/paperCatalog";
+import type { PaperDocument } from "../projects/types";
 const SECTION_PREVIEW_LIMIT = 5;
 const EXPLORER_COUPLING_LIMIT = 50;
 /**
@@ -140,6 +148,52 @@ type ExplorerOpener = (
   item: Zotero.Item,
   kind: LiteratureRelationKind,
 ) => void;
+
+/**
+ * The paper a relation snapshot is centred on.
+ *
+ * Two things can play that part: a Zotero item, and a catalog Paper pinned to a
+ * Board without one. Everything downstream of the fetch — merging, library
+ * membership, catalog ingestion, the rendered header — needs the same four
+ * facts from either, so they are collected here once rather than branched on at
+ * each use. `libraryID` is the scope membership is resolved against, which for
+ * an external paper is the window's current library rather than the paper's own.
+ */
+interface LiteratureSeed {
+  libraryID: number;
+  /** Tab identity in Unizero Home: a Zotero item key, or `paper:<catalog ID>`. */
+  itemKey: string;
+  title: string;
+  identifiers: ItemPaperIdentifiers;
+  /** Set for a Zotero seed; absent for an external one. */
+  item?: Zotero.Item;
+  /** Set for an external seed; absent for a Zotero one, which binds on ingest. */
+  paperID?: string;
+}
+
+function zoteroSeed(item: Zotero.Item): LiteratureSeed {
+  return {
+    libraryID: item.libraryID,
+    itemKey: item.key,
+    title: String(item.getField("title") || ""),
+    identifiers: readItemPaperIdentifiers(item),
+    item,
+  };
+}
+
+function externalSeed(paper: PaperDocument, libraryID: number): LiteratureSeed {
+  return {
+    libraryID,
+    itemKey: externalPaperKey(paper.id),
+    title: paper.title || "",
+    identifiers: {
+      doi: paper.identifiers.doi,
+      arxiv: paper.identifiers.arxiv,
+      semanticScholarPaperId: paper.identifiers.semanticScholarPaperId,
+    },
+    paperID: paper.id,
+  };
+}
 
 export default class Views {
   public utils!: Utils;
@@ -475,21 +529,33 @@ export default class Views {
   private readReferencesCache(item: Zotero.Item): ReferencesCache | undefined {
     if (!this.isCacheEnabled("saveAPIReferences")) { return; }
     const cached = localStorage.get(item, CACHE_KEY_REFERENCES) as ReferencesCache | undefined;
-    // An empty array is a meaningful completed lookup: its per-source statuses say
-    // whether providers answered empty, were restricted, or failed. Do not turn it
-    // back into a cache miss and discard that evidence.
-    if (!cached || !Array.isArray(cached.references)) { return; }
     const identifiers = readItemPaperIdentifiers(item);
-    if (!cacheMatchesIdentifiers(cached, identifiers)) {
-      return;
-    }
-    // The shard is this paper's, but an identifier it was saved without may
-    // unlock a provider that was skipped last time. Worth another fetch only
-    // when there is nothing to show for the last one.
-    if (!cached.references.length && identifiersGained(cached, identifiers)) {
-      return;
-    }
-    return cached;
+    return referencesCacheIsUsable(cached, identifiers) ? cached : undefined;
+  }
+
+  /**
+   * The in-session copy of a relation record.
+   *
+   * It exists so a load survives caching being switched off, not as a second
+   * source of truth — so it answers to the same identity checks the saved shard
+   * does. Reading it unchecked kept a result fetched before the metadata was
+   * completed alive for the rest of the session: the fetch prompt saw a loaded
+   * relation and stopped offering the fetch that would have replaced it.
+   */
+  private sessionReferencesCache(
+    key: string,
+    identifiers: ItemPaperIdentifiers,
+  ): ReferencesCache | undefined {
+    const cached = this.explorerReferences.get(key);
+    return referencesCacheIsUsable(cached, identifiers) ? cached : undefined;
+  }
+
+  private sessionCitationsCache(
+    key: string,
+    identifiers: ItemPaperIdentifiers,
+  ): CitationsCache | undefined {
+    const cached = this.explorerCitations.get(key);
+    return citationsCacheIsUsable(cached, identifiers) ? cached : undefined;
   }
 
   private async saveReferencesCache(
@@ -525,7 +591,7 @@ export default class Views {
     }
     // Catalog storage is additive. A catalog conflict or damaged index must not
     // prevent the established References cache from being saved and rendered.
-    void this.ingestCatalogSnapshot(item, catalogSnapshot);
+    void this.ingestCatalogSnapshot(zoteroSeed(item), catalogSnapshot);
     if (this.lastLoadDiagnostic) {
       this.lastLoadDiagnostic.savedAt = new Date().toLocaleTimeString();
       this.lastLoadDiagnostic.savedResolved = resolved;
@@ -566,7 +632,7 @@ export default class Views {
         perSource: persistRelationSources(state.perSource),
       });
     }
-    void this.ingestCatalogSnapshot(item, catalogSnapshot);
+    void this.ingestCatalogSnapshot(zoteroSeed(item), catalogSnapshot);
   }
 
   private saveCitationsCache(pane: HTMLDivElement) {
@@ -601,13 +667,17 @@ export default class Views {
   }
 
   private ingestCatalogSnapshot(
-    item: Zotero.Item,
+    seed: LiteratureSeed,
     snapshot: PaperCatalogDiscoverySnapshot,
   ): Promise<PaperCatalogDiscoveryResult | undefined> {
-    const key = `${this.explorerKey(item)}:${snapshot.kind}:${snapshot.retrievedAt}`;
+    const key = `${seed.libraryID}:${seed.itemKey}:${snapshot.kind}:${snapshot.retrievedAt}`;
     const existing = this.catalogIngestions.get(key);
     if (existing) { return existing; }
-    const ingestion = recordCatalogDiscoverySnapshot(item, snapshot)
+    // A Zotero seed binds its Paper on the way in; an external seed already is
+    // one, pinned when its Board card was created.
+    const ingestion = (seed.item
+      ? recordCatalogDiscoverySnapshot(seed.item, snapshot)
+      : recordCatalogExternalDiscoverySnapshot(seed.paperID!, snapshot))
       .catch((error) => {
         ztoolkit.log("Literature catalog ingestion failed", error);
         return undefined;
@@ -638,7 +708,7 @@ export default class Views {
    * only the combined view until the next refresh repopulates it.
    */
   private async buildCombinedSnapshot(
-    item: Zotero.Item,
+    seed: LiteratureSeed,
     kind: LiteratureRelationKind,
     merged: ItemBaseInfo[],
     perSource: RelationSourceResult[],
@@ -653,7 +723,7 @@ export default class Views {
     for (const entry of perSource) {
       if (entry.entries.length) {
         const candidates = await this.candidatesWithMembership(
-          item.libraryID,
+          seed.libraryID,
           entry.entries,
         );
         bySource[entry.key] = candidates;
@@ -671,10 +741,10 @@ export default class Views {
       });
     }
     const candidates = await this.candidatesWithMembership(
-      item.libraryID,
+      seed.libraryID,
       merged,
     );
-    void this.ingestCatalogSnapshot(item, {
+    void this.ingestCatalogSnapshot(seed, {
       kind: kind as "references" | "citations",
       retrievedAt,
       merged: candidates.map(catalogSeed),
@@ -699,9 +769,9 @@ export default class Views {
     return {
       kind,
       seed: {
-        libraryID: item.libraryID,
-        itemKey: item.key,
-        title: String(item.getField("title") || ""),
+        libraryID: seed.libraryID,
+        itemKey: seed.itemKey,
+        title: seed.title,
       },
       source,
       total,
@@ -718,8 +788,10 @@ export default class Views {
     kind: LiteratureRelationKind,
   ): LiteratureLoadStatus {
     const key = this.explorerKey(item);
+    const identifiers = readItemPaperIdentifiers(item);
     if (kind === "references") {
-      const state = this.readReferencesCache(item) || this.explorerReferences.get(key);
+      const state = this.readReferencesCache(item) ||
+        this.sessionReferencesCache(key, identifiers);
       return {
         loaded: Boolean(state),
         count: state?.references.length || 0,
@@ -727,7 +799,8 @@ export default class Views {
         savedAt: state?.savedAt,
       };
     }
-    const state = this.readCitationsCache(item) || this.explorerCitations.get(key);
+    const state = this.readCitationsCache(item) ||
+      this.sessionCitationsCache(key, identifiers);
     return {
       loaded: Boolean(state),
       count: state?.loaded || state?.all.length || 0,
@@ -996,7 +1069,8 @@ export default class Views {
     if (kind === "references") {
       let state = refresh
         ? undefined
-        : (this.readReferencesCache(item) || this.explorerReferences.get(key));
+        : (this.readReferencesCache(item) ||
+          this.sessionReferencesCache(key, identifiers));
       // A completed empty provider lookup remains a valid diagnostic cache, but a
       // later conversion may have added local PDF evidence. Promote that evidence
       // without discarding the preserved per-source statuses.
@@ -1055,9 +1129,16 @@ export default class Views {
       // box does this through resolveReferences; the explorer path returns records
       // instead of mutating rows, so without this those entries display a bare DOI
       // forever. No-op once the placeholders are filled, so reopening is cheap.
-      await this.fillReferencePlaceholders(item, state);
+      await this.fillReferencePlaceholders(state, (filled) =>
+        this.saveReferencesCache(
+          item,
+          filled.source,
+          filled.references,
+          filled.resolved,
+          filled.perSource,
+        ));
       return this.buildCombinedSnapshot(
-        item,
+        zoteroSeed(item),
         kind,
         state.references,
         state.perSource || [],
@@ -1070,7 +1151,8 @@ export default class Views {
 
     let state = refresh
       ? undefined
-      : (this.readCitationsCache(item) || this.explorerCitations.get(key));
+      : (this.readCitationsCache(item) ||
+        this.sessionCitationsCache(key, identifiers));
     if (!state) {
       const result = await fetchCitationsByIdentifiers(
         identifiers.doi,
@@ -1092,8 +1174,325 @@ export default class Views {
       await this.persistCitationsCache(item, state);
     }
     return this.buildCombinedSnapshot(
-      item,
+      zoteroSeed(item),
       kind,
+      state.all,
+      state.perSource || [],
+      state.total,
+      this.citationsHasMore(state),
+      state.source,
+      state.savedAt,
+    );
+  }
+
+  // ------------------------------------------------------- External papers
+  //
+  // A Board card can pin a paper the library does not contain. Its References
+  // and Citations come from the same providers by the same identifiers — that
+  // path never needed a Zotero item, only a DOI or a Semantic Scholar ID — so
+  // what follows is the same pipeline over a catalog Paper instead.
+  //
+  // Three things are deliberately absent. There is no ZoMiner fallback, because
+  // an external paper has no attachment to parse. There is no `uniConnection`
+  // ingestion, because library topology is derived from item shards and an
+  // external paper is not in the library. And there is no Relation or Graph
+  // view for the same reason; Unizero Home hides those tabs for these papers.
+
+  private externalCacheKey(paper: PaperDocument): string {
+    return `external:${paper.id}`;
+  }
+
+  private async readExternalReferencesCache(
+    paper: PaperDocument,
+  ): Promise<ReferencesCache | undefined> {
+    if (!this.isCacheEnabled("saveAPIReferences")) { return; }
+    const cached = await localStorage.readExternalRecord(
+      paper.id,
+      CACHE_KEY_REFERENCES,
+    ) as ReferencesCache | undefined;
+    const identifiers = externalSeed(paper, 0).identifiers;
+    return referencesCacheIsUsable(cached, identifiers) ? cached : undefined;
+  }
+
+  private async saveExternalReferencesCache(
+    paper: PaperDocument,
+    state: ReferencesCache,
+  ): Promise<void> {
+    this.explorerReferences.set(this.externalCacheKey(paper), state);
+    if (!this.isCacheEnabled("saveAPIReferences")) { return; }
+    await localStorage.writeExternalRecord(paper.id, CACHE_KEY_REFERENCES, {
+      ...state,
+      references: forPersistence(state.references, state.source),
+      perSource: persistRelationSources(state.perSource),
+    });
+  }
+
+  private async readExternalCitationsCache(
+    paper: PaperDocument,
+  ): Promise<CitationsCache | undefined> {
+    if (!this.isCacheEnabled("saveCitations")) { return; }
+    const cached = await localStorage.readExternalRecord(
+      paper.id,
+      CACHE_KEY_CITATIONS,
+    ) as CitationsCache | undefined;
+    return citationsCacheIsUsable(cached, externalSeed(paper, 0).identifiers)
+      ? cached
+      : undefined;
+  }
+
+  private async persistExternalCitationsCache(
+    paper: PaperDocument,
+    state: CitationsCache,
+  ): Promise<void> {
+    this.explorerCitations.set(this.externalCacheKey(paper), state);
+    if (!state.all.length && !completedEmptyCitations(state)) { return; }
+    if (!this.isCacheEnabled("saveCitations")) { return; }
+    await localStorage.writeExternalRecord(paper.id, CACHE_KEY_CITATIONS, {
+      ...state,
+      all: forPersistence(state.all, state.source),
+      perSource: persistRelationSources(state.perSource),
+    });
+  }
+
+  /** The cache-only read behind Unizero Home's fetch prompt, for an external paper. */
+  public async externalRelationStatuses(
+    paper: PaperDocument,
+  ): Promise<{ references: LiteratureLoadStatus; citations: LiteratureLoadStatus }> {
+    const key = this.externalCacheKey(paper);
+    const identifiers = externalSeed(paper, 0).identifiers;
+    const references = await this.readExternalReferencesCache(paper) ||
+      this.sessionReferencesCache(key, identifiers);
+    const citations = await this.readExternalCitationsCache(paper) ||
+      this.sessionCitationsCache(key, identifiers);
+    return {
+      references: {
+        loaded: Boolean(references),
+        count: references?.references.length || 0,
+        total: references?.references.length || 0,
+        savedAt: references?.savedAt,
+      },
+      citations: {
+        loaded: Boolean(citations),
+        count: citations?.loaded || citations?.all.length || 0,
+        total: citations?.total || 0,
+        savedAt: citations?.savedAt,
+      },
+    };
+  }
+
+  public async getExternalLiteratureSnapshot(
+    paper: PaperDocument,
+    kind: LiteratureRelationKind,
+    libraryID: number,
+    refresh = false,
+  ): Promise<LiteratureSnapshot> {
+    if (kind === "relation") {
+      throw new Error("Relation is a library-derived view and needs a Zotero item");
+    }
+    const seed = externalSeed(paper, libraryID);
+    const key = this.externalCacheKey(paper);
+    const { doi, semanticScholarPaperId } = seed.identifiers;
+
+    if (kind === "references") {
+      let state = refresh
+        ? undefined
+        : (await this.readExternalReferencesCache(paper) ||
+          this.sessionReferencesCache(key, seed.identifiers));
+      if (!state) {
+        const result = await fetchReferencesByIdentifiers(
+          doi,
+          semanticScholarPaperId,
+        );
+        state = {
+          savedAt: Date.now(),
+          source: result?.source || "none",
+          doi: doi || "",
+          semanticScholarPaperId,
+          resolved: true,
+          references: result?.references || [],
+          perSource: result?.perSource,
+        };
+        await this.saveExternalReferencesCache(paper, state);
+      }
+      await this.fillReferencePlaceholders(state, (filled) =>
+        this.saveExternalReferencesCache(paper, filled));
+      return this.buildCombinedSnapshot(
+        seed,
+        kind,
+        state.references,
+        state.perSource || [],
+        state.references.length,
+        false,
+        state.source,
+        state.savedAt,
+      );
+    }
+
+    let state = refresh
+      ? undefined
+      : (await this.readExternalCitationsCache(paper) ||
+        this.sessionCitationsCache(key, seed.identifiers));
+    if (!state) {
+      const result = await fetchCitationsByIdentifiers(
+        doi,
+        semanticScholarPaperId,
+      );
+      state = {
+        savedAt: Date.now(),
+        doi: doi || "",
+        semanticScholarPaperId,
+        source: result?.source || "OpenAlex",
+        openAlexFilter: result?.openAlexFilter,
+        page: result ? 1 : 0,
+        loaded: result?.citations.length || 0,
+        total: result?.total || 0,
+        all: result?.citations || [],
+        perSource: result?.perSource,
+      };
+      await this.persistExternalCitationsCache(paper, state);
+    }
+    return this.buildCombinedSnapshot(
+      seed,
+      kind,
+      state.all,
+      state.perSource || [],
+      state.total,
+      this.citationsHasMore(state),
+      state.source,
+      state.savedAt,
+    );
+  }
+
+  public async refreshExternalLiteratureSource(
+    paper: PaperDocument,
+    kind: LiteratureRelationKind,
+    sourceKey: RelationSourceKey,
+    libraryID: number,
+  ): Promise<LiteratureSnapshot> {
+    if (kind === "relation") {
+      throw new Error("Relation is a local derived view and has no provider source");
+    }
+    const seed = externalSeed(paper, libraryID);
+    const key = this.externalCacheKey(paper);
+    const { doi, semanticScholarPaperId } = seed.identifiers;
+
+    if (kind === "references") {
+      const previous = await this.readExternalReferencesCache(paper) ||
+        this.explorerReferences.get(key);
+      const fresh = await fetchReferenceSource(
+        sourceKey,
+        doi,
+        semanticScholarPaperId,
+      );
+      const perSource = this.replaceSource(previous?.perSource, fresh);
+      const references = mergeRelationSources(perSource, [
+        "crossref",
+        "openAlex",
+        "semanticScholar",
+      ]);
+      const next: ReferencesCache = {
+        savedAt: Date.now(),
+        source: this.combinedSourceName(perSource),
+        doi: doi || "",
+        semanticScholarPaperId,
+        resolved: true,
+        references,
+        perSource,
+      };
+      await this.saveExternalReferencesCache(paper, next);
+      return this.buildCombinedSnapshot(
+        seed,
+        kind,
+        references,
+        perSource,
+        references.length,
+        false,
+        next.source,
+        next.savedAt,
+      );
+    }
+
+    const previous = await this.readExternalCitationsCache(paper) ||
+      this.explorerCitations.get(key);
+    const fresh = await fetchCitationSource(
+      sourceKey,
+      doi,
+      semanticScholarPaperId,
+    );
+    const perSource = this.replaceSource(previous?.perSource, fresh);
+    const all = mergeRelationSources(perSource, ["openAlex", "semanticScholar"]);
+    const next: CitationsCache = {
+      savedAt: Date.now(),
+      doi: doi || "",
+      semanticScholarPaperId,
+      source: this.combinedSourceName(perSource),
+      openAlexFilter: perSource.find((entry) => entry.key === "openAlex")?.openAlexFilter,
+      page: Math.max(0, ...perSource.map((entry) => entry.page || 0)),
+      loaded: all.length,
+      total: Math.max(0, ...perSource.map((entry) => entry.total)),
+      all,
+      perSource,
+    };
+    await this.persistExternalCitationsCache(paper, next);
+    return this.buildCombinedSnapshot(
+      seed,
+      "citations",
+      all,
+      perSource,
+      next.total,
+      this.citationsHasMore(next),
+      next.source,
+      next.savedAt,
+    );
+  }
+
+  public async loadMoreExternalLiteratureCitations(
+    paper: PaperDocument,
+    libraryID: number,
+  ): Promise<LiteratureSnapshot> {
+    const seed = externalSeed(paper, libraryID);
+    const key = this.externalCacheKey(paper);
+    let state = await this.readExternalCitationsCache(paper) ||
+      this.explorerCitations.get(key);
+    if (!state) {
+      return this.getExternalLiteratureSnapshot(paper, "citations", libraryID);
+    }
+    if (state.perSource?.length) {
+      const captured = state;
+      const advanced = await Promise.all(state.perSource.map(async (entry) => {
+        if (!entry.hasMore) { return entry; }
+        const next = await fetchCitationSource(
+          entry.key,
+          captured.doi,
+          captured.semanticScholarPaperId,
+          (entry.page || 1) + 1,
+          entry.openAlexFilter,
+        );
+        if (!next.entries.length) { return { ...entry, hasMore: false }; }
+        return {
+          ...entry,
+          entries: [...entry.entries, ...next.entries],
+          page: next.page ?? (entry.page || 1) + 1,
+          total: next.total || entry.total,
+          hasMore: Boolean(next.hasMore),
+          openAlexFilter: next.openAlexFilter || entry.openAlexFilter,
+        };
+      }));
+      const merged = mergeRelationSources(advanced, ["openAlex", "semanticScholar"]);
+      state = {
+        ...state,
+        savedAt: Date.now(),
+        perSource: advanced,
+        all: merged,
+        loaded: merged.length,
+        total: Math.max(state.total, ...advanced.map((entry) => entry.total)),
+        page: Math.max(0, ...advanced.map((entry) => entry.page || 0)),
+      };
+      await this.persistExternalCitationsCache(paper, state);
+    }
+    return this.buildCombinedSnapshot(
+      seed,
+      "citations",
       state.all,
       state.perSource || [],
       state.total,
@@ -1263,7 +1662,7 @@ export default class Views {
       }
     }
     return this.buildCombinedSnapshot(
-      item,
+      zoteroSeed(item),
       "citations",
       state.all,
       state.perSource || [],
@@ -1317,7 +1716,7 @@ export default class Views {
       this.explorerReferences.set(key, next);
       await this.saveReferencesCache(item, next.source, references, true, perSource);
       return this.buildCombinedSnapshot(
-        item,
+        zoteroSeed(item),
         kind,
         references,
         perSource,
@@ -1351,7 +1750,7 @@ export default class Views {
     this.explorerCitations.set(key, next);
     if (all.length) { await this.persistCitationsCache(item, next); }
     return this.buildCombinedSnapshot(
-      item,
+      zoteroSeed(item),
       "citations",
       all,
       perSource,
@@ -1379,7 +1778,7 @@ export default class Views {
   }
 
   public async addLiteratureCandidateToLibrary(
-    seed: Zotero.Item,
+    destination: PaperDestination,
     candidate: LiteratureCandidate,
   ): Promise<LiteratureCandidate["membership"]> {
     const entry: ItemBaseInfo = {
@@ -1394,12 +1793,13 @@ export default class Views {
       abstract: candidate.abstract,
       citations: candidate.citationCount,
     };
-    const existing = (await resolveLibraryMembership(seed.libraryID, [entry])).get(entry);
+    const { libraryID } = destination;
+    const existing = (await resolveLibraryMembership(libraryID, [entry])).get(entry);
     if (existing) {
-      return { inLibrary: true, libraryID: seed.libraryID, itemID: existing.id };
+      return { inLibrary: true, libraryID, itemID: existing.id };
     }
 
-    const created = await createDiscoveredPaper(seed, {
+    const created = await createDiscoveredPaper(destination, {
       identifiers: {
         DOI: entry.identifiers.DOI,
         arXiv: entry.identifiers.arXiv,
@@ -1413,8 +1813,8 @@ export default class Views {
     });
     // The memoised membership index would otherwise keep reporting this paper as
     // absent until its TTL lapses; drop it so the next resolve sees the new item.
-    invalidateLibraryMembership(seed.libraryID);
-    return { inLibrary: true, libraryID: seed.libraryID, itemID: created.id };
+    invalidateLibraryMembership(libraryID);
+    return { inLibrary: true, libraryID, itemID: created.id };
   }
 
   /**
@@ -2431,8 +2831,8 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
    * shape (no title, has DOI) rather than the flag.
    */
   private async fillReferencePlaceholders(
-    item: Zotero.Item,
     state: ReferencesCache,
+    persist: (state: ReferencesCache) => Promise<void>,
   ): Promise<void> {
     const pending = state.references
       .map((reference, index) => ({ reference, index }))
@@ -2498,15 +2898,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     }
     // Persist so the enrichment survives the session; unchanged runs (nothing
     // resolved) skip the write to avoid needless cache churn and a bumped savedAt.
-    if (changed) {
-      await this.saveReferencesCache(
-        item,
-        state.source,
-        state.references,
-        state.resolved,
-        state.perSource,
-      );
-    }
+    if (changed) { await persist(state); }
   }
 
   /**

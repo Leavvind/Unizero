@@ -3,6 +3,7 @@ import {
   cacheMatchesIdentifiers,
   citationsCacheIsUsable,
   identifiersGained,
+  referencesCacheIsUsable,
 } from "../src/modules/literatureCache";
 
 function cache(overrides: Record<string, unknown> = {}) {
@@ -75,6 +76,48 @@ describe("Citations negative cache", () => {
       { ...identifiers, semanticScholarPaperId: "a".repeat(40) },
       10_500,
     )).toBe(false);
+  });
+});
+
+describe("References cache usability", () => {
+  const empty = {
+    savedAt: 10_000,
+    source: "none",
+    doi: "",
+    semanticScholarPaperId: undefined as string | undefined,
+    resolved: true,
+    references: [],
+  };
+
+  it("retries an empty lookup once the paper gains a DOI", () => {
+    expect(referencesCacheIsUsable(empty, { doi: undefined })).toBe(true);
+    expect(referencesCacheIsUsable(empty, { doi: "10.1000/example" }))
+      .toBe(false);
+  });
+
+  it("keeps a completed empty lookup while no identifier has arrived", () => {
+    expect(referencesCacheIsUsable(
+      { ...empty, doi: "10.1000/example" },
+      identifiers,
+    )).toBe(true);
+  });
+
+  it("keeps a populated list when an identifier arrives", () => {
+    expect(referencesCacheIsUsable(
+      { ...empty, references: [{ title: "Cited paper" } as any] },
+      { doi: "10.1000/example" },
+    )).toBe(true);
+  });
+
+  it("discards a record whose identifier now names a different paper", () => {
+    expect(referencesCacheIsUsable(
+      { ...empty, doi: "10.1000/example", references: [{ title: "x" } as any] },
+      { doi: "10.1000/other" },
+    )).toBe(false);
+  });
+
+  it("treats a missing record as unusable", () => {
+    expect(referencesCacheIsUsable(undefined, identifiers)).toBe(false);
   });
 });
 

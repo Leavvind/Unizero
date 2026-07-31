@@ -24,6 +24,7 @@
  */
 
 import { config } from "../../package.json";
+import { isPortableObjectID } from "../projects/types";
 import { isMissingFile } from "../utils/fileState";
 import {
   effectiveLibraryID,
@@ -69,6 +70,8 @@ function emptyShard(item: LibraryScopedItem): Shard {
 export class LocalStorage {
   /** Root of the shard tree; surfaced by UniZeroDebug(). */
   public directory!: string;
+  /** Shards for catalog papers that have no Zotero item. See {@link readExternalRecord}. */
+  public externalDirectory!: string;
   /** The add-on's data directory: parent of both the shard tree and graph layouts. */
   public root!: string;
   public lock: any;
@@ -88,6 +91,7 @@ export class LocalStorage {
     try {
       this.root = PathUtils.join(dataDirectory(), name);
       this.directory = PathUtils.join(this.root, "cache");
+      this.externalDirectory = PathUtils.join(this.root, "external");
       await IOUtils.makeDirectory(this.directory, {
         createAncestors: true,
         ignoreExisting: true,
@@ -182,6 +186,102 @@ export class LocalStorage {
     }
   }
 
+  // --------------------------------------------------- External paper records
+
+  /**
+   * Records for a catalog paper that has no Zotero item.
+   *
+   * A Board card can pin a paper the library does not contain, and its relation
+   * lists have nowhere to live in the shard tree: that tree is keyed by library
+   * and item key, and swept by asking Zotero whether the item still exists — a
+   * question with no answer here. External papers are keyed by their catalog
+   * Paper ID in a sibling directory the sweep never walks; the catalog owns
+   * their lifetime, and a shard left behind by a collected paper is inert.
+   *
+   * No resident LRU either. The item shard tree has one because `get()` has to
+   * stay synchronous for the item pane's render; every caller of these is
+   * already async, so a read is simply a file read.
+   */
+  private externalPathFor(paperID: string): string {
+    // The ID arrives from stored documents, so it is checked rather than
+    // trusted: a portable object ID is a name, never a path.
+    if (!isPortableObjectID(paperID)) {
+      throw new Error(`Unusable paper ID for cache storage: ${paperID}`);
+    }
+    return PathUtils.join(this.externalDirectory, `${paperID}.json`);
+  }
+
+  public async readExternalRecord(paperID: string, key: string): Promise<any> {
+    await this.lock.promise;
+    const pending = this.writes.get(`external:${paperID}`);
+    if (pending) {
+      try {
+        await pending;
+      } catch {
+        // A failed write still leaves the last complete file worth reading.
+      }
+    }
+    try {
+      const shard = JSON.parse(
+        await IOUtils.readUTF8(this.externalPathFor(paperID)) as string,
+      );
+      return shard?.records?.[key];
+    } catch (error) {
+      if (!isMissingFile(error)) {
+        ztoolkit.log(`external cache unreadable for ${paperID}: ${error}`);
+      }
+      return undefined;
+    }
+  }
+
+  public async writeExternalRecord(
+    paperID: string,
+    key: string,
+    value: any,
+  ): Promise<void> {
+    await this.lock.promise;
+    const path = this.externalPathFor(paperID);
+    const scopedKey = `external:${paperID}`;
+    // Read-modify-write inside the queue, so two records saved for one paper
+    // cannot each write a file that is missing the other's.
+    const write = (this.writes.get(scopedKey) || Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        let records: Record<string, any> = {};
+        try {
+          const existing = JSON.parse(await IOUtils.readUTF8(path) as string);
+          if (existing && typeof existing === "object" && existing.records) {
+            records = existing.records;
+          }
+        } catch (error) {
+          if (!isMissingFile(error)) {
+            ztoolkit.log(`external cache unreadable for ${paperID}: ${error}`);
+          }
+        }
+        records[key] = value;
+        await IOUtils.makeDirectory(this.externalDirectory, {
+          createAncestors: true,
+          ignoreExisting: true,
+        });
+        await IOUtils.writeUTF8(
+          path,
+          JSON.stringify({
+            schema: SHARD_SCHEMA,
+            paperID,
+            updatedAt: Date.now(),
+            records,
+          }),
+          { tmpPath: `${path}.tmp` },
+        );
+      });
+    this.writes.set(scopedKey, write);
+    try {
+      await write;
+    } finally {
+      if (this.writes.get(scopedKey) === write) { this.writes.delete(scopedKey); }
+    }
+  }
+
   // ------------------------------------------------------- Library-wide records
 
   /**
@@ -272,6 +372,58 @@ export class LocalStorage {
       await IOUtils.writeUTF8(path, JSON.stringify(payload), { tmpPath: `${path}.tmp` });
     } catch (error) {
       ztoolkit.log(`graph settings unwritable: ${error}`);
+    }
+  }
+
+  /**
+   * OpenAlex work IDs the API has answered 404 for.
+   *
+   * A batch `filter=openalex:` query silently omits IDs OpenAlex no longer serves,
+   * so References retries each missing one individually. For a work that was merged
+   * that retry is what recovers it; for one that was deleted it is a request that
+   * can only ever 404, and the same twenty of them were being re-issued on every
+   * single load of every paper that cites them.
+   *
+   * Not per item, because "OpenAlex has no such work" is a fact about OpenAlex, and
+   * papers in one library cite the same deleted works over and over. Entries carry
+   * the time they were recorded so the answer expires: OpenAlex can restore a work,
+   * and a cache of negative answers that never lapses becomes wrong silently.
+   */
+  private openAlexTombstonePath(): string {
+    return PathUtils.join(this.root, "openalex-missing.json");
+  }
+
+  async readOpenAlexTombstones(): Promise<Record<string, number>> {
+    await this.lock.promise;
+    try {
+      const payload = JSON.parse(
+        await IOUtils.readUTF8(this.openAlexTombstonePath()) as string,
+      );
+      const ids = payload?.ids;
+      return ids && typeof ids === "object" ? ids : {};
+    } catch (error) {
+      if (!isMissingFile(error)) {
+        ztoolkit.log(`OpenAlex tombstones unreadable: ${error}`);
+      }
+      return {};
+    }
+  }
+
+  async writeOpenAlexTombstones(ids: Record<string, number>): Promise<void> {
+    await this.lock.promise;
+    try {
+      const path = this.openAlexTombstonePath();
+      await IOUtils.makeDirectory(PathUtils.parent(path)!, {
+        createAncestors: true,
+        ignoreExisting: true,
+      });
+      await IOUtils.writeUTF8(
+        path,
+        JSON.stringify({ schema: 1, updatedAt: Date.now(), ids }),
+        { tmpPath: `${path}.tmp` },
+      );
+    } catch (error) {
+      ztoolkit.log(`OpenAlex tombstones unwritable: ${error}`);
     }
   }
 

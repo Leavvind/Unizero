@@ -22,9 +22,10 @@
  */
 
 import {
-  MAILTO, getJSON, getSemanticScholarJSONStrict,
+  MAILTO, getJSON, getJSONResult, getSemanticScholarJSONStrict,
   bareDOI, bareOpenAlexID, unInvertAbstract, composeText,
 } from "./scholarlyHttp";
+import { localStorage } from "./localStorage";
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
 import {
@@ -42,6 +43,40 @@ import {
 
 /** Maximum number of IDs one OpenAlex filter query can carry. */
 const OPENALEX_BATCH = 50;
+
+/**
+ * How many of a batch's missing IDs are chased one at a time. Normally only a
+ * handful are missing; losing them wholesale means the batch request itself failed,
+ * where one-by-one retries only go slower.
+ */
+const OPENALEX_SINGLE_LOOKUP_LIMIT = 20;
+
+/**
+ * How long a recorded 404 is trusted. OpenAlex does occasionally restore a work,
+ * so this expires rather than being permanent — but a month of not asking again is
+ * the difference between a load costing six seconds and costing none.
+ */
+const OPENALEX_TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * OpenAlex IDs known to 404, loaded once per session and written back when the set
+ * grows. Held in memory as well as on disk because one load asks about it up to
+ * twenty times.
+ */
+let openAlexTombstones: Promise<Record<string, number>> | undefined;
+
+function loadOpenAlexTombstones(): Promise<Record<string, number>> {
+  if (!openAlexTombstones) {
+    openAlexTombstones = localStorage.readOpenAlexTombstones()
+      .catch(() => ({} as Record<string, number>));
+  }
+  return openAlexTombstones;
+}
+
+/** Test seam: forget the session's loaded set so the next read hits storage again. */
+export function resetOpenAlexTombstoneCache(): void {
+  openAlexTombstones = undefined;
+}
 
 /**
  * How each of the three sources fared in the last query. When a reference list
@@ -138,15 +173,46 @@ async function fromOpenAlex(doi: string): Promise<ItemBaseInfo[] | null> {
   // Fill in what the batch query missed, one at a time: the single-record endpoint
   // does follow merges, so the returned id may differ from the requested one —
   // store under the requested ID to keep the order intact.
-  // Capped at 20: normally only a handful are missing, and losing them wholesale
-  // means the whole batch request failed, where one-by-one retries only go slower.
-  const missing = ids.filter((id) => !byId.has(id)).slice(0, 20);
-  for (const id of missing) {
-    const single = await getJSON(
+  //
+  // IDs already known to 404 are not asked about again. Without that, a paper
+  // citing twenty deleted works spent twenty sequential round trips on every load,
+  // each one guaranteed to fail, and the answer was never any different.
+  const tombstones = await loadOpenAlexTombstones();
+  const now = Date.now();
+  const missing = ids.filter((id) => !byId.has(id));
+  const askable = missing.filter((id) =>
+    !tombstones[id] || now - tombstones[id] > OPENALEX_TOMBSTONE_TTL_MS);
+  if (missing.length > askable.length) {
+    ztoolkit.log(
+      `[referencesApi] skipped ${missing.length - askable.length} OpenAlex ` +
+      `work(s) previously answered 404`,
+    );
+  }
+  if (askable.length > OPENALEX_SINGLE_LOOKUP_LIMIT) {
+    ztoolkit.log(
+      `[referencesApi] ${askable.length} OpenAlex works missing from the batch ` +
+      `query; looking up the first ${OPENALEX_SINGLE_LOOKUP_LIMIT}`,
+    );
+  }
+  const gone: string[] = [];
+  for (const id of askable.slice(0, OPENALEX_SINGLE_LOOKUP_LIMIT)) {
+    const single = await getJSONResult(
       `https://api.openalex.org/works/${id}?select=${OPENALEX_SELECT}&mailto=${MAILTO}`,
       { tag: "referencesApi" },
     );
-    if (single?.id) { byId.set(id, single); }
+    if (single.body?.id) {
+      byId.set(id, single.body);
+      continue;
+    }
+    // Only a 404 is a durable answer. A timeout, a 5xx, or status 0 (the log
+    // showed both) means the question never got asked, so it stays askable.
+    if (single.status === 404) { gone.push(id); }
+  }
+  if (gone.length) {
+    const updated = { ...tombstones };
+    for (const id of gone) { updated[id] = now; }
+    openAlexTombstones = Promise.resolve(updated);
+    await localStorage.writeOpenAlexTombstones(updated);
   }
   if (!byId.size) { return null; }
   // Merge redirects can land two requested IDs on the same work; deduplicate by

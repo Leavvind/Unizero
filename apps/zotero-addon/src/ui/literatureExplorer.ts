@@ -12,6 +12,7 @@ import { getConversionPref } from "../features/conversion/settings";
 import { edgeIdentity } from "../modules/edgeIdentity";
 import type Views from "../modules/views";
 import {
+  externalPaperIDFromKey,
   invalidateLibraryMembership,
   type LiteratureCandidate,
   type LiteratureCollectionScope,
@@ -57,6 +58,10 @@ import {
   selectedLiteratureScope,
 } from "../zotero/literatureCollectionAdapter";
 import {
+  paperDestinationFromItem,
+  paperDestinationFromScope,
+} from "../zotero/literatureItemAdapter";
+import {
   defaultMarkdownUrl,
   ensureMarkdownLink,
   recordMarkdownLink,
@@ -90,6 +95,27 @@ function contextItem(itemKey?: string, libraryID?: number): Zotero.Item {
   ) as Zotero.Item | false;
   if (!item) { throw new Error("The source Zotero item no longer exists"); }
   return item;
+}
+
+/**
+ * The catalog Paper an external key names, or undefined for a Zotero key.
+ *
+ * Unizero Home identifies every open paper by one string, so each relation call
+ * that arrives here decides which of the two seeds it has by asking this. A
+ * Board card pinned from a reference list is the only producer of external keys.
+ */
+async function contextPaper(
+  itemKey?: string,
+): Promise<PaperDocument | undefined> {
+  const key = itemKey || explorerContext?.itemKey;
+  const paperID = key ? externalPaperIDFromKey(key) : undefined;
+  return paperID ? readCatalogPaper(paperID) : undefined;
+}
+
+function scopeLibraryID(libraryID?: number): number {
+  if (libraryID != null) { return libraryID; }
+  if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+  return explorerContext.scope.libraryID;
 }
 
 function strings() {
@@ -663,6 +689,15 @@ function explorerApi() {
       if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
       explorerContext.itemKey = itemKey;
       explorerContext.kind = kind;
+      const paper = await contextPaper(itemKey);
+      if (paper) {
+        return explorerViews.getExternalLiteratureSnapshot(
+          paper,
+          kind,
+          scopeLibraryID(libraryID),
+          refresh,
+        );
+      }
       return explorerViews.getLiteratureSnapshot(
         contextItem(itemKey, libraryID),
         kind,
@@ -676,9 +711,12 @@ function explorerApi() {
     ) => {
       if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       if (kind === "relation") { return { loaded: true }; }
-      const statuses = await explorerViews.relationStatuses(
-        contextItem(itemKey, libraryID),
-      );
+      const paper = await contextPaper(itemKey);
+      const statuses = paper
+        ? await explorerViews.externalRelationStatuses(paper)
+        : await explorerViews.relationStatuses(
+          contextItem(itemKey, libraryID),
+        );
       return statuses[kind];
     },
     // Derived library graph centred on one paper. Read-only: it neither fetches
@@ -725,6 +763,13 @@ function explorerApi() {
     },
     loadMoreCitations: async (itemKey: string, libraryID?: number) => {
       if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
+      const paper = await contextPaper(itemKey);
+      if (paper) {
+        return explorerViews.loadMoreExternalLiteratureCitations(
+          paper,
+          scopeLibraryID(libraryID),
+        );
+      }
       return explorerViews.loadMoreLiteratureCitations(
         contextItem(itemKey, libraryID),
       );
@@ -738,6 +783,15 @@ function explorerApi() {
       if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       explorerContext!.itemKey = itemKey;
       explorerContext!.kind = kind;
+      const paper = await contextPaper(itemKey);
+      if (paper) {
+        return explorerViews.refreshExternalLiteratureSource(
+          paper,
+          kind,
+          sourceKey,
+          scopeLibraryID(libraryID),
+        );
+      }
       return explorerViews.refreshLiteratureSource(
         contextItem(itemKey, libraryID),
         kind,
@@ -746,8 +800,18 @@ function explorerApi() {
     },
     addToLibrary: async (itemKey: string, candidate: LiteratureCandidate) => {
       if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
+      // A Zotero seed files its discoveries alongside itself. An external seed
+      // has no library or collections of its own to inherit, so the window's
+      // current scope decides where the new item lands.
+      const external = Boolean(await contextPaper(itemKey));
+      const destination = external
+        ? paperDestinationFromScope(
+          scopeLibraryID(),
+          explorerContext?.scope.collectionID,
+        )
+        : paperDestinationFromItem(contextItem(itemKey));
       return explorerViews.addLiteratureCandidateToLibrary(
-        contextItem(itemKey),
+        destination,
         candidate,
       );
     },

@@ -199,6 +199,106 @@ describe("PaperCatalog", () => {
     }]);
   });
 
+  it("folds an identifier-less binding into the Paper its new metadata names", async () => {
+    let next = 0;
+    const catalog = new PaperCatalog("/data/unizero/literature", {
+      now: () => 2000 + next,
+      createID: (kind) => `${kind}_${++next}`,
+    });
+    // Imported with empty metadata: the catalog can only know the binding.
+    const provisional = await catalog.ensureZoteroPaper(
+      item(1, "EMPTY", "Economic Determinants", "", ""),
+    );
+    expect(provisional.identifiers.doi).toBeUndefined();
+    // Meanwhile the same work turns up in another paper's reference list.
+    const discovered = await catalog.ensureExternalPaper({
+      identifiers: { doi: "10.1000/economic", openAlexId: "W99" },
+      title: "Provider title",
+      authors: ["Provider Author"],
+    });
+    expect(discovered.id).not.toBe(provisional.id);
+
+    // The user completes the DOI in Zotero and drags the paper onto the Board.
+    const reconciled = await catalog.ensureZoteroPaper(
+      item(1, "EMPTY", "Economic Determinants", "10.1000/economic", ""),
+    );
+
+    expect(reconciled.id).toBe(discovered.id);
+    expect(reconciled.retention).toBe("zotero");
+    expect(reconciled.title).toBe("Economic Determinants");
+    expect(reconciled.identifiers).toMatchObject({
+      doi: "10.1000/economic",
+      openAlexId: "W99",
+    });
+    expect(reconciled.bindings).toEqual([{
+      library: "library",
+      itemKey: "EMPTY",
+    }]);
+    // A Board card that already named the provisional Paper still resolves.
+    expect(await catalog.resolvePaperID(provisional.id)).toBe(discovered.id);
+    expect((await catalog.readPaper(provisional.id)).id).toBe(discovered.id);
+  });
+
+  it("still refuses to fuse two Papers that each assert an identifier", async () => {
+    let next = 0;
+    const catalog = new PaperCatalog("/data/unizero/literature", {
+      createID: (kind) => `${kind}_${++next}`,
+    });
+    await catalog.ensureZoteroPaper(item(1, "BOUND", "Bound paper", "10.1000/a", ""));
+    await catalog.ensureExternalPaper({
+      identifiers: { doi: "10.1000/b" },
+      title: "A different paper",
+      authors: [],
+    });
+
+    await expect(catalog.ensureZoteroPaper(
+      item(1, "BOUND", "Bound paper", "10.1000/b", ""),
+    )).rejects.toThrow("Zotero binding conflicts with an existing Paper identity");
+  });
+
+  it("records a discovery seeded by a paper the library does not hold", async () => {
+    let next = 0;
+    const catalog = new PaperCatalog("/data/unizero/literature", {
+      now: () => 3000 + next,
+      createID: (kind) => `${kind}_${++next}`,
+    });
+    const pinned = await catalog.ensureExternalPaper({
+      identifiers: { doi: "10.1000/external" },
+      title: "Board-pinned paper",
+      authors: ["Outside Author"],
+    });
+
+    const discovery = await catalog.recordExternalDiscoverySnapshot(pinned.id, {
+      kind: "references",
+      retrievedAt: 500,
+      merged: [{
+        identifiers: { doi: "10.1000/cited" },
+        title: "Cited paper",
+        authors: ["Researcher"],
+      }],
+      sources: [{
+        provider: "crossref",
+        entries: [{
+          identifiers: { doi: "10.1000/cited" },
+          title: "Cited paper",
+          authors: ["Researcher"],
+        }],
+        complete: true,
+      }],
+    });
+
+    expect(discovery.seedPaperID).toBe(pinned.id);
+    expect(await catalog.listCitationObservations(pinned.id)).toEqual([
+      expect.objectContaining({
+        citingPaperID: pinned.id,
+        citedPaperID: discovery.mergedPaperIDs[0],
+        provider: "crossref",
+        queryKind: "references",
+        retrievedAt: 500,
+      }),
+    ]);
+  });
+
   it("stores References and Citations as observations of one directed edge", async () => {
     let next = 0;
     const catalog = new PaperCatalog("/data/unizero/literature", {

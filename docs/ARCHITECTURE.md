@@ -59,6 +59,7 @@ runtime.
 | Derived index | `src/modules/uniConnection.ts`, `src/modules/uniConnectionSync.ts` | Reverse-reference index, coupling, graph topology |
 | Projects | `src/projects/` | Portable Project identity, versioned Board/Paper shapes, local object persistence |
 | Runtime boundary | `src/runtime-client/` | Contract types, HTTP, launch, process state |
+| Editor boundary | `src/server/` | Read-only bridge endpoints and citekey resolution |
 
 `src/modules/` contains the established item-pane, metadata, provider, and cache
 implementation. New code uses the more specific directories above. Existing modules are
