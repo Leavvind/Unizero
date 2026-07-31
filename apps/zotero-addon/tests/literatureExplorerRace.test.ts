@@ -1188,6 +1188,101 @@ describe("Unizero Home async ownership and Board interaction", () => {
     harness.win.close();
   });
 
+  it("keeps paper selection when Detail View is collapsed", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.showCollectionPreview("P1");
+    expect(harness.explorer.mode).toBe("split");
+    expect(harness.win.document.getElementById("detail-view")?.hidden)
+      .toBe(false);
+
+    harness.explorer.collapseDetailPane();
+
+    expect(harness.explorer.detailCollapsed).toBe(true);
+    expect(harness.explorer.collectionPreview.itemKey).toBe("P1");
+    expect(harness.win.document.getElementById("detail-view")?.hidden)
+      .toBe(true);
+    expect(harness.win.document.getElementById("collection-view")?.hidden)
+      .toBe(false);
+    expect(harness.win.document.getElementById("explorer-workspace")
+      ?.classList.contains("split-mode")).toBe(false);
+    expect(harness.win.document.getElementById("toggle-detail-pane")?.hidden)
+      .toBe(false);
+    expect(harness.win.document.getElementById("toggle-detail-pane")?.textContent)
+      .toBe("◀");
+    harness.win.close();
+  });
+
+  it("does not auto-open Detail View while it is collapsed", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.showCollectionPreview("P1");
+    harness.explorer.collapseDetailPane();
+
+    await harness.explorer.showCollectionPreview("P2");
+
+    expect(harness.explorer.detailCollapsed).toBe(true);
+    expect(harness.explorer.collectionPreview.itemKey).toBe("P2");
+    expect(harness.win.document.getElementById("detail-view")?.hidden)
+      .toBe(true);
+    expect(harness.win.document.getElementById("collection-view")?.hidden)
+      .toBe(false);
+    harness.win.close();
+  });
+
+  it("restores the current selection when Detail View is expanded", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.showCollectionPreview("P1");
+    harness.explorer.collapseDetailPane();
+    await harness.explorer.showCollectionPreview("P2");
+
+    harness.explorer.expandDetailPane();
+    await flush();
+
+    expect(harness.explorer.detailCollapsed).toBe(false);
+    expect(harness.explorer.mode).toBe("split");
+    expect(harness.explorer.collectionPreview.itemKey).toBe("P2");
+    expect(harness.win.document.getElementById("detail-view")?.hidden)
+      .toBe(false);
+    expect(harness.win.document.getElementById("rows")?.textContent)
+      .toContain("row-of-P2");
+    harness.win.close();
+  });
+
+  it("keeps the Detail dock collapsed across Open paper tabs", async () => {
+    const harness = createHarness();
+    await flush();
+    await harness.explorer.showCollectionPreview("P1");
+    harness.explorer.collapseDetailPane();
+
+    await harness.explorer.showDetail("P1", "references");
+
+    expect(harness.explorer.detailCollapsed).toBe(true);
+    expect(harness.explorer.tabs).toHaveLength(1);
+    expect(harness.win.document.getElementById("detail-view")?.hidden)
+      .toBe(true);
+    expect(harness.win.document.getElementById("collection-view")?.hidden)
+      .toBe(false);
+    harness.win.close();
+  });
+
+  it("exposes a permanent Detail dock toggle on the Board", async () => {
+    const harness = createHarness();
+    await flush();
+
+    const toggle = harness.win.document.getElementById("toggle-detail-pane");
+    expect(toggle?.hidden).toBe(false);
+    expect(toggle?.textContent).toBe("▶");
+
+    harness.explorer.collapseDetailPane();
+    expect(toggle?.textContent).toBe("◀");
+
+    harness.explorer.expandDetailPane();
+    expect(toggle?.textContent).toBe("▶");
+    harness.win.close();
+  });
+
   it("keeps all source states visible when every reference source is empty", async () => {
     const harness = createHarness({
       snapshot: async (itemKey: string) =>

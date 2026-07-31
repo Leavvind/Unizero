@@ -21,14 +21,24 @@
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     html, body {
+      width: 100%;
+      height: 100%;
       min-width: 760px;
-      min-height: 100%;
       margin: 0;
+      overflow: hidden;
       background: var(--bg);
       color: var(--fg);
       font: 14px/1.45 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
     }
-    body { padding: 18px; }
+    /* Lock the window to the viewport: chrome is thin, workspace fills the rest.
+       Page-level scrolling is forbidden so Board and Detail stay equal height. */
+    body {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 12px 12px;
+      min-height: 0;
+    }
     button, input { color: inherit; font: inherit; }
     button {
       min-height: 32px;
@@ -42,17 +52,18 @@
     button:disabled { cursor: default; opacity: .55; }
     .page-head {
       display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 14px;
+      flex: none;
+      align-items: baseline;
+      gap: 10px;
+      min-height: 0;
     }
     /* Window-level tab strip: one tab per open paper, plus the Collection. */
     .page-tabs {
       display: flex;
+      flex: none;
       overflow-x: auto;
       align-items: stretch;
       gap: 4px;
-      margin-bottom: 12px;
       padding-bottom: 2px;
       border-bottom: 1px solid var(--border);
       scrollbar-width: thin;
@@ -102,20 +113,50 @@
     .page-tab:hover .page-tab-close,
     .page-tab.active .page-tab-close { visibility: visible; }
     .page-tab-close:hover { background: var(--border); color: var(--fg); }
-    .title-wrap { min-width: 0; flex: 1; }
-    .app-title { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+    .title-wrap {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
+      flex: 1;
+    }
+    .app-title {
+      flex: none;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+    }
     .paper-title {
       overflow: hidden;
-      margin-top: 2px;
-      font-size: 18px;
+      min-width: 0;
+      font-size: 15px;
       font-weight: 700;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    #explorer-workspace {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    #collection-view.view,
+    #detail-view.view {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
     .tabs {
       display: flex;
+      flex: none;
       gap: 5px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
     .tab.active {
       border-color: var(--accent);
@@ -125,10 +166,11 @@
     }
     .toolbar {
       display: flex;
+      flex: none;
       align-items: flex-end;
       flex-wrap: wrap;
       gap: 8px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
     .filter-field {
       flex: 1 1 145px;
@@ -225,36 +267,49 @@
     .collection-toolbar {
       display: flex;
       align-items: flex-end;
-      gap: 8px;
-      margin-bottom: 10px;
+      gap: 6px;
+      padding: 8px 8px 0;
     }
-    .collection-toolbar .search-field { max-width: 520px; }
+    .collection-toolbar .search-field {
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: none;
+    }
+    .collection-toolbar > button { flex: none; }
+    .project-library-pane > .status {
+      margin: 4px 10px 0;
+    }
     /* ----------------------------------------------------------- Project Board */
     .project-layout {
       display: grid;
-      grid-template-columns: minmax(210px, 260px) minmax(360px, 1fr);
-      min-height: 520px;
-      height: calc(100vh - 205px);
+      flex: 1 1 auto;
+      grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
+      min-height: 0;
+      height: 100%;
       overflow: hidden;
       border: 1px solid var(--border);
       border-radius: 9px;
       background: var(--card);
     }
     .project-library-pane {
+      display: flex;
+      flex-direction: column;
       min-width: 0;
       overflow: hidden;
       border-right: 1px solid var(--border);
       background: color-mix(in srgb, var(--card) 94%, var(--soft));
     }
     .project-pane-title {
-      padding: 10px 11px 7px;
+      flex: none;
+      padding: 8px 11px 6px;
       color: var(--muted);
       font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
     }
     .project-library-list {
-      height: calc(100% - 34px);
+      flex: 1 1 auto;
+      min-height: 0;
       overflow-y: auto;
       padding: 0 7px 10px;
     }
@@ -287,11 +342,32 @@
       white-space: nowrap;
     }
     .project-board-pane { min-width: 0; min-height: 0; position: relative; }
+    .library-pane-toggle {
+      position: absolute;
+      z-index: 12;
+      top: 10px;
+      left: 12px;
+      min-height: 28px;
+      min-width: 32px;
+      padding: 3px 8px;
+      font-size: 12px;
+    }
+    /* Always-visible Detail dock toggle on the Board's right edge. */
+    .detail-dock-toggle {
+      position: absolute;
+      z-index: 12;
+      top: 10px;
+      right: 12px;
+      min-height: 28px;
+      min-width: 32px;
+      padding: 3px 8px;
+      font-size: 12px;
+    }
     .board-toolbar {
       position: absolute;
       z-index: 10;
       top: 10px;
-      right: 12px;
+      right: 52px;
       display: flex;
       gap: 6px;
       padding: 5px;
@@ -615,29 +691,38 @@
       white-space: nowrap;
     }
     #collection-view.library-collapsed .project-layout {
-      grid-template-columns: 0 minmax(360px, 1fr);
+      grid-template-columns: 0 minmax(0, 1fr);
     }
     #collection-view.library-collapsed .project-library-pane {
       border: none;
+      overflow: hidden;
       visibility: hidden;
+      pointer-events: none;
     }
     .view[hidden] { display: none !important; }
     .status {
-      min-height: 22px;
-      margin: 0 2px 7px;
+      flex: none;
+      min-height: 20px;
+      margin: 0 2px 6px;
       color: var(--muted);
       font-size: 12px;
     }
     .status.error { color: var(--danger); }
     .table-wrap {
+      flex: 1 1 auto;
+      min-height: 0;
       overflow: auto;
-      min-height: 420px;
-      max-height: calc(100vh - 230px);
       border: 1px solid var(--border);
       border-radius: 9px;
       background: var(--card);
     }
-    #collection-view .table-wrap { max-height: calc(100vh - 165px); }
+    #detail-view .footer {
+      flex: none;
+      margin-top: 6px;
+    }
+    #detail-view .progress {
+      flex: none;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -787,14 +872,14 @@
     /* ---------------------------------------------------------------- Graph */
     .graph-wrap {
       position: relative;
+      flex: 1 1 auto;
       overflow: hidden;
-      height: calc(100vh - 250px);
-      min-height: 380px;
+      min-height: 0;
+      height: 100%;
       border: 1px solid var(--border);
       border-radius: 9px;
       background: var(--card);
     }
-    #collection-view .graph-wrap { height: calc(100vh - 205px); }
     .graph-canvas { width: 100%; height: 100%; }
     .graph-overlay {
       position: absolute;
@@ -983,15 +1068,26 @@
     #detail-view.graph-mode .table-wrap,
     #detail-view.graph-mode .footer,
     #detail-view.graph-mode .progress { display: none !important; }
+    #detail-view.graph-mode .graph-wrap {
+      flex: 1 1 auto;
+      min-height: 0;
+      height: auto;
+    }
     #explorer-workspace.split-mode {
       display: grid;
-      grid-template-columns: minmax(580px, 1.2fr) minmax(400px, .8fr);
-      align-items: start;
-      gap: 14px;
+      grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr);
+      align-items: stretch;
+      gap: 12px;
+      height: 100%;
+      min-height: 0;
     }
-    #explorer-workspace.split-mode > .view { min-width: 0; }
+    #explorer-workspace.split-mode > .view {
+      min-width: 0;
+      min-height: 0;
+      height: 100%;
+    }
     #explorer-workspace.split-mode #collection-view {
-      padding-right: 14px;
+      padding-right: 12px;
       border-right: 1px solid var(--border);
     }
     #explorer-workspace.split-mode #collection-view .collection-toolbar {
@@ -1003,21 +1099,28 @@
       max-width: none;
     }
     #explorer-workspace.split-mode #collection-view .project-layout {
-      grid-template-columns: minmax(180px, 210px) minmax(340px, 1fr);
-      height: calc(100vh - 246px);
+      grid-template-columns: minmax(180px, 210px) minmax(0, 1fr);
+      height: 100%;
+    }
+    /* Library collapse must win over the split-mode column template, or the
+       hidden library column still reserves ~180–210px of empty white space. */
+    #explorer-workspace.split-mode #collection-view.library-collapsed .project-layout {
+      grid-template-columns: 0 minmax(0, 1fr);
+    }
+    #explorer-workspace.split-mode #collection-view.library-collapsed .project-library-pane {
+      border: none;
+      overflow: hidden;
+      visibility: hidden;
+      pointer-events: none;
     }
     #explorer-workspace.split-mode #detail-view {
       min-width: 0;
     }
     #explorer-workspace.split-mode #tab-graph { display: none; }
     #explorer-workspace.split-mode #detail-view .toolbar {
-      max-height: 160px;
+      max-height: 140px;
       overflow-y: auto;
       padding-right: 3px;
-    }
-    #explorer-workspace.split-mode #detail-view .table-wrap {
-      min-height: 360px;
-      max-height: calc(100vh - 330px);
     }
     .detail-collapse {
       margin-left: auto;
@@ -1122,23 +1225,23 @@
 
   <main id="explorer-workspace">
   <section class="view" id="collection-view">
-    <div class="collection-toolbar">
-      <div class="filter-field search-field">
-        <label class="filter-label" id="label-collection-search"
-          for="collection-search"></label>
-        <input id="collection-search" type="search"/>
-      </div>
-      <button id="toggle-library-pane"></button>
-      <button id="collection-refresh"></button>
-    </div>
-    <div class="status" id="collection-status" role="status"></div>
-
     <div class="project-layout" id="project-layout">
       <aside class="project-library-pane" id="project-library-pane">
+        <div class="collection-toolbar">
+          <div class="filter-field search-field">
+            <label class="filter-label" id="label-collection-search"
+              for="collection-search"></label>
+            <input id="collection-search" type="search"/>
+          </div>
+          <button id="collection-refresh"></button>
+        </div>
+        <div class="status" id="collection-status" role="status"></div>
         <div class="project-pane-title" id="project-library-title"></div>
         <div class="project-library-list" id="project-library-list"></div>
       </aside>
       <section class="project-board-pane">
+        <button type="button" id="toggle-library-pane" class="library-pane-toggle"></button>
+        <button type="button" id="toggle-detail-pane" class="detail-dock-toggle"></button>
         <div class="board-toolbar">
           <button type="button" id="board-add-text"></button>
           <button type="button" id="board-connect"></button>

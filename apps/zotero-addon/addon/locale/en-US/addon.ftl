@@ -28,6 +28,7 @@ literature-board-hint-label = Drop the same paper more than once to create anoth
 literature-collapse-library-label = Collapse paper list
 literature-expand-library-label = Expand paper list
 literature-collapse-detail-label = Collapse Detail View
+literature-expand-detail-label = Expand Detail View
 literature-board-connect-label = Connect
 literature-board-connecting-label = Select another card
 literature-board-delete-label = Delete

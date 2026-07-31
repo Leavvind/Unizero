@@ -118,6 +118,10 @@ function strings() {
       "literature-collapse-detail-label",
       "Collapse Detail View",
     ),
+    expandDetail: read(
+      "literature-expand-detail-label",
+      "Expand Detail View",
+    ),
     boardConnect: read("literature-board-connect-label", "Connect"),
     boardConnecting: read(
       "literature-board-connecting-label",

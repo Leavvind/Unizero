@@ -21,6 +21,12 @@ var LiteratureExplorer = {
   boardViewportProjectID: null,
   boardCamera: { x: 0, y: 0, scale: 1 },
   mode: "collection",
+  /**
+   * Independent of paper selection. When true, the Detail View stays hidden even
+   * if a board card or Collection paper is selected; expand brings it back for
+   * the current selection without clearing that selection.
+   */
+  detailCollapsed: false,
   collectionSnapshot: null,
   collectionBusy: false,
   collectionRequest: 0,
@@ -82,7 +88,9 @@ var LiteratureExplorer = {
     document.getElementById("toggle-library-pane")
       .addEventListener("click", () => this.toggleLibraryPane());
     document.getElementById("collapse-detail")
-      .addEventListener("click", () => this.showCollection());
+      .addEventListener("click", () => this.collapseDetailPane());
+    document.getElementById("toggle-detail-pane")
+      .addEventListener("click", () => this.toggleDetailPane());
     document.getElementById("board-connect")
       .addEventListener("click", () => this.toggleBoardConnect());
     document.getElementById("board-add-text")
@@ -202,6 +210,7 @@ var LiteratureExplorer = {
     document.getElementById("toggle-library-pane").title = s.collapseLibrary;
     document.getElementById("collapse-detail").textContent = "▶";
     document.getElementById("collapse-detail").title = s.collapseDetail;
+    this.syncDetailToggleUI();
     document.getElementById("board-add-text").textContent = s.boardAddText;
     document.getElementById("board-add-text").title = s.boardAddText;
     document.getElementById("board-connect").textContent = s.boardConnect;
@@ -549,6 +558,7 @@ var LiteratureExplorer = {
     this.tabs = [];
     this.activeTab = -1;
     this.collectionPreview = null;
+    this.detailCollapsed = false;
     this.activeItemKey = this.context && this.context.itemKey || null;
     this.kind = this.context && this.context.kind || "references";
     document.getElementById("collection-refresh").disabled = false;
@@ -565,10 +575,121 @@ var LiteratureExplorer = {
 
   showView(mode) {
     this.mode = mode;
-    document.getElementById("collection-view").hidden = mode === "detail";
-    document.getElementById("detail-view").hidden = mode === "collection";
-    document.getElementById("explorer-workspace")
-      .classList.toggle("split-mode", mode === "split");
+    this.applyDetailCollapsedLayout();
+  },
+
+  /**
+   * Apply the user-chosen detail dock preference on top of the current mode.
+   * `detailCollapsed` is independent of paper selection: collapsing never clears
+   * a preview or tab, and expanding never invents a selection — it only shows
+   * Detail when something is already selected.
+   */
+  applyDetailCollapsedLayout() {
+    let collection = document.getElementById("collection-view");
+    let detail = document.getElementById("detail-view");
+    let workspace = document.getElementById("explorer-workspace");
+    let hasDetailOwner = Boolean(this.collectionPreview) || this.activeTab >= 0 ||
+      this.mode === "detail" || this.mode === "split";
+
+    if (this.detailCollapsed) {
+      collection.hidden = false;
+      detail.hidden = true;
+      workspace.classList.remove("split-mode");
+      collection.classList.add("detail-collapsed");
+      if (this.collectionSnapshot) {
+        document.getElementById("paper-title").textContent =
+          this.collectionSnapshot.scope.name;
+      }
+    } else if (this.mode === "detail" && this.activeTab >= 0) {
+      // Full-paper tab: Detail fills the workspace.
+      collection.hidden = true;
+      detail.hidden = false;
+      workspace.classList.remove("split-mode");
+      collection.classList.remove("detail-collapsed");
+      let tab = this.tabs[this.activeTab];
+      if (tab && tab.title) {
+        document.getElementById("paper-title").textContent = tab.title;
+      }
+    } else if (hasDetailOwner && (this.mode === "split" || this.collectionPreview)) {
+      // Board + Detail side by side.
+      collection.hidden = false;
+      detail.hidden = false;
+      workspace.classList.add("split-mode");
+      collection.classList.remove("detail-collapsed");
+      let tab = this.activeTabState();
+      if (tab && tab.title) {
+        document.getElementById("paper-title").textContent = tab.title;
+      } else if (this.collectionSnapshot) {
+        document.getElementById("paper-title").textContent =
+          this.collectionSnapshot.scope.name;
+      }
+    } else {
+      // Dock is open as a preference, but nothing is selected yet — Board only.
+      collection.hidden = false;
+      detail.hidden = true;
+      workspace.classList.remove("split-mode");
+      collection.classList.remove("detail-collapsed");
+      if (this.collectionSnapshot) {
+        document.getElementById("paper-title").textContent =
+          this.collectionSnapshot.scope.name;
+      }
+    }
+    this.syncDetailToggleUI();
+  },
+
+  /**
+   * The Board-side dock control is always present while Collection is visible.
+   * ▶ means "dock is open, click to collapse"; ◀ means "dock is collapsed,
+   * click to expand".
+   */
+  syncDetailToggleUI() {
+    let toggle = document.getElementById("toggle-detail-pane");
+    if (!toggle) return;
+    let s = this.strings;
+    if (this.detailCollapsed) {
+      toggle.textContent = "◀";
+      toggle.title = s.expandDetail;
+    } else {
+      toggle.textContent = "▶";
+      toggle.title = s.collapseDetail;
+    }
+    // Hide only in full-paper Detail mode where the in-panel collapse button is
+    // the matching control (Collection / Board is not on screen).
+    toggle.hidden = this.mode === "detail" && !this.detailCollapsed;
+  },
+
+  toggleDetailPane() {
+    if (this.detailCollapsed) this.expandDetailPane();
+    else this.collapseDetailPane();
+  },
+
+  /** Hide Detail View; keep the current paper selection / preview. */
+  collapseDetailPane() {
+    if (this.detailCollapsed) return;
+    this.captureTab();
+    this.detailCollapsed = true;
+    // Prefer keeping the Board visible after collapse, even from a full-paper tab.
+    if (this.mode === "detail") this.mode = "split";
+    this.applyDetailCollapsedLayout();
+    this.renderTabs();
+    this.resizeGraphs();
+  },
+
+  /** Show Detail View again for the current selection, if any. */
+  expandDetailPane() {
+    if (!this.detailCollapsed) return;
+    this.detailCollapsed = false;
+    if (this.collectionPreview) {
+      void this.restoreTab(this.collectionPreview, "split");
+      return;
+    }
+    if (this.activeTab >= 0) {
+      void this.restoreTab(this.tabs[this.activeTab], "split");
+      return;
+    }
+    this.applyDetailCollapsedLayout();
+    this.renderTabs();
+    this.resizeGraphs();
   },
 
   // ------------------------------------------------------------------ Tab strip
@@ -741,13 +862,17 @@ var LiteratureExplorer = {
       this.tabs.push(state);
       index = this.tabs.length - 1;
       this.activeTab = index;
-      await this.restoreTab(this.tabs[index]);
+      // Prefer split so the dock preference can hide Detail without losing Board.
+      await this.restoreTab(
+        this.tabs[index],
+        this.detailCollapsed ? "split" : "detail",
+      );
       return;
     }
     if (index === this.activeTab) {
       if (kind && kind !== this.kind) await this.switchKind(kind);
       this.collectionPreview = null;
-      this.showView("detail");
+      this.showView(this.detailCollapsed ? "split" : "detail");
       this.renderTabs();
       this.resizeGraphs();
       return;
@@ -756,7 +881,10 @@ var LiteratureExplorer = {
     this.collectionPreview = null;
     this.activeTab = index;
     if (kind) this.tabs[index].kind = kind;
-    await this.restoreTab(this.tabs[index]);
+    await this.restoreTab(
+      this.tabs[index],
+      this.detailCollapsed ? "split" : "detail",
+    );
   },
 
   async activateTab(index) {
@@ -766,6 +894,7 @@ var LiteratureExplorer = {
         this.showCollection();
         this.renderTabs();
         this.resizeGraphs();
+        return;
       }
       return;
     }
@@ -777,7 +906,11 @@ var LiteratureExplorer = {
       this.renderTabs();
       return;
     }
-    await this.restoreTab(this.tabs[index]);
+    // Paper tabs respect the dock preference: collapsed keeps Board full-width.
+    await this.restoreTab(
+      this.tabs[index],
+      this.detailCollapsed ? "split" : "detail",
+    );
   },
 
   async closeTab(index) {
@@ -810,11 +943,20 @@ var LiteratureExplorer = {
 
   /** The heading and the tab carry the same name; keep them from disagreeing. */
   setPaperTitle(title) {
-    document.getElementById("paper-title").textContent = title;
     let tab = this.activeTabState();
-    if (!tab || tab.title === title) return;
-    tab.title = title;
-    if (this.tabs.includes(tab)) this.renderTabs();
+    if (tab && tab.title !== title) {
+      tab.title = title;
+      if (this.tabs.includes(tab)) this.renderTabs();
+    }
+    // While Detail is collapsed the Board is primary; keep the Collection name.
+    if (this.detailCollapsed) {
+      if (this.collectionSnapshot) {
+        document.getElementById("paper-title").textContent =
+          this.collectionSnapshot.scope.name;
+      }
+      return;
+    }
+    document.getElementById("paper-title").textContent = title;
   },
 
   renderTabs() {
@@ -855,12 +997,19 @@ var LiteratureExplorer = {
     let scopeName = this.collectionSnapshot && this.collectionSnapshot.scope
       ? this.collectionSnapshot.scope.name
       : s.collectionOverview;
-    chip(scopeName, scopeName, this.mode !== "detail",
+    // When Detail is collapsed the Board is on screen, so the Collection chip
+    // stays active even if a paper tab still owns the hidden detail state.
+    chip(scopeName, scopeName, this.detailCollapsed || this.mode !== "detail",
       () => this.activateTab(-1));
     this.tabs.forEach((tab, index) => {
       let label = tab.title || this.strings.loading;
-      chip(label, label, this.mode === "detail" && index === this.activeTab,
-        () => this.activateTab(index), () => this.closeTab(index));
+      chip(
+        label,
+        label,
+        !this.detailCollapsed && this.mode === "detail" && index === this.activeTab,
+        () => this.activateTab(index),
+        () => this.closeTab(index),
+      );
     });
   },
 
@@ -1333,16 +1482,37 @@ var LiteratureExplorer = {
    * Keep the Collection board in place while reusing the existing paper detail
    * surface on its right. This state is intentionally not a paper tab: selecting a
    * different node replaces it, while an explicit Open action promotes it.
+   *
+   * When the user has collapsed Detail View, selection still updates the preview
+   * owner so expand can reopen the right paper, but the panel stays hidden.
    */
   async showCollectionPreview(itemKey) {
     if (!itemKey) return;
     if (this.collectionPreview && this.collectionPreview.itemKey === itemKey) {
+      if (this.detailCollapsed) return;
       if (this.kind !== "references") await this.switchKind("references");
       return;
     }
     this.captureTab();
     this.activeTab = -1;
     this.collectionPreview = this.newPaperState(itemKey, "references");
+    if (this.detailCollapsed) {
+      this.mode = "split";
+      this.activeItemKey = itemKey;
+      this.kind = "references";
+      this.snapshot = this.collectionPreview.snapshot;
+      this.activeSource = this.collectionPreview.activeSource;
+      this.filters = Object.assign({}, this.collectionPreview.filters);
+      this.graphData.detail = this.collectionPreview.graphData;
+      this.graphLoaded.detail = this.collectionPreview.graphLoaded;
+      this.busy = Boolean(this.collectionPreview.busy);
+      this.applyDetailCollapsedLayout();
+      this.renderTabs();
+      if (!this.collectionPreview.snapshot && !this.collectionPreview.busy) {
+        await this.load(false);
+      }
+      return;
+    }
     await this.restoreTab(this.collectionPreview, "split");
   },
 
