@@ -16,7 +16,7 @@ import { type Extension, type Range, RangeSetBuilder } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
-  type EditorView,
+  EditorView,
   type PluginValue,
   ViewPlugin,
   type ViewUpdate,
@@ -130,18 +130,18 @@ class CitationWidget extends WidgetType {
     this.teardown = undefined;
   }
 
+  /**
+   * `true` → CodeMirror ignores the event (the pill's DOM handlers win).
+   *
+   * The WidgetType default is "ignore everything". An earlier override listed
+   * only pointer events and returned `false` for the rest — including
+   * `selectionchange`. The browser then reported a caret inside the replace
+   * range, the decoration rebuild dropped the widget, and a left-click looked
+   * like "enter edit mode". Keep keyboard events with the editor so arrows
+   * still walk past a pill; ignore everything else.
+   */
   ignoreEvent(event: Event): boolean {
-    // Pointer events belong to the pill (open pane / context menu). If CM also
-    // handles them it places the caret on the replace range, which tears the
-    // widget down and looks like "clicking just enters edit mode". Keyboard
-    // events stay with the editor so arrow keys still move across a pill.
-    return event.type === "mousedown" ||
-      event.type === "mouseup" ||
-      event.type === "click" ||
-      event.type === "contextmenu" ||
-      event.type === "pointerdown" ||
-      event.type === "pointerup" ||
-      event.type === "pointercancel";
+    return !/^key/.test(event.type);
   }
 }
 
@@ -178,8 +178,26 @@ function isInertRange(view: EditorView, from: number, to: number): boolean {
  * - A citation the cursor or selection touches is left as raw text. Replacing the
  *   span the caret sits in is what makes a widget impossible to edit out.
  */
+/**
+ * True when the selection overlaps the interior of `[start, end)`.
+ *
+ * Exclusive ends matter: a caret sitting on either boundary (the usual place
+ * after an arrow key steps past a pill) must not strip the decoration. Only a
+ * real interior caret or a range that covers part of the token counts as
+ * "editing this citation".
+ */
+function selectionOverlapsCitation(
+  ranges: readonly { from: number; to: number }[],
+  start: number,
+  end: number,
+): boolean {
+  return ranges.some(
+    (range) => range.from < end && range.to > start,
+  );
+}
+
 export function citationLivePreview(host: PillHost): Extension {
-  return ViewPlugin.fromClass(
+  const plugin = ViewPlugin.fromClass(
     class implements PluginValue {
       decorations: DecorationSet;
 
@@ -203,10 +221,7 @@ export function citationLivePreview(host: PillHost): Extension {
             const start = from + token.from;
             const end = from + token.to;
 
-            const touched = selection.ranges.some(
-              (range) => range.from <= end && range.to >= start,
-            );
-            if (touched) { continue; }
+            if (selectionOverlapsCitation(selection.ranges, start, end)) { continue; }
             if (isInertRange(view, start, end)) { continue; }
 
             ranges.push(Decoration.replace({
@@ -224,6 +239,15 @@ export function citationLivePreview(host: PillHost): Extension {
         return builder.finish();
       }
     },
-    { decorations: (value) => value.decorations },
+    {
+      decorations: (value) => value.decorations,
+      // Atomic ranges keep the caret from landing inside a pill's source span.
+      // Combined with ignoreEvent, a left-click activates the pill instead of
+      // collapsing it back to `@libraryID/itemKey`.
+      provide: (p) => EditorView.atomicRanges.of((view) => {
+        return view.plugin(p)?.decorations ?? Decoration.none;
+      }),
+    },
   );
+  return plugin;
 }

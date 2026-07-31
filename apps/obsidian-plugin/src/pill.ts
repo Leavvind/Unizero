@@ -143,26 +143,37 @@ export function createPill(
 
   const unsubscribe = host.store.subscribe(ref, render);
 
-  const onClick = (event: MouseEvent) => {
-    if (!paper) { return; }
+  // Stop the contenteditable parent from claiming the pointer before our click
+  // handler runs. Without this, Live Preview can move the caret into the
+  // citation span, drop the replace decoration, and look like "click to edit".
+  const onPointerDown = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
+  };
+
+  const onClick = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!paper) { return; }
     host.activate(token.action, ref, paper);
   };
 
   const onContextMenu = (event: MouseEvent) => {
-    if (!paper) { return; }
     event.preventDefault();
     event.stopPropagation();
+    if (!paper) { return; }
     host.showMenu(event, ref, paper);
   };
 
+  element.setAttr("contenteditable", "false");
+  element.addEventListener("mousedown", onPointerDown);
   element.addEventListener("click", onClick);
   element.addEventListener("contextmenu", onContextMenu);
 
   return {
     element,
     destroy() {
+      element.removeEventListener("mousedown", onPointerDown);
       element.removeEventListener("click", onClick);
       element.removeEventListener("contextmenu", onContextMenu);
       unsubscribe();
