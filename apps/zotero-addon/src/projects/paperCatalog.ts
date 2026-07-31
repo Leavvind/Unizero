@@ -26,7 +26,8 @@ import {
 } from "./types";
 
 const PAPER_INDEX_SCHEMA = 1;
-const OBSERVATION_INDEX_SCHEMA = 1;
+const OBSERVATION_INDEX_SCHEMA = 2;
+const LEGACY_OBSERVATION_INDEX_SCHEMA = 1;
 
 interface PaperIndexDocument {
   schema: number;
@@ -39,6 +40,7 @@ interface PaperIndexDocument {
 interface ObservationIndexDocument {
   schema: number;
   keys: Record<string, string>;
+  byPaper: Record<string, string[]>;
 }
 
 interface PaperCatalogOptions {
@@ -180,12 +182,120 @@ function observationNaturalKey(
   ].join("\u0000");
 }
 
-function discoveryMatchKey(seed: PaperCatalogSeed): string {
+function emptyObservationIndex(): ObservationIndexDocument {
+  return {
+    schema: OBSERVATION_INDEX_SCHEMA,
+    keys: {},
+    byPaper: {},
+  };
+}
+
+function addObservationAdjacency(
+  byPaper: Record<string, string[]>,
+  observation: Pick<
+    LiteratureCitationObservation,
+    "id" | "citingPaperID" | "citedPaperID"
+  >,
+): Record<string, string[]> {
+  const next = { ...byPaper };
+  for (const paperID of new Set([
+    observation.citingPaperID,
+    observation.citedPaperID,
+  ])) {
+    const ids = next[paperID] || [];
+    if (!ids.includes(observation.id)) {
+      next[paperID] = [...ids, observation.id].sort();
+    }
+  }
+  return next;
+}
+
+function removeObservationAdjacency(
+  byPaper: Record<string, string[]>,
+  observationID: string,
+  paperIDs: Iterable<string>,
+): Record<string, string[]> {
+  const next = { ...byPaper };
+  for (const paperID of new Set(paperIDs)) {
+    const ids = next[paperID];
+    if (!ids?.includes(observationID)) { continue; }
+    const retained = ids.filter((id) => id !== observationID);
+    if (retained.length) {
+      next[paperID] = retained;
+    } else {
+      delete next[paperID];
+    }
+  }
+  return next;
+}
+
+function observationAdjacency(
+  observations: Iterable<LiteratureCitationObservation>,
+): Record<string, string[]> {
+  let byPaper: Record<string, string[]> = {};
+  for (const observation of observations) {
+    byPaper = addObservationAdjacency(byPaper, observation);
+  }
+  return byPaper;
+}
+
+function validStringRecord(value: unknown): value is Record<string, string> {
+  return Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>)
+      .every((entry) => typeof entry === "string");
+}
+
+function validStringArrayRecord(
+  value: unknown,
+): value is Record<string, string[]> {
+  return Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>)
+      .every((entry) =>
+        Array.isArray(entry) &&
+        entry.every((id) => typeof id === "string"));
+}
+
+type DiscoveryFingerprintInput = Pick<
+  PaperCatalogSeed,
+  "title" | "year" | "authors"
+>;
+
+function discoveryMatchKey(seed: DiscoveryFingerprintInput): string {
   return JSON.stringify([
     String(seed.title || "").normalize("NFKC").trim().toLocaleLowerCase(),
     String(seed.year || "").trim(),
     String(seed.authors?.[0] || "").normalize("NFKC").trim().toLocaleLowerCase(),
   ]);
+}
+
+function provisionalPaperKey(
+  seedPaperID: string,
+  queryKind: "references" | "citations",
+  route: string,
+  seed: DiscoveryFingerprintInput,
+  occurrence: number,
+): string {
+  return [
+    seedPaperID,
+    queryKind,
+    String(route || "combined").trim().toLocaleLowerCase(),
+    discoveryMatchKey(seed),
+    occurrence,
+  ].join("\u0000");
+}
+
+function nextFingerprintOccurrence(
+  occurrences: Map<string, number>,
+  seed: DiscoveryFingerprintInput,
+): number {
+  const fingerprint = discoveryMatchKey(seed);
+  const occurrence = occurrences.get(fingerprint) || 0;
+  occurrences.set(fingerprint, occurrence + 1);
+  return occurrence;
 }
 
 function retentionRank(retention: PaperDocument["retention"]): number {
@@ -303,17 +413,29 @@ export class PaperCatalog {
   ): Promise<LiteratureCitationObservation[]> {
     await this.writes.catch(() => undefined);
     const index = await this.loadObservationIndex();
-    const ids = [...new Set(Object.values(index.keys))].sort();
-    const observations = await Promise.all(ids.map((id) =>
-      this.readObservationDirect(id)));
     const resolvedPaperID = paperID
       ? await this.resolvePaperIDDirect(paperID)
       : undefined;
-    return resolvedPaperID
-      ? observations.filter((entry) =>
-          entry.citingPaperID === resolvedPaperID ||
-          entry.citedPaperID === resolvedPaperID)
-      : observations;
+    const ids = resolvedPaperID
+      ? [...new Set(index.byPaper[resolvedPaperID] || [])].sort()
+      : [...new Set(Object.values(index.keys))].sort();
+    const observations = await Promise.all(ids.map((id) =>
+      this.readObservationDirect(id)));
+    return observations;
+  }
+
+  public async listCitationObservationsForPapers(
+    paperIDs: Iterable<string>,
+  ): Promise<LiteratureCitationObservation[]> {
+    await this.writes.catch(() => undefined);
+    const index = await this.loadObservationIndex();
+    const resolvedPaperIDs = await Promise.all(
+      [...new Set(paperIDs)].map((paperID) =>
+        this.resolvePaperIDDirect(paperID)),
+    );
+    const ids = [...new Set(resolvedPaperIDs.flatMap((paperID) =>
+      index.byPaper[paperID] || []))].sort();
+    return Promise.all(ids.map((id) => this.readObservationDirect(id)));
   }
 
   public async readPaper(paperID: string): Promise<PaperDocument> {
@@ -496,6 +618,8 @@ export class PaperCatalog {
     seed: PaperCatalogSeed,
     retention: "cache" | "pinned",
     provisionalKey?: string,
+    legacyProvisionalPrefix?: string,
+    legacyOccurrence = 0,
   ): Promise<PaperDocument> {
     const index = await this.loadIndex();
     const aliases = identifierAliases(seed.identifiers);
@@ -508,7 +632,30 @@ export class PaperCatalog {
         "A provisional Paper conflicts with an existing identifier alias",
       );
     }
-    const knownID = aliasID || provisionalID;
+    let compatibleLegacyID: string | undefined;
+    if (!aliasID && !provisionalID && legacyProvisionalPrefix) {
+      const legacyMatches: string[] = [];
+      const legacyMappings = Object.entries(index.provisionals)
+        .filter(([key]) => key.startsWith(legacyProvisionalPrefix))
+        .sort(([left], [right]) => {
+          const position = (key: string) =>
+            Number(key.slice(legacyProvisionalPrefix.length));
+          return position(left) - position(right) || left.localeCompare(right);
+        });
+      for (const [, legacy] of legacyMappings) {
+        const legacyID = resolveIndexedPaperID(index, legacy);
+        if (legacyMatches.includes(legacyID)) { continue; }
+        const legacyPaper = await this.readPaperDirect(legacyID);
+        // Schema 1 used the result-list position as provisional identity. Reuse
+        // that record only when its bibliographic fingerprint still matches;
+        // insertions or reordering must never change what a stable Paper ID means.
+        if (discoveryMatchKey(legacyPaper) === discoveryMatchKey(seed)) {
+          legacyMatches.push(legacyID);
+        }
+      }
+      compatibleLegacyID = legacyMatches[legacyOccurrence];
+    }
+    const knownID = aliasID || provisionalID || compatibleLegacyID;
     const existing = knownID ? await this.readPaperDirect(knownID) : undefined;
     const timestamp = this.now();
     const paperID = existing?.id || this.createID("paper");
@@ -581,11 +728,29 @@ export class PaperCatalog {
     try {
       const seedPaper = await this.ensureZoteroPaperExclusive(seedItem);
       const mergedPapers: PaperDocument[] = [];
+      const mergedOccurrences = new Map<string, number>();
       for (let index = 0; index < snapshot.merged.length; index += 1) {
+        const entry = snapshot.merged[index];
+        const anonymous = identifierAliases(entry.identifiers).length === 0;
+        const occurrence = anonymous
+          ? nextFingerprintOccurrence(mergedOccurrences, entry)
+          : 0;
         mergedPapers.push(await this.ensureDiscoveredPaperExclusive(
-          snapshot.merged[index],
+          entry,
           "cache",
-          `${seedPaper.id}:${snapshot.kind}:merged:${index}`,
+          anonymous
+            ? provisionalPaperKey(
+                seedPaper.id,
+                snapshot.kind,
+                "merged",
+                entry,
+                occurrence,
+              )
+            : undefined,
+          anonymous
+            ? `${seedPaper.id}:${snapshot.kind}:merged:`
+            : undefined,
+          occurrence,
         ));
       }
 
@@ -611,9 +776,13 @@ export class PaperCatalog {
       for (const source of sources) {
         const paperIDs: string[] = [];
         const activeObservationKeys = new Set<string>();
+        const sourceOccurrences = new Map<string, number>();
         for (let index = 0; index < source.entries.length; index += 1) {
           const entry = source.entries[index];
           const aliases = identifierAliases(entry.identifiers);
+          const anonymousOccurrence = !aliases.length
+            ? nextFingerprintOccurrence(sourceOccurrences, entry)
+            : 0;
           let candidatePaper: PaperDocument;
           if (!aliases.length) {
             const matches = anonymousMatches.get(discoveryMatchKey(entry));
@@ -623,7 +792,15 @@ export class PaperCatalog {
               : await this.ensureDiscoveredPaperExclusive(
                   entry,
                   "cache",
-                  `${seedPaper.id}:${snapshot.kind}:${source.provider}:${index}`,
+                  provisionalPaperKey(
+                    seedPaper.id,
+                    snapshot.kind,
+                    source.provider,
+                    entry,
+                    anonymousOccurrence,
+                  ),
+                  `${seedPaper.id}:${snapshot.kind}:${source.provider}:`,
+                  anonymousOccurrence,
                 );
           } else {
             const knownID = paperIDForAliases(
@@ -635,7 +812,6 @@ export class PaperCatalog {
               : await this.ensureDiscoveredPaperExclusive(
                   entry,
                   "cache",
-                  `${seedPaper.id}:${snapshot.kind}:${source.provider}:${index}`,
                 );
           }
           paperIDs.push(candidatePaper.id);
@@ -723,6 +899,7 @@ export class PaperCatalog {
       const next = {
         schema: OBSERVATION_INDEX_SCHEMA,
         keys: { ...index.keys, [key]: id },
+        byPaper: addObservationAdjacency(index.byPaper, observation),
       };
       this.observationIndex = next;
       if (this.batchDepth) {
@@ -746,6 +923,7 @@ export class PaperCatalog {
       .toLocaleLowerCase();
     const removed: string[] = [];
     const nextKeys = { ...index.keys };
+    let nextByPaper = index.byPaper;
     for (const [key, observationID] of Object.entries(index.keys)) {
       const [storedKind, storedProvider, citingPaperID, citedPaperID] =
         key.split("\u0000");
@@ -757,12 +935,18 @@ export class PaperCatalog {
       if (!sameRoute || activeKeys.has(key)) { continue; }
       delete nextKeys[key];
       removed.push(observationID);
+      nextByPaper = removeObservationAdjacency(
+        nextByPaper,
+        observationID,
+        [citingPaperID, citedPaperID],
+      );
       this.pendingObservationRemovals.add(observationID);
     }
     if (!removed.length) { return removed; }
     this.observationIndex = {
       schema: OBSERVATION_INDEX_SCHEMA,
       keys: nextKeys,
+      byPaper: nextByPaper,
     };
     if (this.batchDepth) {
       this.observationIndexDirty = true;
@@ -933,11 +1117,13 @@ export class PaperCatalog {
     }
 
     const nextKeys: Record<string, string> = {};
+    const winners: LiteratureCitationObservation[] = [];
     for (const [key, entries] of groups) {
       entries.sort((left, right) =>
         right.retrievedAt - left.retrievedAt || left.id.localeCompare(right.id));
       const winner = entries[0];
       nextKeys[key] = winner.id;
+      winners.push(winner);
       await this.writeJSON(this.observationPath(winner.id), winner);
       for (const loser of entries.slice(1)) {
         removed.push(loser.id);
@@ -946,6 +1132,7 @@ export class PaperCatalog {
     this.observationIndex = {
       schema: OBSERVATION_INDEX_SCHEMA,
       keys: nextKeys,
+      byPaper: observationAdjacency(winners),
     };
     await this.writeJSON(
       this.observationIndexPath(),
@@ -1119,23 +1306,39 @@ export class PaperCatalog {
     if (this.observationIndex) { return this.observationIndex; }
     try {
       const parsed = await this.readJSON(this.observationIndexPath());
-      if (
-        parsed?.schema !== OBSERVATION_INDEX_SCHEMA ||
-        !parsed?.keys ||
-        typeof parsed.keys !== "object"
-      ) {
+      if (!validStringRecord(parsed?.keys)) {
         throw new Error("Unsupported or invalid Literature observation index");
       }
-      this.observationIndex = {
-        schema: OBSERVATION_INDEX_SCHEMA,
-        keys: parsed.keys,
-      };
+      const keys = parsed.keys as Record<string, string>;
+      if (
+        parsed.schema === OBSERVATION_INDEX_SCHEMA &&
+        validStringArrayRecord(parsed.byPaper)
+      ) {
+        this.observationIndex = {
+          schema: OBSERVATION_INDEX_SCHEMA,
+          keys,
+          byPaper: parsed.byPaper,
+        };
+      } else if (parsed.schema === LEGACY_OBSERVATION_INDEX_SCHEMA) {
+        const observations = await Promise.all(
+          [...new Set(Object.values(keys))].map((id) =>
+            this.readObservationDirect(id)),
+        );
+        this.observationIndex = {
+          schema: OBSERVATION_INDEX_SCHEMA,
+          keys,
+          byPaper: observationAdjacency(observations),
+        };
+        await this.writeJSON(
+          this.observationIndexPath(),
+          this.observationIndex,
+        );
+      } else {
+        throw new Error("Unsupported or invalid Literature observation index");
+      }
     } catch (error) {
       if (!isMissingFile(error)) { throw error; }
-      this.observationIndex = {
-        schema: OBSERVATION_INDEX_SCHEMA,
-        keys: {},
-      };
+      this.observationIndex = emptyObservationIndex();
     }
     return this.observationIndex;
   }
@@ -1266,6 +1469,12 @@ export async function listCatalogCitationObservations(
   paperID?: string,
 ): Promise<LiteratureCitationObservation[]> {
   return defaultCatalog().listCitationObservations(paperID);
+}
+
+export async function listCatalogCitationObservationsForPapers(
+  paperIDs: Iterable<string>,
+): Promise<LiteratureCitationObservation[]> {
+  return defaultCatalog().listCitationObservationsForPapers(paperIDs);
 }
 
 export async function readCatalogPaper(paperID: string): Promise<PaperDocument> {

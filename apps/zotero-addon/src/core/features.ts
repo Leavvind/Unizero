@@ -4,6 +4,7 @@ import { registerPrefs } from "../modules/prefs";
 import Views from "../modules/views";
 import { uniConnectionSync } from "../modules/uniConnectionSync";
 import { startInBackground, stopOnShutdown } from "../runtime-client/process";
+import { webDAVSyncScheduler } from "../sync/scheduler";
 import { noteServiceFailure } from "../ui/notices";
 import {
   registerAnnotationMenu,
@@ -122,9 +123,23 @@ const annotations: FeatureModule = {
   },
 };
 
+const projectSync: FeatureModule = {
+  id: "project.sync",
+  onWindowLoad() {
+    webDAVSyncScheduler.start();
+  },
+  onAppShutdown() {
+    webDAVSyncScheduler.stop();
+  },
+  onShutdown() {
+    webDAVSyncScheduler.stop();
+  },
+};
+
 export const featureRegistry = new FeatureRegistry([
   relations,
   metadata,
   conversion,
   annotations,
+  projectSync,
 ]);

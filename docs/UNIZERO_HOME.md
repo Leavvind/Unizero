@@ -4,7 +4,8 @@
 > 库内 Paper catalog、重复节点、统一平移/缩放、移动、删除 tombstone 与拖拽式手工
 > 连线、Node 缩放、Text Node 与嵌入式 PaperBlock、Detail 库外 Paper 拖入及自动
 > 关系 hover 提示、统一 cache/pinned/zotero Paper、citation observation、
-> 完整快照压缩、cache GC 与显式 Paper merge/redirect 已实现；同步仍在施工。未完成工作以
+> 完整快照压缩、cache GC、显式 Paper merge/redirect，以及手动/定时 WebDAV
+> Project/Board pack sync 第一阶段已实现；同步仍在施工。未完成工作以
 > [ROADMAP.md](ROADMAP.md) 为准。
 
 ## 1. 产品决定
@@ -73,7 +74,9 @@ provider、查询方向、抓取时间、分页和 source order 保存在 observ
 第一阶段已将 References 保存为 `seed → result`，Citations 保存为
 `result → seed`；同一 provider/query/edge 重复读取会更新原 observation。Board
 hover 同时读取 `UniConnection` 与这些 observation，因此 Citations 发现的库外
-source 也可参与 Paper ID 级的临时提示。
+source 也可参与 Paper ID 级的临时提示。observation index 按 Paper ID 维护邻接
+关系；Relation Hint 只读取当前 Board Paper 集合相邻的 observation，不再先扫描
+全库 observation 文件。旧 index 会在升级后首次读取时自动重建一次。
 
 只有成功且已经到达末页的 provider snapshot 才能替换同一查询路线的旧
 observation；分页未完成或 provider 失败不会删除既有证据。替换后失去全部

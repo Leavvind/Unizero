@@ -65,6 +65,8 @@ import {
 } from "../zotero/literatureCollectionAdapter";
 import {
   recordCatalogDiscoverySnapshot,
+  type PaperCatalogDiscoveryResult,
+  type PaperCatalogDiscoverySnapshot,
   type PaperCatalogSeed,
 } from "../projects/paperCatalog";
 const SECTION_PREVIEW_LIMIT = 5;
@@ -152,6 +154,10 @@ export default class Views {
   private explorerOpener?: ExplorerOpener;
   private explorerReferences = new Map<string, ReferencesCache>();
   private explorerCitations = new Map<string, CitationsCache>();
+  private catalogIngestions = new Map<
+    string,
+    Promise<PaperCatalogDiscoveryResult | undefined>
+  >();
   constructor() {
     initLocale();
     this.utils = new Utils()
@@ -494,7 +500,7 @@ export default class Views {
       perSource,
     );
     this.explorerReferences.set(this.explorerKey(item), payload);
-    await recordCatalogDiscoverySnapshot(item, {
+    const catalogSnapshot: PaperCatalogDiscoverySnapshot = {
       kind: "references",
       retrievedAt: payload.savedAt,
       merged: references.map(catalogSeedFromEntry),
@@ -503,12 +509,16 @@ export default class Views {
         entries: entry.entries.map(catalogSeedFromEntry),
         complete: sourceSnapshotIsComplete(entry),
       })),
-    });
-    if (!this.isCacheEnabled("saveAPIReferences")) { return; }
-    await localStorage.set(item, CACHE_KEY_REFERENCES, payload);
-    // A cache write is not a Zotero item mutation and therefore emits no item
-    // notification. Refresh the resident topology only after the bytes land.
-    await uniConnection.ingestItem(item, false);
+    };
+    if (this.isCacheEnabled("saveAPIReferences")) {
+      await localStorage.set(item, CACHE_KEY_REFERENCES, payload);
+      // A cache write is not a Zotero item mutation and therefore emits no item
+      // notification. Refresh the resident topology only after the bytes land.
+      await uniConnection.ingestItem(item, false);
+    }
+    // Catalog storage is additive. A catalog conflict or damaged index must not
+    // prevent the established References cache from being saved and rendered.
+    void this.ingestCatalogSnapshot(item, catalogSnapshot);
     if (this.lastLoadDiagnostic) {
       this.lastLoadDiagnostic.savedAt = new Date().toLocaleTimeString();
       this.lastLoadDiagnostic.savedResolved = resolved;
@@ -531,7 +541,7 @@ export default class Views {
     const savedAt = Date.now();
     const normalized = { ...state, savedAt };
     this.explorerCitations.set(this.explorerKey(item), normalized);
-    await recordCatalogDiscoverySnapshot(item, {
+    const catalogSnapshot: PaperCatalogDiscoverySnapshot = {
       kind: "citations",
       retrievedAt: savedAt,
       merged: state.all.map(catalogSeedFromEntry),
@@ -540,14 +550,16 @@ export default class Views {
         entries: entry.entries.map(catalogSeedFromEntry),
         complete: sourceSnapshotIsComplete(entry),
       })),
-    });
-    if (!this.isCacheEnabled("saveCitations")) { return; }
-    await localStorage.set(item, CACHE_KEY_CITATIONS, {
-      ...normalized,
-      savedAt,
-      all: forPersistence(state.all, state.source),
-      perSource: persistRelationSources(state.perSource),
-    });
+    };
+    if (this.isCacheEnabled("saveCitations")) {
+      await localStorage.set(item, CACHE_KEY_CITATIONS, {
+        ...normalized,
+        savedAt,
+        all: forPersistence(state.all, state.source),
+        perSource: persistRelationSources(state.perSource),
+      });
+    }
+    void this.ingestCatalogSnapshot(item, catalogSnapshot);
   }
 
   private saveCitationsCache(pane: HTMLDivElement) {
@@ -579,6 +591,26 @@ export default class Views {
 
   private explorerKey(item: Zotero.Item): string {
     return `${item.libraryID}:${item.key}`;
+  }
+
+  private ingestCatalogSnapshot(
+    item: Zotero.Item,
+    snapshot: PaperCatalogDiscoverySnapshot,
+  ): Promise<PaperCatalogDiscoveryResult | undefined> {
+    const key = `${this.explorerKey(item)}:${snapshot.kind}:${snapshot.retrievedAt}`;
+    const existing = this.catalogIngestions.get(key);
+    if (existing) { return existing; }
+    const ingestion = recordCatalogDiscoverySnapshot(item, snapshot)
+      .catch((error) => {
+        ztoolkit.log("Literature catalog ingestion failed", error);
+        return undefined;
+      });
+    this.catalogIngestions.set(key, ingestion);
+    while (this.catalogIngestions.size > 64) {
+      const oldest = this.catalogIngestions.keys().next().value;
+      if (typeof oldest === "string") { this.catalogIngestions.delete(oldest); }
+    }
+    return ingestion;
   }
 
   private async candidatesWithMembership(
@@ -635,7 +667,7 @@ export default class Views {
       item.libraryID,
       merged,
     );
-    const observed = await recordCatalogDiscoverySnapshot(item, {
+    void this.ingestCatalogSnapshot(item, {
       kind: kind as "references" | "citations",
       retrievedAt,
       merged: candidates.map(catalogSeed),
@@ -644,15 +676,18 @@ export default class Views {
         entries: sourceCandidates[index].map(catalogSeed),
         complete: sourceSnapshotIsComplete(entry),
       })),
-    });
-    candidates.forEach((candidate, index) => {
-      candidate.paperID = observed.mergedPaperIDs[index];
-    });
-    perSource.forEach((entry, sourceIndex) => {
-      const sourceList = bySource[entry.key] || [];
-      sourceList.forEach((candidate, entryIndex) => {
-        candidate.paperID = observed.sourcePaperIDs[sourceIndex]?.[entryIndex];
-      });
+    }).then((observed) => {
+      if (observed) {
+        candidates.forEach((candidate, index) => {
+          candidate.paperID = observed.mergedPaperIDs[index];
+        });
+        perSource.forEach((entry, sourceIndex) => {
+          const sourceList = bySource[entry.key] || [];
+          sourceList.forEach((candidate, entryIndex) => {
+            candidate.paperID = observed.sourcePaperIDs[sourceIndex]?.[entryIndex];
+          });
+        });
+      }
     });
     return {
       kind,

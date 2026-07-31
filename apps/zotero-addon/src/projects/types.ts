@@ -8,6 +8,20 @@ export const PAPER_SCHEMA = 1 as const;
 export const LITERATURE_OBSERVATION_SCHEMA = 1 as const;
 export const PAPER_REDIRECT_SCHEMA = 1 as const;
 
+const PORTABLE_OBJECT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/**
+ * Persisted object IDs are opaque names, never paths. Keep this deliberately
+ * narrower than a general filename so imported sync data cannot escape a
+ * repository root or create platform-dependent paths.
+ */
+export function isPortableObjectID(value: unknown): value is string {
+  return typeof value === "string" &&
+    PORTABLE_OBJECT_ID_PATTERN.test(value) &&
+    value !== "." &&
+    value !== "..";
+}
+
 export interface PaperIdentifiers {
   doi?: string;
   arxiv?: string;
@@ -200,3 +214,9 @@ export interface ProjectBundle {
   project: ProjectDocument;
   defaultBoard: BoardDocument;
 }
+
+export type PortableProjectObject =
+  | ProjectDocument
+  | BoardDocument
+  | BoardNodeDocument
+  | BoardManualEdgeDocument;

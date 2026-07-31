@@ -260,6 +260,101 @@ describe("PaperCatalog", () => {
     ]);
   });
 
+  it("migrates the observation adjacency index and reads only selected Paper observations", async () => {
+    let next = 0;
+    const root = "/data/unizero/literature";
+    const catalog = new PaperCatalog(root, {
+      createID: (kind) => `${kind}_${++next}`,
+    });
+    const discoveredA = await catalog.recordDiscoverySnapshot(
+      item(1, "A", "Paper A", "10.1000/a", "S2A"),
+      {
+        kind: "references",
+        retrievedAt: 100,
+        merged: [{
+          identifiers: { doi: "10.1000/b" },
+          title: "Paper B",
+          authors: ["Researcher B"],
+        }],
+        sources: [{
+          provider: "openAlex",
+          entries: [{
+            identifiers: { doi: "10.1000/b" },
+            title: "Paper B",
+            authors: ["Researcher B"],
+          }],
+          complete: true,
+        }],
+      },
+    );
+    const discoveredX = await catalog.recordDiscoverySnapshot(
+      item(1, "X", "Paper X", "10.1000/x", "S2X"),
+      {
+        kind: "references",
+        retrievedAt: 200,
+        merged: [{
+          identifiers: { doi: "10.1000/y" },
+          title: "Paper Y",
+          authors: ["Researcher Y"],
+        }],
+        sources: [{
+          provider: "crossref",
+          entries: [{
+            identifiers: { doi: "10.1000/y" },
+            title: "Paper Y",
+            authors: ["Researcher Y"],
+          }],
+          complete: true,
+        }],
+      },
+    );
+    const indexPath = `${root}/observation-index.json`;
+    const currentIndex = JSON.parse(files.get(indexPath) || "{}");
+    expect(currentIndex).toMatchObject({
+      schema: 2,
+      byPaper: {
+        [discoveredA.seedPaperID]: [discoveredA.observations[0].id],
+        [discoveredX.seedPaperID]: [discoveredX.observations[0].id],
+      },
+    });
+
+    files.set(indexPath, JSON.stringify({
+      schema: 1,
+      keys: currentIndex.keys,
+    }));
+    const migrating = new PaperCatalog(root);
+    expect(await migrating.listCitationObservationsForPapers([
+      discoveredA.seedPaperID,
+      discoveredA.mergedPaperIDs[0],
+    ])).toEqual([
+      expect.objectContaining({ id: discoveredA.observations[0].id }),
+    ]);
+    expect(JSON.parse(files.get(indexPath) || "{}")).toMatchObject({
+      schema: 2,
+      byPaper: {
+        [discoveredA.seedPaperID]: [discoveredA.observations[0].id],
+        [discoveredX.seedPaperID]: [discoveredX.observations[0].id],
+      },
+    });
+
+    const reopened = new PaperCatalog(root);
+    const readUTF8 = (globalThis as any).IOUtils.readUTF8;
+    readUTF8.mockClear();
+    expect(await reopened.listCitationObservationsForPapers([
+      discoveredA.seedPaperID,
+      discoveredA.mergedPaperIDs[0],
+    ])).toEqual([
+      expect.objectContaining({ id: discoveredA.observations[0].id }),
+    ]);
+    const readPaths = readUTF8.mock.calls.map(([path]: [string]) => path);
+    expect(readPaths).toContain(
+      `${root}/observations/${discoveredA.observations[0].id}.json`,
+    );
+    expect(readPaths).not.toContain(
+      `${root}/observations/${discoveredX.observations[0].id}.json`,
+    );
+  });
+
   it("reuses query-scoped provisional Papers and observations", async () => {
     let next = 0;
     const catalog = new PaperCatalog("/data/unizero/literature", {
@@ -295,6 +390,61 @@ describe("PaperCatalog", () => {
     expect(pinned.retention).toBe("pinned");
     await catalog.recordDiscoverySnapshot(seedItem, snapshot(300));
     expect((await catalog.readPaper(pinned.id)).retention).toBe("pinned");
+  });
+
+  it("keeps anonymous Paper identity stable when discovery results are reordered", async () => {
+    let next = 0;
+    const catalog = new PaperCatalog("/data/unizero/literature", {
+      createID: (kind) => `${kind}_${++next}`,
+    });
+    const seedItem = item(1, "A", "Paper A", "10.1000/a");
+    const anonymous = (title: string, year: string) => ({
+      identifiers: {},
+      title,
+      authors: ["Unknown Author"],
+      year,
+    });
+    const paperB = anonymous("Unresolved Paper B", "1999");
+    const paperC = anonymous("Unresolved Paper C", "2001");
+    const inserted = anonymous("Newly inserted Paper", "1998");
+    const snapshot = (
+      retrievedAt: number,
+      entries: ReturnType<typeof anonymous>[],
+    ) => ({
+      kind: "references" as const,
+      retrievedAt,
+      merged: entries,
+      sources: [{ provider: "crossref", entries }],
+    });
+
+    const first = await catalog.recordDiscoverySnapshot(
+      seedItem,
+      snapshot(100, [paperB, paperC]),
+    );
+    const pinned = await catalog.pinPaper(first.mergedPaperIDs[0]);
+    // Simulate the ordinal provisional index written before fingerprint keys.
+    const indexPath = "/data/unizero/literature/index.json";
+    const legacyIndex = JSON.parse(files.get(indexPath) || "{}");
+    legacyIndex.provisionals = {
+      [`${first.seedPaperID}:references:merged:0`]: first.mergedPaperIDs[0],
+      [`${first.seedPaperID}:references:merged:1`]: first.mergedPaperIDs[1],
+    };
+    files.set(indexPath, JSON.stringify(legacyIndex));
+    const reopened = new PaperCatalog("/data/unizero/literature", {
+      createID: (kind) => `${kind}_${++next}`,
+    });
+    const reordered = await reopened.recordDiscoverySnapshot(
+      seedItem,
+      snapshot(200, [inserted, paperB, paperC]),
+    );
+
+    expect(reordered.mergedPaperIDs[0]).not.toBe(first.mergedPaperIDs[0]);
+    expect(reordered.mergedPaperIDs.slice(1)).toEqual(first.mergedPaperIDs);
+    expect(await reopened.readPaper(pinned.id)).toMatchObject({
+      id: pinned.id,
+      title: "Unresolved Paper B",
+      retention: "pinned",
+    });
   });
 
   it("replaces a complete provider route and garbage-collects orphan cache Papers", async () => {
@@ -336,6 +486,7 @@ describe("PaperCatalog", () => {
     expect(refreshed.removedObservationIDs).toHaveLength(1);
     expect(refreshed.garbageCollectedPaperIDs).toEqual([removedPaperID]);
     expect(await catalog.listCitationObservations()).toHaveLength(1);
+    expect(await catalog.listCitationObservations(removedPaperID)).toEqual([]);
     await expect(catalog.readPaper(removedPaperID)).rejects.toThrow();
   });
 
@@ -466,6 +617,12 @@ describe("PaperCatalog", () => {
       itemKey: "B",
     });
     expect(await reopened.listCitationObservations()).toEqual([
+      expect.objectContaining({
+        citingPaperID: discovered.seedPaperID,
+        citedPaperID: preferredID,
+      }),
+    ]);
+    expect(await reopened.listCitationObservations(duplicateID)).toEqual([
       expect.objectContaining({
         citingPaperID: discovered.seedPaperID,
         citedPaperID: preferredID,

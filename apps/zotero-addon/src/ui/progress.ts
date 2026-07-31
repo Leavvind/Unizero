@@ -19,6 +19,15 @@ export function showError(message: string): void {
   progress.startCloseTimer(ERROR_CLOSE_MS);
 }
 
+/** Optional completion notice for background work the user chose to observe. */
+export function showSuccess(message: string): void {
+  const progress = new Zotero.ProgressWindow({ closeOnClick: true });
+  progress.changeHeadline("UniZero");
+  new progress.ItemProgress("", message).setProgress(100);
+  progress.show();
+  progress.startCloseTimer(4000);
+}
+
 /** One line of batch progress, corresponding to one processed item. */
 export interface ProgressLine {
   setProgress(percent: number): void;

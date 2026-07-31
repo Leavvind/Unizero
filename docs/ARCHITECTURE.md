@@ -88,6 +88,26 @@ Project and Board are separate schema-versioned documents under
 manual edges are independent documents, so moving a card or changing one connection does
 not require a whole-board last-write-wins merge.
 
+Project documents sync through a backend-neutral engine using per-device manifests and
+immutable packs. The WebDAV adapter owns only HTTPS, Basic authorization, collections,
+and conditional requests. A process-wide scheduler can run after a delayed startup and
+then at a user-selected interval of 30 minutes or longer; completion-based timers and the
+service's in-flight promise prevent overlapping runs. Background result notifications
+are separately configurable.
+
+The WebDAV application password is device-local secret state. It is stored in Firefox's
+Login Manager under the WebDAV origin and an add-on-specific realm, following Zotero's
+own credential-storage boundary without reading or overwriting Zotero's WebDAV entry.
+URLs, usernames, schedule preferences, and last-run diagnostics remain ordinary local
+preferences; no credential enters a typed document, pack, checkpoint, or log.
+
+Remote Project object IDs are validated as bounded portable names both at the sync
+namespace boundary and again before repository path construction. Literature discovery
+uses bibliographic fingerprints rather than provider-list positions for unresolved
+provisional Paper identity. Catalog ingestion is additive and cannot prevent the
+established References/Citations cache from being written when catalog data is damaged
+or ambiguous.
+
 Board node schema 1 is a discriminated union. Existing `kind: "paper"` documents remain
 valid standalone-paper shorthand. `kind: "text"` documents own an ordered block array;
 each text or paper-reference block has a stable block ID, and paper blocks reference the
@@ -132,8 +152,12 @@ The same snapshot writes `LiteratureCitationObservation` documents under
 `unizero/literature/observations/`. References records `seed → result`; Citations records
 `result → seed`. Provider, query kind, retrieval time, and source order remain on the
 observation. Repeated reads update the same provider/query observation and never move its
-retrieval time backwards. The Paper and observation indexes are batch-flushed so a large
-snapshot does not rewrite an index once per result.
+retrieval time backwards. The observation index maps each endpoint Paper ID to its
+observation IDs. Board-scoped relation reads therefore open only observations adjacent
+to Papers on that Board, instead of every observation in the catalog. Schema 1 indexes
+are rebuilt once from their observation documents and persisted as schema 2. The Paper
+and observation indexes are batch-flushed so a large snapshot does not rewrite an index
+once per result.
 
 Only a successful terminal provider snapshot may replace older observations for the same
 seed, query kind, and provider. An incomplete citation page or provider failure never
@@ -148,12 +172,13 @@ an old Paper ID resolve the redirect, allowing existing Board and future sync re
 to remain valid.
 
 Hovering an identifiable paper card projects `UniConnection` and catalog observation
-edges onto stable Paper IDs
-present on the current Board as transient SVG paths and highlights every instance of the
-related Papers. A Zotero-bound source can therefore hint an external Board-pinned
-reference when their DOI, arXiv, or Semantic Scholar endpoints match. These hints are
-recomputed data: they never create or update manual-edge documents, and a failure to
-derive them does not prevent the Project from opening.
+edges onto stable Paper IDs present on the current Board as transient SVG paths and
+highlights every instance of the related Papers. The catalog side queries the Paper
+adjacency index with the Board's distinct Paper IDs and then discards observations whose
+other endpoint is outside that set. A Zotero-bound source can therefore hint an external
+Board-pinned reference when their DOI, arXiv, or Semantic Scholar endpoints match. These
+hints are recomputed data: they never create or update manual-edge documents, and a
+failure to derive them does not prevent the Project from opening.
 
 Paper and Text cards expose a bottom-right resize handle. Pointer deltas are converted
 through the current camera scale, edge paths update during the gesture, and the final
@@ -306,6 +331,8 @@ Neither component reaches through the HTTP boundary to reuse the other's impleme
 | Bibliographic fields and item relations | Zotero items |
 | Project identity, Board objects and paper-node layout | Versioned Project documents |
 | Stable library/external paper identity and Zotero bindings | UniZero Paper catalog |
+| Object merge, local checkpoint, manifest, and pack semantics | Sync engine |
+| HTTPS, Basic authorization, WebDAV collections, and ETags | WebDAV backend |
 | Highlight and underline annotations | Zotero attachment annotations |
 | Provider responses | Refreshable add-on cache, one shard per item |
 | Reverse-reference index, coupling, graph topology | Derived from the reference cache; rebuildable, never authoritative |

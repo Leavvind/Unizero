@@ -293,4 +293,81 @@ describe("ProjectRepository", () => {
     expect(listed[0]).toEqual(legacyPaper);
     expect(listed[1]).toEqual(withoutPaper);
   });
+
+  it("exports tombstones and imports portable Project objects in dependency order", async () => {
+    const source = repository();
+    const subject = projectSubjectForScope({
+      libraryID: 1,
+      collectionID: 44,
+      collectionKey: "SYNCABLE",
+      name: "Syncable Project",
+    });
+    const bundle = await source.ensureProject(subject, "Syncable Project");
+    const node = await source.createPaperNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      "paper_A",
+      { x: 10, y: 20 },
+    );
+    const other = await source.createPaperNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      "paper_B",
+      { x: 300, y: 20 },
+    );
+    const edge = await source.createManualEdge(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      node.id,
+      other.id,
+    );
+    await source.deleteBoardNode(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      node.id,
+    );
+    await source.deleteBoardEdge(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+      edge.id,
+    );
+
+    const portable = await source.listPortableObjects();
+    expect(portable).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: node.id, deletedAt: expect.any(Number) }),
+      expect.objectContaining({ id: edge.id, deletedAt: expect.any(Number) }),
+    ]));
+
+    const target = new ProjectRepository("/other/unizero/projects");
+    for (const object of portable) {
+      await target.applyPortableObject(object);
+    }
+    expect(await target.listPortableObjects()).toEqual(portable);
+    expect(await target.listBoardNodes(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+    )).toEqual([other]);
+    expect(await target.listBoardEdges(
+      bundle.project.id,
+      bundle.defaultBoard.id,
+    )).toEqual([]);
+  });
+
+  it("rejects imported object IDs that could escape the repository root", async () => {
+    const target = new ProjectRepository("/data/unizero/projects");
+    await expect(target.applyPortableObject({
+      schema: 1,
+      id: "../outside",
+      subject: {
+        kind: "collection",
+        library: "library",
+        collectionKey: "SAFEKEY",
+      },
+      name: "Unsafe Project",
+      defaultBoardID: "board_safe",
+      createdAt: 1,
+      updatedAt: 1,
+    })).rejects.toThrow("safe portable object name");
+    expect([...files.keys()].some((path) => path.includes("outside"))).toBe(false);
+  });
 });

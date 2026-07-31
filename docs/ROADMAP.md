@@ -34,6 +34,10 @@ READMEs and `docs/ARCHITECTURE.md`.
   context changes, immediate topology refresh after References updates, fit/drag/menu
   boundaries, Collection node/detail split layout at narrow and wide window sizes, and
   window-close cleanup.
+- Verify WebDAV credentials survive closing and reopening settings through Login Manager,
+  unchecking remember removes only UniZero's credential, automatic sync observes the
+  selected interval after restart, offline startup is quiet, and each background
+  notification mode behaves as labelled.
 
 ## Contracts and artifacts
 
@@ -60,10 +64,12 @@ READMEs and `docs/ARCHITECTURE.md`.
   explicit merge/redirect operations: add a user-facing conflict-review workflow,
   lifecycle diagnostics, and sync migration coverage for Papers, observations, and
   redirects.
-- Define typed state namespaces and a backend-neutral sync engine; implement WebDAV as
-  its first backend. User-authored Project/Board objects are the first non-rebuildable
-  priority, followed by References, Citations, and explicitly portable settings. Keep
-  device paths and secrets local. The constraints and conflict rules are in
+- Extend the landed typed namespaces, backend-neutral engine, conditional WebDAV
+  backend, immutable pack transport, secure local credential storage, and
+  manual/scheduled Project/Board sync. Add same-subject Project identity
+  migration/redirect and conflict review. Then add Literature Paper/observation/redirect
+  packs, followed by References, Citations, and explicitly portable settings. Keep device
+  paths and secrets local. The constraints and conflict rules are in
   [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md).
 - Introduce a capability-based literature-source boundary before adding more out-of-library
   exploration. Evaluate an optional local corpus behind the versioned runtime API only
@@ -82,11 +88,10 @@ READMEs and `docs/ARCHITECTURE.md`.
 
 ## Unizero Home
 
-- Revisit the experimental TextBlock/PaperBlock interaction before extending it. Prefer
-  an Obsidian Canvas-like composition of independent cards and containers; do not add
-  block kinds, rich editing, or deeper nesting until that interaction model is chosen.
-  Evaluate independent sync objects only when real merge requirements justify changing
-  the current text-node conflict boundary.
+- Replace or remove the experimental TextBlock/PaperBlock interaction before extending
+  Board content. Prefer an Obsidian Canvas-like composition of independent cards and
+  containers; do not add block kinds, rich editing, deeper nesting, or sync-specific
+  merge work to the current Text Node model.
 - Add notes, colours, multi-selection tools, edge labels/direction, camera persistence
   if user testing justifies it, and per-object sync metadata. A shared
   pan/zoom transform, Pointer interaction state machine, handle-drag connection preview,

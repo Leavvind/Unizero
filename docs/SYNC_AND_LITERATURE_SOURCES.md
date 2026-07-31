@@ -5,7 +5,8 @@
 > 完整快照压缩、孤立 cache Paper 回收、identifier 冲突检查和显式
 > Paper merge/redirect，以及 Board paper/text-node、内嵌 content blocks 与
 > manual-edge documents 已落地；
-> 同步引擎尚未实现。Project View 的产品决定见
+> backend-neutral sync engine、immutable pack WebDAV transport、安全凭据保存和
+> 手动/定时 Project/Board sync 第一阶段也已落地。Project View 的产品决定见
 > [UNIZERO_HOME.md](UNIZERO_HOME.md)。未完成工作以
 > [ROADMAP.md](ROADMAP.md) 为准。
 
@@ -176,6 +177,12 @@ provider observation 的生命周期同样区分完整与不完整结果。只�
 分页未完成或 provider 失败时保留旧证据。替换后若某个 `cache` Paper 已无任何
 observation，数据层会回收它；`pinned` 和 `zotero` Paper 不参与自动回收。
 
+observation index schema 2 同时维护 `Paper ID → observation IDs` 邻接关系。
+Board Relation Hint 会用当前 Board 去重后的 Paper ID 集合查询，只读取与这些 Paper
+相邻的 observation 文件，再过滤另一端是否也在 Board 内；Collection 小时不再先读
+全库 observation。旧 schema 1 index 在首次读取时完整重建一次邻接关系并立即写回，
+之后沿用定向查询。完整快照替换和显式 Paper merge 会同步更新或重建该邻接关系。
+
 ## 6. 文献数据源接口
 
 Explorer 应面向能力接口，而不是直接假定在线 provider：
@@ -258,11 +265,45 @@ WebDAV 可以托管只读的 corpus release artifact，但 runtime updater 必�
 
 ## 8. 同步模型
 
+当前实现已经包含：
+
+- schema 1 typed sync document 与 namespace registry；
+- Project、Board、BoardNode、BoardEdge 四个 namespace；
+- 包含删除 tombstone 的 Project repository 导出/导入；
+- ETag、`If-Match`、`If-None-Match` 与最多三次冲突重试；
+- 每设备 manifest、不可变 pack 和本机 applied-pack checkpoint；
+- 设置页手动 `Sync now`、安全记住凭据，以及最短 30 分钟的可选后台同步。
+
+逻辑对象仍然保持细粒度，Node 移动不会把整板变成一个冲突文档；WebDAV 传输不再让
+每个对象对应一个请求。一次 pack 默认最多包含 256 个对象或约 1 MB，每轮最多处理
+4 个 pack。远端布局为：
+
+```text
+Unizero/v1/
+  manifests/<deviceID>.json
+  packs/<shard>/<packID>.json
+```
+
+同步只列出通常很少的设备 manifest，再按 checkpoint 下载未应用的 pack。这样不会
+在一个目录中放置成千上万个 Paper/observation 文件，也不会让一篇 100 References
+的论文产生数百次 GET/PUT。pack 为 content-addressed immutable document，使用
+`If-None-Match: *`；manifest 使用 ETag 与 `If-Match`。
+
+坚果云默认地址是 `https://dav.jianguoyun.com/dav/`。账号和 URL 是设备设置；
+第三方应用密码保存在 Firefox Login Manager 的 UniZero 独立 realm 中，不写
+preference、日志或同步对象。自动同步为 opt-in，最短间隔为 30 分钟。pack
+compaction/GC 和 Literature namespace 尚未实现。
+
+若两个设备在第一次同步前分别为同一 Collection 创建了不同 Project UUID，导入会
+明确报告 subject conflict，不会静默覆盖。后续需要为这一情况增加用户审阅和
+Project identity redirect；在此之前，推荐先在已有 Project 的设备执行上传，再在
+第二台设备第一次打开 Home 前执行下载。
+
 ### 8.1 Backend
 
 ```ts
 interface RemoteObject {
-  body: Uint8Array;
+  body: string;
   revision?: string;
   modifiedAt?: number;
 }
@@ -274,18 +315,18 @@ interface WriteCondition {
 
 interface SyncBackend {
   connect(): Promise<void>;
-  list(prefix: string, cursor?: string): Promise<RemotePage>;
+  list(prefix: string): Promise<RemoteEntry[]>;
   get(key: string): Promise<RemoteObject | undefined>;
   put(
     key: string,
-    body: Uint8Array,
+    body: string,
     condition?: WriteCondition,
   ): Promise<RemoteRevision>;
   remove(key: string, condition?: WriteCondition): Promise<void>;
 }
 ```
 
-backend 不接受 Zotero item，也不返回 `ReferencesCache`。它只处理 bytes、key 和
+backend 不接受 Zotero item，也不返回 `ReferencesCache`。它只处理 string、key 和
 revision。
 
 ### 8.2 Typed document
@@ -297,21 +338,21 @@ type SyncScope =
   | { kind: "project"; id: string };
 
 interface SyncDocument<T> {
+  syncSchema: 1;
   namespace: string;
   id: string;
   schema: number;
   scope: SyncScope;
-  subject?: PaperLocator;
   updatedAt: number;
   deviceID: string;
   payload: T;
 }
 ```
 
-远端 key 是同步引擎的存储细节，例如：
+远端 key 是同步引擎的存储细节。当前 logical documents 位于 pack 内，例如：
 
 ```text
-unizero/v1/objects/<namespace>/<scope>/<id>.json
+Unizero/v1/packs/<shard>/<packID>.json
 ```
 
 业务代码不能依赖这条路径。
@@ -327,25 +368,29 @@ interface MergeContext {
 interface SyncNamespace<T> {
   name: string;
   currentSchema: number;
-  encode(value: T): SyncDocument<T>;
-  decode(document: SyncDocument<unknown>): T;
+  validate(document: SyncDocument<unknown>): SyncDocument<T>;
   migrate(document: SyncDocument<unknown>): SyncDocument<T>;
-  merge(local: T, remote: T, context: MergeContext): T;
+  merge(
+    local: SyncDocument<T>,
+    remote: SyncDocument<T>,
+    context: MergeContext,
+  ): SyncDocument<T>;
 }
 ```
 
-第一批 namespace 可以是：
+已接入的第一批 namespace 是：
 
 ```text
-literature.references
-literature.citations
-settings.portable
-graph.settings
+project.meta
+project.board
+project.board-node
+project.board-edge
 ```
 
-Project 模型现已明确，下一批 namespace 应包括 `project.meta`、`project.board`、
-`project.board-node` 与 `project.board-edge`。它们使用独立对象和 tombstone，
-不能退化为一个整板 latest-write-wins 文档。
+下一批 namespace 是 `literature.paper`、`literature.observation` 与
+`literature.paper-redirect`，随后再评估 References/Citations snapshot 与 portable
+settings。Project objects 使用独立逻辑对象和 tombstone，没有退化为一个整板
+latest-write-wins 文档。
 
 ### 8.4 Sync engine
 
@@ -362,8 +407,11 @@ Project 模型现已明确，下一批 namespace 应包括 `project.meta`、`pro
 - 防止同一对象在一个设备内并发上传；
 - 对日志中的 URL userinfo、authorization 和 secret 做脱敏。
 
-第一版可以用 `PROPFIND` 列出 namespace，再以 ETag 增量读取。若实际库规模证明
-完整列举过慢，再引入每设备 change journal；backend 接口不因此改变。
+当前只用 `PROPFIND` 列出设备 manifest；逻辑对象通过 manifest 指向的 immutable
+pack 增量读取。本机 checkpoint 记录已应用 pack 和已导出对象 checksum，正常无变化
+同步不会重新 GET 全部 pack。最近尝试、成功时间和错误摘要已经持久化；调度器在每轮
+完成后才开始下一个 interval，不会产生重叠请求。后续仍需要加入 pack compaction/GC、
+更细的指数 backoff 和取消；backend 接口不因此改变。
 
 ## 9. WebDAV backend
 
@@ -393,9 +441,10 @@ Project 模型现已明确，下一批 namespace 应包括 `project.meta`、`pro
 这种情况；backend 可以退化为文档 revision 检查，但不能把冲突当成成功。
 
 WebDAV URL、username 和远端 root 属于设备 bootstrap 配置。password/token 是
-secret，不能写入普通 preference export、typed document 或日志。具体安全凭证
-存储机制需要在实现前验证 Zotero 8 可用的公开能力；未验证前不能以明文 preference
-作为默认方案。
+secret，不能写入普通 preference export、typed document 或日志。当前实现使用
+Firefox Login Manager，并以 WebDAV origin、username 和 UniZero 独立 realm 定位；
+这与本机 Zotero 的 WebDAV 实现使用同一安全存储边界，但不会读取或覆盖 Zotero
+自己的 credential entry。
 
 ## 10. Cache 同步
 
@@ -549,7 +598,6 @@ layout version、force signature 和 library scope。Unizero Home 的 Board 坐�
 实现前仍需作出或验证以下决定：
 
 - 个人库 portable scope 如何与远端 profile bootstrap 绑定；
-- Zotero 8 中安全保存 WebDAV secret 的公开机制；
 - 第一版支持的 WebDAV 服务器兼容矩阵；
 - remote object ID 的编码与最大路径长度；
 - 是否需要内容压缩，以及 Zotero 环境可依赖的压缩能力；

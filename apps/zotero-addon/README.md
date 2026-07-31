@@ -51,7 +51,12 @@ the client for the local paper runtime.
 - PDF conversion commands and generated-artifact registration, including a versioned
   structured References JSON attachment produced from the PDF bibliography;
 - annotation export and Markdown injection;
-- runtime lifecycle, jobs, service notices, and templates.
+- runtime lifecycle, jobs, service notices, and templates;
+- manual and scheduled WebDAV sync for Project, Board, node, edge, and tombstone
+  documents. Jianguoyun's URL is prefilled; its third-party application password is
+  held in Zotero's Login Manager under an add-on-specific realm and is never placed in
+  preferences or sync packs. Automatic sync is opt-in, runs no more often than every
+  30 minutes, and can report errors only, every result, or nothing.
 
 Document conversion and annotation injection require
 `services/paper-runtime`. Other features run without it.

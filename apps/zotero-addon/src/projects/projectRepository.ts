@@ -19,6 +19,7 @@ import {
   BOARD_EDGE_SCHEMA,
   BOARD_NODE_SCHEMA,
   BOARD_SCHEMA,
+  isPortableObjectID,
   PROJECT_SCHEMA,
   type BoardNodeGeometry,
   type BoardContentBlock,
@@ -30,6 +31,7 @@ import {
   type BoardDocument,
   type ProjectBundle,
   type ProjectDocument,
+  type PortableProjectObject,
   type ProjectSubject,
 } from "./types";
 
@@ -197,6 +199,37 @@ export class ProjectRepository {
     }
     return nodes.sort((left, right) =>
       left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+  }
+
+  public async listPortableObjects(): Promise<PortableProjectObject[]> {
+    await this.writes.catch(() => undefined);
+    const index = await this.loadIndex();
+    const objects: PortableProjectObject[] = [];
+    for (const projectID of [...new Set(Object.values(index.subjects))].sort()) {
+      const bundle = await this.readBundle(projectID);
+      objects.push(bundle.project, bundle.defaultBoard);
+      objects.push(...await this.listBoardNodesRaw(
+        projectID,
+        bundle.defaultBoard.id,
+      ));
+      objects.push(...await this.listBoardEdgesRaw(
+        projectID,
+        bundle.defaultBoard.id,
+      ));
+    }
+    return objects;
+  }
+
+  public async applyPortableObject(
+    object: PortableProjectObject,
+  ): Promise<void> {
+    const operation = this.writes
+      .catch(() => undefined)
+      .then(async () => {
+        await this.applyPortableObjectExclusive(object);
+      });
+    this.writes = operation;
+    await operation;
   }
 
   public async createPaperNode(
@@ -498,6 +531,149 @@ export class ProjectRepository {
     return result;
   }
 
+  private async listBoardNodesRaw(
+    projectID: string,
+    boardID: string,
+  ): Promise<BoardNodeDocument[]> {
+    let paths: string[];
+    try {
+      paths = await IOUtils.getChildren(this.nodesPath(projectID, boardID));
+    } catch (error) {
+      if (isMissingFile(error)) { return []; }
+      throw error;
+    }
+    const nodes: BoardNodeDocument[] = [];
+    for (const path of paths) {
+      if (!String(path).endsWith(".json")) { continue; }
+      const node = this.validBoardNode(
+        await this.readJSON(path),
+        projectID,
+        boardID,
+      );
+      if (!node) {
+        throw new Error(`Unsupported or invalid Board node at ${path}`);
+      }
+      nodes.push(node);
+    }
+    return nodes.sort((left, right) =>
+      left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+  }
+
+  private async listBoardEdgesRaw(
+    projectID: string,
+    boardID: string,
+  ): Promise<BoardManualEdgeDocument[]> {
+    let paths: string[];
+    try {
+      paths = await IOUtils.getChildren(this.edgesPath(projectID, boardID));
+    } catch (error) {
+      if (isMissingFile(error)) { return []; }
+      throw error;
+    }
+    const edges: BoardManualEdgeDocument[] = [];
+    for (const path of paths) {
+      if (!String(path).endsWith(".json")) { continue; }
+      const edge = this.validBoardEdge(
+        await this.readJSON(path),
+        projectID,
+        boardID,
+      );
+      if (!edge) {
+        throw new Error(`Unsupported or invalid Board edge at ${path}`);
+      }
+      edges.push(edge);
+    }
+    return edges.sort((left, right) =>
+      left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+  }
+
+  private async applyPortableObjectExclusive(
+    object: PortableProjectObject,
+  ): Promise<void> {
+    if (
+      object.schema === PROJECT_SCHEMA &&
+      "subject" in object &&
+      typeof object.defaultBoardID === "string"
+    ) {
+      const key = projectSubjectKey(object.subject);
+      const index = await this.loadIndex();
+      const existingID = index.subjects[key];
+      if (existingID && existingID !== object.id) {
+        throw new Error(
+          `Project subject already belongs to another Project: ${key}`,
+        );
+      }
+      await this.writeJSON(this.projectPath(object.id), object);
+      if (existingID !== object.id) {
+        this.index = {
+          schema: PROJECT_INDEX_SCHEMA,
+          subjects: { ...index.subjects, [key]: object.id },
+        };
+        await this.writeJSON(this.indexPath(), this.index);
+      }
+      return;
+    }
+
+    if (
+      object.schema === BOARD_SCHEMA &&
+      "projectID" in object &&
+      !("boardID" in object) &&
+      typeof object.name === "string"
+    ) {
+      const project = await this.readJSON(this.projectPath(object.projectID));
+      if (
+        project?.schema !== PROJECT_SCHEMA ||
+        project?.defaultBoardID !== object.id
+      ) {
+        throw new Error(`Board does not belong to its Project: ${object.id}`);
+      }
+      await this.writeJSON(
+        this.boardPath(object.projectID, object.id),
+        object,
+      );
+      return;
+    }
+
+    if (
+      "projectID" in object &&
+      "boardID" in object &&
+      object.kind === "manual"
+    ) {
+      await this.assertBoard(object.projectID, object.boardID);
+      const edge = this.validBoardEdge(
+        object,
+        object.projectID,
+        object.boardID,
+      );
+      if (!edge) {
+        throw new Error(`Unsupported or invalid Board edge: ${object.id}`);
+      }
+      await this.writeJSON(
+        this.edgePath(object.projectID, object.boardID, object.id),
+        edge,
+      );
+      return;
+    }
+
+    if ("projectID" in object && "boardID" in object) {
+      await this.assertBoard(object.projectID, object.boardID);
+      const node = this.validBoardNode(
+        object,
+        object.projectID,
+        object.boardID,
+      );
+      if (!node) {
+        throw new Error(`Unsupported or invalid Board node: ${object.id}`);
+      }
+      await this.writeJSON(
+        this.nodePath(object.projectID, object.boardID, object.id),
+        node,
+      );
+      return;
+    }
+    throw new Error("Unsupported portable Project object");
+  }
+
   private async ensureProjectExclusive(
     subject: ProjectSubject,
     rawName: string,
@@ -627,6 +803,25 @@ export class ProjectRepository {
     return;
   }
 
+  private validBoardEdge(
+    edge: any,
+    projectID: string,
+    boardID: string,
+  ): BoardManualEdgeDocument | undefined {
+    if (
+      edge?.schema !== BOARD_EDGE_SCHEMA ||
+      typeof edge?.id !== "string" ||
+      edge?.projectID !== projectID ||
+      edge?.boardID !== boardID ||
+      edge?.kind !== "manual" ||
+      typeof edge?.sourceNodeID !== "string" ||
+      typeof edge?.targetNodeID !== "string"
+    ) {
+      return;
+    }
+    return edge;
+  }
+
   private async readBoardEdge(
     projectID: string,
     boardID: string,
@@ -687,16 +882,21 @@ export class ProjectRepository {
   }
 
   private projectPath(projectID: string): string {
-    return PathUtils.join(this.root, "objects", projectID, "project.json");
+    return PathUtils.join(
+      this.root,
+      "objects",
+      this.storageObjectID(projectID, "Project"),
+      "project.json",
+    );
   }
 
   private boardPath(projectID: string, boardID: string): string {
     return PathUtils.join(
       this.root,
       "objects",
-      projectID,
+      this.storageObjectID(projectID, "Project"),
       "boards",
-      `${boardID}.json`,
+      `${this.storageObjectID(boardID, "Board")}.json`,
     );
   }
 
@@ -704,30 +904,43 @@ export class ProjectRepository {
     return PathUtils.join(
       this.root,
       "objects",
-      projectID,
+      this.storageObjectID(projectID, "Project"),
       "boards",
-      boardID,
+      this.storageObjectID(boardID, "Board"),
       "nodes",
     );
   }
 
   private nodePath(projectID: string, boardID: string, nodeID: string): string {
-    return PathUtils.join(this.nodesPath(projectID, boardID), `${nodeID}.json`);
+    return PathUtils.join(
+      this.nodesPath(projectID, boardID),
+      `${this.storageObjectID(nodeID, "Board node")}.json`,
+    );
   }
 
   private edgesPath(projectID: string, boardID: string): string {
     return PathUtils.join(
       this.root,
       "objects",
-      projectID,
+      this.storageObjectID(projectID, "Project"),
       "boards",
-      boardID,
+      this.storageObjectID(boardID, "Board"),
       "edges",
     );
   }
 
   private edgePath(projectID: string, boardID: string, edgeID: string): string {
-    return PathUtils.join(this.edgesPath(projectID, boardID), `${edgeID}.json`);
+    return PathUtils.join(
+      this.edgesPath(projectID, boardID),
+      `${this.storageObjectID(edgeID, "Board edge")}.json`,
+    );
+  }
+
+  private storageObjectID(value: string, label: string): string {
+    if (!isPortableObjectID(value)) {
+      throw new Error(`${label} ID is not a safe portable object name`);
+    }
+    return value;
   }
 }
 
@@ -769,6 +982,17 @@ export async function listDefaultBoardEdges(
     bundle.project.id,
     bundle.defaultBoard.id,
   );
+}
+
+export async function listPortableProjectObjects():
+Promise<PortableProjectObject[]> {
+  return defaultRepository().listPortableObjects();
+}
+
+export async function applyPortableProjectObject(
+  object: PortableProjectObject,
+): Promise<void> {
+  return defaultRepository().applyPortableObject(object);
 }
 
 export async function createDefaultBoardPaperNode(

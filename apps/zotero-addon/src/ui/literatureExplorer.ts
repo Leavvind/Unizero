@@ -35,7 +35,7 @@ import {
 import {
   ensureCatalogExternalPaper,
   ensureCatalogPaper,
-  listCatalogCitationObservations,
+  listCatalogCitationObservationsForPapers,
   pinCatalogPaper,
   readCatalogPaper,
 } from "../projects/paperCatalog";
@@ -372,14 +372,14 @@ async function boardRelationHints(
         }),
       }];
     });
+    const paperIDs = new Set(members.map((member) => member.paperID));
     const [derived, observations] = await Promise.all([
       views.getLiteratureBoardConnections(
         scope.libraryID,
         members,
       ),
-      listCatalogCitationObservations(),
+      listCatalogCitationObservationsForPapers(paperIDs),
     ]);
-    const paperIDs = new Set(members.map((member) => member.paperID));
     const output: BoardRelationHintView[] = [];
     const seen = new Set<string>();
     const add = (hint: BoardRelationHintView) => {
