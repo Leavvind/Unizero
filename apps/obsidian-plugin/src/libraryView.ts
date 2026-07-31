@@ -16,7 +16,12 @@ import type {
   BridgeLibrary,
 } from "./bridge";
 import { enableCitationDrag, type PaperRef } from "./citation";
-import { openInZotero, openMarkdownNote, openZoteroPdf } from "./actions";
+import {
+  convertToMarkdown,
+  hasMarkdownAvailable,
+  openMarkdownNote,
+  openZoteroPdf,
+} from "./actions";
 import type UnizeroPlugin from "./main";
 
 export const LIBRARY_VIEW_TYPE = "unizero-library";
@@ -473,18 +478,6 @@ export class UnizeroLibraryView extends ItemView {
     menu.addSeparator();
 
     menu.addItem((entry) => entry
-      .setTitle("Show in Zotero")
-      .setIcon("external-link")
-      .onClick(async () => {
-        try {
-          const paper = await this.plugin.bridge.paper(ref);
-          await openInZotero(paper);
-        } catch (error) {
-          new Notice(`UniZero: ${(error as Error).message}`);
-        }
-      }));
-
-    menu.addItem((entry) => entry
       .setTitle("Open PDF in Zotero")
       .setIcon("file-text")
       .onClick(async () => {
@@ -496,17 +489,31 @@ export class UnizeroLibraryView extends ItemView {
         }
       }));
 
-    menu.addItem((entry) => entry
-      .setTitle("Open Markdown note")
-      .setIcon("file-symlink")
-      .onClick(async () => {
-        try {
-          const paper = await this.plugin.bridge.paper(ref);
-          await openMarkdownNote(this.app, paper, this.plugin.settings);
-        } catch (error) {
-          new Notice(`UniZero: ${(error as Error).message}`);
-        }
-      }));
+    if (hasMarkdownAvailable(this.app, item, this.plugin.settings)) {
+      menu.addItem((entry) => entry
+        .setTitle("Open Markdown note")
+        .setIcon("file-symlink")
+        .onClick(async () => {
+          try {
+            const paper = await this.plugin.bridge.paper(ref);
+            await openMarkdownNote(this.app, paper, this.plugin.settings);
+          } catch (error) {
+            new Notice(`UniZero: ${(error as Error).message}`);
+          }
+        }));
+    } else {
+      menu.addItem((entry) => entry
+        .setTitle("Convert to Markdown")
+        .setIcon("file-down")
+        .onClick(async () => {
+          try {
+            const paper = await this.plugin.bridge.paper(ref);
+            await convertToMarkdown(this.plugin.bridge, ref, paper);
+          } catch (error) {
+            new Notice(`UniZero: ${(error as Error).message}`);
+          }
+        }));
+    }
 
     menu.showAtMouseEvent(event);
   }

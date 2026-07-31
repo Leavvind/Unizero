@@ -16,13 +16,14 @@ Obsidian is the active note-taking front end.
 | Priority | Surface | Guidance |
 | --- | --- | --- |
 | **Active** | `apps/obsidian-plugin` | Default place for new product work: citations, detail pane, search, jumps |
-| **Required backend** | `apps/zotero-addon` data plane + `src/server` bridge | Providers, reference cache, relations, Paper catalog, conversion client, read-only bridge |
+| **Required backend** | `apps/zotero-addon` data plane + `src/server` bridge | Providers, reference cache, relations, Paper catalog, conversion client, mostly-read-only bridge (`POST /convert` only) |
 | **Legacy UI** | Unizero Home (Project View / Board) under `addon/chrome/content` and related Project/Board paths | Still in the tree; **do not extend, redesign, or “improve”** unless the user task names Home/Board explicitly |
 | **Background** | Item-pane literature UI, per-paper graph | Maintain when a task touches them; not the main roadmap |
 
 Write-back from Obsidian into Zotero / UniZero (import explored papers, etc.) is
-**planned**, not present. The bridge must stay read-only until a separate write design
-lands.
+**planned**, not present. Do not add bibliographic or Paper-catalog mutations over
+the bridge without a separate write design. The narrow exception is
+`POST /unizero/v1/convert`, which starts the same conversion job as the Zotero menu.
 
 ### Default read order
 
@@ -51,8 +52,8 @@ UniZero has three executable components:
 
 The add-on and the runtime integrate through the versioned localhost HTTP API; the
 canonical v1 schema is `packages/contracts/http/v1.schema.json`. The add-on and the
-Obsidian plugin integrate through a separate, read-only bridge on Zotero's own HTTP
-server, versioned by `BRIDGE_API_VERSION` in
+Obsidian plugin integrate through a separate bridge on Zotero's own HTTP server
+(GET data plane plus `POST /convert`), versioned by `BRIDGE_API_VERSION` in
 `apps/zotero-addon/src/server/bridgePayloads.ts`. The two boundaries are unrelated and
 must not be merged.
 
@@ -84,10 +85,12 @@ and which are design notes; do not treat a design note as a work order.
    shards, and topology carries no Zotero display fields.
 10. **Dialog content talks through its window API bridge.** Privileged XHTML dialogs get a
     plain object on `window.arguments[0]`; they never import bundle modules.
-11. **The Obsidian bridge is read-only and never fetches unbidden.** No endpoint under
-    `src/server` mutates Zotero or the Paper catalog, and relations answer from cache;
-    a miss is reported as `loaded: false` so the caller can prompt. Only an explicit
-    `fetch=1` may reach the providers. Rendering a note must never cause network work.
+11. **The Obsidian bridge is mostly read-only and never fetches unbidden.** GET
+    endpoints under `src/server` do not mutate Zotero or the Paper catalog. The only
+    write-shaped action is `POST /convert` (same conversion command as the Zotero
+    menu). Relations answer from cache; a miss is `loaded: false` so the caller can
+    prompt. Only an explicit `fetch=1` may reach the providers. Rendering a note must
+    never cause network work or start conversion.
 12. **A citekey is an alias, not an identity.** Persisted state uses `libraryID` plus
     `itemKey`; a citekey is derived from mutable metadata and can collide. Ambiguity is
     reported, never resolved silently.
@@ -104,7 +107,7 @@ The process boundary is described in `docs/ARCHITECTURE.md`.
 | `apps/zotero-addon/src/zotero` | Zotero item, attachment, annotation, and identity adapters |
 | `apps/zotero-addon/src/ui` | Menus, panel bridge, progress, and service notices |
 | `apps/zotero-addon/src/modules` | Established relations, metadata, cache, and item-pane code |
-| `apps/zotero-addon/src/server` | Read-only localhost bridge and citekey resolution |
+| `apps/zotero-addon/src/server` | Localhost bridge (GET + convert action) and citekey resolution |
 | `apps/obsidian-plugin/src` | Obsidian rendering, suggester, detail pane, and bridge client (active front end) |
 | `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, **legacy** Unizero Home, graph renderer |
 | `services/paper-runtime/src/unizero_runtime/api` | FastAPI transport |

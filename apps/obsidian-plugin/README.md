@@ -5,8 +5,9 @@ jumps into the same Zotero library the add-on manages.
 
 The plugin stores no bibliographic data. Zotero, the reference cache, and the Paper
 catalog all live in the [Zotero add-on](../zotero-addon); this is a view of them over
-the add-on's localhost bridge. A future write-back path (exploration results → Zotero /
-UniZero) needs its own design; the bridge is read-only today.
+the add-on's localhost bridge. One side-effect is allowed: **Convert to Markdown**
+posts to the bridge and runs the same conversion job as Zotero's item menu. Importing
+explored papers or other library write-back still needs a separate design.
 
 ## Sidebars
 
@@ -18,7 +19,7 @@ UniZero) needs its own design; the bridge is read-only today.
 Unlike Unizero Home (which scopes the left column to the Zotero collection you opened
 from), the library pane lets you **switch libraries and collections** inside Obsidian.
 The last choice is remembered across sessions. Click a row to open it in the paper
-pane; right-click for insert / Zotero / PDF / note.
+pane; right-click for insert / PDF / note / convert.
 
 **Insert & drag.** *Insert citation* (library context menu or paper-pane Relation row)
 writes `@libraryID/itemKey` into the **last Markdown note you had open**, even while a
@@ -33,9 +34,15 @@ in-library Relation row onto the note body.
 | `@libraryID/itemKey.md` | Opens the converted Markdown note in this vault |
 | `@libraryID/itemKey.pdf` | Opens the PDF in Zotero |
 
-Example: `@1/HLP48L8X`. Right-clicking any of the three offers all four actions,
-including *Show in Zotero*. `\@notacitation` escapes the syntax, and email addresses
-are never matched.
+Example: `@1/HLP48L8X`. Right-clicking a pill offers the paper pane, Markdown note,
+**Convert to Markdown**, and PDF. *Show in Zotero* was removed — *Open PDF in Zotero*
+already jumps to the item when no PDF is attached. `\@notacitation` escapes the
+syntax, and email addresses are never matched.
+
+**Open Markdown note** and **Convert to Markdown** are exclusive: if Zotero (or this
+vault) already has Markdown for the paper, only Open is shown; otherwise only Convert.
+Conversion runs in Zotero (UniZero panel); when it finishes, open the note again.
+Re-conversion stays on the Zotero item menu.
 
 The pill label defaults to **Author (year)** (or title). What is written in the
 source is the durable Zotero identity; you rarely need to read it.

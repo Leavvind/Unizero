@@ -1,17 +1,19 @@
 /**
- * Read-only localhost bridge for external editors.
+ * Localhost bridge for external editors (primarily the Obsidian plugin).
  *
  * Zotero already runs an HTTP server on 127.0.0.1:23119 for its connector; adding
  * endpoints to it is the established way for a Zotero add-on to answer a process
- * it cannot be loaded into. That is what lets an Obsidian plugin render an
- * a paper without shipping a second copy of the metadata, the reference cache,
- * or the identity rules.
+ * it cannot be loaded into. That is what lets an Obsidian plugin render a paper
+ * without shipping a second copy of the metadata, the reference cache, or the
+ * identity rules.
  *
- * Three properties are load-bearing:
+ * Load-bearing properties:
  *
- * - **Read-only.** No endpoint mutates Zotero or the Paper catalog. A GET from an
- *   editor is not a mandate to write to the user's library, and keeping the whole
- *   surface read-only means a misbehaving consumer cannot corrupt anything.
+ * - **Mostly read-only.** GET endpoints never mutate Zotero or the Paper catalog.
+ *   The sole write-shaped exception is `POST /convert`, which starts the same
+ *   conversion job the Zotero item menu already runs. It does not accept
+ *   bibliographic edits, Paper-catalog writes, or exploration import from the
+ *   editor — those need a separate write-back design.
  * - **No unrequested provider traffic.** Relations answer from cache. A cache miss
  *   returns `loaded: false` so the consumer can prompt, exactly as Unizero Home
  *   does; only an explicit `fetch=1` is allowed to reach the network. Opening a
@@ -25,6 +27,7 @@
  */
 
 import { config, version } from "../../package.json";
+import { convertItems } from "../features/conversion/commands";
 import type Views from "../modules/views";
 import type { LiteratureRelationKind } from "../modules/literatureRelations";
 import {
@@ -53,6 +56,11 @@ const RELATIONS = `${ROOT}/relations`;
 const SUGGEST = `${ROOT}/suggest`;
 const COLLECTIONS = `${ROOT}/collections`;
 const COLLECTION_ITEMS = `${ROOT}/collection-items`;
+const CONVERT = `${ROOT}/convert`;
+
+/** Same default template the item menu and Unizero Home convert path use. */
+const DEFAULT_CONVERT_TEMPLATE_ID = "paper-to-markdown";
+const DEFAULT_CONVERT_TEMPLATE_NAME = "Generate paper Markdown";
 
 const SUGGEST_LIMIT_DEFAULT = 20;
 const SUGGEST_LIMIT_MAX = 100;
@@ -225,7 +233,14 @@ async function handlePing(): Promise<BridgeResponse> {
     product: "unizero",
     addonVersion: version,
     api: BRIDGE_API_VERSION,
-    capabilities: ["paper", "relations", "suggest", "collections", "collection-items"],
+    capabilities: [
+      "paper",
+      "relations",
+      "suggest",
+      "collections",
+      "collection-items",
+      "convert",
+    ],
     ready: Boolean(activeViews()),
   });
 }
@@ -326,6 +341,66 @@ async function handleCollectionItems(query: RequestQuery): Promise<BridgeRespons
 }
 
 /**
+ * Start Markdown conversion for one paper — the same path as the Zotero item
+ * menu ("Generate Markdown from template").
+ *
+ * Conversion takes minutes (runtime job + artifact registration). The HTTP
+ * response returns as soon as the job is *accepted for running*, not when it
+ * finishes; progress lives in the UniZero panel inside Zotero. Fire-and-forget
+ * is intentional so an Obsidian click does not hold a localhost socket open for
+ * the whole run.
+ */
+async function handleConvert(query: RequestQuery): Promise<BridgeResponse> {
+  const found = await lookup(query);
+  if (!found.found) { return found.response; }
+
+  const mainWindow = resolveMainWindow();
+  if (!mainWindow) {
+    return failure(503, "No Zotero window is open; open Zotero and try again");
+  }
+
+  const libraryID = found.item.libraryID;
+  const itemKey = String(found.item.key);
+
+  void convertItems(
+    mainWindow,
+    [found.item],
+    DEFAULT_CONVERT_TEMPLATE_ID,
+    DEFAULT_CONVERT_TEMPLATE_NAME,
+  ).catch((error) => {
+    ztoolkit.log("[bridge:convert] background conversion failed", error);
+    Zotero.logError(error as Error);
+  });
+
+  return json(202, {
+    accepted: true,
+    libraryID,
+    itemKey,
+    message:
+      "Conversion started in Zotero. Watch the UniZero panel for progress, then open the note again.",
+  });
+}
+
+/** Prefer the frontmost main window; fall back to any open one. */
+function resolveMainWindow(): Window | null {
+  try {
+    const getMainWindows = (Zotero as any).getMainWindows as (() => Window[]) | undefined;
+    if (typeof getMainWindows === "function") {
+      const windows = getMainWindows();
+      if (windows?.length) { return windows[0]; }
+    }
+  } catch {
+    // Fall through to the single-window helper.
+  }
+  try {
+    const win = (Zotero as any).getMainWindow?.() as Window | undefined;
+    return win || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Wrap a handler in Zotero's endpoint object shape.
  *
  * `init` returns a promise resolving to `[status, contentType, body]`, the form
@@ -336,9 +411,10 @@ async function handleCollectionItems(query: RequestQuery): Promise<BridgeRespons
 function endpointFor(
   name: string,
   handler: (query: RequestQuery) => Promise<BridgeResponse>,
+  methods: string[] = ["GET"],
 ) {
   return function BridgeEndpoint(this: Record<string, unknown>) {
-    this.supportedMethods = ["GET"];
+    this.supportedMethods = methods;
     this.supportedDataTypes = ["application/json"];
     this.init = async (request: {
       searchParams?: { entries?: () => IterableIterator<[string, string]> };
@@ -362,6 +438,7 @@ const endpoints: Record<string, () => void> = {
   [SUGGEST]: endpointFor("suggest", handleSuggest),
   [COLLECTIONS]: endpointFor("collections", handleCollections),
   [COLLECTION_ITEMS]: endpointFor("collection-items", handleCollectionItems),
+  [CONVERT]: endpointFor("convert", handleConvert, ["POST"]),
 };
 
 let registered = false;

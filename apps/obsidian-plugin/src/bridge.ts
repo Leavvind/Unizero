@@ -150,13 +150,17 @@ export class UnizeroBridge {
     return `${base}/unizero/v1/${path}${query ? `?${query}` : ""}`;
   }
 
-  private async get<T>(path: string, params: Record<string, string | undefined>): Promise<T> {
+  private async request<T>(
+    method: "GET" | "POST",
+    path: string,
+    params: Record<string, string | undefined>,
+  ): Promise<T> {
     let response;
     try {
       response = await requestUrl({
         url: this.url(path, params),
-        method: "GET",
-        // Without this the helper throws on 404, which is a normal answer here.
+        method,
+        // Without this the helper throws on 404/202 edge cases we handle below.
         throw: false,
       });
     } catch (error) {
@@ -171,6 +175,10 @@ export class UnizeroBridge {
       throw new BridgeError(response.status, message);
     }
     return response.json as T;
+  }
+
+  private get<T>(path: string, params: Record<string, string | undefined>): Promise<T> {
+    return this.request<T>("GET", path, params);
   }
 
   ping(): Promise<BridgePing> {
@@ -231,6 +239,26 @@ export class UnizeroBridge {
       collectionKey: collectionKey || undefined,
     });
   }
+
+  /**
+   * Start paper→Markdown conversion in Zotero (POST /convert).
+   *
+   * Returns as soon as Zotero accepts the job. The actual work runs in the
+   * add-on / paper-runtime; progress is in the UniZero panel, not here.
+   */
+  convert(ref: PaperRef): Promise<BridgeConvertAccepted> {
+    return this.request<BridgeConvertAccepted>("POST", "convert", {
+      libraryID: String(ref.libraryID),
+      itemKey: ref.itemKey,
+    });
+  }
+}
+
+export interface BridgeConvertAccepted {
+  accepted: boolean;
+  libraryID: number;
+  itemKey: string;
+  message?: string;
 }
 
 function safeErrorMessage(text: string | undefined): string | undefined {

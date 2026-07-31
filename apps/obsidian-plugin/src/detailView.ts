@@ -22,7 +22,12 @@ import {
 import { enableCitationDrag, paperRefKey, type PaperRef } from "./citation";
 import type { PaperState } from "./paperStore";
 import type UnizeroPlugin from "./main";
-import { openInZotero, openMarkdownNote, openZoteroPdf } from "./actions";
+import {
+  convertToMarkdown,
+  hasMarkdownAvailable,
+  openMarkdownNote,
+  openZoteroPdf,
+} from "./actions";
 
 export const DETAIL_VIEW_TYPE = "unizero-detail";
 
@@ -207,10 +212,17 @@ export class UnizeroDetailView extends ItemView {
     }
 
     const actions = header.createDiv({ cls: "unizero-detail__actions" });
-    this.actionButton(actions, "external-link", "Zotero", () => openInZotero(paper));
     this.actionButton(actions, "file-text", "PDF", () => openZoteroPdf(paper));
-    this.actionButton(actions, "file-symlink", "Note", () =>
-      openMarkdownNote(this.app, paper, this.plugin.settings));
+    if (hasMarkdownAvailable(this.app, paper, this.plugin.settings)) {
+      this.actionButton(actions, "file-symlink", "Note", () =>
+        openMarkdownNote(this.app, paper, this.plugin.settings));
+    } else {
+      this.actionButton(actions, "file-down", "Convert", () =>
+        convertToMarkdown(this.plugin.bridge, {
+          libraryID: paper.libraryID,
+          itemKey: paper.itemKey,
+        }, paper));
+    }
 
     if (paper.abstract) {
       const abstract = header.createEl("details", { cls: "unizero-detail__abstract" });

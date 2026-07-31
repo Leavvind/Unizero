@@ -5,7 +5,7 @@ READMEs and `docs/ARCHITECTURE.md`. Nothing here is a work order by itself.
 
 ## Active focus
 
-**Obsidian plugin** (`apps/obsidian-plugin`) against the add-on's read-only bridge.
+**Obsidian plugin** (`apps/obsidian-plugin`) against the add-on's bridge (GET + convert).
 Zotero-side **data** work (providers, cache, relations, conversion, bridge contract)
 stays in scope when Obsidian needs it.
 
@@ -24,8 +24,9 @@ jumps, free-text `@` completion, and a read-only detail pane — is implemented.
   `@libraryID/itemKey` text already produces a working citation; a native-looking drag
   needs `app.dragManager`, which is unofficial and should be weighed against what it buys.
 - **Write-back design (not implemented):** exploring from Obsidian and creating or
-  updating material in UniZero / Zotero. Needs its own contract; do not extend the
-  read-only bridge ad hoc.
+  updating material in UniZero / Zotero. Needs its own contract. The bridge already
+  allows one narrow action (`POST /convert` → Zotero conversion job); do not treat
+  that as a blank cheque for bibliographic mutations.
 - Richer literature exploration in the note surface (discovery, ranking, multi-hop
   jumps) — product headroom; each slice needs a clear scope.
 

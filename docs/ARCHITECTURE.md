@@ -46,7 +46,7 @@ conversion, artifact publishing, and Markdown annotation injection require the l
 runtime.
 
 **Product surfaces (this branch):** the Obsidian plugin is the active note front end
-(read-only bridge under `src/server/`). Unizero Home (Project View / Board) remains in
+(bridge under `src/server/`: GET data plane plus `POST /convert`). Unizero Home (Project View / Board) remains in
 the add-on UI but is **legacy** — not the focus for new work. Item-pane previews and the
 per-paper graph stay available; they are not the main roadmap.
 
@@ -64,7 +64,7 @@ per-paper graph stay available; they are not the main roadmap.
 | Derived index | `src/modules/uniConnection.ts`, `src/modules/uniConnectionSync.ts` | Reverse-reference index, coupling, graph topology |
 | Projects | `src/projects/` | Portable Project identity, versioned Board/Paper shapes, local object persistence |
 | Runtime boundary | `src/runtime-client/` | Contract types, HTTP, launch, process state |
-| Editor boundary | `src/server/` | Read-only bridge endpoints and citekey resolution |
+| Editor boundary | `src/server/` | Bridge endpoints (GET + convert action) and citekey resolution |
 
 `src/modules/` contains the established item-pane, metadata, provider, and cache
 implementation. New code uses the more specific directories above. Existing modules are

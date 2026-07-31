@@ -18,7 +18,12 @@ import {
   type Editor,
   type WorkspaceLeaf,
 } from "obsidian";
-import { openInZotero, openMarkdownNote, openZoteroPdf } from "./actions";
+import {
+  convertToMarkdown,
+  hasMarkdownAvailable,
+  openMarkdownNote,
+  openZoteroPdf,
+} from "./actions";
 import { UnizeroBridge, BRIDGE_API, type BridgePaper } from "./bridge";
 import {
   citationText,
@@ -148,20 +153,22 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       .setIcon("graduation-cap")
       .onClick(() => { void this.showInDetailView(ref); }));
 
-    menu.addItem((item) => item
-      .setTitle("Open Markdown note")
-      .setIcon("file-symlink")
-      .onClick(() => { void openMarkdownNote(this.app, paper, this.settings); }));
+    if (hasMarkdownAvailable(this.app, paper, this.settings)) {
+      menu.addItem((item) => item
+        .setTitle("Open Markdown note")
+        .setIcon("file-symlink")
+        .onClick(() => { void openMarkdownNote(this.app, paper, this.settings); }));
+    } else {
+      menu.addItem((item) => item
+        .setTitle("Convert to Markdown")
+        .setIcon("file-down")
+        .onClick(() => { void convertToMarkdown(this.bridge, ref, paper); }));
+    }
 
     menu.addItem((item) => item
       .setTitle("Open PDF in Zotero")
       .setIcon("file-text")
       .onClick(() => { void openZoteroPdf(paper); }));
-
-    menu.addItem((item) => item
-      .setTitle("Show in Zotero")
-      .setIcon("external-link")
-      .onClick(() => { void openInZotero(paper); }));
 
     menu.addSeparator();
 

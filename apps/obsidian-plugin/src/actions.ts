@@ -2,14 +2,28 @@
  * What each citation form does when clicked.
  *
  * `@libraryID/itemKey` stays inside Obsidian; `.md` resolves to a vault note;
- * `.pdf` hands off to Zotero. The two handoffs are one-way on purpose — this
- * plugin opens things in Zotero and never asks Zotero to change anything.
+ * `.pdf` hands off to Zotero. Conversion is the one side-effect this plugin may
+ * request: it posts to the bridge's convert action, which runs the same Zotero
+ * menu command — it does not edit bibliographic fields from Obsidian.
  */
 
 import { Notice, TFile, type App } from "obsidian";
 import { shell } from "electron";
-import type { BridgePaper } from "./bridge";
+import type { BridgePaper, UnizeroBridge } from "./bridge";
+import type { PaperRef } from "./citation";
 import type { UnizeroSettings } from "./settings";
+
+/** Fields needed to decide Open note vs Convert, and to locate a vault file. */
+export interface MarkdownAvailability {
+  itemKey: string;
+  citekey?: string;
+  /** Collection-list / library-row flag from the bridge. */
+  hasMarkdown?: boolean;
+  links?: {
+    markdown?: string;
+    hasMarkdownAttachment: boolean;
+  };
+}
 
 /**
  * Find the vault note for a paper.
@@ -20,7 +34,7 @@ import type { UnizeroSettings } from "./settings";
  */
 export function findNoteForPaper(
   app: App,
-  paper: BridgePaper,
+  paper: MarkdownAvailability,
   settings: UnizeroSettings,
 ): TFile | undefined {
   const folder = settings.literatureFolder;
@@ -48,6 +62,23 @@ export function findNoteForPaper(
   return citekeyMatch;
 }
 
+/**
+ * Open note vs Convert is exclusive in Obsidian menus.
+ *
+ * True when Zotero already has a Markdown attachment / recorded URL, or a note
+ * for this item already exists in the vault. Re-conversion stays a Zotero-menu
+ * action so the note surface does not offer both at once.
+ */
+export function hasMarkdownAvailable(
+  app: App,
+  paper: MarkdownAvailability,
+  settings: UnizeroSettings,
+): boolean {
+  if (paper.hasMarkdown) { return true; }
+  if (paper.links?.hasMarkdownAttachment || paper.links?.markdown) { return true; }
+  return Boolean(findNoteForPaper(app, paper, settings));
+}
+
 export async function openMarkdownNote(
   app: App,
   paper: BridgePaper,
@@ -70,7 +101,30 @@ export async function openMarkdownNote(
   const label = paper.title || `${paper.libraryID}/${paper.itemKey}`;
   new Notice(paper.links.hasMarkdownAttachment
     ? `${label} has a Markdown attachment in Zotero, but no note in this vault.`
-    : `${label} has not been converted to Markdown yet.`);
+    : `${label} has not been converted to Markdown yet. Use “Convert to Markdown”.`);
+}
+
+/**
+ * Ask Zotero to run the paper-to-Markdown conversion for this item.
+ *
+ * The job runs in Zotero (UniZero panel); Obsidian only receives the acceptance
+ * ack. After it finishes, open the note again from the menu.
+ */
+export async function convertToMarkdown(
+  bridge: UnizeroBridge,
+  ref: PaperRef,
+  paper?: BridgePaper,
+): Promise<void> {
+  const label = paper?.title || `${ref.libraryID}/${ref.itemKey}`;
+  try {
+    const result = await bridge.convert(ref);
+    new Notice(
+      result.message
+      || `Conversion started for “${label}”. Watch the UniZero panel in Zotero, then open the note again.`,
+    );
+  } catch (error) {
+    new Notice(`UniZero: could not start conversion — ${(error as Error).message}`);
+  }
 }
 
 export async function openZoteroPdf(paper: BridgePaper): Promise<void> {
@@ -84,6 +138,7 @@ export async function openZoteroPdf(paper: BridgePaper): Promise<void> {
   await openExternal(paper.links.zoteroPdf);
 }
 
+/** Still used when a PDF is missing: jump to the item so the user can attach one. */
 export async function openInZotero(paper: BridgePaper): Promise<void> {
   await openExternal(paper.links.zoteroSelect);
 }
