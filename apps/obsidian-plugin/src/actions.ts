@@ -1,10 +1,9 @@
 /**
  * What each citation form does when clicked.
  *
- * `@key` stays inside Obsidian; `@key.md` resolves to a vault note; `@key.pdf`
- * hands off to Zotero. The two handoffs are one-way on purpose — this plugin
- * opens things in Zotero and never asks Zotero to change anything, so a misread
- * citekey can waste a click but cannot edit a library.
+ * `@libraryID/itemKey` stays inside Obsidian; `.md` resolves to a vault note;
+ * `.pdf` hands off to Zotero. The two handoffs are one-way on purpose — this
+ * plugin opens things in Zotero and never asks Zotero to change anything.
  */
 
 import { Notice, TFile, type App } from "obsidian";
@@ -15,10 +14,9 @@ import type { UnizeroSettings } from "./settings";
 /**
  * Find the vault note for a paper.
  *
- * The item key is checked before the citekey because it is the durable half of
- * the pair: a title correction in Zotero changes the derived citekey but never
- * the item key, and a note that records both should not lose its link over an
- * edit made somewhere else.
+ * The item key is checked first: it is the durable half of the identity pair.
+ * A citekey-named file or frontmatter field is only a fallback for notes that
+ * were named that way by conversion tools.
  */
 export function findNoteForPaper(
   app: App,
@@ -27,8 +25,12 @@ export function findNoteForPaper(
 ): TFile | undefined {
   const folder = settings.literatureFolder;
   if (folder) {
-    const direct = app.vault.getAbstractFileByPath(`${folder}/${paper.citekey}.md`);
-    if (direct instanceof TFile) { return direct; }
+    const byKey = app.vault.getAbstractFileByPath(`${folder}/${paper.itemKey}.md`);
+    if (byKey instanceof TFile) { return byKey; }
+    if (paper.citekey) {
+      const byCitekey = app.vault.getAbstractFileByPath(`${folder}/${paper.citekey}.md`);
+      if (byCitekey instanceof TFile) { return byCitekey; }
+    }
   }
 
   let citekeyMatch: TFile | undefined;
@@ -38,7 +40,7 @@ export function findNoteForPaper(
     if (String(frontmatter[settings.itemKeyProperty] || "") === paper.itemKey) {
       return file;
     }
-    if (!citekeyMatch &&
+    if (!citekeyMatch && paper.citekey &&
       String(frontmatter[settings.citekeyProperty] || "") === paper.citekey) {
       citekeyMatch = file;
     }
@@ -65,14 +67,17 @@ export async function openMarkdownNote(
     return;
   }
 
+  const label = paper.title || `${paper.libraryID}/${paper.itemKey}`;
   new Notice(paper.links.hasMarkdownAttachment
-    ? `@${paper.citekey} has a Markdown attachment in Zotero, but no note in this vault.`
-    : `@${paper.citekey} has not been converted to Markdown yet.`);
+    ? `${label} has a Markdown attachment in Zotero, but no note in this vault.`
+    : `${label} has not been converted to Markdown yet.`);
 }
 
 export async function openZoteroPdf(paper: BridgePaper): Promise<void> {
   if (!paper.links.zoteroPdf) {
-    new Notice(`@${paper.citekey} has no PDF attachment in Zotero.`);
+    new Notice(
+      `${paper.title || `${paper.libraryID}/${paper.itemKey}`} has no PDF attachment in Zotero.`,
+    );
     await openExternal(paper.links.zoteroSelect);
     return;
   }

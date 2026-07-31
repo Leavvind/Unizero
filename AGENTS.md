@@ -11,7 +11,7 @@ UniZero has three executable components:
 
 - `apps/zotero-addon`: the Zotero add-on;
 - `services/paper-runtime`: the optional Python service used for document processing;
-- `apps/obsidian-plugin`: the optional Obsidian plugin that renders `@citekey`.
+- `apps/obsidian-plugin`: the optional Obsidian plugin that renders `@libraryID/itemKey`.
 
 The add-on and the runtime integrate through the versioned localhost HTTP API; the
 canonical v1 schema is `packages/contracts/http/v1.schema.json`. The add-on and the

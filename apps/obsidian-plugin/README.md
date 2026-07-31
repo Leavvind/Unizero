@@ -1,6 +1,6 @@
 # UniZero for Obsidian
 
-Turns `@citekey` into a live Zotero paper inside Obsidian notes **and canvases**.
+Turns a Zotero item into a live paper citation inside Obsidian notes.
 
 The plugin stores no bibliographic data. Zotero, the reference cache, and the Paper
 catalog all live in the [Zotero add-on](../zotero-addon); this is a view of them over
@@ -10,36 +10,42 @@ the add-on's localhost bridge.
 
 | Written | Click does |
 | --- | --- |
-| `@citekey` | Opens the paper pane: metadata, References, Citations, Relation |
-| `@citekey.md` | Opens the converted Markdown note in this vault |
-| `@citekey.pdf` | Opens the PDF in Zotero |
+| `@libraryID/itemKey` | Opens the paper pane: metadata, References, Citations, Relation |
+| `@libraryID/itemKey.md` | Opens the converted Markdown note in this vault |
+| `@libraryID/itemKey.pdf` | Opens the PDF in Zotero |
 
-Right-clicking any of the three offers all four actions, including *Show in Zotero*.
-Typing `@` opens a completion list backed by the Zotero library. `\@notacitation`
-escapes the syntax, and email addresses are never matched.
+Example: `@1/HLP48L8X`. Right-clicking any of the three offers all four actions,
+including *Show in Zotero*. `\@notacitation` escapes the syntax, and email addresses
+are never matched.
 
-A citekey may contain letters, digits, `_`, and `-`, and must start with a letter.
-The `.` is reserved so the suffix stays unambiguous.
+The pill label defaults to **Author (year)** (or title). What is written in the
+source is the durable Zotero identity; you rarely need to read it.
 
-## Canvas
+## Finding a paper (`@` completion)
 
-There is no canvas-specific code here, and that is deliberate. A canvas text node is a
-live-preview editor while it is being edited and a rendered Markdown block the rest of
-the time, and a file node embeds a normal Markdown view. Registering a post-processor
-and a CodeMirror extension therefore covers canvases for free — without touching
-Obsidian's unofficial canvas internals, which change between releases.
+Typing `@` opens a completion list backed by the Zotero library. The query is
+**free text**: author names, title words, years, and citekey fragments all match,
+and every word in a multi-word query must hit somewhere.
 
-## Citekeys
+| You type | What happens |
+| --- | --- |
+| `@richardson` | Author / title / citekey / year search |
+| `@richardson accounting` | Multi-word search (spaces stay inside the query) |
+| pick a hit | Inserts `@libraryID/itemKey` into the note |
 
-A pinned `Citation Key: …` line in a Zotero item's Extra field always wins. Better
-BibTeX and Zotero's own citation-key support both write that line, so keys you already
-cite by keep working.
+Search is how you *find* a paper; `libraryID/itemKey` is what gets *written*.
 
-Without a pinned key the add-on derives one from the first author, the significant
-title words, and the year. A derived key is a **convenience, not an identity**: editing
-the title in Zotero changes it. The paper pane labels derived keys as such, and reports
-when two items derive the same one rather than picking a winner. Pin the key in Zotero
-for anything you intend to keep.
+## Identity
+
+| Role | What it is |
+| --- | --- |
+| **Search** | Free text at the `@` prompt |
+| **Written address** | `@libraryID/itemKey` in the note — durable, unambiguous across libraries |
+| **Display** | Author (year) / title on the pill; citekey may appear in the detail pane as metadata |
+
+A citekey (pinned in Extra or derived from metadata) is still useful for search and
+display. It is **not** the link: editing a title in Zotero can change a derived
+citekey, but never the item key.
 
 ## Requirements
 

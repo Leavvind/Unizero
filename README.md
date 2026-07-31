@@ -6,7 +6,7 @@ UniZero is a Zotero extension featuring:
 - PDF attachment conversion to Markdown;
 - annotation export and injection into Markdown;
 - a whiteboard for literature connections and exploration;
-- `@citekey` citations in Obsidian notes and canvases, backed by the same library.
+- free-text `@` citations in Obsidian notes, written as durable `libraryID/itemKey`, backed by the same library.
 
 The runtime-dependent features use a local Python service. Zotero remains the source of
 bibliographic metadata and annotations.
@@ -15,7 +15,7 @@ bibliographic metadata and annotations.
 
 ```text
 apps/zotero-addon/       Zotero 8 add-on, UI, commands, and scholarly providers
-apps/obsidian-plugin/    Obsidian plugin rendering @citekey against the add-on
+apps/obsidian-plugin/    Obsidian plugin: live papers against the add-on bridge
 services/paper-runtime/  Python service for PDF and Markdown processing
 packages/contracts/      Shared HTTP schemas and example payloads
 docs/                    Architecture, code map, design notes, decisions, and roadmap

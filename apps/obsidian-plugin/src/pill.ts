@@ -12,7 +12,12 @@
  * disruptive than a label that fills in a moment later.
  */
 
-import type { CitationAction, CitationToken } from "./citation";
+import {
+  paperRefKey,
+  type CitationAction,
+  type CitationToken,
+  type PaperRef,
+} from "./citation";
 import type { BridgePaper } from "./bridge";
 import type { PaperState, PaperStore } from "./paperStore";
 import type { PillLabel, UnizeroSettings } from "./settings";
@@ -21,9 +26,9 @@ export interface PillHost {
   readonly store: PaperStore;
   readonly settings: UnizeroSettings;
   /** Left click: run the action the syntax names. */
-  activate(action: CitationAction, citekey: string, paper: BridgePaper): void;
+  activate(action: CitationAction, ref: PaperRef, paper: BridgePaper): void;
   /** Right click: offer every action, whichever form was written. */
-  showMenu(event: MouseEvent, citekey: string, paper: BridgePaper): void;
+  showMenu(event: MouseEvent, ref: PaperRef, paper: BridgePaper): void;
 }
 
 const ACTION_MARK: Record<CitationAction, string> = {
@@ -38,8 +43,12 @@ function surname(author: string): string {
 }
 
 function shortLabel(paper: BridgePaper, style: PillLabel): string {
-  if (style === "citekey") { return `@${paper.citekey}`; }
-  if (style === "title") { return paper.title || `@${paper.citekey}`; }
+  if (style === "itemKey") {
+    return `@${paper.libraryID}/${paper.itemKey}`;
+  }
+  if (style === "title") {
+    return paper.title || `@${paper.libraryID}/${paper.itemKey}`;
+  }
 
   const authors = paper.authors.filter(Boolean);
   const lead = authors.length ? surname(authors[0]) : "";
@@ -53,7 +62,7 @@ function shortLabel(paper: BridgePaper, style: PillLabel): string {
 
   if (credit && paper.year) { return `${credit} (${paper.year})`; }
   if (credit) { return credit; }
-  return paper.title || `@${paper.citekey}`;
+  return paper.title || `@${paper.libraryID}/${paper.itemKey}`;
 }
 
 function tooltip(paper: BridgePaper, action: CitationAction): string {
@@ -61,7 +70,8 @@ function tooltip(paper: BridgePaper, action: CitationAction): string {
   const credit = [paper.authors.join(", "), paper.year].filter(Boolean).join(" · ");
   if (credit) { lines.push(credit); }
   if (paper.venue) { lines.push(paper.venue); }
-  lines.push(`@${paper.citekey}`);
+  lines.push(`@${paper.libraryID}/${paper.itemKey}`);
+  if (paper.citekey) { lines.push(`citekey ${paper.citekey}`); }
   if (paper.ambiguous) {
     lines.push("More than one item derives this citekey — pin it in Zotero's Extra field.");
   }
@@ -83,9 +93,10 @@ export function createPill(
   host: PillHost,
   token: CitationToken,
 ): { element: HTMLSpanElement; destroy: () => void } {
+  const ref: PaperRef = { libraryID: token.libraryID, itemKey: token.itemKey };
   const element = document.createElement("span");
   element.addClass("unizero-pill");
-  element.dataset.citekey = token.citekey;
+  element.dataset.ref = paperRefKey(ref);
   element.dataset.action = token.action;
 
   const label = element.createSpan({ cls: "unizero-pill__label" });
@@ -114,40 +125,36 @@ export function createPill(
     }
 
     paper = undefined;
-    // Every unresolved state keeps the citekey visible. The label is the only
-    // thing linking the pill back to the text the user wrote, and hiding it
-    // behind a spinner or an error word would make a broken citation harder to
-    // find than an unstyled one.
-    label.setText(`@${token.citekey}`);
+    // Every unresolved state keeps the written address visible. The label is the
+    // only thing linking the pill back to the text the user wrote.
+    label.setText(`@${paperRefKey(ref)}`);
 
     if (state.status === "loading") {
       element.addClass("unizero-pill--loading");
-      element.setAttr("aria-label", `Resolving @${token.citekey}…`);
+      element.setAttr("aria-label", `Resolving @${paperRefKey(ref)}…`);
     } else if (state.status === "missing") {
       element.addClass("unizero-pill--missing");
-      element.setAttr("aria-label", `No Zotero item matches @${token.citekey}`);
+      element.setAttr("aria-label", `No Zotero item at @${paperRefKey(ref)}`);
     } else {
       element.addClass("unizero-pill--error");
-      element.setAttr("aria-label", `@${token.citekey}: ${state.message}`);
+      element.setAttr("aria-label", `@${paperRefKey(ref)}: ${state.message}`);
     }
   };
 
-  const unsubscribe = host.store.subscribe(token.citekey, render);
+  const unsubscribe = host.store.subscribe(ref, render);
 
   const onClick = (event: MouseEvent) => {
     if (!paper) { return; }
-    // Let the click through only after it is known to mean something; an
-    // unresolved pill should behave like the plain text it currently is.
     event.preventDefault();
     event.stopPropagation();
-    host.activate(token.action, token.citekey, paper);
+    host.activate(token.action, ref, paper);
   };
 
   const onContextMenu = (event: MouseEvent) => {
     if (!paper) { return; }
     event.preventDefault();
     event.stopPropagation();
-    host.showMenu(event, token.citekey, paper);
+    host.showMenu(event, ref, paper);
   };
 
   element.addEventListener("click", onClick);

@@ -68,13 +68,18 @@ export interface BridgeRelatedPaper {
   /** Catalog identity, once a snapshot has observed this result. */
   paperID?: string;
   inLibrary: boolean;
+  /** Set when `inLibrary` — with `itemKey`, the durable address for notes. */
+  libraryID?: number;
   /** Set when `inLibrary`, so the consumer can link straight into Zotero. */
   itemKey?: string;
-  /** Set when the library item is addressable by a citekey. */
+  /** Convenience alias when the library item has one; not the note address. */
   citekey?: string;
 }
 
 export interface BridgeRelations {
+  libraryID: number;
+  itemKey: string;
+  /** Convenience alias for display; notes address the item by libraryID/itemKey. */
   citekey: string;
   kind: "references" | "citations" | "relation";
   /**
@@ -174,6 +179,7 @@ function relatedFromCandidate(
     isInfluential: candidate.isInfluential,
     paperID: candidate.paperID,
     inLibrary: membership.inLibrary,
+    libraryID: item ? item.libraryID : undefined,
     itemKey: item ? String(item.key) : undefined,
     citekey: item && membership.itemID
       ? citekeyOf(membership.libraryID, membership.itemID)
@@ -182,12 +188,14 @@ function relatedFromCandidate(
 }
 
 export function bridgeRelationsFromSnapshot(
-  citekey: string,
+  subject: { libraryID: number; itemKey: string; citekey: string },
   snapshot: LiteratureSnapshot,
   citekeyOf: (libraryID: number, itemID: number) => string | undefined,
 ): BridgeRelations {
   return {
-    citekey,
+    libraryID: subject.libraryID,
+    itemKey: subject.itemKey,
+    citekey: subject.citekey,
     kind: snapshot.kind,
     loaded: true,
     source: snapshot.source,
@@ -199,11 +207,13 @@ export function bridgeRelationsFromSnapshot(
 }
 
 export function bridgeRelationsUnloaded(
-  citekey: string,
+  subject: { libraryID: number; itemKey: string; citekey: string },
   kind: BridgeRelations["kind"],
 ): BridgeRelations {
   return {
-    citekey,
+    libraryID: subject.libraryID,
+    itemKey: subject.itemKey,
+    citekey: subject.citekey,
     kind,
     loaded: false,
     source: "",

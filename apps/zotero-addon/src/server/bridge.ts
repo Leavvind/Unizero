@@ -4,7 +4,7 @@
  * Zotero already runs an HTTP server on 127.0.0.1:23119 for its connector; adding
  * endpoints to it is the established way for a Zotero add-on to answer a process
  * it cannot be loaded into. That is what lets an Obsidian plugin render an
- * `@citekey` without shipping a second copy of the metadata, the reference cache,
+ * a paper without shipping a second copy of the metadata, the reference cache,
  * or the identity rules.
  *
  * Three properties are load-bearing:
@@ -138,17 +138,47 @@ type Lookup =
   | { found: true; citekey: string; ambiguous: boolean; item: Zotero.Item };
 
 /**
- * Resolve a citekey to a live item.
+ * Resolve a request to a live item.
  *
- * Reports ambiguity alongside the item because that is something the consumer
- * shows the user rather than a fact it can act on silently: a derived key that
- * two papers share has no right answer, and picking one quietly would attach a
- * note to the wrong paper.
+ * Preferred address is `libraryID` + `itemKey` — the durable pair external
+ * editors write into notes. `citekey` remains as a secondary lookup so older
+ * clients and hand-typed aliases still resolve; ambiguity is reported rather
+ * than silently resolved when that path is used.
  */
 async function lookup(query: RequestQuery): Promise<Lookup> {
+  const itemKey = String(query.itemKey || "").trim();
+  if (itemKey) {
+    const libraryID = optionalLibraryID(query);
+    if (libraryID === undefined) {
+      return { found: false, response: failure(400, "libraryID is required with itemKey") };
+    }
+    if (!/^[A-Za-z0-9]+$/.test(itemKey)) {
+      return { found: false, response: failure(400, "itemKey contains unsupported characters") };
+    }
+
+    const item = libraryItem(libraryID, itemKey);
+    if (!item) {
+      return {
+        found: false,
+        response: failure(404, `no item ${libraryID}/${itemKey}`),
+      };
+    }
+
+    let citekey = "";
+    try {
+      citekey = citekeyForItem(item);
+    } catch {
+      citekey = itemKey;
+    }
+    return { found: true, citekey, ambiguous: false, item };
+  }
+
   const citekey = String(query.citekey || "").trim();
   if (!citekey) {
-    return { found: false, response: failure(400, "citekey is required") };
+    return {
+      found: false,
+      response: failure(400, "itemKey (with libraryID) or citekey is required"),
+    };
   }
   if (!isValidCitekey(citekey)) {
     return {
@@ -221,19 +251,25 @@ async function handleRelations(query: RequestQuery): Promise<BridgeResponse> {
   const found = await lookup(query);
   if (!found.found) { return found.response; }
 
+  const subject = {
+    libraryID: found.item.libraryID,
+    itemKey: String(found.item.key),
+    citekey: found.citekey,
+  };
+
   const fetch = query.fetch === "1" || query.fetch === "true";
   if (kind !== "relation" && !fetch) {
     // Mirrors Unizero Home: a cache miss is reported, never quietly repaired by
     // calling the providers. `relationStatuses` reads shards only.
     const statuses = await views.relationStatuses(found.item);
     if (!statuses[kind].loaded) {
-      return json(200, bridgeRelationsUnloaded(found.citekey, kind));
+      return json(200, bridgeRelationsUnloaded(subject, kind));
     }
   }
 
   const snapshot = await views.getLiteratureSnapshot(found.item, kind);
   return json(200, bridgeRelationsFromSnapshot(
-    found.citekey,
+    subject,
     snapshot,
     citekeyForLibraryItem,
   ));

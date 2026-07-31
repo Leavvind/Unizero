@@ -1,9 +1,11 @@
 /**
  * `@` completion backed by the Zotero library.
  *
- * `EditorSuggest` is public Obsidian API and works in every Markdown editor,
- * which includes canvas text nodes — the same reason the renderers need no canvas
- * knowledge applies here.
+ * The query is free text (author, title, year, citekey fragment), including
+ * spaces. Selecting a hit always inserts `@libraryID/itemKey` — see
+ * `citationPrefixAt`.
+ *
+ * `EditorSuggest` is public Obsidian API and works in every Markdown editor.
  */
 
 import {
@@ -55,7 +57,6 @@ export class CitationSuggest extends EditorSuggest<BridgeSuggestion> {
 
   renderSuggestion(suggestion: BridgeSuggestion, element: HTMLElement): void {
     element.addClass("unizero-suggestion");
-    element.createDiv({ cls: "unizero-suggestion__key", text: `@${suggestion.citekey}` });
     element.createDiv({ cls: "unizero-suggestion__title", text: suggestion.title });
 
     const meta = [
@@ -66,13 +67,23 @@ export class CitationSuggest extends EditorSuggest<BridgeSuggestion> {
     if (meta) {
       element.createDiv({ cls: "unizero-suggestion__meta", text: meta });
     }
+
+    // Secondary line: what will be written, plus the citekey when useful.
+    const handle = [
+      `@${suggestion.libraryID}/${suggestion.itemKey}`,
+      suggestion.citekey ? suggestion.citekey : undefined,
+    ].filter(Boolean).join(" · ");
+    element.createDiv({ cls: "unizero-suggestion__key", text: handle });
   }
 
   selectSuggestion(suggestion: BridgeSuggestion): void {
     const context = this.context;
     if (!context) { return; }
     context.editor.replaceRange(
-      citationText(suggestion.citekey),
+      citationText({
+        libraryID: suggestion.libraryID,
+        itemKey: suggestion.itemKey,
+      }),
       context.start,
       context.end,
     );

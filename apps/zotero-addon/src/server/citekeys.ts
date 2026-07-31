@@ -216,18 +216,20 @@ export interface CitekeySuggestion extends CitekeyLocation {
 }
 
 /**
- * Prefix and substring matches for an editor's `@` completion.
+ * Free-text matches for an editor's `@` completion.
  *
- * Ranking is deliberately crude because the caller shows a short list and the
- * user is still typing:
+ * The query is **not** restricted to citekeys. Users type what they remember —
+ * author, title words, year, or a fragment of the key — and every token in a
+ * multi-word query must hit somewhere. Ranking stays crude because the caller
+ * shows a short list and the user is still typing:
  *
  *   0  citekey prefix
  *   1  citekey substring
  *   2  author (last or first name) prefix / substring
- *   3  title substring
+ *   3  year or title substring
  *
- * Author matching is what makes typing `@richardson` useful: a citekey is often
- * long camelCase, and users reach for the name they remember, not the key.
+ * Multi-word examples that should work: `richardson accounting`,
+ * `why nations fail`, `acemoglu 2012`.
  */
 export async function suggestCitekeys(
   query: string,
@@ -248,8 +250,9 @@ export async function suggestCitekeys(
         const authors = item.getCreators()
           .map((creator) => String(creator.lastName || creator.firstName || "").trim())
           .filter(Boolean);
+        const year = yearSegment(item) || undefined;
 
-        let rank = rankSuggestion(needle, citekey, title, authors);
+        const rank = rankSuggestion(needle, citekey, title, authors, year);
         if (rank < 0) { continue; }
 
         scored.push({
@@ -259,7 +262,7 @@ export async function suggestCitekeys(
             citekey,
             title,
             authors,
-            year: yearSegment(item) || undefined,
+            year,
           },
         });
       }
@@ -277,19 +280,44 @@ function rankSuggestion(
   citekey: string,
   title: string,
   authors: string[],
+  year?: string,
 ): number {
-  if (!needle) { return 3; }
+  const tokens = needle.split(/\s+/).filter(Boolean);
+  if (!tokens.length) { return 4; }
 
   const key = citekey.toLowerCase();
-  if (key.startsWith(needle)) { return 0; }
-  if (key.includes(needle)) { return 1; }
+  const titleL = title.toLowerCase();
+  const authorNames = authors.map((author) => author.toLowerCase());
+  const yearL = (year || "").toLowerCase();
 
-  for (const author of authors) {
-    const name = author.toLowerCase();
-    if (name.startsWith(needle) || name.includes(needle)) { return 2; }
+  // Every token must match at least one field; the best (lowest) single-token
+  // rank is what we sort by, so a citekey-prefix hit still floats to the top
+  // even when the query also carries a year or a title word.
+  let best = 99;
+  for (const token of tokens) {
+    const tokenRank = rankToken(token, key, titleL, authorNames, yearL);
+    if (tokenRank < 0) { return -1; }
+    if (tokenRank < best) { best = tokenRank; }
+  }
+  return best;
+}
+
+function rankToken(
+  token: string,
+  key: string,
+  titleL: string,
+  authorNames: string[],
+  yearL: string,
+): number {
+  if (key.startsWith(token)) { return 0; }
+  if (key.includes(token)) { return 1; }
+
+  for (const name of authorNames) {
+    if (name.startsWith(token) || name.includes(token)) { return 2; }
   }
 
-  if (title.toLowerCase().includes(needle)) { return 3; }
+  if (yearL && yearL.includes(token)) { return 3; }
+  if (titleL.includes(token)) { return 3; }
   return -1;
 }
 

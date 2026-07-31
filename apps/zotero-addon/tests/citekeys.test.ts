@@ -215,6 +215,14 @@ describe("suggestCitekeys", () => {
     expect(results.map((entry) => entry.itemKey)).toEqual(["BBB"]);
   });
 
+  it("requires every token of a multi-word query to match", async () => {
+    // author + title word pins the hit; a title word alone would also match BBB,
+    // so the negative case is the one that proves the AND.
+    expect((await suggestCitekeys("breiman deep", 10)).map((e) => e.itemKey)).toEqual([]);
+    expect((await suggestCitekeys("breiman trees", 10)).map((e) => e.itemKey)).toEqual(["BBB"]);
+    expect((await suggestCitekeys("lecun 2020", 10)).map((e) => e.itemKey)).toEqual(["AAA"]);
+  });
+
   it("returns everything for an empty query", async () => {
     expect(await suggestCitekeys("", 10)).toHaveLength(2);
   });

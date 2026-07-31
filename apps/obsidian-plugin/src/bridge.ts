@@ -12,6 +12,7 @@
  */
 
 import { requestUrl } from "obsidian";
+import type { PaperRef } from "./citation";
 
 export const BRIDGE_API = 1;
 
@@ -53,6 +54,7 @@ export interface BridgeRelatedPaper {
   isInfluential?: boolean;
   paperID?: string;
   inLibrary: boolean;
+  libraryID?: number;
   itemKey?: string;
   citekey?: string;
 }
@@ -60,6 +62,8 @@ export interface BridgeRelatedPaper {
 export type RelationKind = "references" | "citations" | "relation";
 
 export interface BridgeRelations {
+  libraryID: number;
+  itemKey: string;
   citekey: string;
   kind: RelationKind;
   loaded: boolean;
@@ -135,8 +139,11 @@ export class UnizeroBridge {
     return this.get<BridgePing>("ping", {});
   }
 
-  paper(citekey: string): Promise<BridgePaper> {
-    return this.get<BridgePaper>("paper", { citekey });
+  paper(ref: PaperRef): Promise<BridgePaper> {
+    return this.get<BridgePaper>("paper", {
+      libraryID: String(ref.libraryID),
+      itemKey: ref.itemKey,
+    });
   }
 
   /**
@@ -148,12 +155,13 @@ export class UnizeroBridge {
    * ask for. Only an explicit click passes `fetch: true`.
    */
   relations(
-    citekey: string,
+    ref: PaperRef,
     kind: RelationKind,
     options: { fetch?: boolean } = {},
   ): Promise<BridgeRelations> {
     return this.get<BridgeRelations>("relations", {
-      citekey,
+      libraryID: String(ref.libraryID),
+      itemKey: ref.itemKey,
       kind,
       fetch: options.fetch ? "1" : undefined,
     });

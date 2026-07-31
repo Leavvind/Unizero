@@ -6,15 +6,18 @@
  * reached over the localhost bridge. That is the whole design: one backend, two
  * front ends, and no second copy of the identity rules to drift out of step.
  *
- * Note the absence of any canvas code. Citations work on a canvas because a
- * canvas node is an ordinary Markdown surface — so the two renderers registered
- * below cover it without touching Obsidian's unofficial canvas internals.
+ * Notes store `@libraryID/itemKey`. Search at the `@` prompt is free text; the
+ * pill shows Author (year) or title so the opaque key never has to be read.
  */
 
 import { Menu, Notice, Plugin, type WorkspaceLeaf } from "obsidian";
 import { openInZotero, openMarkdownNote, openZoteroPdf } from "./actions";
 import { UnizeroBridge, BRIDGE_API, type BridgePaper } from "./bridge";
-import { citationText, type CitationAction } from "./citation";
+import {
+  citationText,
+  type CitationAction,
+  type PaperRef,
+} from "./citation";
 import { DETAIL_VIEW_TYPE, UnizeroDetailView } from "./detailView";
 import { PaperStore } from "./paperStore";
 import type { PillHost } from "./pill";
@@ -76,6 +79,10 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
 
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // Early builds used "citekey" as a pill label; map it onto the durable form.
+    if ((this.settings.pillLabel as string) === "citekey") {
+      this.settings.pillLabel = "itemKey";
+    }
   }
 
   async saveSettings(): Promise<void> {
@@ -87,7 +94,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
 
   // --- PillHost -----------------------------------------------------------
 
-  activate(action: CitationAction, citekey: string, paper: BridgePaper): void {
+  activate(action: CitationAction, ref: PaperRef, paper: BridgePaper): void {
     if (action === "markdown") {
       void openMarkdownNote(this.app, paper, this.settings);
       return;
@@ -96,16 +103,16 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       void openZoteroPdf(paper);
       return;
     }
-    void this.showInDetailView(citekey);
+    void this.showInDetailView(ref);
   }
 
-  showMenu(event: MouseEvent, citekey: string, paper: BridgePaper): void {
+  showMenu(event: MouseEvent, ref: PaperRef, paper: BridgePaper): void {
     const menu = new Menu();
 
     menu.addItem((item) => item
       .setTitle("Open paper pane")
       .setIcon("graduation-cap")
-      .onClick(() => { void this.showInDetailView(citekey); }));
+      .onClick(() => { void this.showInDetailView(ref); }));
 
     menu.addItem((item) => item
       .setTitle("Open Markdown note")
@@ -125,9 +132,9 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     menu.addSeparator();
 
     menu.addItem((item) => item
-      .setTitle("Copy citekey")
+      .setTitle("Copy citation")
       .setIcon("copy")
-      .onClick(() => { void navigator.clipboard.writeText(citationText(citekey)); }));
+      .onClick(() => { void navigator.clipboard.writeText(citationText(ref)); }));
 
     menu.showAtMouseEvent(event);
   }
@@ -149,19 +156,19 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     return leaf.view instanceof UnizeroDetailView ? leaf.view : undefined;
   }
 
-  async showInDetailView(citekey: string): Promise<void> {
+  async showInDetailView(ref: PaperRef): Promise<void> {
     const view = await this.revealDetailView();
-    view?.show(citekey);
+    view?.show(ref);
   }
 
   /** Insert a citation at the cursor of the active Markdown editor. */
-  insertCitation(citekey: string): void {
+  insertCitation(ref: PaperRef): void {
     const editor = this.app.workspace.activeEditor?.editor;
     if (!editor) {
       new Notice("No editor is focused — click into a note or card first.");
       return;
     }
-    editor.replaceSelection(citationText(citekey));
+    editor.replaceSelection(citationText(ref));
   }
 
   async testConnection(): Promise<void> {

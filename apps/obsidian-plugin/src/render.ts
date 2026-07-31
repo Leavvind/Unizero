@@ -114,7 +114,8 @@ class CitationWidget extends WidgetType {
    * on every keystroke elsewhere in the document.
    */
   eq(other: CitationWidget): boolean {
-    return other.token.citekey === this.token.citekey &&
+    return other.token.libraryID === this.token.libraryID &&
+      other.token.itemKey === this.token.itemKey &&
       other.token.action === this.token.action;
   }
 

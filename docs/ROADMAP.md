@@ -110,20 +110,16 @@ not reintroduce a whole-library graph without a purpose the Board does not alrea
 
 ## Obsidian plugin
 
-The first slice — `@citekey` pills in notes and canvases, `@citekey.md` / `@citekey.pdf`
-jumps, `@` completion, and a read-only detail pane — is implemented and unverified
-against a real vault. Open work:
+The first slice — `@libraryID/itemKey` pills (Author/year display), `.md` / `.pdf`
+jumps, free-text `@` completion, and a read-only detail pane — is implemented. Open work:
 
 - Manual verification in Obsidian against a running Zotero: rendering in both editor
-  modes and inside canvas text and file nodes, the suggester, and every jump target.
-- Dragging a Zotero item or a Detail-pane row into a canvas. Dropping plain `@citekey`
-  text already produces a working card; a native-looking drag needs `app.dragManager`,
-  which is unofficial and should be weighed against what it buys.
-- A command that pins a derived citekey into the Zotero item's Extra field. This is the
-  answer to citekey drift, but it is the first write the bridge would perform, so it
-  needs an explicit, per-item user action and must not become an automatic repair.
-- Adding an out-of-library paper to Zotero from within Obsidian. Same constraint: a
-  write path needs its own deliberate design, not an extension of the read bridge.
+  modes, the multi-word suggester, and every jump target.
+- Dragging a Zotero item or a Detail-pane row into a note or canvas. Dropping plain
+  `@libraryID/itemKey` text already produces a working citation; a native-looking drag
+  needs `app.dragManager`, which is unofficial and should be weighed against what it buys.
+- Adding an out-of-library paper to Zotero from within Obsidian. A write path needs its
+  own deliberate design, not an extension of the read bridge.
 
 ## Product work
 

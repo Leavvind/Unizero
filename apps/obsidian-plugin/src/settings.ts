@@ -1,18 +1,18 @@
 import { PluginSettingTab, Setting, type App } from "obsidian";
 import type UnizeroPlugin from "./main";
 
-/** How a resolved pill labels itself. The citekey is always the tooltip. */
-export type PillLabel = "citekey" | "authorYear" | "title";
+/** How a resolved pill labels itself. The written address is always in the tooltip. */
+export type PillLabel = "authorYear" | "title" | "itemKey";
 
 export interface UnizeroSettings {
   /** Zotero's built-in HTTP server. Changing the port here matches Zotero's own. */
   endpoint: string;
   pillLabel: PillLabel;
-  /** Folder searched first for `@citekey.md`. Empty means the whole vault. */
+  /** Folder searched first for literature notes. Empty means the whole vault. */
   literatureFolder: string;
-  /** Frontmatter property holding a note's citekey. */
+  /** Frontmatter property holding a note's citekey (fallback match). */
   citekeyProperty: string;
-  /** Frontmatter property holding the Zotero item key — survives a citekey change. */
+  /** Frontmatter property holding the Zotero item key — preferred match. */
   itemKeyProperty: string;
 }
 
@@ -56,11 +56,11 @@ export class UnizeroSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Citation label")
-      .setDesc("What a resolved @citekey shows inline.")
+      .setDesc("What a resolved citation shows inline. Notes store libraryID/itemKey.")
       .addDropdown((dropdown) => dropdown
         .addOption("authorYear", "Author (year)")
         .addOption("title", "Title")
-        .addOption("citekey", "Citekey")
+        .addOption("itemKey", "libraryID/itemKey")
         .setValue(this.plugin.settings.pillLabel)
         .onChange(async (value) => {
           this.plugin.settings.pillLabel = value as PillLabel;
@@ -72,8 +72,8 @@ export class UnizeroSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Literature note folder")
       .setDesc(
-        "Searched first when opening @citekey.md, for a note named after the " +
-        "citekey. Leave empty to search the whole vault by frontmatter.",
+        "Searched first when opening a .md citation, for a note named after the " +
+        "item key (or citekey). Leave empty to search the whole vault by frontmatter.",
       )
       .addText((text) => text
         .setPlaceholder("Literature")
@@ -84,23 +84,10 @@ export class UnizeroSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
-      .setName("Citekey property")
-      .setDesc("Frontmatter property matched against the citekey.")
-      .addText((text) => text
-        .setPlaceholder(DEFAULT_SETTINGS.citekeyProperty)
-        .setValue(this.plugin.settings.citekeyProperty)
-        .onChange(async (value) => {
-          this.plugin.settings.citekeyProperty = value.trim() ||
-            DEFAULT_SETTINGS.citekeyProperty;
-          await this.plugin.saveSettings();
-        }));
-
-    new Setting(containerEl)
       .setName("Zotero item key property")
       .setDesc(
-        "Frontmatter property holding the Zotero item key. Preferred over the " +
-        "citekey when both are present: an item key survives a metadata edit that " +
-        "changes the citekey.",
+        "Frontmatter property holding the Zotero item key. Preferred when matching " +
+        "vault notes to papers.",
       )
       .addText((text) => text
         .setPlaceholder(DEFAULT_SETTINGS.itemKeyProperty)
@@ -108,6 +95,18 @@ export class UnizeroSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.plugin.settings.itemKeyProperty = value.trim() ||
             DEFAULT_SETTINGS.itemKeyProperty;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Citekey property")
+      .setDesc("Frontmatter property matched as a fallback against the citekey.")
+      .addText((text) => text
+        .setPlaceholder(DEFAULT_SETTINGS.citekeyProperty)
+        .setValue(this.plugin.settings.citekeyProperty)
+        .onChange(async (value) => {
+          this.plugin.settings.citekeyProperty = value.trim() ||
+            DEFAULT_SETTINGS.citekeyProperty;
           await this.plugin.saveSettings();
         }));
   }

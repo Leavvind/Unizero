@@ -19,6 +19,7 @@ import {
   type BridgeRelations,
   type RelationKind,
 } from "./bridge";
+import { paperRefKey, type PaperRef } from "./citation";
 import type { PaperState } from "./paperStore";
 import type UnizeroPlugin from "./main";
 import { openInZotero, openMarkdownNote, openZoteroPdf } from "./actions";
@@ -32,7 +33,7 @@ const TABS: { kind: RelationKind; label: string }[] = [
 ];
 
 export class UnizeroDetailView extends ItemView {
-  private citekey?: string;
+  private ref?: PaperRef;
   private kind: RelationKind = "references";
   private unsubscribe?: () => void;
   private relations?: BridgeRelations;
@@ -46,7 +47,9 @@ export class UnizeroDetailView extends ItemView {
   }
 
   getViewType(): string { return DETAIL_VIEW_TYPE; }
-  getDisplayText(): string { return this.citekey ? `@${this.citekey}` : "UniZero"; }
+  getDisplayText(): string {
+    return this.ref ? `@${paperRefKey(this.ref)}` : "UniZero";
+  }
   getIcon(): string { return "graduation-cap"; }
 
   async onOpen(): Promise<void> {
@@ -59,25 +62,31 @@ export class UnizeroDetailView extends ItemView {
     this.unsubscribe = undefined;
   }
 
-  /** Point the pane at a paper. Safe to call repeatedly with the same key. */
-  show(citekey: string): void {
-    if (this.citekey === citekey) { return; }
-    this.citekey = citekey;
+  /** Point the pane at a paper. Safe to call repeatedly with the same ref. */
+  show(ref: PaperRef): void {
+    if (
+      this.ref &&
+      this.ref.libraryID === ref.libraryID &&
+      this.ref.itemKey === ref.itemKey
+    ) {
+      return;
+    }
+    this.ref = { libraryID: ref.libraryID, itemKey: ref.itemKey };
     this.relations = undefined;
     this.relationsError = undefined;
     this.generation += 1;
 
     this.unsubscribe?.();
-    this.unsubscribe = this.plugin.store.subscribe(citekey, () => {
+    this.unsubscribe = this.plugin.store.subscribe(this.ref, () => {
       this.render();
       void this.loadRelations(false);
     });
   }
 
   private async loadRelations(fetch: boolean): Promise<void> {
-    const citekey = this.citekey;
-    if (!citekey) { return; }
-    const state = this.plugin.store.peek(citekey);
+    const ref = this.ref;
+    if (!ref) { return; }
+    const state = this.plugin.store.peek(ref);
     if (state?.status !== "ready") { return; }
     if (this.relations && this.relations.kind === this.kind && !fetch) { return; }
 
@@ -88,7 +97,7 @@ export class UnizeroDetailView extends ItemView {
     this.render();
 
     try {
-      const relations = await this.plugin.bridge.relations(citekey, kind, { fetch });
+      const relations = await this.plugin.bridge.relations(ref, kind, { fetch });
       if (generation !== this.generation || kind !== this.kind) { return; }
       this.relations = relations;
     } catch (error) {
@@ -107,7 +116,7 @@ export class UnizeroDetailView extends ItemView {
     const container = this.contentEl;
     container.empty();
 
-    if (!this.citekey) {
+    if (!this.ref) {
       container.createDiv({
         cls: "unizero-detail__empty",
         text: "Click an @citation to see the paper here.",
@@ -115,11 +124,11 @@ export class UnizeroDetailView extends ItemView {
       return;
     }
 
-    const state = this.plugin.store.peek(this.citekey);
+    const state = this.plugin.store.peek(this.ref);
     if (!state || state.status === "loading") {
       container.createDiv({
         cls: "unizero-detail__empty",
-        text: `Resolving @${this.citekey}…`,
+        text: `Resolving @${paperRefKey(this.ref)}…`,
       });
       return;
     }
@@ -135,10 +144,10 @@ export class UnizeroDetailView extends ItemView {
 
   private renderUnresolved(container: HTMLElement, state: PaperState): void {
     const box = container.createDiv({ cls: "unizero-detail__empty" });
-    box.createEl("h3", { text: `@${this.citekey}` });
+    box.createEl("h3", { text: `@${paperRefKey(this.ref!)}` });
     box.createEl("p", {
       text: state.status === "missing"
-        ? "No item in any open Zotero library derives this citekey."
+        ? "No Zotero item matches this libraryID/itemKey."
         : `Could not reach Zotero: ${state.status === "error" ? state.message : ""}`,
     });
     if (state.status === "error") {
@@ -153,7 +162,10 @@ export class UnizeroDetailView extends ItemView {
     const paper = state.paper;
     const header = container.createDiv({ cls: "unizero-detail__header" });
 
-    header.createEl("h2", { cls: "unizero-detail__title", text: paper.title || paper.citekey });
+    header.createEl("h2", {
+      cls: "unizero-detail__title",
+      text: paper.title || `@${paper.libraryID}/${paper.itemKey}`,
+    });
 
     const credit = [paper.authors.join(", "), paper.year].filter(Boolean).join(" · ");
     if (credit) {
@@ -164,23 +176,20 @@ export class UnizeroDetailView extends ItemView {
     }
 
     const badges = header.createDiv({ cls: "unizero-detail__badges" });
-    badges.createSpan({ cls: "unizero-badge", text: `@${paper.citekey}` });
-    if (!paper.citekeyPinned) {
-      // A derived key is a convenience, not an identity. Saying so where the key
-      // is shown is what stops a user from treating it as one.
+    badges.createSpan({
+      cls: "unizero-badge",
+      text: `${paper.libraryID}/${paper.itemKey}`,
+    });
+    if (paper.citekey) {
       badges.createSpan({
         cls: "unizero-badge unizero-badge--muted",
-        text: "derived key",
+        text: paper.citekey,
       }).setAttr(
         "aria-label",
-        "Derived from the metadata. Add `Citation Key: …` to the item's Extra field in Zotero to make it permanent.",
+        paper.citekeyPinned
+          ? "Pinned citation key in Zotero Extra"
+          : "Derived citation key (not the note address)",
       );
-    }
-    if (paper.ambiguous) {
-      badges.createSpan({
-        cls: "unizero-badge unizero-badge--warn",
-        text: "ambiguous",
-      }).setAttr("aria-label", "More than one item derives this citekey.");
     }
     if (paper.doi) { badges.createSpan({ cls: "unizero-badge", text: paper.doi }); }
     if (typeof paper.citationCount === "number") {
@@ -297,17 +306,23 @@ export class UnizeroDetailView extends ItemView {
     if (meta) { row.createDiv({ cls: "unizero-row__meta", text: meta }); }
 
     const actions = row.createDiv({ cls: "unizero-row__actions" });
-    if (related.citekey) {
-      const open = actions.createEl("button", { text: `@${related.citekey}` });
-      open.addEventListener("click", () => this.show(related.citekey!));
+    if (
+      related.inLibrary &&
+      typeof related.libraryID === "number" &&
+      related.itemKey
+    ) {
+      const ref: PaperRef = {
+        libraryID: related.libraryID,
+        itemKey: related.itemKey,
+      };
+      const open = actions.createEl("button", { text: "Open" });
+      open.addEventListener("click", () => this.show(ref));
 
       const insert = actions.createEl("button", { text: "Insert" });
       insert.setAttr("aria-label", "Insert this citation at the cursor");
-      insert.addEventListener("click", () => this.plugin.insertCitation(related.citekey!));
+      insert.addEventListener("click", () => this.plugin.insertCitation(ref));
     } else if (related.inLibrary) {
-      // In the library but not addressable: the item exists, yet nothing here can
-      // name it. Saying which of the two is missing is more useful than hiding it.
-      actions.createSpan({ cls: "unizero-row__note", text: "in library, no citekey" });
+      actions.createSpan({ cls: "unizero-row__note", text: "in library" });
     } else {
       actions.createSpan({ cls: "unizero-row__note", text: "not in library" });
     }
@@ -323,7 +338,7 @@ export class UnizeroDetailView extends ItemView {
 
   /** Re-read the current paper and its relations, ignoring what is cached here. */
   refresh(): void {
-    if (!this.citekey) {
+    if (!this.ref) {
       new Notice("No paper is open in the UniZero pane.");
       return;
     }
