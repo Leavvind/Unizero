@@ -241,6 +241,10 @@ export class UnizeroLibraryView extends ItemView {
     const host = body ??
       (this.contentEl.querySelector(".unizero-library__body") as HTMLElement | null);
     if (!host) { return; }
+
+    const previousList = host.querySelector(".unizero-library__list") as HTMLElement | null;
+    const scrollTop = previousList?.scrollTop ?? 0;
+
     host.empty();
 
     this.renderStatus(host);
@@ -277,6 +281,33 @@ export class UnizeroLibraryView extends ItemView {
     for (const item of visible) {
       this.renderRow(list, item);
     }
+    // Preserve position across filter / data refreshes; selection uses
+    // updateSelectionHighlight() so it never rebuilds the list.
+    list.scrollTop = scrollTop;
+  }
+
+  /** Mark the selected row without rebuilding the list (avoids scroll jump). */
+  private updateSelectionHighlight(): void {
+    const list = this.contentEl.querySelector(".unizero-library__list");
+    if (!list) { return; }
+    for (const el of Array.from(list.querySelectorAll(".unizero-library__item"))) {
+      const row = el as HTMLElement;
+      const key = row.dataset.itemKey;
+      const libraryID = Number(row.dataset.libraryId);
+      row.toggleClass(
+        "is-selected",
+        key === this.selectedKey && libraryID === this.libraryID,
+      );
+    }
+  }
+
+  private openItem(item: BridgeCollectionItem): void {
+    this.selectedKey = item.itemKey;
+    this.updateSelectionHighlight();
+    void this.plugin.showInDetailView({
+      libraryID: item.libraryID,
+      itemKey: item.itemKey,
+    });
   }
 
   private renderToolbar(container: HTMLElement): void {
@@ -365,16 +396,23 @@ export class UnizeroLibraryView extends ItemView {
   }
 
   private renderRow(parent: HTMLElement, item: BridgeCollectionItem): void {
-    const row = parent.createEl("button", { cls: "unizero-library__item" });
+    // A plain div, not <button>: Obsidian's button styles force single-line
+    // content and hide the multi-line title + meta layout Home uses.
+    const row = parent.createDiv({ cls: "unizero-library__item" });
+    row.dataset.itemKey = item.itemKey;
+    row.dataset.libraryId = String(item.libraryID);
+    row.setAttr("role", "button");
+    row.setAttr("tabindex", "0");
     row.toggleClass(
       "is-selected",
       this.selectedKey === item.itemKey && this.libraryID === item.libraryID,
     );
     row.setAttr("title", item.title || "Untitled");
 
+    const titleText = item.title?.trim() || "Untitled";
     row.createDiv({
       cls: "unizero-library__item-title",
-      text: item.title || "Untitled",
+      text: titleText,
     });
     const meta = [
       item.authors[0],
@@ -392,14 +430,12 @@ export class UnizeroLibraryView extends ItemView {
       badges.createSpan({ cls: "unizero-badge", text: "MD" });
     }
 
-    row.addEventListener("click", () => {
-      this.selectedKey = item.itemKey;
-      this.renderBody();
-      const ref: PaperRef = {
-        libraryID: item.libraryID,
-        itemKey: item.itemKey,
-      };
-      void this.plugin.showInDetailView(ref);
+    row.addEventListener("click", () => this.openItem(item));
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        this.openItem(item);
+      }
     });
 
     row.addEventListener("contextmenu", (event) => {
@@ -418,11 +454,7 @@ export class UnizeroLibraryView extends ItemView {
     menu.addItem((entry) => entry
       .setTitle("Open paper pane")
       .setIcon("graduation-cap")
-      .onClick(() => {
-        this.selectedKey = item.itemKey;
-        this.renderBody();
-        void this.plugin.showInDetailView(ref);
-      }));
+      .onClick(() => this.openItem(item)));
 
     menu.addItem((entry) => entry
       .setTitle("Insert citation")

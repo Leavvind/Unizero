@@ -272,16 +272,16 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.15em;
+  gap: 0.2em;
   width: 100%;
+  box-sizing: border-box;
   text-align: left;
   padding: var(--size-2-2) var(--size-4-1);
-  border: none;
   border-radius: var(--radius-s);
   background: transparent;
-  box-shadow: none;
   cursor: pointer;
   color: var(--text-normal);
+  white-space: normal;
 }
 
 .unizero-library__item:hover {
@@ -292,18 +292,33 @@
   background-color: var(--background-modifier-active-hover);
 }
 
+.unizero-library__item:focus-visible {
+  outline: 2px solid var(--background-modifier-border-focus);
+  outline-offset: -2px;
+}
+
+/* Title first (like Home's collection list); author · year underneath. */
 .unizero-library__item-title {
   font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
   line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  color: var(--text-normal);
+  white-space: normal;
   overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  word-break: break-word;
 }
 
 .unizero-library__item-meta {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .unizero-library__item-badges {
