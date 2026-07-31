@@ -15,6 +15,8 @@ import {
 } from "../modules/itemIdentifiers";
 import type { LiteratureCandidate, LiteratureSnapshot } from "../modules/literatureRelations";
 import {
+  literatureItemsInScope,
+  literaturePaperMetadata,
   markdownAttachment,
   pdfAttachment,
 } from "../zotero/literatureCollectionAdapter";
@@ -221,5 +223,177 @@ export function bridgeRelationsUnloaded(
     count: 0,
     hasMore: false,
     items: [],
+  };
+}
+
+/** One Zotero library the consumer can scope a collection list to. */
+export interface BridgeLibrary {
+  libraryID: number;
+  name: string;
+  /** Zotero library type (`user`, `group`, …). */
+  type: string;
+}
+
+/**
+ * One collection under a library. Identity for external editors is
+ * `libraryID` + `collectionKey`; numeric collection IDs stay internal.
+ */
+export interface BridgeCollection {
+  libraryID: number;
+  collectionKey: string;
+  name: string;
+  /** Parent collection key when nested; omitted for top-level collections. */
+  parentKey?: string;
+}
+
+export interface BridgeCollections {
+  libraries: BridgeLibrary[];
+  collections: BridgeCollection[];
+}
+
+/** A paper row for the library / collection browser (Home's left column). */
+export interface BridgeCollectionItem {
+  libraryID: number;
+  itemKey: string;
+  title: string;
+  authors: string[];
+  year?: string;
+  venue?: string;
+  hasPDF: boolean;
+  hasMarkdown: boolean;
+}
+
+export interface BridgeCollectionItems {
+  scope: {
+    libraryID: number;
+    /** Absent when the scope is the whole library. */
+    collectionKey?: string;
+    name: string;
+  };
+  items: BridgeCollectionItem[];
+}
+
+function libraryName(libraryID: number): string {
+  const library = (Zotero.Libraries as any).get?.(libraryID);
+  return String(library?.name || library?.libraryType || `Library ${libraryID}`);
+}
+
+function collectionByLibraryAndKey(
+  libraryID: number,
+  collectionKey: string,
+): Zotero.Collection | undefined {
+  const api = Zotero.Collections as any;
+  if (typeof api.getByLibraryAndKey === "function") {
+    const found = api.getByLibraryAndKey(libraryID, collectionKey) as
+      Zotero.Collection | false | undefined;
+    if (found) { return found; }
+  }
+  const rows = api.getByLibrary?.(libraryID) as Zotero.Collection[] | false | undefined;
+  if (!rows || !Array.isArray(rows)) { return undefined; }
+  return rows.find((collection) => String((collection as any).key || "") === collectionKey);
+}
+
+/** Flat list of libraries and their collections for a collection picker. */
+export function bridgeCollections(): BridgeCollections {
+  const libraries: BridgeLibrary[] = Zotero.Libraries.getAll()
+    .map((library) => {
+      const libraryID = Number(library.libraryID);
+      return {
+        libraryID,
+        name: String(library.name || library.libraryType || `Library ${libraryID}`),
+        type: String(library.libraryType || "user"),
+      };
+    })
+    .filter((entry) => Number.isInteger(entry.libraryID) && entry.libraryID > 0);
+
+  const collections: BridgeCollection[] = [];
+  for (const library of libraries) {
+    const rows = Zotero.Collections.getByLibrary(library.libraryID) as
+      Zotero.Collection[] | false | undefined;
+    if (!rows || !Array.isArray(rows)) { continue; }
+
+    const byID = new Map<number, Zotero.Collection>();
+    for (const collection of rows) {
+      if (collection && typeof collection.id === "number") {
+        byID.set(collection.id, collection);
+      }
+    }
+
+    for (const collection of rows) {
+      if (!collection) { continue; }
+      const collectionKey = String((collection as any).key || "");
+      if (!collectionKey) { continue; }
+
+      const parentID = Number((collection as any).parentID || 0);
+      const parent = parentID > 0 ? byID.get(parentID) : undefined;
+      const parentKey = parent ? String((parent as any).key || "") : "";
+
+      collections.push({
+        libraryID: library.libraryID,
+        collectionKey,
+        name: String(collection.name || "Untitled"),
+        parentKey: parentKey || undefined,
+      });
+    }
+  }
+
+  return { libraries, collections };
+}
+
+/**
+ * Papers filed directly in a collection, or every regular item in a library
+ * when `collectionKey` is omitted. Direct membership only — subcollections are
+ * separate scopes, matching Unizero Home and Zotero's own collection pane.
+ */
+export async function bridgeCollectionItems(
+  libraryID: number,
+  collectionKey?: string,
+): Promise<BridgeCollectionItems | { error: string; status: number }> {
+  let collectionID: number | undefined;
+  let name = libraryName(libraryID);
+
+  if (collectionKey) {
+    const collection = collectionByLibraryAndKey(libraryID, collectionKey);
+    if (!collection) {
+      return {
+        status: 404,
+        error: `no collection ${libraryID}/${collectionKey}`,
+      };
+    }
+    collectionID = collection.id;
+    name = String(collection.name || name);
+  } else {
+    const library = (Zotero.Libraries as any).get?.(libraryID);
+    if (!library) {
+      return { status: 404, error: `no library ${libraryID}` };
+    }
+  }
+
+  const items = await literatureItemsInScope({
+    libraryID,
+    collectionID,
+    collectionKey,
+    name,
+  });
+
+  return {
+    scope: {
+      libraryID,
+      collectionKey: collectionKey || undefined,
+      name,
+    },
+    items: items.map((item) => {
+      const meta = literaturePaperMetadata(item);
+      return {
+        libraryID: meta.libraryID,
+        itemKey: meta.itemKey,
+        title: meta.title,
+        authors: meta.creators,
+        year: meta.year,
+        venue: meta.publicationTitle,
+        hasPDF: meta.hasPDF,
+        hasMarkdown: meta.hasMarkdown,
+      };
+    }),
   };
 }

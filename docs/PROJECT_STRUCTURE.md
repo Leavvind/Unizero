@@ -25,7 +25,7 @@ UniZero/
 │   │   ├── tests/               Host-independent Vitest suites
 │   │   └── package.json
 │   └── obsidian-plugin/
-│       ├── src/                 Citation syntax, renderers, suggester, detail pane, bridge client
+│       ├── src/                 Citation syntax, renderers, suggester, library/detail panes, bridge client
 │       ├── tests/               Vitest over the Obsidian-free citation syntax
 │       ├── manifest.json        Obsidian plugin manifest
 │       ├── styles.css           Pill and detail-pane styling

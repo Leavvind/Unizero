@@ -8,6 +8,18 @@ catalog all live in the [Zotero add-on](../zotero-addon); this is a view of them
 the add-on's localhost bridge. A future write-back path (exploration results → Zotero /
 UniZero) needs its own design; the bridge is read-only today.
 
+## Sidebars
+
+| Command | Side | Role (Unizero Home counterpart) |
+| --- | --- | --- |
+| **Open the library pane** | Left | Collection paper list — pick a library/collection, browse, open a paper |
+| **Open the paper pane** | Right | Detail view — metadata, References, Citations, Relation |
+
+Unlike Unizero Home (which scopes the left column to the Zotero collection you opened
+from), the library pane lets you **switch libraries and collections** inside Obsidian.
+The last choice is remembered across sessions. Click a row to open it in the paper
+pane; right-click for insert / Zotero / PDF / note.
+
 ## Syntax
 
 | Written | Click does |
@@ -70,5 +82,6 @@ directory's `manifest.json`, `main.js`, and `styles.css` into
 `<vault>/.obsidian/plugins/unizero/`.
 
 `npm test` covers the citation syntax, which is the part with no Obsidian dependency.
-Rendering, the suggester, the detail pane, and everything touching the bridge need a
-manual check in a real vault against a running Zotero.
+Rendering, the suggester, the library pane, the detail pane, and everything touching
+the bridge need a manual check in a real vault against a running Zotero (add-on with
+the `collections` / `collection-items` bridge capabilities).

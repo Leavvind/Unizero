@@ -182,6 +182,136 @@
   font-size: var(--font-ui-smaller);
 }
 
+/* Library pane ------------------------------------------------------------ */
+
+.unizero-library {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--size-4-2);
+  overflow: hidden;
+}
+
+.unizero-library__toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+  flex-shrink: 0;
+  margin-bottom: var(--size-2-2);
+}
+
+.unizero-library__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+}
+
+.unizero-library__label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.unizero-library__select {
+  width: 100%;
+}
+
+.unizero-library__search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+}
+
+.unizero-library__search {
+  flex: 1;
+  min-width: 0;
+}
+
+.unizero-library__refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25em;
+}
+
+.unizero-library__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.unizero-library__status {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  margin-bottom: var(--size-2-2);
+  flex-shrink: 0;
+}
+
+.unizero-library__empty {
+  color: var(--text-muted);
+  padding: var(--size-4-4) 0;
+  text-align: center;
+  font-size: var(--font-ui-small);
+}
+
+.unizero-library__empty button {
+  margin-top: var(--size-4-2);
+}
+
+.unizero-library__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.unizero-library__item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.15em;
+  width: 100%;
+  text-align: left;
+  padding: var(--size-2-2) var(--size-4-1);
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  color: var(--text-normal);
+}
+
+.unizero-library__item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.unizero-library__item.is-selected {
+  background-color: var(--background-modifier-active-hover);
+}
+
+.unizero-library__item-title {
+  font-size: var(--font-ui-small);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.unizero-library__item-meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.unizero-library__item-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-1);
+}
+
 /* Suggester --------------------------------------------------------------- */
 
 .unizero-suggestion__key {

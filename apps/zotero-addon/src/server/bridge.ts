@@ -29,6 +29,8 @@ import type Views from "../modules/views";
 import type { LiteratureRelationKind } from "../modules/literatureRelations";
 import {
   BRIDGE_API_VERSION,
+  bridgeCollectionItems,
+  bridgeCollections,
   bridgePaperFromItem,
   bridgeRelationsFromSnapshot,
   bridgeRelationsUnloaded,
@@ -49,6 +51,8 @@ const PING = `${ROOT}/ping`;
 const PAPER = `${ROOT}/paper`;
 const RELATIONS = `${ROOT}/relations`;
 const SUGGEST = `${ROOT}/suggest`;
+const COLLECTIONS = `${ROOT}/collections`;
+const COLLECTION_ITEMS = `${ROOT}/collection-items`;
 
 const SUGGEST_LIMIT_DEFAULT = 20;
 const SUGGEST_LIMIT_MAX = 100;
@@ -221,7 +225,7 @@ async function handlePing(): Promise<BridgeResponse> {
     product: "unizero",
     addonVersion: version,
     api: BRIDGE_API_VERSION,
-    capabilities: ["paper", "relations", "suggest"],
+    capabilities: ["paper", "relations", "suggest", "collections", "collection-items"],
     ready: Boolean(activeViews()),
   });
 }
@@ -288,6 +292,39 @@ async function handleSuggest(query: RequestQuery): Promise<BridgeResponse> {
   return json(200, { items });
 }
 
+/** Library + collection tree for the Obsidian library pane picker. */
+async function handleCollections(): Promise<BridgeResponse> {
+  return json(200, bridgeCollections());
+}
+
+/**
+ * Papers in one collection (or the whole library when `collectionKey` is
+ * omitted). Read-only membership; never fetches providers.
+ */
+async function handleCollectionItems(query: RequestQuery): Promise<BridgeResponse> {
+  const libraryID = optionalLibraryID(query);
+  if (libraryID === undefined) {
+    return failure(400, "libraryID is required");
+  }
+  if (libraryID <= 0) {
+    return failure(400, "libraryID must be a positive integer");
+  }
+
+  const rawKey = String(query.collectionKey || "").trim();
+  if (rawKey && !/^[A-Za-z0-9]+$/.test(rawKey)) {
+    return failure(400, "collectionKey contains unsupported characters");
+  }
+
+  const result = await bridgeCollectionItems(
+    libraryID,
+    rawKey || undefined,
+  );
+  if ("error" in result) {
+    return failure(result.status, result.error);
+  }
+  return json(200, result);
+}
+
 /**
  * Wrap a handler in Zotero's endpoint object shape.
  *
@@ -323,6 +360,8 @@ const endpoints: Record<string, () => void> = {
   [PAPER]: endpointFor("paper", handlePaper),
   [RELATIONS]: endpointFor("relations", handleRelations),
   [SUGGEST]: endpointFor("suggest", handleSuggest),
+  [COLLECTIONS]: endpointFor("collections", handleCollections),
+  [COLLECTION_ITEMS]: endpointFor("collection-items", handleCollectionItems),
 };
 
 let registered = false;

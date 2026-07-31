@@ -91,6 +91,44 @@ export interface BridgePing {
   ready: boolean;
 }
 
+export interface BridgeLibrary {
+  libraryID: number;
+  name: string;
+  type: string;
+}
+
+export interface BridgeCollection {
+  libraryID: number;
+  collectionKey: string;
+  name: string;
+  parentKey?: string;
+}
+
+export interface BridgeCollections {
+  libraries: BridgeLibrary[];
+  collections: BridgeCollection[];
+}
+
+export interface BridgeCollectionItem {
+  libraryID: number;
+  itemKey: string;
+  title: string;
+  authors: string[];
+  year?: string;
+  venue?: string;
+  hasPDF: boolean;
+  hasMarkdown: boolean;
+}
+
+export interface BridgeCollectionItems {
+  scope: {
+    libraryID: number;
+    collectionKey?: string;
+    name: string;
+  };
+  items: BridgeCollectionItem[];
+}
+
 /** Thrown for every non-2xx answer, so callers can branch on 404 specifically. */
 export class BridgeError extends Error {
   constructor(readonly status: number, message: string) {
@@ -173,6 +211,25 @@ export class UnizeroBridge {
       limit: String(limit),
     });
     return payload.items || [];
+  }
+
+  /** Libraries and collections for the library-pane picker. */
+  collections(): Promise<BridgeCollections> {
+    return this.get<BridgeCollections>("collections", {});
+  }
+
+  /**
+   * Papers filed in one collection, or every regular item in a library when
+   * `collectionKey` is omitted. Cache-only membership; never hits providers.
+   */
+  collectionItems(
+    libraryID: number,
+    collectionKey?: string,
+  ): Promise<BridgeCollectionItems> {
+    return this.get<BridgeCollectionItems>("collection-items", {
+      libraryID: String(libraryID),
+      collectionKey: collectionKey || undefined,
+    });
   }
 }
 

@@ -19,6 +19,7 @@ import {
   type PaperRef,
 } from "./citation";
 import { DETAIL_VIEW_TYPE, UnizeroDetailView } from "./detailView";
+import { LIBRARY_VIEW_TYPE, UnizeroLibraryView } from "./libraryView";
 import { PaperStore } from "./paperStore";
 import type { PillHost } from "./pill";
 import { citationLivePreview, citationPostProcessor } from "./render";
@@ -41,19 +42,29 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     this.store = new PaperStore(this.bridge);
 
     this.registerView(DETAIL_VIEW_TYPE, (leaf) => new UnizeroDetailView(leaf, this));
+    this.registerView(LIBRARY_VIEW_TYPE, (leaf) => new UnizeroLibraryView(leaf, this));
     this.registerMarkdownPostProcessor(citationPostProcessor(this));
     this.registerEditorExtension(citationLivePreview(this));
     this.registerEditorSuggest(new CitationSuggest(this.app, this));
     this.addSettingTab(new UnizeroSettingTab(this.app, this));
 
-    this.addRibbonIcon("graduation-cap", "UniZero papers", () => {
+    this.addRibbonIcon("graduation-cap", "UniZero paper pane", () => {
       void this.revealDetailView();
+    });
+    this.addRibbonIcon("library", "UniZero library pane", () => {
+      void this.revealLibraryView();
     });
 
     this.addCommand({
       id: "open-detail-pane",
       name: "Open the paper pane",
       callback: () => { void this.revealDetailView(); },
+    });
+
+    this.addCommand({
+      id: "open-library-pane",
+      name: "Open the library pane",
+      callback: () => { void this.revealLibraryView(); },
     });
 
     this.addCommand({
@@ -159,6 +170,23 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
   async showInDetailView(ref: PaperRef): Promise<void> {
     const view = await this.revealDetailView();
     view?.show(ref);
+  }
+
+  // --- Library pane -------------------------------------------------------
+
+  /** Open the collection browser on the left sidebar. */
+  private async revealLibraryView(): Promise<UnizeroLibraryView | undefined> {
+    const existing = this.app.workspace.getLeavesOfType(LIBRARY_VIEW_TYPE)[0];
+    const leaf: WorkspaceLeaf | null = existing ?? this.app.workspace.getLeftLeaf(false);
+    if (!leaf) {
+      new Notice("UniZero could not open a sidebar pane.");
+      return;
+    }
+    if (!existing) {
+      await leaf.setViewState({ type: LIBRARY_VIEW_TYPE, active: true });
+    }
+    this.app.workspace.revealLeaf(leaf);
+    return leaf.view instanceof UnizeroLibraryView ? leaf.view : undefined;
   }
 
   /** Insert a citation at the cursor of the active Markdown editor. */

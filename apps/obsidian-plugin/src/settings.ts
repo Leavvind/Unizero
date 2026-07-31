@@ -14,6 +14,16 @@ export interface UnizeroSettings {
   citekeyProperty: string;
   /** Frontmatter property holding the Zotero item key — preferred match. */
   itemKeyProperty: string;
+  /**
+   * Last library opened in the library pane. `null` means "pick the first
+   * library the bridge returns".
+   */
+  lastLibraryID: number | null;
+  /**
+   * Last collection key in that library. Empty string means the whole library
+   * (all regular items), matching Unizero Home's library-level scope.
+   */
+  lastCollectionKey: string;
 }
 
 export const DEFAULT_SETTINGS: UnizeroSettings = {
@@ -22,6 +32,8 @@ export const DEFAULT_SETTINGS: UnizeroSettings = {
   literatureFolder: "",
   citekeyProperty: "citekey",
   itemKeyProperty: "zotero-key",
+  lastLibraryID: null,
+  lastCollectionKey: "",
 };
 
 export class UnizeroSettingTab extends PluginSettingTab {
