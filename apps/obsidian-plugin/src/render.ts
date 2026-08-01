@@ -116,7 +116,8 @@ class CitationWidget extends WidgetType {
   eq(other: CitationWidget): boolean {
     return other.token.libraryID === this.token.libraryID &&
       other.token.itemKey === this.token.itemKey &&
-      other.token.action === this.token.action;
+      other.token.action === this.token.action &&
+      other.token.page === this.token.page;
   }
 
   toDOM(): HTMLElement {

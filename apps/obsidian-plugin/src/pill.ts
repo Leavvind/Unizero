@@ -115,11 +115,15 @@ export function createPill(
   let paper: BridgePaper | undefined;
 
   const render = (state: PaperState) => {
+    // Settings can repaint a live pill from cached state without recreating the
+    // reading-mode child or CodeMirror widget.
+    element.dataset.style = host.settings.pillStyle;
     element.removeClass(
       "unizero-pill--loading",
       "unizero-pill--ready",
       "unizero-pill--missing",
       "unizero-pill--error",
+      "unizero-pill--ambiguous",
     );
 
     if (state.status === "ready") {

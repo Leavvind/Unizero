@@ -35,35 +35,24 @@ DataTransfer). Native Canvas / `app.dragManager` integration is not implemented.
 | `@libraryID/itemKey.pdf` | Opens the PDF in Zotero |
 | `@libraryID/itemKey.pdf:15` | Opens the PDF in Zotero at physical page 15 |
 
-Example: `@1/HLP48L8X`. Right-clicking a pill offers the paper pane, Markdown note,
-**Convert to Markdown**, and PDF. *Show in Zotero* was removed — *Open PDF in Zotero*
-already jumps to the item when no PDF is attached. `\@notacitation` escapes the
-syntax, and email addresses are never matched. The page after `.pdf:` is the PDF
-file's 1-based physical page (Zotero `?page=`), not a printed page label.
+Example: `@1/HLP48L8X`. 
 
-**Open Markdown note** and **Convert to Markdown** are exclusive: if Zotero (or this
-vault) already has Markdown for the paper, only Open is shown; otherwise only Convert.
-Conversion runs in Zotero (UniZero panel); when it finishes, open the note again.
-Re-conversion stays on the Zotero item menu.
+Right-clicking a pill offers 
+- Open paper pane
+- Open Markdown note or Convert to Markdown
+- Open PDF in Zotero 
+Conversion runs in Zotero (UniZero panel)
 
-The pill label defaults to **Author (year)** (or title). What is written in the
-source is the durable Zotero identity; you rarely need to read it.
+The pill label defaults to **Author (year)** (or title). 
 
-## Finding a paper (`@` completion)
+**Citation style** 
+- can be switched within Unizero Setting
 
-Typing `@` opens a completion list backed by the Zotero library. The query is
-**free text**: author names, title words, years, and citekey fragments all match,
-and every word in a multi-word query must hit somewhere.
+Finding a paper from typing `@` ,which opens a completion list backed by the Zotero library. 
 
-| You type | What happens |
-| --- | --- |
-| `@richardson` | Author / title / citekey / year search |
-| `@richardson accounting` | Multi-word search (spaces stay inside the query) |
-| pick a hit | Inserts `@libraryID/itemKey` into the note |
+ `libraryID/itemKey` is what gets *written*.
 
-Search is how you *find* a paper; `libraryID/itemKey` is what gets *written*.
-
-## Identity
+Identity
 
 | Role | What it is |
 | --- | --- |
@@ -71,9 +60,7 @@ Search is how you *find* a paper; `libraryID/itemKey` is what gets *written*.
 | **Written address** | `@libraryID/itemKey` in the note — durable, unambiguous across libraries |
 | **Display** | Author (year) / title on the pill; citekey may appear in the detail pane as metadata |
 
-A citekey (pinned in Extra or derived from metadata) is still useful for search and
-display. It is **not** the link: editing a title in Zotero can change a derived
-citekey, but never the item key.
+
 
 ## Requirements
 

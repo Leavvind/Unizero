@@ -122,13 +122,22 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     if ((this.settings.pillLabel as string) === "citekey") {
       this.settings.pillLabel = "itemKey";
     }
+    if (!["framed", "highlight", "solid"].includes(this.settings.pillStyle)) {
+      this.settings.pillStyle = DEFAULT_SETTINGS.pillStyle;
+    }
   }
 
-  async saveSettings(): Promise<void> {
+  async saveSettings(
+    effect: "reconnect" | "rerender" | "none" = "reconnect",
+  ): Promise<void> {
     await this.saveData(this.settings);
-    // The endpoint may have moved and the label style may have changed; both are
-    // baked into rendered pills, so everything re-resolves.
-    this.store.invalidate();
+    if (effect === "reconnect") {
+      // The endpoint may have moved, so discard bridge-backed state.
+      this.store.invalidate();
+    } else if (effect === "rerender") {
+      // Appearance is local derived state and must never cause bridge traffic.
+      this.store.refresh();
+    }
   }
 
   // --- PillHost -----------------------------------------------------------

@@ -4,10 +4,14 @@ import type UnizeroPlugin from "./main";
 /** How a resolved pill labels itself. The written address is always in the tooltip. */
 export type PillLabel = "authorYear" | "title" | "itemKey";
 
+/** Visual treatment for inline citations; all variants follow the Obsidian theme. */
+export type PillStyle = "framed" | "highlight" | "solid";
+
 export interface UnizeroSettings {
   /** Zotero's built-in HTTP server. Changing the port here matches Zotero's own. */
   endpoint: string;
   pillLabel: PillLabel;
+  pillStyle: PillStyle;
   /** Folder searched first for literature notes. Empty means the whole vault. */
   literatureFolder: string;
   /** Frontmatter property holding a note's citekey (fallback match). */
@@ -29,6 +33,7 @@ export interface UnizeroSettings {
 export const DEFAULT_SETTINGS: UnizeroSettings = {
   endpoint: "http://127.0.0.1:23119",
   pillLabel: "authorYear",
+  pillStyle: "framed",
   literatureFolder: "",
   citekeyProperty: "citekey",
   itemKeyProperty: "zotero-key",
@@ -76,7 +81,20 @@ export class UnizeroSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.pillLabel)
         .onChange(async (value) => {
           this.plugin.settings.pillLabel = value as PillLabel;
-          await this.plugin.saveSettings();
+          await this.plugin.saveSettings("rerender");
+        }));
+
+    new Setting(containerEl)
+      .setName("Citation style")
+      .setDesc("Visual treatment for inline citations in both light and dark themes.")
+      .addDropdown((dropdown) => dropdown
+        .addOption("framed", "Accent frame")
+        .addOption("highlight", "Soft highlight")
+        .addOption("solid", "Solid accent")
+        .setValue(this.plugin.settings.pillStyle)
+        .onChange(async (value) => {
+          this.plugin.settings.pillStyle = value as PillStyle;
+          await this.plugin.saveSettings("rerender");
         }));
 
     new Setting(containerEl).setName("Markdown notes").setHeading();
@@ -92,7 +110,7 @@ export class UnizeroSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.literatureFolder)
         .onChange(async (value) => {
           this.plugin.settings.literatureFolder = value.replace(/^\/+|\/+$/g, "");
-          await this.plugin.saveSettings();
+          await this.plugin.saveSettings("none");
         }));
 
     new Setting(containerEl)
@@ -107,7 +125,7 @@ export class UnizeroSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.plugin.settings.itemKeyProperty = value.trim() ||
             DEFAULT_SETTINGS.itemKeyProperty;
-          await this.plugin.saveSettings();
+          await this.plugin.saveSettings("none");
         }));
 
     new Setting(containerEl)
@@ -119,7 +137,7 @@ export class UnizeroSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.plugin.settings.citekeyProperty = value.trim() ||
             DEFAULT_SETTINGS.citekeyProperty;
-          await this.plugin.saveSettings();
+          await this.plugin.saveSettings("none");
         }));
   }
 }

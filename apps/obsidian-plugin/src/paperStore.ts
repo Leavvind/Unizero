@@ -127,6 +127,19 @@ export class PaperStore {
     };
   }
 
+  /** Repaint every live pill from cached state without touching the bridge. */
+  refresh(): void {
+    for (const entry of this.entries.values()) {
+      for (const listener of [...entry.listeners]) {
+        try {
+          listener(entry.state);
+        } catch (error) {
+          console.error("UniZero: paper listener failed", error);
+        }
+      }
+    }
+  }
+
   /**
    * Drop cached papers and tell every live pill to re-resolve.
    *
