@@ -522,12 +522,7 @@ export class UnizeroLibraryView extends ItemView {
       .onClick(async () => {
         try {
           const paper = await this.plugin.bridge.paper(ref);
-          await openCanvas(
-            this.app,
-            paper,
-            this.plugin.settings,
-            (key, path) => this.plugin.setCanvasLink(key, path),
-          );
+          await openCanvas(this.app, paper, this.plugin.canvasLinkStore());
         } catch (error) {
           new Notice(`UniZero: ${(error as Error).message}`);
         }

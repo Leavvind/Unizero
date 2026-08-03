@@ -18,6 +18,7 @@ import {
   FuzzySuggestModal,
   Notice,
   TFile,
+  normalizePath,
   type App,
 } from "obsidian";
 import { shell } from "electron";
@@ -50,12 +51,18 @@ export type PaperIdentity = {
   citekey?: string;
 };
 
-/** Persist a Canvas path under `settings.canvasLinks` (caller owns save). */
-export type PersistCanvasLink = (key: string, path: string) => Promise<void>;
+/**
+ * Live Canvas path store. Prefer reading through `get` on every open so a
+ * caller never holds a stale `settings.canvasLinks` snapshot.
+ */
+export interface CanvasLinkStore {
+  get(key: string): string | undefined;
+  set(key: string, path: string): Promise<void>;
+}
 
 /** Settings key for a paper's Canvas path: `libraryID/itemKey`. */
 export function canvasLinkKey(paper: Pick<PaperIdentity, "libraryID" | "itemKey">): string {
-  return `${paper.libraryID}/${paper.itemKey}`;
+  return `${Number(paper.libraryID)}/${String(paper.itemKey)}`;
 }
 
 /**
@@ -146,7 +153,7 @@ export async function stampRawIdentity(
  * Used only when Open Raw cannot resolve a file (Zotero has an attachment, but
  * the vault has no matching Raw). Not a separate menu entry.
  */
-export function linkRawForPaper(
+export async function linkRawForPaper(
   app: App,
   paper: Pick<
     MarkdownAvailability,
@@ -154,45 +161,50 @@ export function linkRawForPaper(
   > & { title?: string },
   settings: UnizeroSettings,
 ): Promise<TFile | undefined> {
-  return new Promise((resolve) => {
-    const label = paperLabel(paper);
-    const modal = new VaultFileSuggestModal(app, {
-      title: `Link Raw for ${label}`,
-      placeholder: "Search Markdown files in the vault…",
-      instructions:
-        "Pick the converted Markdown in this vault. UniZero will write identity "
-        + "frontmatter so it opens next time.",
-      choosePurpose: "link as Raw",
-      getItems: () => app.vault.getMarkdownFiles()
-        .slice()
-        .sort((a, b) => a.path.localeCompare(b.path)),
-      onChoose: async (file) => {
-        try {
-          await stampRawIdentity(app, file, paper, settings);
-          new Notice(`Linked Raw: ${file.path}`);
-          resolve(file);
-        } catch (error) {
-          new Notice(
-            `Could not write Raw identity — ${(error as Error).message}`,
-          );
-          resolve(undefined);
-        }
-      },
-      onCancel: () => resolve(undefined),
-    });
-    modal.open();
+  const label = paperLabel(paper);
+  const file = await pickVaultFile(app, {
+    title: `Link Raw for ${label}`,
+    placeholder: "Search Markdown files in the vault…",
+    instructions:
+      "Pick the converted Markdown in this vault. UniZero will write identity "
+      + "frontmatter so it opens next time.",
+    choosePurpose: "link as Raw",
+    getItems: () => app.vault.getMarkdownFiles()
+      .slice()
+      .sort((a, b) => a.path.localeCompare(b.path)),
   });
+  if (!file) { return undefined; }
+  try {
+    await stampRawIdentity(app, file, paper, settings);
+    new Notice(`Linked Raw: ${file.path}`);
+    return file;
+  } catch (error) {
+    new Notice(`Could not write Raw identity — ${(error as Error).message}`);
+    return undefined;
+  }
+}
+
+export function resolveCanvasFile(
+  app: App,
+  path: string | undefined,
+): TFile | undefined {
+  if (!path) { return undefined; }
+  const normalized = normalizePath(path.trim());
+  if (!normalized) { return undefined; }
+  const file = app.vault.getAbstractFileByPath(normalized);
+  return file instanceof TFile ? file : undefined;
 }
 
 export function findCanvasForPaper(
   app: App,
   paper: Pick<PaperIdentity, "libraryID" | "itemKey">,
-  settings: UnizeroSettings,
+  links: Pick<CanvasLinkStore, "get"> | UnizeroSettings,
 ): TFile | undefined {
-  const path = settings.canvasLinks[canvasLinkKey(paper)];
-  if (!path) { return undefined; }
-  const file = app.vault.getAbstractFileByPath(path);
-  return file instanceof TFile ? file : undefined;
+  const key = canvasLinkKey(paper);
+  const path = "get" in links
+    ? links.get(key)
+    : links.canvasLinks?.[key];
+  return resolveCanvasFile(app, path);
 }
 
 /**
@@ -205,53 +217,79 @@ export function findCanvasForPaper(
 export async function openCanvas(
   app: App,
   paper: PaperIdentity,
-  settings: UnizeroSettings,
-  persistLink: PersistCanvasLink,
+  links: CanvasLinkStore,
 ): Promise<void> {
   const key = canvasLinkKey(paper);
-  let file = findCanvasForPaper(app, paper, settings);
+  const existingPath = links.get(key);
+  let file = resolveCanvasFile(app, existingPath);
   if (file) {
     await app.workspace.getLeaf(false).openFile(file);
     return;
   }
 
-  const stale = settings.canvasLinks[key];
   const label = paperLabel(paper);
-  if (stale) {
+  if (existingPath) {
     new Notice(
-      `Canvas for ${label} was “${stale}”, but that file is missing. Pick a Canvas.`,
+      `Canvas for ${label} was “${existingPath}”, but that file is missing. Pick a Canvas.`,
     );
   }
 
-  const picked = await pickCanvasFile(app, label);
+  const picked = await pickVaultFile(app, {
+    title: `Canvas for ${label}`,
+    placeholder: "Search Canvas files in the vault…",
+    instructions:
+      "Pick the Obsidian Canvas that is this paper’s real note. "
+      + "The path is remembered until the file is moved or deleted.",
+    choosePurpose: "link Canvas",
+    getItems: () => app.vault.getFiles()
+      .filter((entry) => entry.extension === "canvas")
+      .sort((a, b) => a.path.localeCompare(b.path)),
+  });
   if (!picked) { return; }
 
-  await persistLink(key, picked.path);
-  new Notice(`Linked Canvas: ${picked.path}`);
+  const path = normalizePath(picked.path);
+  await links.set(key, path);
+  new Notice(`Linked Canvas: ${path}`);
   await app.workspace.getLeaf(false).openFile(picked);
 }
 
-function pickCanvasFile(app: App, label: string): Promise<TFile | undefined> {
+/**
+ * Vault file picker. Resolves once.
+ *
+ * Obsidian may call `onClose` in the same turn as `onChooseItem` (or, on some
+ * builds, slightly before). A synchronous cancel-in-onClose races the choice
+ * and drops the file — which is exactly “I picked a Canvas, but next click
+ * asks again”. Cancel is deferred so choose always wins when both fire.
+ */
+function pickVaultFile(
+  app: App,
+  options: {
+    title: string;
+    placeholder: string;
+    instructions: string;
+    choosePurpose: string;
+    getItems: () => TFile[];
+  },
+): Promise<TFile | undefined> {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (file: TFile | undefined): void => {
+      if (settled) { return; }
+      settled = true;
+      resolve(file);
+    };
+
     const modal = new VaultFileSuggestModal(app, {
-      title: `Canvas for ${label}`,
-      placeholder: "Search Canvas files in the vault…",
-      instructions:
-        "Pick the Obsidian Canvas that is this paper’s real note. "
-        + "The path is remembered until the file is moved or deleted.",
-      choosePurpose: "link Canvas",
-      getItems: () => app.vault.getFiles()
-        .filter((file) => file.extension === "canvas")
-        .sort((a, b) => a.path.localeCompare(b.path)),
-      onChoose: (file) => resolve(file),
-      onCancel: () => resolve(undefined),
+      ...options,
+      onChoose: (file) => finish(file),
+      onCancel: () => finish(undefined),
     });
     modal.open();
   });
 }
 
 class VaultFileSuggestModal extends FuzzySuggestModal<TFile> {
-  private settled = false;
+  private chosen = false;
 
   constructor(
     app: App,
@@ -261,7 +299,7 @@ class VaultFileSuggestModal extends FuzzySuggestModal<TFile> {
       instructions: string;
       choosePurpose: string;
       getItems: () => TFile[];
-      onChoose: (file: TFile) => void | Promise<void>;
+      onChoose: (file: TFile) => void;
       onCancel: () => void;
     },
   ) {
@@ -290,16 +328,18 @@ class VaultFileSuggestModal extends FuzzySuggestModal<TFile> {
   }
 
   onChooseItem(file: TFile): void {
-    this.settled = true;
-    void this.options.onChoose(file);
+    this.chosen = true;
+    this.options.onChoose(file);
   }
 
   onClose(): void {
     super.onClose();
-    if (!this.settled) {
-      this.settled = true;
-      this.options.onCancel();
-    }
+    // Defer cancel: onChooseItem and onClose can interleave; choose must win.
+    window.setTimeout(() => {
+      if (!this.chosen) {
+        this.options.onCancel();
+      }
+    }, 0);
   }
 }
 

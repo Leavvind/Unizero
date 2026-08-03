@@ -118,22 +118,24 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
   }
 
   async loadSettings(): Promise<void> {
-    const loaded = await this.loadData();
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+    const loaded = (await this.loadData()) as Partial<UnizeroSettings> | null;
+    // Always own a fresh canvasLinks object — never share DEFAULT_SETTINGS' {}.
+    const links = loaded?.canvasLinks
+      && typeof loaded.canvasLinks === "object"
+      && !Array.isArray(loaded.canvasLinks)
+      ? { ...loaded.canvasLinks }
+      : {};
+    this.settings = {
+      ...DEFAULT_SETTINGS,
+      ...loaded,
+      canvasLinks: links,
+    };
     // Early builds used "citekey" as a pill label; map it onto the durable form.
     if ((this.settings.pillLabel as string) === "citekey") {
       this.settings.pillLabel = "itemKey";
     }
     if (!["framed", "highlight", "solid"].includes(this.settings.pillStyle)) {
       this.settings.pillStyle = DEFAULT_SETTINGS.pillStyle;
-    }
-    // Shallow assign can leave a non-object if an older data.json is odd.
-    if (
-      !this.settings.canvasLinks
-      || typeof this.settings.canvasLinks !== "object"
-      || Array.isArray(this.settings.canvasLinks)
-    ) {
-      this.settings.canvasLinks = {};
     }
   }
 
@@ -150,12 +152,28 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     }
   }
 
+  /** Live store passed into `openCanvas` so every open re-reads the map. */
+  canvasLinkStore(): {
+    get: (key: string) => string | undefined;
+    set: (key: string, path: string) => Promise<void>;
+  } {
+    return {
+      get: (key) => this.settings.canvasLinks[key],
+      set: (key, path) => this.setCanvasLink(key, path),
+    };
+  }
+
   /** Remember a hand-picked Canvas path for `libraryID/itemKey`. */
   async setCanvasLink(key: string, path: string): Promise<void> {
-    this.settings.canvasLinks = {
-      ...this.settings.canvasLinks,
-      [key]: path,
-    };
+    if (
+      !this.settings.canvasLinks
+      || typeof this.settings.canvasLinks !== "object"
+      || Array.isArray(this.settings.canvasLinks)
+    ) {
+      this.settings.canvasLinks = {};
+    }
+    // In-place mutate the owned map so any live reader sees the path immediately.
+    this.settings.canvasLinks[key] = path;
     await this.saveSettings("none");
   }
 
@@ -197,12 +215,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       .setTitle("Open Canvas")
       .setIcon("layout-dashboard")
       .onClick(() => {
-        void openCanvas(
-          this.app,
-          paper,
-          this.settings,
-          (key, path) => this.setCanvasLink(key, path),
-        );
+        void openCanvas(this.app, paper, this.canvasLinkStore());
       }));
 
     menu.addItem((item) => item

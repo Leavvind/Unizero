@@ -226,8 +226,7 @@ export class UnizeroDetailView extends ItemView {
     }
     // Hand-made note surface: first open (or a broken path) picks a .canvas.
     this.actionButton(actions, "layout-dashboard", "Canvas", () =>
-      openCanvas(this.app, paper, this.plugin.settings, (key, path) =>
-        this.plugin.setCanvasLink(key, path)));
+      openCanvas(this.app, paper, this.plugin.canvasLinkStore()));
 
     if (paper.abstract) {
       const abstract = header.createEl("details", { cls: "unizero-detail__abstract" });
