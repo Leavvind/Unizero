@@ -81,7 +81,7 @@ function tooltip(paper: BridgePaper, action: CitationAction, page?: number): str
     lines.push("More than one item derives this citekey — pin it in Zotero's Extra field.");
   }
   lines.push(action === "markdown"
-    ? "Click to open the Markdown note"
+    ? "Click to open the Raw Markdown"
     : action === "pdf"
       ? (page
         ? `Click to open the PDF in Zotero at page ${page}`

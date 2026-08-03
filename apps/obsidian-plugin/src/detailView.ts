@@ -25,7 +25,8 @@ import type UnizeroPlugin from "./main";
 import {
   convertToMarkdown,
   hasMarkdownAvailable,
-  openMarkdownNote,
+  openCanvas,
+  openRaw,
   openZoteroPdf,
 } from "./actions";
 
@@ -214,8 +215,8 @@ export class UnizeroDetailView extends ItemView {
     const actions = header.createDiv({ cls: "unizero-detail__actions" });
     this.actionButton(actions, "file-text", "PDF", () => openZoteroPdf(paper));
     if (hasMarkdownAvailable(this.app, paper, this.plugin.settings)) {
-      this.actionButton(actions, "file-symlink", "Note", () =>
-        openMarkdownNote(this.app, paper, this.plugin.settings));
+      this.actionButton(actions, "file-symlink", "Raw", () =>
+        openRaw(this.app, paper, this.plugin.settings));
     } else {
       this.actionButton(actions, "file-down", "Convert", () =>
         convertToMarkdown(this.plugin.bridge, {
@@ -223,6 +224,10 @@ export class UnizeroDetailView extends ItemView {
           itemKey: paper.itemKey,
         }, paper));
     }
+    // Hand-made note surface: first open (or a broken path) picks a .canvas.
+    this.actionButton(actions, "layout-dashboard", "Canvas", () =>
+      openCanvas(this.app, paper, this.plugin.settings, (key, path) =>
+        this.plugin.setCanvasLink(key, path)));
 
     if (paper.abstract) {
       const abstract = header.createEl("details", { cls: "unizero-detail__abstract" });

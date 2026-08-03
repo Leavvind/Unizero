@@ -21,7 +21,8 @@ import {
 import {
   convertToMarkdown,
   hasMarkdownAvailable,
-  openMarkdownNote,
+  openCanvas,
+  openRaw,
   openZoteroPdf,
 } from "./actions";
 import { UnizeroBridge, BRIDGE_API, type BridgePaper } from "./bridge";
@@ -117,13 +118,22 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const loaded = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
     // Early builds used "citekey" as a pill label; map it onto the durable form.
     if ((this.settings.pillLabel as string) === "citekey") {
       this.settings.pillLabel = "itemKey";
     }
     if (!["framed", "highlight", "solid"].includes(this.settings.pillStyle)) {
       this.settings.pillStyle = DEFAULT_SETTINGS.pillStyle;
+    }
+    // Shallow assign can leave a non-object if an older data.json is odd.
+    if (
+      !this.settings.canvasLinks
+      || typeof this.settings.canvasLinks !== "object"
+      || Array.isArray(this.settings.canvasLinks)
+    ) {
+      this.settings.canvasLinks = {};
     }
   }
 
@@ -140,11 +150,20 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     }
   }
 
+  /** Remember a hand-picked Canvas path for `libraryID/itemKey`. */
+  async setCanvasLink(key: string, path: string): Promise<void> {
+    this.settings.canvasLinks = {
+      ...this.settings.canvasLinks,
+      [key]: path,
+    };
+    await this.saveSettings("none");
+  }
+
   // --- PillHost -----------------------------------------------------------
 
   activate(action: CitationAction, ref: PaperRef, paper: BridgePaper, page?: number): void {
     if (action === "markdown") {
-      void openMarkdownNote(this.app, paper, this.settings);
+      void openRaw(this.app, paper, this.settings);
       return;
     }
     if (action === "pdf") {
@@ -164,15 +183,27 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
 
     if (hasMarkdownAvailable(this.app, paper, this.settings)) {
       menu.addItem((item) => item
-        .setTitle("Open Markdown note")
+        .setTitle("Open Raw")
         .setIcon("file-symlink")
-        .onClick(() => { void openMarkdownNote(this.app, paper, this.settings); }));
+        .onClick(() => { void openRaw(this.app, paper, this.settings); }));
     } else {
       menu.addItem((item) => item
         .setTitle("Convert to Markdown")
         .setIcon("file-down")
         .onClick(() => { void convertToMarkdown(this.bridge, ref, paper); }));
     }
+
+    menu.addItem((item) => item
+      .setTitle("Open Canvas")
+      .setIcon("layout-dashboard")
+      .onClick(() => {
+        void openCanvas(
+          this.app,
+          paper,
+          this.settings,
+          (key, path) => this.setCanvasLink(key, path),
+        );
+      }));
 
     menu.addItem((item) => item
       .setTitle("Open PDF in Zotero")

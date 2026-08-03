@@ -4,7 +4,7 @@
  * Forms share one prefix — identity is Zotero's durable pair:
  *
  *   @libraryID/itemKey           the paper itself — opens the detail pane
- *   @libraryID/itemKey.md        the converted Markdown note
+ *   @libraryID/itemKey.md        the converted Raw Markdown
  *   @libraryID/itemKey.pdf       the PDF, opened in Zotero
  *   @libraryID/itemKey.pdf:15    the PDF at physical page 15 (Zotero `?page=`)
  *

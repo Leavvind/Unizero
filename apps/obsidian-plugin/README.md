@@ -18,7 +18,7 @@ explored papers or other library write-back still needs a separate design.
 
 The library pane can switch libraries and collections inside Obsidian; the last choice
 is remembered across sessions. Click a row to open it in the paper pane; right-click for
-insert / PDF / note / convert.
+insert / PDF / Raw / Canvas / convert.
 
 **Insert & drag.** *Insert citation* (library context menu or paper-pane Relation row)
 writes `@libraryID/itemKey` into the **last Markdown note you had open**, even while a
@@ -31,7 +31,7 @@ DataTransfer). Native Canvas / `app.dragManager` integration is not implemented.
 | Written | Click does |
 | --- | --- |
 | `@libraryID/itemKey` | Opens the paper pane: metadata, References, Citations, Relation |
-| `@libraryID/itemKey.md` | Opens the converted Markdown note in this vault |
+| `@libraryID/itemKey.md` | Opens the converted Raw Markdown in this vault |
 | `@libraryID/itemKey.pdf` | Opens the PDF in Zotero |
 | `@libraryID/itemKey.pdf:15` | Opens the PDF in Zotero at physical page 15 |
 
@@ -39,8 +39,9 @@ Example: `@1/HLP48L8X`.
 
 Right-clicking a pill offers 
 - Open paper pane
-- Open Markdown note or Convert to Markdown
-- Open PDF in Zotero 
+- Open Raw or Convert to Markdown
+- Open Canvas (hand-made note; first open picks a `.canvas` file)
+- Open PDF in Zotero  
 Conversion runs in Zotero (UniZero panel)
 
 The pill label defaults to **Author (year)** (or title). 

@@ -19,7 +19,8 @@ import { enableCitationDrag, type PaperRef } from "./citation";
 import {
   convertToMarkdown,
   hasMarkdownAvailable,
-  openMarkdownNote,
+  openCanvas,
+  openRaw,
   openZoteroPdf,
 } from "./actions";
 import type UnizeroPlugin from "./main";
@@ -491,12 +492,12 @@ export class UnizeroLibraryView extends ItemView {
 
     if (hasMarkdownAvailable(this.app, item, this.plugin.settings)) {
       menu.addItem((entry) => entry
-        .setTitle("Open Markdown note")
+        .setTitle("Open Raw")
         .setIcon("file-symlink")
         .onClick(async () => {
           try {
             const paper = await this.plugin.bridge.paper(ref);
-            await openMarkdownNote(this.app, paper, this.plugin.settings);
+            await openRaw(this.app, paper, this.plugin.settings);
           } catch (error) {
             new Notice(`UniZero: ${(error as Error).message}`);
           }
@@ -514,6 +515,23 @@ export class UnizeroLibraryView extends ItemView {
           }
         }));
     }
+
+    menu.addItem((entry) => entry
+      .setTitle("Open Canvas")
+      .setIcon("layout-dashboard")
+      .onClick(async () => {
+        try {
+          const paper = await this.plugin.bridge.paper(ref);
+          await openCanvas(
+            this.app,
+            paper,
+            this.plugin.settings,
+            (key, path) => this.plugin.setCanvasLink(key, path),
+          );
+        } catch (error) {
+          new Notice(`UniZero: ${(error as Error).message}`);
+        }
+      }));
 
     menu.showAtMouseEvent(event);
   }
