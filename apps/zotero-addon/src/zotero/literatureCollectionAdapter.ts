@@ -21,6 +21,43 @@ function libraryName(libraryID: number): string {
 }
 
 /**
+ * Collections selected in the left pane.
+ *
+ * Zotero 10 made the singular getters throw (multi-row collection selection).
+ * Prefer the plural APIs and keep a Zotero 8/9 fallback. Home is still one
+ * Collection at a time, so callers take the first matching row.
+ */
+function selectedCollections(pane: any): Zotero.Collection[] {
+  if (typeof pane?.getSelectedCollections === "function") {
+    const collections = pane.getSelectedCollections() as Zotero.Collection[] | undefined;
+    return Array.isArray(collections) ? collections.filter(Boolean) : [];
+  }
+  const collection = pane?.getSelectedCollection?.() as Zotero.Collection | undefined;
+  return collection ? [collection] : [];
+}
+
+function selectedLibraryIDs(pane: any): number[] {
+  if (typeof pane?.getSelectedLibraryIDs === "function") {
+    const ids = pane.getSelectedLibraryIDs() as unknown;
+    return Array.isArray(ids)
+      ? ids.map(Number).filter((id) => Number.isFinite(id) && id > 0)
+      : [];
+  }
+  const id = Number(pane?.getSelectedLibraryID?.());
+  return Number.isFinite(id) && id > 0 ? [id] : [];
+}
+
+function matchingCollection(
+  collections: Zotero.Collection[],
+  fallbackLibraryID?: number,
+): Zotero.Collection | undefined {
+  if (fallbackLibraryID) {
+    return collections.find((collection) => collection.libraryID === fallbackLibraryID);
+  }
+  return collections[0];
+}
+
+/**
  * Resolve the scope at command time. A context-menu command should follow the
  * Collection selected when the menu opens, not the Collection that happened to
  * be selected when the add-on registered.
@@ -30,8 +67,8 @@ export function selectedLiteratureScope(
   fallbackLibraryID?: number,
 ): LiteratureCollectionScope {
   const pane = (mainWindow as any).ZoteroPane;
-  const collection = pane?.getSelectedCollection?.() as Zotero.Collection | undefined;
-  if (collection && (!fallbackLibraryID || collection.libraryID === fallbackLibraryID)) {
+  const collection = matchingCollection(selectedCollections(pane), fallbackLibraryID);
+  if (collection) {
     return {
       libraryID: collection.libraryID,
       collectionID: collection.id,
@@ -40,12 +77,14 @@ export function selectedLiteratureScope(
     };
   }
 
-  const selectedLibraryID = Number(pane?.getSelectedLibraryID?.());
+  const libraryIDs = selectedLibraryIDs(pane);
+  const selectedLibraryID = fallbackLibraryID
+    ? libraryIDs.find((id) => id === fallbackLibraryID)
+    : libraryIDs[0];
   const canUseSelectedLibrary = Number.isFinite(selectedLibraryID) &&
-    selectedLibraryID > 0 &&
-    (!fallbackLibraryID || selectedLibraryID === fallbackLibraryID);
+    (selectedLibraryID as number) > 0;
   const libraryID = canUseSelectedLibrary
-    ? selectedLibraryID
+    ? selectedLibraryID as number
     : Number(fallbackLibraryID || Zotero.Libraries.userLibraryID || 1);
   return { libraryID, name: libraryName(libraryID) };
 }

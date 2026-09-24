@@ -1,10 +1,12 @@
 /**
  * HTTP client for the Zotero add-on's localhost bridge.
  *
- * `requestUrl` is used rather than `fetch` on purpose: it goes through Electron's
- * network stack instead of the page's, so it is not subject to the renderer's CORS
- * rules and sends no `Origin`. That is what lets a plugin talk to Zotero's server
- * without the add-on having to relax anything.
+ * `requestUrl` is used rather than `fetch` so the call goes through Electron's
+ * network stack instead of the page's and is not subject to the renderer's CORS
+ * rules. That is not enough on its own: Zotero's connector server silently
+ * closes any request that looks browser-like (User-Agent starting with
+ * `Mozilla/`, or any `Origin` header). Electron sends both, which surfaces as
+ * `net::ERR_EMPTY_RESPONSE`. Local clients must send `Zotero-Allowed-Request`.
  *
  * The types below mirror `apps/zotero-addon/src/server/bridgePayloads.ts`. They are
  * duplicated rather than imported because the two plugins ship separately and a
@@ -15,6 +17,14 @@ import { requestUrl } from "obsidian";
 import type { PaperRef } from "./citation";
 
 export const BRIDGE_API = 1;
+
+/**
+ * Required by Zotero's HTTP server for any non-connector client. Without it,
+ * Zotero drops the socket and Electron reports `net::ERR_EMPTY_RESPONSE`.
+ */
+const ZOTERO_ALLOWED_HEADERS = {
+  "Zotero-Allowed-Request": "1",
+} as const;
 
 export interface BridgePaperLinks {
   zoteroSelect: string;
@@ -118,6 +128,7 @@ export interface BridgeCollectionItem {
   venue?: string;
   hasPDF: boolean;
   hasMarkdown: boolean;
+  dateAdded?: string;
 }
 
 export interface BridgeCollectionItems {
@@ -160,13 +171,12 @@ export class UnizeroBridge {
       response = await requestUrl({
         url: this.url(path, params),
         method,
+        headers: { ...ZOTERO_ALLOWED_HEADERS },
         // Without this the helper throws on 404/202 edge cases we handle below.
         throw: false,
       });
     } catch (error) {
-      // A refused connection is the common case and deserves a readable message
-      // rather than Electron's.
-      throw new BridgeError(0, `Zotero is not reachable (${(error as Error).message})`);
+      throw new BridgeError(0, describeUnreachable(error));
     }
 
     if (response.status < 200 || response.status >= 300) {
@@ -259,6 +269,18 @@ export interface BridgeConvertAccepted {
   libraryID: number;
   itemKey: string;
   message?: string;
+}
+
+function describeUnreachable(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (/ERR_EMPTY_RESPONSE|Empty reply|empty response/i.test(raw)) {
+    return (
+      `Zotero closed the connection without answering (${raw}). ` +
+      `The desktop app is usually running; it drops browser-like requests ` +
+      `that omit the Zotero-Allowed-Request header.`
+    );
+  }
+  return `Zotero is not reachable (${raw})`;
 }
 
 function safeErrorMessage(text: string | undefined): string | undefined {

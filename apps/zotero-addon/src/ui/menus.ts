@@ -227,6 +227,30 @@ export function registerAnnotationMenu(mainWindow: Window): void {
 }
 
 /**
+ * Rows selected in the collection-pane context that opened this menu.
+ *
+ * Zotero 10 throws if `collectionTreeRow` is read; use `collectionTreeRows`
+ * and keep a Zotero 8/9 fallback. Home is one Collection, so visibility is
+ * true when any selected row is a Collection, library, or group.
+ */
+function collectionContextRows(context: any): any[] {
+  if (Array.isArray(context?.collectionTreeRows)) {
+    return context.collectionTreeRows;
+  }
+  try {
+    const row = context?.collectionTreeRow;
+    return row ? [row] : [];
+  } catch {
+    return [];
+  }
+}
+
+function collectionContextAllowsHome(context: any): boolean {
+  return collectionContextRows(context).some((row) =>
+    row?.isCollection?.() || row?.isLibrary?.() || row?.isGroup?.());
+}
+
+/**
  * Unizero Home contributions.
  *
  * The item context menu opens the selected paper directly. Tools, the Collection
@@ -292,10 +316,7 @@ export function registerLiteratureExplorerMenus(
         menuType: "menuitem",
         l10nID: `${config.addonRef}-literature-explorer-menu-label`,
         onShowing: (_event: Event, context: any) => {
-          const row = context.collectionTreeRow;
-          context.setVisible(Boolean(
-            row?.isCollection?.() || row?.isLibrary?.() || row?.isGroup?.(),
-          ));
+          context.setVisible(collectionContextAllowsHome(context));
         },
         onCommand: (event: Event) => {
           const target = event.currentTarget as Element | null;

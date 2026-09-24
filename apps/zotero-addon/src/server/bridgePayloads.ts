@@ -261,6 +261,7 @@ export interface BridgeCollectionItem {
   venue?: string;
   hasPDF: boolean;
   hasMarkdown: boolean;
+  dateAdded?: string;
 }
 
 export interface BridgeCollectionItems {
@@ -393,6 +394,7 @@ export async function bridgeCollectionItems(
         venue: meta.publicationTitle,
         hasPDF: meta.hasPDF,
         hasMarkdown: meta.hasMarkdown,
+        dateAdded: meta.dateAdded,
       };
     }),
   };

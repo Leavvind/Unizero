@@ -39,6 +39,7 @@ export class UnizeroLibraryView extends ItemView {
   private items: BridgeCollectionItem[] = [];
   private scopeName = "";
   private filter = "";
+  private sortBy: "dateAdded" | "author" | "year" = "dateAdded";
   private libraryID: number | null = null;
   private collectionKey = "";
   private selectedKey?: string;
@@ -46,6 +47,7 @@ export class UnizeroLibraryView extends ItemView {
   private error?: string;
   /** Guards against a slow response overwriting a newer selection. */
   private generation = 0;
+  private unsubscribeVaultIndex?: () => void;
 
   constructor(leaf: WorkspaceLeaf, private readonly plugin: UnizeroPlugin) {
     super(leaf);
@@ -60,11 +62,15 @@ export class UnizeroLibraryView extends ItemView {
     this.libraryID = this.plugin.settings.lastLibraryID;
     this.collectionKey = this.plugin.settings.lastCollectionKey || "";
     this.render();
+    this.unsubscribeVaultIndex = this.plugin.vaultIndex.subscribe(() => {
+      this.renderBody();
+    });
     await this.loadCatalogAndItems();
   }
 
   async onClose(): Promise<void> {
-    // Nothing held across close beyond DOM, which Obsidian discards.
+    this.unsubscribeVaultIndex?.();
+    this.unsubscribeVaultIndex = undefined;
   }
 
   /** Re-fetch catalog + current scope from Zotero. */
@@ -178,18 +184,64 @@ export class UnizeroLibraryView extends ItemView {
 
   private visibleItems(): BridgeCollectionItem[] {
     const query = this.filter.trim().toLocaleLowerCase();
-    if (!query) { return this.items; }
-    const words = query.split(/\s+/).filter(Boolean);
-    return this.items.filter((item) => {
-      const haystack = [
-        item.title,
-        item.authors.join(" "),
-        item.year || "",
-        item.venue || "",
-        item.itemKey,
-      ].join(" ").toLocaleLowerCase();
-      return words.every((word) => haystack.includes(word));
-    });
+    let result = this.items;
+    if (query) {
+      const words = query.split(/\s+/).filter(Boolean);
+      result = result.filter((item) => {
+        const haystack = [
+          item.title,
+          item.authors.join(" "),
+          item.year || "",
+          item.venue || "",
+          item.itemKey,
+        ].join(" ").toLocaleLowerCase();
+        return words.every((word) => haystack.includes(word));
+      });
+    }
+    return this.sortItems(result);
+  }
+
+  private sortItems(items: BridgeCollectionItem[]): BridgeCollectionItem[] {
+    const list = [...items];
+    switch (this.sortBy) {
+      case "dateAdded":
+        return list.sort((a, b) => {
+          const dateA = a.dateAdded || "";
+          const dateB = b.dateAdded || "";
+          if (dateA && dateB) {
+            return dateB.localeCompare(dateA);
+          }
+          if (dateA) { return -1; }
+          if (dateB) { return 1; }
+          return 0;
+        });
+      case "author":
+        return list.sort((a, b) => {
+          const authorA = (a.authors[0] || "").toLocaleLowerCase();
+          const authorB = (b.authors[0] || "").toLocaleLowerCase();
+          const cmp = authorA.localeCompare(authorB);
+          if (cmp !== 0) { return cmp; }
+          return (a.title || "").localeCompare(b.title || "");
+        });
+      case "year":
+        return list.sort((a, b) => {
+          const yearA = a.year || "";
+          const yearB = b.year || "";
+          if (yearA && yearB) {
+            const cmp = yearB.localeCompare(yearA);
+            if (cmp !== 0) { return cmp; }
+          } else if (yearA) {
+            return -1;
+          } else if (yearB) {
+            return 1;
+          }
+          const authorA = (a.authors[0] || "").toLocaleLowerCase();
+          const authorB = (b.authors[0] || "").toLocaleLowerCase();
+          return authorA.localeCompare(authorB);
+        });
+      default:
+        return list;
+    }
   }
 
   private collectionOptions(libraryID: number): CollectionOption[] {
@@ -382,6 +434,26 @@ export class UnizeroLibraryView extends ItemView {
       this.renderBody();
     });
 
+    const sortSelect = searchRow.createEl("select", {
+      cls: "unizero-library__sort-select",
+      attr: { "aria-label": "Sort collection items", title: "Sort by" },
+    });
+    const sortOptions: { value: "dateAdded" | "author" | "year"; label: string }[] = [
+      { value: "dateAdded", label: "Date Added" },
+      { value: "author", label: "Author Name" },
+      { value: "year", label: "Year" },
+    ];
+    for (const opt of sortOptions) {
+      sortSelect.createEl("option", {
+        text: opt.label,
+        value: opt.value,
+      }).selected = opt.value === this.sortBy;
+    }
+    sortSelect.addEventListener("change", () => {
+      this.sortBy = sortSelect.value as "dateAdded" | "author" | "year";
+      this.renderBody();
+    });
+
     const refresh = searchRow.createEl("button", {
       cls: "unizero-library__refresh",
       attr: { "aria-label": "Refresh from Zotero", title: "Refresh" },
@@ -431,6 +503,11 @@ export class UnizeroLibraryView extends ItemView {
       row.createDiv({ cls: "unizero-library__item-meta", text: meta });
     }
 
+    const ref: PaperRef = {
+      libraryID: item.libraryID,
+      itemKey: item.itemKey,
+    };
+
     const badges = row.createDiv({ cls: "unizero-library__item-badges" });
     if (item.hasPDF) {
       badges.createSpan({ cls: "unizero-badge", text: "PDF" });
@@ -438,11 +515,18 @@ export class UnizeroLibraryView extends ItemView {
     if (item.hasMarkdown) {
       badges.createSpan({ cls: "unizero-badge", text: "MD" });
     }
+    const vaultCount = this.plugin.vaultIndex.getCount(ref);
+    if (vaultCount > 0) {
+      const countBadge = badges.createSpan({
+        cls: "unizero-badge unizero-badge--count",
+        text: `${vaultCount}`,
+      });
+      countBadge.setAttr(
+        "title",
+        `Cited ${vaultCount} time${vaultCount === 1 ? "" : "s"} in this vault`,
+      );
+    }
 
-    const ref: PaperRef = {
-      libraryID: item.libraryID,
-      itemKey: item.itemKey,
-    };
     enableCitationDrag(row, ref);
 
     row.addEventListener("click", () => this.openItem(item));

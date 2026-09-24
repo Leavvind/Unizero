@@ -15,6 +15,7 @@ import {
   Menu,
   Notice,
   Plugin,
+  TFile,
   type Editor,
   type WorkspaceLeaf,
 } from "obsidian";
@@ -37,6 +38,7 @@ import { PaperStore } from "./paperStore";
 import type { PillHost } from "./pill";
 import { citationLivePreview, citationPostProcessor } from "./render";
 import { CitationSuggest } from "./suggest";
+import { VaultIndex } from "./vaultIndex";
 import {
   DEFAULT_SETTINGS,
   UnizeroSettingTab,
@@ -47,6 +49,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
   settings: UnizeroSettings = { ...DEFAULT_SETTINGS };
   bridge!: UnizeroBridge;
   store!: PaperStore;
+  vaultIndex!: VaultIndex;
   /**
    * Last Markdown leaf the user focused. Sidebars steal `activeEditor`, so
    * Insert citation falls back to this rather than failing with "no editor".
@@ -58,9 +61,40 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
 
     this.bridge = new UnizeroBridge(() => this.settings.endpoint);
     this.store = new PaperStore(this.bridge);
+    this.vaultIndex = new VaultIndex(this.app);
+
+    if (this.app.workspace.layoutReady) {
+      void this.vaultIndex.initialize();
+    } else {
+      this.app.workspace.onLayoutReady(() => {
+        void this.vaultIndex.initialize();
+      });
+    }
+
+    this.registerEvent(this.app.vault.on("modify", (file) => {
+      if (file instanceof TFile && (file.extension === "md" || file.extension === "canvas")) {
+        void this.vaultIndex.indexFile(file);
+      }
+    }));
+    this.registerEvent(this.app.vault.on("create", (file) => {
+      if (file instanceof TFile && (file.extension === "md" || file.extension === "canvas")) {
+        void this.vaultIndex.indexFile(file);
+      }
+    }));
+    this.registerEvent(this.app.vault.on("delete", (file) => {
+      if (file instanceof TFile) {
+        this.vaultIndex.removeFile(file.path);
+      }
+    }));
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      if (file instanceof TFile && (file.extension === "md" || file.extension === "canvas")) {
+        void this.vaultIndex.renameFile(oldPath, file);
+      }
+    }));
 
     this.registerView(DETAIL_VIEW_TYPE, (leaf) => new UnizeroDetailView(leaf, this));
     this.registerView(LIBRARY_VIEW_TYPE, (leaf) => new UnizeroLibraryView(leaf, this));
+
     this.registerMarkdownPostProcessor(citationPostProcessor(this));
     this.registerEditorExtension(citationLivePreview(this));
     this.registerEditorSuggest(new CitationSuggest(this.app, this));
@@ -115,6 +149,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
   onunload(): void {
     // Registered views, extensions, and processors are released by Plugin's own
     // teardown; the store's listeners belong to elements that go with them.
+    this.vaultIndex?.clear();
   }
 
   async loadSettings(): Promise<void> {

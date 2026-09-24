@@ -275,6 +275,15 @@
 
 .unizero-badge--muted { opacity: 0.7; }
 .unizero-badge--warn { color: var(--text-warning); }
+.unizero-badge--count {
+  background-color: color-mix(
+    in srgb,
+    var(--interactive-accent) 18%,
+    var(--background-modifier-hover)
+  );
+  color: var(--text-accent);
+  font-weight: var(--font-semibold);
+}
 
 .unizero-detail__actions {
   display: flex;
@@ -373,6 +382,90 @@
   font-size: var(--font-ui-smaller);
 }
 
+/* Vault occurrences in detail pane ---------------------------------------- */
+
+.unizero-vault-file-group {
+  border-top: 1px solid var(--background-modifier-border);
+  padding: var(--size-4-2) 0;
+}
+
+.unizero-vault-file-group:first-child {
+  border-top: none;
+}
+
+.unizero-vault-file-header {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  color: var(--text-normal);
+  cursor: pointer;
+  padding: var(--size-2-1) var(--size-2-2);
+  border-radius: var(--radius-s);
+  transition: background-color 100ms ease;
+}
+
+.unizero-vault-file-header:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-accent);
+}
+
+.unizero-vault-file-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.unizero-vault-file-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unizero-vault-file-badge {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.unizero-vault-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-2-2);
+  padding: var(--size-2-1) var(--size-4-1);
+  margin-top: 2px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  font-size: var(--font-ui-smaller);
+  transition: background-color 100ms ease;
+}
+
+.unizero-vault-item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.unizero-vault-line-num {
+  font-family: var(--font-monospace);
+  color: var(--text-faint);
+  flex-shrink: 0;
+  min-width: 2.4em;
+}
+
+.unizero-vault-snippet {
+  flex: 1;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.unizero-vault-item:hover .unizero-vault-snippet {
+  color: var(--text-normal);
+}
+
 /* Library pane ------------------------------------------------------------ */
 
 .unizero-library {
@@ -415,6 +508,13 @@
 .unizero-library__search {
   flex: 1;
   min-width: 0;
+}
+
+.unizero-library__sort-select {
+  flex-shrink: 0;
+  max-width: 105px;
+  font-size: var(--font-ui-smaller);
+  padding: var(--size-2-1) var(--size-2-1);
 }
 
 .unizero-library__refresh {

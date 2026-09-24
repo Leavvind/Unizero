@@ -13,7 +13,7 @@
  * that genuinely has no references.
  */
 
-import { ItemView, Notice, setIcon, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, setIcon, type TFile, type WorkspaceLeaf } from "obsidian";
 import {
   type BridgeRelatedPaper,
   type BridgeRelations,
@@ -32,7 +32,10 @@ import {
 
 export const DETAIL_VIEW_TYPE = "unizero-detail";
 
-const TABS: { kind: RelationKind; label: string }[] = [
+export type DetailTabKind = "vault" | RelationKind;
+
+const TABS: { kind: DetailTabKind; label: string }[] = [
+  { kind: "vault", label: "Vault" },
   { kind: "references", label: "References" },
   { kind: "citations", label: "Citations" },
   { kind: "relation", label: "Relation" },
@@ -40,8 +43,9 @@ const TABS: { kind: RelationKind; label: string }[] = [
 
 export class UnizeroDetailView extends ItemView {
   private ref?: PaperRef;
-  private kind: RelationKind = "references";
-  private unsubscribe?: () => void;
+  private kind: DetailTabKind = "vault";
+  private unsubscribeStore?: () => void;
+  private unsubscribeVaultIndex?: () => void;
   private relations?: BridgeRelations;
   private relationsError?: string;
   private busy = false;
@@ -61,11 +65,18 @@ export class UnizeroDetailView extends ItemView {
   async onOpen(): Promise<void> {
     this.contentEl.addClass("unizero-detail");
     this.render();
+    this.unsubscribeVaultIndex = this.plugin.vaultIndex.subscribe(() => {
+      if (this.kind === "vault") {
+        this.render();
+      }
+    });
   }
 
   async onClose(): Promise<void> {
-    this.unsubscribe?.();
-    this.unsubscribe = undefined;
+    this.unsubscribeStore?.();
+    this.unsubscribeStore = undefined;
+    this.unsubscribeVaultIndex?.();
+    this.unsubscribeVaultIndex = undefined;
   }
 
   /** Point the pane at a paper. Safe to call repeatedly with the same ref. */
@@ -82,14 +93,17 @@ export class UnizeroDetailView extends ItemView {
     this.relationsError = undefined;
     this.generation += 1;
 
-    this.unsubscribe?.();
-    this.unsubscribe = this.plugin.store.subscribe(this.ref, () => {
+    this.unsubscribeStore?.();
+    this.unsubscribeStore = this.plugin.store.subscribe(this.ref, () => {
       this.render();
-      void this.loadRelations(false);
+      if (this.kind !== "vault") {
+        void this.loadRelations(false);
+      }
     });
   }
 
   private async loadRelations(fetch: boolean): Promise<void> {
+    if (this.kind === "vault") { return; }
     const ref = this.ref;
     if (!ref) { return; }
     const state = this.plugin.store.peek(ref);
@@ -145,7 +159,11 @@ export class UnizeroDetailView extends ItemView {
 
     this.renderHeader(container, state);
     this.renderTabs(container);
-    this.renderRelations(container);
+    if (this.kind === "vault") {
+      this.renderVault(container);
+    } else {
+      this.renderRelations(container);
+    }
   }
 
   private renderUnresolved(container: HTMLElement, state: PaperState): void {
@@ -258,10 +276,87 @@ export class UnizeroDetailView extends ItemView {
       button.addEventListener("click", () => {
         if (this.kind === tab.kind) { return; }
         this.kind = tab.kind;
-        this.relations = undefined;
-        this.relationsError = undefined;
-        void this.loadRelations(false);
+        if (this.kind === "vault") {
+          this.render();
+        } else {
+          this.relations = undefined;
+          this.relationsError = undefined;
+          this.render();
+          void this.loadRelations(false);
+        }
       });
+    }
+  }
+
+  private renderVault(container: HTMLElement): void {
+    const body = container.createDiv({ cls: "unizero-detail__list unizero-vault-occurrences" });
+    if (!this.ref) { return; }
+
+    const occurrences = this.plugin.vaultIndex.getOccurrences(this.ref);
+    if (!occurrences.length) {
+      const empty = body.createDiv({ cls: "unizero-detail__empty" });
+      empty.createEl("p", {
+        text: `No citations found in this vault for @${paperRefKey(this.ref)}.`,
+      });
+      empty.createEl("button", { text: "Insert citation" }).addEventListener("click", () => {
+        if (this.ref) {
+          this.plugin.insertCitation(this.ref);
+        }
+      });
+      return;
+    }
+
+    const byFile = new Map<string, { file: TFile; items: typeof occurrences }>();
+    for (const occ of occurrences) {
+      let group = byFile.get(occ.filePath);
+      if (!group) {
+        group = { file: occ.file, items: [] };
+        byFile.set(occ.filePath, group);
+      }
+      group.items.push(occ);
+    }
+
+    const countText = `${occurrences.length} citation${occurrences.length === 1 ? "" : "s"} across ${byFile.size} note${byFile.size === 1 ? "" : "s"}`;
+    body.createDiv({ cls: "unizero-detail__summary", text: countText });
+
+    for (const [filePath, group] of byFile) {
+      const isCanvas = filePath.endsWith(".canvas");
+      const fileGroup = body.createDiv({ cls: "unizero-vault-file-group" });
+      const header = fileGroup.createDiv({ cls: "unizero-vault-file-header" });
+      const iconSpan = header.createSpan({ cls: "unizero-vault-file-icon" });
+      setIcon(iconSpan, isCanvas ? "layout-dashboard" : "file-text");
+      header.createSpan({ cls: "unizero-vault-file-path", text: filePath });
+      header.createSpan({
+        cls: "unizero-badge unizero-vault-file-badge",
+        text: String(group.items.length),
+      });
+
+      header.addEventListener("click", () => {
+        void this.app.workspace.getLeaf(false).openFile(group.file);
+      });
+
+      for (const occ of group.items) {
+        const itemRow = fileGroup.createDiv({ cls: "unizero-vault-item" });
+        itemRow.setAttr("title", isCanvas ? "Click to open in Canvas" : `Click to jump to line ${occ.line + 1}`);
+        itemRow.createSpan({
+          cls: "unizero-vault-line-num",
+          text: isCanvas ? (occ.line > 0 ? `L${occ.line + 1}` : "Card") : `L${occ.line + 1}`,
+        });
+
+        const snippet = itemRow.createSpan({ cls: "unizero-vault-snippet" });
+        snippet.setText(occ.lineText.trim() || occ.token.raw);
+
+        if (occ.token.action !== "detail") {
+          const actionText = occ.token.action === "pdf"
+            ? `PDF${occ.token.page ? `:${occ.token.page}` : ""}`
+            : "MD";
+          itemRow.createSpan({ cls: "unizero-badge", text: actionText });
+        }
+
+        itemRow.addEventListener("click", () => {
+          void this.plugin.vaultIndex.openOccurrence(occ);
+        });
+      }
     }
   }
 
