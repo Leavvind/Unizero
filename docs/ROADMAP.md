@@ -54,6 +54,8 @@ Neither type checking nor Vitest exercises Zotero or Obsidian hosts. Manual chec
   attachments. A real MinerU run: Markdown, tables, links, annotations, and the versioned
   `ZoMiner References` artifact — including an empty bibliography and a re-conversion that
   replaces a stale one.
+- **Parsing quality.** Verify representative text/scanned papers, chunked page
+  offsets, exported images/tables, and Advanced table refinement in Zotero.
 - **Literature data.** A References query with OpenAlex and Crossref empty and Semantic
   Scholar restricted keeps all three source states across a reopen. Preview A → B → A
   reuses A silently, a real miss shows progress, and a zero-Citations result survives a

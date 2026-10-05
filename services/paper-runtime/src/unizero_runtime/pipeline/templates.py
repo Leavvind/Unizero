@@ -32,12 +32,21 @@ class TemplateStore:
         self._templates: dict[str, WorkflowTemplate] = {}
         self.reload()
 
-    @staticmethod
-    def _read(path: Path) -> WorkflowTemplate:
+    def _read(self, path: Path, *, persist: bool = False) -> WorkflowTemplate:
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict):
             raise ValueError(f"template YAML must contain an object: {path}")
-        return WorkflowTemplate.from_dict(migrate_template_dict(value))
+        migrated = migrate_template_dict(value)
+        template = WorkflowTemplate.from_dict(migrated)
+        self.registry.validate(template)
+        if persist and migrated != value:
+            temporary = path.with_suffix(".yaml.tmp")
+            temporary.write_text(
+                yaml.safe_dump(migrated, allow_unicode=True, sort_keys=False, width=100),
+                encoding="utf-8",
+            )
+            temporary.replace(path)
+        return template
 
     def reload(self) -> None:
         with self._lock:
@@ -45,14 +54,12 @@ class TemplateStore:
             builtin_ids: set[str] = set()
             for path in sorted(self.builtin_dir.glob("*.yaml")):
                 template = self._read(path)
-                self.registry.validate(template)
                 template.builtin = True
                 loaded[template.id] = template
                 builtin_ids.add(template.id)
             if self.user_dir.exists():
                 for path in sorted(self.user_dir.glob("*.yaml")):
-                    template = self._read(path)
-                    self.registry.validate(template)
+                    template = self._read(path, persist=True)
                     template.builtin = template.id in builtin_ids
                     template.customized = template.id in builtin_ids
                     loaded[template.id] = template

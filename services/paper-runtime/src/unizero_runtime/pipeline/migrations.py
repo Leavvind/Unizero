@@ -79,6 +79,10 @@ def migrate_template_dict(value: dict[str, Any]) -> dict[str, Any]:
         if str(item.get("module") or "").strip() in REMOVED_MODULES:
             continue
         settings = item.get("settings")
+        if item.get("module") == "extract.mineru" and isinstance(settings, dict):
+            settings["backend"] = {
+                "pipeline": "basic", "vlm-transformers": "advanced",
+            }.get(settings.get("backend"), settings.get("backend", "basic"))
         if (
             str(item.get("module") or "").strip() == _FRONTMATTER_MODULE
             and isinstance(settings, dict)

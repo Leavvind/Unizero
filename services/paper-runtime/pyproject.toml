@@ -6,7 +6,7 @@ requires-python = ">=3.12,<3.13"
 license = "AGPL-3.0-or-later"
 dependencies = [
     "fastapi>=0.139,<0.140",
-    "mineru[pipeline]==3.4.4",
+    "mineru==4.0.10",
     "pydantic>=2.13,<3",
     "pyyaml>=6.0,<7",
     "pymupdf>=1.28,<2",

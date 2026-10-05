@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
 
     config = runtime.config.snapshot()
     port = args.port or int(config["port"])
-    print(f"[boot] mineru: {runtime.application.mineru_version or 'NOT FOUND on PATH'}")
+    print(f"[boot] mineru: {runtime.application.mineru_version or 'NOT INSTALLED in this Python environment'}")
     print(f"[boot] listening on http://127.0.0.1:{port}")
     sys.stdout.flush()
 

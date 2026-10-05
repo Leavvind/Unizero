@@ -3,7 +3,7 @@ table_vlm.py — refine complex tables with MinerU's VLM backend.
 
 The pipeline backend garbles complex tables (merged cells, significance
 stars). This module re-runs ONLY the pages containing flagged tables through
-`mineru -b vlm-engine` (one invocation, model load amortized) and swaps the
+MinerU's advanced tier (one invocation, model load amortized) and swaps the
 better <table> HTML into the markdown.
 
 Matching is positional: tables appear in the same (page, order-within-page)
@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Callable, Optional
+
+from .mineru import command as mineru_command
 
 LogFn = Callable[[str], None]
 
@@ -51,7 +52,7 @@ def refine_tables(
         return md_text, content_list, 0
 
     pages = sorted({tables[i]["page_idx"] for i in flagged_ix})
-    log(f"[vlm] {len(flagged_ix)} complex table(s) on {len(pages)} page(s) -> vlm-engine")
+    log(f"[vlm] {len(flagged_ix)} complex table(s) on {len(pages)} page(s) -> advanced")
 
     # ---- build mini-PDF of flagged pages ----
     import pymupdf
@@ -71,11 +72,7 @@ def refine_tables(
 
     # ---- run VLM backend once ----
     vlm_out = work_dir / "vlm_out"
-    sibling = Path(sys.executable).with_name(
-        "mineru.exe" if sys.platform == "win32" else "mineru"
-    )
-    mineru = str(sibling) if sibling.is_file() else (shutil.which("mineru") or "mineru")
-    cmd = [mineru, "-p", str(mini), "-o", str(vlm_out), "-b", "vlm-engine"]
+    cmd = mineru_command(mini, vlm_out, backend="advanced")
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

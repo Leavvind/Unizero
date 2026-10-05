@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
-import sys
 import unicodedata
 import urllib.request
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Optional
 
@@ -44,26 +43,10 @@ class ServiceError(RuntimeError):
         self.status_code = status_code
 
 
-def _mineru_executable() -> str:
-    sibling = Path(sys.executable).with_name(
-        "mineru.exe" if sys.platform == "win32" else "mineru",
-    )
-    if sibling.is_file():
-        return str(sibling)
-    return shutil.which("mineru") or "mineru"
-
-
 def detect_mineru_version() -> str:
     try:
-        output = subprocess.run(
-            [_mineru_executable(), "--version"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        ).stdout
-        match = re.search(r"version\s+([\d.]+)", output)
-        return match.group(1) if match else ""
-    except Exception:
+        return version("mineru")
+    except PackageNotFoundError:
         return ""
 
 
