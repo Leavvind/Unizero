@@ -5,15 +5,57 @@ Operational guidance for coding agents and contributors.
 This file describes the current repository. Planned work belongs in `docs/ROADMAP.md`;
 do not implement a roadmap idea merely because it appears in documentation.
 
+## Product in one line
+
+UniZero connects **Zotero** (library, providers, cache, conversion) and **Obsidian**
+(notes, citations, exploration). Zotero stays canonical for bibliographic identity;
+Obsidian is the active note-taking front end.
+
+## Current focus
+
+| Priority | Surface | Guidance |
+| --- | --- | --- |
+| **Active** | `apps/obsidian-plugin` | Default place for new product work: citations, detail pane, search, jumps |
+| **Required backend** | `apps/zotero-addon` data plane + `src/server` bridge | Providers, reference cache, relations, Paper catalog, conversion client, mostly-read-only bridge (`POST /convert` only) |
+| **Legacy UI** | Unizero Home (Project View / Board) under `addon/chrome/content` and related Project/Board paths | Still in the tree; **do not extend, redesign, or “improve”** unless the user task names Home/Board explicitly |
+| **Background** | Item-pane literature UI, per-paper graph | Maintain when a task touches them; not the main roadmap |
+
+Write-back from Obsidian into Zotero / UniZero (import explored papers, etc.) is
+**planned**, not present. Do not add bibliographic or Paper-catalog mutations over
+the bridge without a separate write design. The narrow exception is
+`POST /unizero/v1/convert`, which starts the same conversion job as the Zotero menu.
+
+### Default read order
+
+**Obsidian or citation work**
+
+1. `apps/obsidian-plugin/README.md`
+2. `apps/obsidian-plugin/src/citation.ts`, `bridge.ts`, then the file the task names
+3. `apps/zotero-addon/src/server/` only if the bridge contract or payloads change
+4. `docs/ARCHITECTURE.md` only if ownership or process boundaries move
+
+**Do not open by default:** `docs/LEGACY_HOME.md`, `docs/UNICONNECTION.md` Graph traps,
+Board/sync design in `docs/SYNC_AND_LITERATURE_SOURCES.md` — unless the task is
+explicitly about that surface.
+
+**Add-on data / conversion / providers:** component README → `docs/PROJECT_STRUCTURE.md`
+→ the owning path in the table below.
+
 ## Start here
 
-UniZero has two executable components:
+UniZero has three executable components:
 
-- `apps/zotero-addon`: the Zotero add-on;
-- `services/paper-runtime`: the optional Python service used for document processing.
+- `apps/zotero-addon`: Zotero add-on (library backend; includes legacy Home UI);
+- `services/paper-runtime`: optional Python service for document processing;
+- `apps/obsidian-plugin`: Obsidian plugin — free-text `@` search, `@libraryID/itemKey`
+  citations, detail pane against the bridge.
 
-Their only integration boundary is the versioned localhost HTTP API. The canonical v1
-schema is `packages/contracts/http/v1.schema.json`.
+The add-on and the runtime integrate through the versioned localhost HTTP API; the
+canonical v1 schema is `packages/contracts/http/v1.schema.json`. The add-on and the
+Obsidian plugin integrate through a separate bridge on Zotero's own HTTP server
+(GET data plane plus `POST /convert`), versioned by `BRIDGE_API_VERSION` in
+`apps/zotero-addon/src/server/bridgePayloads.ts`. The two boundaries are unrelated and
+must not be merged.
 
 For an unfamiliar task, read only the relevant component README and the path map in
 `docs/PROJECT_STRUCTURE.md`. Use `docs/ARCHITECTURE.md` when the change affects ownership
@@ -43,6 +85,15 @@ and which are design notes; do not treat a design note as a work order.
    shards, and topology carries no Zotero display fields.
 10. **Dialog content talks through its window API bridge.** Privileged XHTML dialogs get a
     plain object on `window.arguments[0]`; they never import bundle modules.
+11. **The Obsidian bridge is mostly read-only and never fetches unbidden.** GET
+    endpoints under `src/server` do not mutate Zotero or the Paper catalog. The only
+    write-shaped action is `POST /convert` (same conversion command as the Zotero
+    menu). Relations answer from cache; a miss is `loaded: false` so the caller can
+    prompt. Only an explicit `fetch=1` may reach the providers. Rendering a note must
+    never cause network work or start conversion.
+12. **A citekey is an alias, not an identity.** Persisted state uses `libraryID` plus
+    `itemKey`; a citekey is derived from mutable metadata and can collide. Ambiguity is
+    reported, never resolved silently.
 
 The process boundary is described in `docs/ARCHITECTURE.md`.
 
@@ -56,7 +107,9 @@ The process boundary is described in `docs/ARCHITECTURE.md`.
 | `apps/zotero-addon/src/zotero` | Zotero item, attachment, annotation, and identity adapters |
 | `apps/zotero-addon/src/ui` | Menus, panel bridge, progress, and service notices |
 | `apps/zotero-addon/src/modules` | Established relations, metadata, cache, and item-pane code |
-| `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, Literature Explorer, graph renderer |
+| `apps/zotero-addon/src/server` | Localhost bridge (GET + convert action) and citekey resolution |
+| `apps/obsidian-plugin/src` | Obsidian rendering, suggester, detail pane, and bridge client (active front end) |
+| `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, **legacy** Unizero Home, graph renderer |
 | `services/paper-runtime/src/unizero_runtime/api` | FastAPI transport |
 | `services/paper-runtime/src/unizero_runtime/application` | Jobs, configuration, and use cases |
 | `services/paper-runtime/src/unizero_runtime/pipeline` | Workflow templates and document steps |
@@ -127,9 +180,22 @@ npm run build
 ```
 
 `npm run check` includes TypeScript and shared-contract drift checks. `npm test` runs
-Vitest over the derived relation index and the graph builders, which are deliberately
-free of Zotero and DOM dependencies. Everything else in the add-on — UI, lifecycle,
-dialogs, providers — has no host-independent test and needs a manual Zotero check.
+Vitest over the parts that are deliberately free of Zotero: the derived relation index,
+the graph builders, Project and Paper persistence, the sync engine and WebDAV backend,
+and the Home dialog loaded under `happy-dom`. Lifecycle, menus, providers, and every
+privileged Zotero API remain untested and need a manual Zotero check.
+
+From `apps/obsidian-plugin`:
+
+```text
+npm run check
+npm test
+npm run build
+```
+
+`npm test` covers the citation syntax, the only part free of Obsidian. Rendering, the
+suggester, the detail pane, and every bridge call need a manual check in a real vault
+against a running Zotero.
 
 From `services/paper-runtime`:
 

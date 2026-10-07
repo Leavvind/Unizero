@@ -1,0 +1,646 @@
+/*
+ * Citation pills use Obsidian's own accent and surface tokens. The accent is a
+ * frame rather than the label colour: themes often choose a deliberately soft
+ * accent, which looks pleasant on controls but can make citation text illegible.
+ */
+
+.unizero-pill {
+  --unizero-pill-surface: color-mix(
+    in srgb,
+    var(--interactive-accent) 11%,
+    var(--background-primary)
+  );
+  --unizero-pill-surface-hover: color-mix(
+    in srgb,
+    var(--interactive-accent) 17%,
+    var(--background-primary)
+  );
+  --unizero-pill-border: color-mix(
+    in srgb,
+    var(--interactive-accent) 34%,
+    var(--background-modifier-border)
+  );
+  --unizero-highlight-surface: color-mix(
+    in srgb,
+    var(--interactive-accent) 9%,
+    var(--background-primary)
+  );
+  --unizero-highlight-surface-hover: color-mix(
+    in srgb,
+    var(--interactive-accent) 16%,
+    var(--background-primary)
+  );
+
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  gap: 0.38em;
+  box-sizing: border-box;
+  margin: 0 0.06em;
+  padding: 0.08em 0.46em 0.1em 0.62em;
+  overflow: hidden;
+  vertical-align: 0.02em;
+  border: 1px solid var(--unizero-pill-border);
+  border-radius: var(--radius-s);
+  background-color: var(--unizero-pill-surface);
+  color: var(--text-normal);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 8%),
+    inset 0 1px 0 rgb(255 255 255 / 12%);
+  cursor: pointer;
+  font-weight: var(--font-medium);
+  line-height: 1.35;
+  white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.theme-dark .unizero-pill {
+  --unizero-pill-surface: color-mix(
+    in srgb,
+    var(--interactive-accent) 15%,
+    var(--background-primary)
+  );
+  --unizero-pill-surface-hover: color-mix(
+    in srgb,
+    var(--interactive-accent) 23%,
+    var(--background-primary)
+  );
+  --unizero-highlight-surface: color-mix(
+    in srgb,
+    var(--interactive-accent) 13%,
+    var(--background-primary)
+  );
+  --unizero-highlight-surface-hover: color-mix(
+    in srgb,
+    var(--interactive-accent) 20%,
+    var(--background-primary)
+  );
+}
+
+.unizero-pill::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.2em;
+  background-color: var(--interactive-accent);
+}
+
+.unizero-pill:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--interactive-accent) 58%,
+    var(--background-modifier-border)
+  );
+  background-color: var(--unizero-pill-surface-hover);
+  box-shadow:
+    0 3px 8px rgb(0 0 0 / 14%),
+    inset 0 1px 0 rgb(255 255 255 / 14%);
+  transform: translateY(-1px);
+}
+
+.unizero-pill:active {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
+  transform: translateY(0);
+}
+
+/* Soft highlight: sits closer to prose, with an accent underline for identity. */
+.unizero-pill:where([data-style="highlight"]) {
+  padding-inline-start: 0.46em;
+  border-color: transparent;
+  background-color: var(--unizero-highlight-surface);
+  box-shadow: inset 0 -0.13em 0 color-mix(
+    in srgb,
+    var(--interactive-accent) 58%,
+    transparent
+  );
+}
+
+.unizero-pill:where([data-style="highlight"])::before {
+  display: none;
+}
+
+.unizero-pill:where([data-style="highlight"]):where(:hover) {
+  border-color: transparent;
+  background-color: var(--unizero-highlight-surface-hover);
+  box-shadow:
+    inset 0 -0.17em 0 color-mix(
+      in srgb,
+      var(--interactive-accent) 78%,
+      transparent
+    ),
+    0 2px 5px rgb(0 0 0 / 8%);
+}
+
+/* Solid accent: the strongest option for notes where citations are navigation. */
+.unizero-pill:where([data-style="solid"]) {
+  padding-inline-start: 0.46em;
+  border-color: var(--interactive-accent);
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  box-shadow:
+    0 2px 5px rgb(0 0 0 / 18%),
+    inset 0 1px 0 rgb(255 255 255 / 18%);
+}
+
+.unizero-pill:where([data-style="solid"])::before {
+  display: none;
+}
+
+.unizero-pill:where([data-style="solid"]):where(:hover) {
+  border-color: var(--interactive-accent-hover);
+  background-color: var(--interactive-accent-hover);
+  box-shadow:
+    0 4px 10px rgb(0 0 0 / 24%),
+    inset 0 1px 0 rgb(255 255 255 / 22%);
+}
+
+.unizero-pill--loading {
+  color: var(--text-muted);
+  cursor: progress;
+}
+
+.unizero-pill:where([data-style="solid"]).unizero-pill--loading {
+  color: var(--text-on-accent);
+  opacity: 0.65;
+}
+
+.unizero-pill--missing,
+.unizero-pill--error {
+  color: var(--text-error);
+  border-color: color-mix(in srgb, var(--text-error) 45%, transparent);
+  background-color: color-mix(in srgb, var(--text-error) 8%, transparent);
+  box-shadow: none;
+  cursor: help;
+}
+
+.unizero-pill--missing::before,
+.unizero-pill--error::before {
+  display: block;
+  background-color: var(--text-error);
+}
+
+.unizero-pill--ambiguous {
+  border-color: var(--text-warning);
+}
+
+.unizero-pill__mark {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  min-height: 1.45em;
+  padding: 0 0.38em;
+  border-radius: var(--radius-s);
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 0.66em;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.055em;
+  line-height: 1.45;
+  text-transform: uppercase;
+}
+
+.unizero-pill:where([data-style="highlight"]) .unizero-pill__mark {
+  border: 1px solid color-mix(
+    in srgb,
+    var(--interactive-accent) 52%,
+    var(--background-modifier-border)
+  );
+  background-color: color-mix(
+    in srgb,
+    var(--interactive-accent) 15%,
+    transparent
+  );
+  color: var(--text-normal);
+}
+
+.unizero-pill:where([data-style="solid"]) .unizero-pill__mark {
+  border: 1px solid rgb(255 255 255 / 24%);
+  background-color: rgb(0 0 0 / 15%);
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unizero-pill {
+    transition: none;
+  }
+}
+
+/* Detail pane ------------------------------------------------------------- */
+
+.unizero-detail {
+  padding: var(--size-4-3);
+  overflow-y: auto;
+}
+
+.unizero-detail__empty {
+  color: var(--text-muted);
+  padding: var(--size-4-4) 0;
+  text-align: center;
+}
+
+.unizero-detail__empty button {
+  margin-top: var(--size-4-2);
+}
+
+.unizero-detail__title {
+  margin: 0 0 var(--size-4-1);
+  font-size: var(--font-ui-large);
+  line-height: 1.3;
+}
+
+.unizero-detail__credit,
+.unizero-detail__venue {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.unizero-detail__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-2);
+  margin: var(--size-4-2) 0;
+}
+
+.unizero-badge {
+  padding: 0 0.4em;
+  border-radius: var(--radius-s);
+  background-color: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.unizero-badge--muted { opacity: 0.7; }
+.unizero-badge--warn { color: var(--text-warning); }
+.unizero-badge--count {
+  background-color: color-mix(
+    in srgb,
+    var(--interactive-accent) 18%,
+    var(--background-modifier-hover)
+  );
+  color: var(--text-accent);
+  font-weight: var(--font-semibold);
+}
+
+.unizero-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-2);
+  margin-bottom: var(--size-4-2);
+}
+
+.unizero-detail__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+.unizero-detail__abstract {
+  margin-bottom: var(--size-4-2);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.unizero-detail__tabs {
+  display: flex;
+  gap: var(--size-2-1);
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: var(--size-4-2);
+}
+
+.unizero-detail__tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: var(--size-2-2) var(--size-4-2);
+}
+
+.unizero-detail__tab.is-active {
+  color: var(--text-normal);
+  border-bottom-color: var(--text-accent);
+}
+
+.unizero-detail__summary {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  margin-bottom: var(--size-4-2);
+}
+
+.unizero-row {
+  border-top: 1px solid var(--background-modifier-border);
+  padding: var(--size-4-2) 0;
+}
+
+.unizero-row.unizero-draggable {
+  cursor: grab;
+}
+
+.unizero-detail__header.unizero-draggable {
+  cursor: grab;
+}
+
+.unizero-row__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-2-2);
+  font-size: var(--font-ui-small);
+  line-height: 1.35;
+}
+
+.unizero-row--in-library .unizero-row__title {
+  font-weight: var(--font-semibold);
+}
+
+.unizero-row__meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: 0.15em;
+}
+
+.unizero-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-2-2);
+  margin-top: var(--size-2-2);
+}
+
+.unizero-row__actions button {
+  font-size: var(--font-ui-smaller);
+  padding: 0.1em 0.5em;
+}
+
+.unizero-row__note {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+/* Vault occurrences in detail pane ---------------------------------------- */
+
+.unizero-vault-file-group {
+  border-top: 1px solid var(--background-modifier-border);
+  padding: var(--size-4-2) 0;
+}
+
+.unizero-vault-file-group:first-child {
+  border-top: none;
+}
+
+.unizero-vault-file-header {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  color: var(--text-normal);
+  cursor: pointer;
+  padding: var(--size-2-1) var(--size-2-2);
+  border-radius: var(--radius-s);
+  transition: background-color 100ms ease;
+}
+
+.unizero-vault-file-header:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-accent);
+}
+
+.unizero-vault-file-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.unizero-vault-file-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unizero-vault-file-badge {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.unizero-vault-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-2-2);
+  padding: var(--size-2-1) var(--size-4-1);
+  margin-top: 2px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  font-size: var(--font-ui-smaller);
+  transition: background-color 100ms ease;
+}
+
+.unizero-vault-item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.unizero-vault-line-num {
+  font-family: var(--font-monospace);
+  color: var(--text-faint);
+  flex-shrink: 0;
+  min-width: 2.4em;
+}
+
+.unizero-vault-snippet {
+  flex: 1;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.unizero-vault-item:hover .unizero-vault-snippet {
+  color: var(--text-normal);
+}
+
+/* Library pane ------------------------------------------------------------ */
+
+.unizero-library {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--size-4-2);
+  overflow: hidden;
+}
+
+.unizero-library__toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+  flex-shrink: 0;
+  margin-bottom: var(--size-2-2);
+}
+
+.unizero-library__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+}
+
+.unizero-library__label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.unizero-library__select {
+  width: 100%;
+}
+
+.unizero-library__search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+}
+
+.unizero-library__search {
+  flex: 1;
+  min-width: 0;
+}
+
+.unizero-library__sort-select {
+  flex-shrink: 0;
+  max-width: 105px;
+  font-size: var(--font-ui-smaller);
+  padding: var(--size-2-1) var(--size-2-1);
+}
+
+.unizero-library__refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25em;
+}
+
+.unizero-library__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.unizero-library__status {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  margin-bottom: var(--size-2-2);
+  flex-shrink: 0;
+}
+
+.unizero-library__empty {
+  color: var(--text-muted);
+  padding: var(--size-4-4) 0;
+  text-align: center;
+  font-size: var(--font-ui-small);
+}
+
+.unizero-library__empty button {
+  margin-top: var(--size-4-2);
+}
+
+.unizero-library__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.unizero-draggable {
+  cursor: grab;
+}
+
+.unizero-draggable.is-dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
+.unizero-library__item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2em;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  padding: var(--size-2-2) var(--size-4-1);
+  border-radius: var(--radius-s);
+  background: transparent;
+  cursor: grab;
+  color: var(--text-normal);
+  white-space: normal;
+  user-select: none;
+}
+
+.unizero-library__item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.unizero-library__item.is-selected {
+  background-color: var(--background-modifier-active-hover);
+}
+
+.unizero-library__item:focus-visible {
+  outline: 2px solid var(--background-modifier-border-focus);
+  outline-offset: -2px;
+}
+
+/* Title first (like Home's collection list); author · year underneath. */
+.unizero-library__item-title {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  line-height: 1.35;
+  color: var(--text-normal);
+  white-space: normal;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  word-break: break-word;
+}
+
+.unizero-library__item-meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unizero-library__item-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-1);
+}
+
+/* Suggester --------------------------------------------------------------- */
+
+.unizero-suggestion__key {
+  color: var(--text-accent);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+}
+
+.unizero-suggestion__title {
+  font-size: var(--font-ui-small);
+}
+
+.unizero-suggestion__meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}

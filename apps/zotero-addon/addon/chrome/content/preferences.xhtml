@@ -144,4 +144,53 @@
     </hbox>
     <html:div style="margin-left: .7em; margin-top: .3em; opacity: .8;" data-l10n-id="conversion-obsidianVault-note"></html:div>
   </groupbox>
+
+  <groupbox>
+    <html:h2 data-l10n-id="caption-sync"></html:h2>
+    <html:div style="margin-left: .7em; margin-bottom: .5em; opacity: .8;" data-l10n-id="sync-note"></html:div>
+    <hbox style="margin: 4px 0; margin-left: .7em; align-items: center;">
+      <html:span style="margin: auto 0; margin-right: .5em; min-width: 9em;" data-l10n-id="sync-webdav-url"></html:span>
+      <html:input style="width: 24em; margin: auto 0; height: 1em;" type="url"
+        id="__addonRef__-sync-webdav-url">
+      </html:input>
+    </hbox>
+    <hbox style="margin: 4px 0; margin-left: .7em; align-items: center;">
+      <html:span style="margin: auto 0; margin-right: .5em; min-width: 9em;" data-l10n-id="sync-webdav-username"></html:span>
+      <html:input style="width: 24em; margin: auto 0; height: 1em;" type="email"
+        id="__addonRef__-sync-webdav-username">
+      </html:input>
+    </hbox>
+    <hbox style="margin: 4px 0; margin-left: .7em; align-items: center;">
+      <html:span style="margin: auto 0; margin-right: .5em; min-width: 9em;" data-l10n-id="sync-webdav-password"></html:span>
+      <html:input style="width: 24em; margin: auto 0; height: 1em;" type="password"
+        id="__addonRef__-sync-webdav-password">
+      </html:input>
+    </hbox>
+    <html:div style="margin-left: .7em; margin-top: .3em; opacity: .8;" data-l10n-id="sync-webdav-password-note"></html:div>
+    <checkbox native="true" id="__addonRef__-sync-remember-password"
+      data-l10n-id="sync-remember-password" />
+    <hbox style="margin: 6px 0 4px; margin-left: .7em; align-items: center;">
+      <checkbox native="true" id="__addonRef__-sync-auto"
+        data-l10n-id="sync-auto" />
+      <html:span style="margin: auto .5em auto 1em;" data-l10n-id="sync-interval"></html:span>
+      <html:select id="__addonRef__-sync-interval">
+        <html:option value="30" data-l10n-id="sync-interval-30"></html:option>
+        <html:option value="60" data-l10n-id="sync-interval-60"></html:option>
+        <html:option value="180" data-l10n-id="sync-interval-180"></html:option>
+        <html:option value="360" data-l10n-id="sync-interval-360"></html:option>
+      </html:select>
+    </hbox>
+    <hbox style="margin: 4px 0; margin-left: .7em; align-items: center;">
+      <html:span style="margin: auto .5em auto 0;" data-l10n-id="sync-notifications"></html:span>
+      <html:select id="__addonRef__-sync-notifications">
+        <html:option value="errors" data-l10n-id="sync-notifications-errors"></html:option>
+        <html:option value="all" data-l10n-id="sync-notifications-all"></html:option>
+        <html:option value="none" data-l10n-id="sync-notifications-none"></html:option>
+      </html:select>
+    </hbox>
+    <hbox style="margin: 8px 0 4px; margin-left: .7em; align-items: center;">
+      <html:button type="button" id="__addonRef__-sync-now" data-l10n-id="sync-now"></html:button>
+      <html:span style="margin-left: .7em; opacity: .8;" id="__addonRef__-sync-status"></html:span>
+    </hbox>
+  </groupbox>
 </vbox>

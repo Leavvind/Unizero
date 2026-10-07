@@ -22,6 +22,7 @@ from typing import Any, Callable, Optional
 
 from .postprocess import PostCtx, read_pdf_toc, run_passes
 from ..providers.references import extract_references
+from ..providers.mineru import command as mineru_command
 from ..providers.table_vlm import refine_tables
 from ..providers.tables import export_tables_html
 from .workflow import ModuleRegistry, WorkflowModule, WorkflowRunner, WorkflowTemplate
@@ -34,10 +35,6 @@ LogFn = Callable[[str], None]
 
 MIN_CHUNK_SIZE = 5
 MAX_CHUNK_SIZE = 500
-_MINERU_OCR_LANGS = {
-    "ch", "ch_server", "korean", "ta", "te", "ka", "th", "el",
-    "arabic", "east_slavic", "cyrillic", "devanagari",
-}
 
 _IMG_REF_RE = re.compile(r"""(!\[[^\]]*\]\()(?P<path>[^)\s]+)([^)]*\))""", re.VERBOSE)
 _NORM_WS = re.compile(r"\s+")
@@ -101,7 +98,9 @@ def _rewrite_image_refs(md_text: str, prefix: str) -> str:
         norm = path.replace("\\", "/")
         if "images/" in norm:
             tail = norm.split("images/", 1)[1]
-            return f"{m.group(1)}images/{prefix}/{tail}{m.group(3)}"
+            tail_path = Path(tail)
+            unique_tail = (tail_path.parent / f"{prefix}_{tail_path.name}").as_posix()
+            return f"{m.group(1)}images/{prefix}/{unique_tail}{m.group(3)}"
         return m.group(0)
     return _IMG_REF_RE.sub(repl, md_text)
 
@@ -140,12 +139,23 @@ def merge_chunk_outputs(
             continue
 
         imgs_dir = md_path.parent / "images"
+        image_paths: dict[str, str] = {}
         if imgs_dir.is_dir() and any(imgs_dir.iterdir()):
             dest = final_images_dir / cs
             try:
                 if dest.exists():
                     shutil.rmtree(dest)
                 shutil.copytree(imgs_dir, dest)
+                # MinerU 4 uses page-based names that repeat in each chunk.
+                # Publishing flattens referenced assets, so names must be unique.
+                for image in list(dest.rglob("*")):
+                    if image.is_file():
+                        old_path = "images/" + image.relative_to(dest).as_posix()
+                        renamed = image.with_name(f"{cs}_{image.name}")
+                        image_paths[old_path] = (
+                            f"images/{cs}/" + renamed.relative_to(dest).as_posix()
+                        )
+                        image.rename(renamed)
             except Exception as exc:
                 warnings.append(f"images copy failed for {cs}: {exc}")
 
@@ -159,6 +169,19 @@ def merge_chunk_outputs(
         if cl_files:
             try:
                 cl_data = json.loads(cl_files[0].read_text(encoding="utf-8"))
+
+                def rewrite_assets(value: Any) -> Any:
+                    if isinstance(value, str):
+                        for old, new in image_paths.items():
+                            value = value.replace(old, new)
+                        return value
+                    if isinstance(value, list):
+                        return [rewrite_assets(item) for item in value]
+                    if isinstance(value, dict):
+                        return {key: rewrite_assets(item) for key, item in value.items()}
+                    return value
+
+                cl_data = rewrite_assets(cl_data)
                 page_offset = sp - 1
                 for entry in cl_data:
                     if isinstance(entry, dict) and "page_idx" in entry:
@@ -537,10 +560,10 @@ class PaperMeta:
 
 @dataclass
 class ConvertOptions:
-    backend: str = "pipeline"       # pipeline | vlm-transformers | ...
+    backend: str = "basic"          # flash | basic | standard | advanced
     ocr_mode: str = "auto"          # auto | ocr | txt
     language: str = "en"
-    device: str = "auto"             # retained for config compatibility; MinerU 3.x auto-selects
+    device: str = "auto"             # retained for config compatibility; MinerU auto-selects
     enable_formula: bool = True
     enable_table: bool = True
     split_threshold: int = 200      # auto-split PDFs longer than this
@@ -550,7 +573,7 @@ class ConvertOptions:
     table_mode: str = "none"        # none: skip ALL tables (PDF pointer) | md | html
     strip_repeated_lines: bool = False
     strip_references: bool = True   # drop the References section, leave PDF pointer
-    table_vlm: bool = False         # re-run complex-table pages through vlm-engine
+    table_vlm: bool = False         # re-run complex-table pages at the advanced tier
 
 
 @dataclass
@@ -566,32 +589,8 @@ class ConvertResult:
 
 
 def _mineru_cmd(src: Path, out_dir: Path, opts: ConvertOptions) -> list[str]:
-    cmd = [
-        _mineru_executable(), "-p", str(src), "-o", str(out_dir),
-        "-b", opts.backend,
-    ]
-    if opts.backend == "pipeline":
-        cmd += [
-            "-m", opts.ocr_mode,
-            "-f", "true" if opts.enable_formula else "false",
-            "-t", "true" if opts.enable_table else "false",
-        ]
-        # MinerU 3.x auto-selects CPU/MPS/CUDA and no longer accepts `-d`.
-        # English is handled by the default OCR model; `-l en` is invalid.
-        language = (opts.language or "").strip().lower()
-        if language in _MINERU_OCR_LANGS:
-            cmd += ["-l", language]
-    return cmd
-
-
-def _mineru_executable() -> str:
-    """Prefer the MinerU installed beside the active virtualenv Python."""
-    sibling = Path(sys.executable).with_name(
-        "mineru.exe" if sys.platform == "win32" else "mineru"
-    )
-    if sibling.is_file():
-        return str(sibling)
-    return shutil.which("mineru") or "mineru"
+    return mineru_command(src, out_dir, opts.backend, opts.ocr_mode,
+                          opts.enable_formula, opts.enable_table)
 
 
 def _run(cmd: list[str], log: LogFn) -> int:
@@ -658,6 +657,8 @@ def _stage_extract(ctx: ConversionContext, settings: dict[str, Any]) -> None:
     ctx.opts.ocr_mode = str(settings.get("ocr_mode") or ctx.opts.ocr_mode)
     language = str(settings.get("language") or ctx.opts.language)
     ctx.opts.language = "ch" if language == "zh" else language
+    if ctx.opts.language not in {"auto", "en", "zh", "ch", ""}:
+        raise ValueError("MinerU 4 uses automatic OCR language selection; use language=auto")
     ctx.opts.enable_formula = bool(settings.get("enable_formula", ctx.opts.enable_formula))
     ctx.opts.enable_table = bool(settings.get("enable_table", ctx.opts.enable_table))
     chunking = settings.get("chunking") or {}
@@ -1053,7 +1054,7 @@ MODULE_REGISTRY.register(WorkflowModule(
     ),
     defaults={
         "execution": "local",
-        "backend": "pipeline",
+        "backend": "basic",
         "ocr_mode": "auto",
         "language": "auto",
         "enable_formula": True,
@@ -1067,9 +1068,9 @@ MODULE_REGISTRY.register(WorkflowModule(
             "description": "The API runner arrives in a later version.",
         },
         "backend": {
-            "type": "string", "title": "Parsing backend",
-            "enum": ["pipeline", "vlm-transformers"],
-            "enumNames": ["Pipeline", "Local VLM"],
+            "type": "string", "title": "Parsing quality",
+            "enum": ["flash", "basic", "standard", "advanced"],
+            "enumNames": ["Flash", "Basic", "Standard", "Advanced"],
         },
         "ocr_mode": {
             "type": "string", "title": "OCR mode",
@@ -1079,9 +1080,12 @@ MODULE_REGISTRY.register(WorkflowModule(
             "type": "string", "title": "Language",
             "enum": ["auto", "en", "zh"],
             "enumNames": ["Auto", "English", "Chinese"],
+            "description": "OCR language is selected automatically.",
         },
-        "enable_formula": {"type": "boolean", "title": "Detect formulas"},
-        "enable_table": {"type": "boolean", "title": "Detect tables"},
+        "enable_formula": {"type": "boolean", "title": "Include display formulas",
+                           "description": "Controls exported formula blocks; does not disable model inference or inline formulas."},
+        "enable_table": {"type": "boolean", "title": "Include tables",
+                         "description": "Controls exported table blocks; does not disable model inference."},
         "chunking": _object_schema({
             "enabled": {"type": "boolean", "title": "Chunk long PDFs"},
             "threshold_pages": {

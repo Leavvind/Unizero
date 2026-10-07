@@ -4,6 +4,8 @@ import { registerPrefs } from "../modules/prefs";
 import Views from "../modules/views";
 import { uniConnectionSync } from "../modules/uniConnectionSync";
 import { startInBackground, stopOnShutdown } from "../runtime-client/process";
+import { registerBridgeEndpoints, unregisterBridgeEndpoints } from "../server/bridge";
+import { webDAVSyncScheduler } from "../sync/scheduler";
 import { noteServiceFailure } from "../ui/notices";
 import {
   registerAnnotationMenu,
@@ -122,9 +124,43 @@ const annotations: FeatureModule = {
   },
 };
 
+const projectSync: FeatureModule = {
+  id: "project.sync",
+  onWindowLoad() {
+    webDAVSyncScheduler.start();
+  },
+  onAppShutdown() {
+    webDAVSyncScheduler.stop();
+  },
+  onShutdown() {
+    webDAVSyncScheduler.stop();
+  },
+};
+
+/**
+ * Read-only HTTP endpoints on Zotero's existing localhost server, used by editors
+ * that cannot be loaded into this process. The endpoint table is process-wide, so
+ * registration is idempotent and the per-window hook is only a convenient point at
+ * which Zotero is known to be up.
+ */
+const bridge: FeatureModule = {
+  id: "obsidian.bridge",
+  onWindowLoad() {
+    registerBridgeEndpoints();
+  },
+  onAppShutdown() {
+    unregisterBridgeEndpoints();
+  },
+  onShutdown() {
+    unregisterBridgeEndpoints();
+  },
+};
+
 export const featureRegistry = new FeatureRegistry([
   relations,
   metadata,
   conversion,
   annotations,
+  projectSync,
+  bridge,
 ]);

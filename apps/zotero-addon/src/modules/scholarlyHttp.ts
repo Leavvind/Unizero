@@ -46,6 +46,32 @@ async function waitForSemanticScholarTurn(): Promise<void> {
 }
 
 /**
+ * The common GET-JSON helper, with the status kept.
+ *
+ * `getJSON` collapses every failure into `undefined`, which is the right shape for
+ * callers that only need a fallback. It is the wrong shape for a caller that has to
+ * tell "the provider says this record does not exist" (404 — a durable answer worth
+ * remembering) from "the request did not arrive" (status 0, a timeout, a 5xx — worth
+ * retrying). Those callers use this and read the status themselves.
+ */
+export async function getJSONResult(
+  url: string,
+  options: { headers?: Record<string, string>; tag?: string } = {},
+): Promise<{ status: number; body?: any }> {
+  try {
+    const res = await Zotero.HTTP.request("GET", url, {
+      responseType: "json",
+      headers: options.headers,
+    });
+    const status = Number(res?.status) || 0;
+    return { status, body: status === 200 ? res.response : undefined };
+  } catch (error) {
+    ztoolkit.log(`[${options.tag || "http"}] request failed`, url, error);
+    return { status: httpErrorStatus(error) };
+  }
+}
+
+/**
  * The common GET-JSON helper. Any failure returns undefined so callers can take
  * their own fallback instead of blowing up the whole pane.
  */
@@ -53,16 +79,7 @@ export async function getJSON(
   url: string,
   options: { headers?: Record<string, string>; tag?: string } = {},
 ): Promise<any | undefined> {
-  try {
-    const res = await Zotero.HTTP.request("GET", url, {
-      responseType: "json",
-      headers: options.headers,
-    });
-    return res?.status === 200 ? res.response : undefined;
-  } catch (error) {
-    ztoolkit.log(`[${options.tag || "http"}] request failed`, url, error);
-    return undefined;
-  }
+  return (await getJSONResult(url, options)).body;
 }
 
 /** Total attempts (one initial + retries) for a throttled or flaky S2 request. */

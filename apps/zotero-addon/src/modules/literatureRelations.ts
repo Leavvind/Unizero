@@ -5,6 +5,28 @@ import type { RelationSourceKey } from "./mergeRelations";
 export type LiteratureRelationKind = "references" | "relation" | "citations";
 export type LiteratureLibraryRelation = "cites" | "coupled";
 
+/**
+ * How Unizero Home names a paper that has no Zotero item.
+ *
+ * The window identifies an open paper by one opaque string, and a Board card can
+ * pin a paper the library does not contain. Rather than teach every tab, filter,
+ * and snapshot cache a second kind of identity, an external paper is named by its
+ * catalog Paper ID behind this prefix. A Zotero item key cannot collide with it:
+ * Zotero keys are eight uppercase alphanumerics.
+ */
+export const EXTERNAL_PAPER_KEY_PREFIX = "paper:";
+
+export function externalPaperKey(paperID: string): string {
+  return `${EXTERNAL_PAPER_KEY_PREFIX}${paperID}`;
+}
+
+/** The catalog Paper ID behind an external key, or undefined for a Zotero key. */
+export function externalPaperIDFromKey(key: string): string | undefined {
+  return key.startsWith(EXTERNAL_PAPER_KEY_PREFIX)
+    ? key.slice(EXTERNAL_PAPER_KEY_PREFIX.length) || undefined
+    : undefined;
+}
+
 /** One provider's contribution to a relation, as the explorer's source picker sees it. */
 export interface LiteratureSourceView {
   key: RelationSourceKey;
@@ -39,6 +61,8 @@ export interface LiteratureCandidate {
   contexts?: string[];
   sourceOrder?: number;
   source?: string;
+  /** Stable internal catalog identity once a snapshot has been observed. */
+  paperID?: string;
   /** Derived library-only relationships shown by the Relation explorer tab. */
   relationTypes?: LiteratureLibraryRelation[];
   /** Number of distinct cached references shared with the seed paper. */
@@ -68,6 +92,8 @@ export interface LiteratureSnapshot {
 export interface LiteratureCollectionScope {
   libraryID: number;
   collectionID?: number;
+  /** Stable Zotero key used by Project identity and future cross-device sync. */
+  collectionKey?: string;
   name: string;
 }
 

@@ -34,6 +34,13 @@ def test_builtin_templates_are_valid(isolated_home: Path) -> None:
     assert all(item["builtin"] for item in listed)
 
 
+def test_parsing_quality_menu_only_lists_four_tiers() -> None:
+    module = MODULE_REGISTRY.get("extract.mineru")
+    assert module.settings_schema["properties"]["backend"]["enum"] == [
+        "flash", "basic", "standard", "advanced",
+    ]
+
+
 def test_every_builtin_module_id_is_registered(isolated_home: Path) -> None:
     known = {module["id"] for module in MODULE_REGISTRY.describe()}
     store = _store(isolated_home)

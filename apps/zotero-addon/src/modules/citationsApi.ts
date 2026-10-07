@@ -27,7 +27,7 @@
 
 import {
   MAILTO, getJSON, getSemanticScholarJSONStrict, getSemanticScholarKey,
-  bareDOI, unInvertAbstract, composeText,
+  bareDOI, bareOpenAlexID, unInvertAbstract, composeText,
 } from "./scholarlyHttp";
 import { resolveOpenAlexCluster } from "./openAlexCluster";
 import { encodeSemanticScholarPaperIdentifier } from "./semanticScholarApi";
@@ -81,8 +81,9 @@ const OPENALEX_SELECT ="id,doi,display_name,authorships,publication_year,primary
 
 function fromOpenAlexWork(work: any, index: number): ItemBaseInfo {
   const doi = work?.doi ? bareDOI(work.doi) : undefined;
+  const openAlex = bareOpenAlexID(work?.id || "") || undefined;
   const info: ItemBaseInfo = {
-    identifiers: doi ? { DOI: doi } : {},
+    identifiers: { DOI: doi, openAlex },
     title: work?.display_name || "",
     authors: (work?.authorships || []).map((a: any) => a?.author?.display_name).filter(Boolean),
     year: work?.publication_year ? String(work.publication_year) : undefined,
@@ -194,7 +195,8 @@ async function fromSemanticScholar(
  * Fetch the first page of citations. With a DOI both sources are queried; with
  * only a Paper ID, S2 still is. The source with the **larger total** wins —
  * citations can be missed but never invented, so the larger number means better
- * coverage. Returns null when both come back empty.
+ * coverage. A completed empty lookup retains its per-source evidence so callers
+ * can persist a bounded negative cache. Null means no usable identifier.
  */
 export async function fetchCitationsByIdentifiers(
   rawDOI?: string,
@@ -221,9 +223,10 @@ export async function fetchCitationsByIdentifiers(
     ),
   ]);
   const citations = mergeRelationSources(perSource, ["openAlex", "semanticScholar"]);
-  if (!citations.length) { return null; }
   const contributing = perSource.filter((source) => source.entries.length);
-  const source = contributing.length > 1 ? "Combined" : contributing[0].name;
+  const source = contributing.length > 1
+    ? "Combined"
+    : contributing[0]?.name || "none";
   const total = Math.max(0, ...perSource.map((entry) => entry.total));
   const hasMore = perSource.some((entry) => entry.hasMore);
   const openAlexFilter = perSource.find((entry) => entry.key === "openAlex")

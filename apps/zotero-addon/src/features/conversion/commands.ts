@@ -68,7 +68,7 @@ function targetTitle(target: {
  *
  * Processed one at a time rather than concurrently: the runtime is a single
  * worker anyway, so concurrent submissions only queue up. One failure does not stop
- * the batch. Taking explicit items lets adapters such as Literature Explorer reuse
+ * the batch. Taking explicit items lets adapters such as Unizero Home reuse
  * the command without changing Zotero's current selection as an implementation
  * detail.
  */

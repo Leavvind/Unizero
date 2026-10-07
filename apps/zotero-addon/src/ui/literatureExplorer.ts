@@ -1,5 +1,5 @@
 /**
- * Bridge for the independent References/Relation/Citations browser.
+ * Bridge for Unizero Home and its References/Relation/Citations detail surface.
  *
  * The XHTML/JS window is intentionally a thin view. Provider calls, cache policy,
  * library scoping, and Zotero mutations stay in Views/application code and cross
@@ -9,20 +9,58 @@
 import { config } from "../../package.json";
 import { convertItems } from "../features/conversion/commands";
 import { getConversionPref } from "../features/conversion/settings";
+import { edgeIdentity } from "../modules/edgeIdentity";
 import type Views from "../modules/views";
 import {
+  externalPaperIDFromKey,
   invalidateLibraryMembership,
   type LiteratureCandidate,
   type LiteratureCollectionScope,
   type LiteratureRelationKind,
 } from "../modules/literatureRelations";
 import type { RelationSourceKey } from "../modules/mergeRelations";
+import {
+  BOARD_GEOMETRY_BOUNDS,
+  addDefaultBoardPaperBlock,
+  createDefaultBoardManualEdge,
+  createDefaultBoardPaperNode,
+  createDefaultBoardTextNode,
+  deleteDefaultBoardContentBlock,
+  deleteDefaultBoardEdge,
+  deleteDefaultBoardNode,
+  ensureProjectForScope,
+  listDefaultBoardEdges,
+  listDefaultBoardNodes,
+  moveDefaultBoardNode,
+  updateDefaultBoardTextBlock,
+} from "../projects/projectRepository";
+import {
+  ensureCatalogExternalPaper,
+  ensureCatalogPaper,
+  listCatalogCitationObservationsForPapers,
+  pinCatalogPaper,
+  readCatalogPaper,
+} from "../projects/paperCatalog";
+import type {
+  BoardNodeGeometry,
+  BoardContentBlock,
+  BoardManualEdgeDocument,
+  BoardNodeDocument,
+  BoardPaperNodeDocument,
+  BoardTextNodeDocument,
+  PaperDocument,
+  ProjectBundle,
+} from "../projects/types";
 import { getString } from "../utils/locale";
 import {
   markdownAttachment,
   pdfAttachment,
   selectedLiteratureScope,
 } from "../zotero/literatureCollectionAdapter";
+import {
+  paperDestinationFromItem,
+  paperDestinationFromScope,
+} from "../zotero/literatureItemAdapter";
 import {
   defaultMarkdownUrl,
   ensureMarkdownLink,
@@ -47,9 +85,9 @@ let explorerContext: ExplorerContext | null = null;
 let explorerViews: Views | null = null;
 
 function contextItem(itemKey?: string, libraryID?: number): Zotero.Item {
-  if (!explorerContext) { throw new Error("Literature Explorer has no item context"); }
+  if (!explorerContext) { throw new Error("Unizero Home has no item context"); }
   const key = itemKey || explorerContext.itemKey;
-  if (!key) { throw new Error("Literature Explorer has no selected paper"); }
+  if (!key) { throw new Error("Unizero Home has no selected paper"); }
   const targetLibraryID = libraryID ?? explorerContext.scope.libraryID;
   const item = Zotero.Items.getByLibraryAndKey(
     targetLibraryID,
@@ -59,25 +97,94 @@ function contextItem(itemKey?: string, libraryID?: number): Zotero.Item {
   return item;
 }
 
+/**
+ * The catalog Paper an external key names, or undefined for a Zotero key.
+ *
+ * Unizero Home identifies every open paper by one string, so each relation call
+ * that arrives here decides which of the two seeds it has by asking this. A
+ * Board card pinned from a reference list is the only producer of external keys.
+ */
+async function contextPaper(
+  itemKey?: string,
+): Promise<PaperDocument | undefined> {
+  const key = itemKey || explorerContext?.itemKey;
+  const paperID = key ? externalPaperIDFromKey(key) : undefined;
+  return paperID ? readCatalogPaper(paperID) : undefined;
+}
+
+function scopeLibraryID(libraryID?: number): number {
+  if (libraryID != null) { return libraryID; }
+  if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+  return explorerContext.scope.libraryID;
+}
+
 function strings() {
   const read = (key: string, fallback: string) => getString(key) || fallback;
   return {
-    title: read("literature-explorer-title", "Literature Explorer"),
-    collectionOverview: read("literature-collection-overview-label", "Collection"),
+    title: read("literature-explorer-title", "Unizero Home"),
+    collectionOverview: read("literature-collection-overview-label", "Project"),
+    projectLibrary: read("literature-project-library-label", "Collection papers"),
+    boardEmpty: read(
+      "literature-board-empty-label",
+      "Drag papers here to start the Board",
+    ),
+    boardHint: read(
+      "literature-board-hint-label",
+      "Drop the same paper more than once to create another card",
+    ),
+    collapseLibrary: read(
+      "literature-collapse-library-label",
+      "Collapse paper list",
+    ),
+    expandLibrary: read(
+      "literature-expand-library-label",
+      "Expand paper list",
+    ),
+    collapseDetail: read(
+      "literature-collapse-detail-label",
+      "Collapse Detail View",
+    ),
+    expandDetail: read(
+      "literature-expand-detail-label",
+      "Expand Detail View",
+    ),
+    boardConnect: read("literature-board-connect-label", "Connect"),
+    boardConnecting: read(
+      "literature-board-connecting-label",
+      "Select another card",
+    ),
+    boardDelete: read("literature-board-delete-label", "Delete"),
+    boardAddText: read("literature-board-add-text-label", "Text"),
+    boardTextNode: read("literature-board-text-node-label", "Text note"),
+    boardTextPlaceholder: read(
+      "literature-board-text-placeholder",
+      "Write a note…",
+    ),
+    boardEmbedPaper: read(
+      "literature-board-embed-paper-label",
+      "Drop a paper here",
+    ),
+    boardRemoveBlock: read(
+      "literature-board-remove-block-label",
+      "Remove block",
+    ),
+    boardFit: read("literature-board-fit-label", "Fit Board"),
+    boardZoomIn: read("literature-board-zoom-in-label", "Zoom in"),
+    boardZoomOut: read("literature-board-zoom-out-label", "Zoom out"),
+    boardConnectHandle: read(
+      "literature-board-connect-handle-label",
+      "Drag to connect",
+    ),
+    boardResize: read("literature-board-resize-label", "Resize card"),
     collectionSearch: read(
       "literature-collection-search-placeholder",
       "Search this Collection",
     ),
     closeTab: read("literature-close-tab-label", "Close tab"),
-    creatorColumn: read("literature-column-creator-label", "Creator"),
-    dateAddedColumn: read("literature-column-date-added-label", "Date Added"),
-    markdownColumn: read("literature-column-markdown-label", "Markdown"),
     collectionEmpty: read(
       "literature-collection-empty-label",
       "No regular items in this Collection",
     ),
-    loaded: read("literature-loaded-label", "Loaded"),
-    refreshHint: read("literature-loaded-refresh-hint", "Right-click to refresh"),
     loadReferences: read(
       "literature-load-references-label",
       "Load references",
@@ -87,13 +194,7 @@ function strings() {
       "literature-generate-markdown-label",
       "Generate Markdown",
     ),
-    markdownReady: read("literature-markdown-ready-label", "Markdown ready"),
     markdownRelink: read("literature-markdown-relink-label", "Change Markdown link…"),
-    markdownRegenerate: read(
-      "literature-markdown-regenerate-label",
-      "Convert again",
-    ),
-    noPdf: read("literature-no-pdf-label", "No PDF attachment"),
     openRelations: read(
       "literature-open-relations-label",
       "Open References and Citations",
@@ -174,8 +275,6 @@ function strings() {
       "No library citations or bibliographic coupling found",
     ),
     graphTab: read("literature-graph-tab-label", "Graph"),
-    graphView: read("literature-graph-view-label", "Graph"),
-    tableView: read("literature-table-view-label", "Table"),
     graphEmpty: read(
       "literature-graph-empty-label",
       "No connections yet — load References for more papers to grow the graph",
@@ -220,7 +319,16 @@ function strings() {
     refresh: read("relatedbox-refresh-label", "Refresh"),
     loadMore: read("citationsbox-more-label", "Load more"),
     loading: read("literature-loading-label", "Loading…"),
+    readingCache: read(
+      "literature-reading-cache-label",
+      "Reading saved data…",
+    ),
     empty: read("literature-empty-label", "No papers found"),
+    notCached: read(
+      "literature-not-cached-label",
+      "Nothing saved for this paper yet",
+    ),
+    fetchNow: read("literature-fetch-now-label", "Fetch from providers"),
     influential: read("literature-influential-label", "Influential"),
     add: read("literature-add-label", "Add to current Zotero library"),
     present: read("literature-present-label", "Already in current Zotero library"),
@@ -230,15 +338,343 @@ function strings() {
   };
 }
 
+interface BoardPaperNodeView {
+  node: BoardPaperNodeDocument;
+  paper: PaperDocument;
+  itemKey?: string;
+}
+
+interface BoardContentBlockView {
+  block: BoardContentBlock;
+  paper?: PaperDocument;
+  itemKey?: string;
+}
+
+interface BoardTextNodeView {
+  node: BoardTextNodeDocument;
+  blocks: BoardContentBlockView[];
+}
+
+type BoardNodeView = BoardPaperNodeView | BoardTextNodeView;
+
+interface BoardRelationHintView {
+  sourcePaperID: string;
+  targetPaperID: string;
+  type: "cites" | "coupled";
+}
+
+async function boardRelationHints(
+  scope: LiteratureCollectionScope,
+  nodes?: BoardNodeView[],
+): Promise<BoardRelationHintView[]> {
+  const views = explorerViews;
+  if (!views) { return []; }
+  try {
+    let nodeViews = nodes;
+    if (!nodeViews) {
+      const bundle = await ensureProjectForScope(scope);
+      const documents = await listDefaultBoardNodes(bundle);
+      nodeViews = await Promise.all(documents.map((node) =>
+        boardNodeView(node, scope.libraryID)));
+    }
+    const members = nodeViews.flatMap((view) => {
+      if (!("paper" in view)) { return []; }
+      return [{
+        paperID: view.paper.id,
+        scopedKey: view.itemKey
+          ? `${scope.libraryID}:${view.itemKey}`
+          : undefined,
+        edge: edgeIdentity({
+          identifiers: {
+            DOI: view.paper.identifiers.doi,
+            arXiv: view.paper.identifiers.arxiv,
+            paperID: view.paper.identifiers.semanticScholarPaperId,
+          },
+          title: "",
+          authors: [],
+        }),
+      }];
+    });
+    const paperIDs = new Set(members.map((member) => member.paperID));
+    const [derived, observations] = await Promise.all([
+      views.getLiteratureBoardConnections(
+        scope.libraryID,
+        members,
+      ),
+      listCatalogCitationObservationsForPapers(paperIDs),
+    ]);
+    const output: BoardRelationHintView[] = [];
+    const seen = new Set<string>();
+    const add = (hint: BoardRelationHintView) => {
+      const endpoints = hint.type === "coupled"
+        ? [hint.sourcePaperID, hint.targetPaperID].sort()
+        : [hint.sourcePaperID, hint.targetPaperID];
+      const key = `${hint.type}:${endpoints[0]}\u0000${endpoints[1]}`;
+      if (seen.has(key)) { return; }
+      seen.add(key);
+      output.push({
+        sourcePaperID: endpoints[0],
+        targetPaperID: endpoints[1],
+        type: hint.type,
+      });
+    };
+    derived.forEach(add);
+    observations.forEach((observation) => {
+      if (
+        paperIDs.has(observation.citingPaperID) &&
+        paperIDs.has(observation.citedPaperID)
+      ) {
+        add({
+          sourcePaperID: observation.citingPaperID,
+          targetPaperID: observation.citedPaperID,
+          type: "cites",
+        });
+      }
+    });
+    return output;
+  } catch (error) {
+    ztoolkit.log("Board relation hints unavailable", error);
+    return [];
+  }
+}
+
+function paperNodeView(
+  node: BoardPaperNodeDocument,
+  paper: PaperDocument,
+  libraryID: number,
+): BoardPaperNodeView {
+  const binding = paper.bindings.find((entry) =>
+    Boolean(Zotero.Items.getByLibraryAndKey(libraryID, entry.itemKey)));
+  return { node, paper, itemKey: binding?.itemKey };
+}
+
+async function boardNodeView(
+  node: BoardNodeDocument,
+  libraryID: number,
+): Promise<BoardNodeView> {
+  if (node.kind === "paper") {
+    return paperNodeView(
+      node,
+      await readCatalogPaper(node.paperID),
+      libraryID,
+    );
+  }
+  return {
+    node,
+    blocks: await Promise.all(node.blocks.map(async (block) => {
+      if (block.kind === "text") { return { block }; }
+      const paper = await readCatalogPaper(block.paperID);
+      const binding = paper.bindings.find((entry) =>
+        Boolean(Zotero.Items.getByLibraryAndKey(libraryID, entry.itemKey)));
+      return { block, paper, itemKey: binding?.itemKey };
+    })),
+  };
+}
+
+async function projectSnapshot(
+  scope: LiteratureCollectionScope,
+): Promise<ProjectBundle & {
+  nodes: BoardNodeView[];
+  edges: BoardManualEdgeDocument[];
+  relationHints: BoardRelationHintView[];
+}> {
+  const bundle = await ensureProjectForScope(scope);
+  const [nodes, edges] = await Promise.all([
+    listDefaultBoardNodes(bundle),
+    listDefaultBoardEdges(bundle),
+  ]);
+  const nodeViews = await Promise.all(nodes.map((node) =>
+    boardNodeView(node, scope.libraryID)));
+  return {
+    ...bundle,
+    edges,
+    nodes: nodeViews,
+    relationHints: await boardRelationHints(scope, nodeViews),
+  };
+}
+
 function explorerApi() {
   return {
     strings: strings(),
+    // The dialog clamps a resize to these instead of restating the numbers, so
+    // a card cannot be dragged past a size the repository would clamp on save.
+    boardGeometryBounds: { ...BOARD_GEOMETRY_BOUNDS },
     getContext: () => explorerContext
       ? { ...explorerContext, scope: { ...explorerContext.scope } }
       : null,
+    project: async (scope?: LiteratureCollectionScope) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      return projectSnapshot(scope || explorerContext.scope);
+    },
+    boardRelationHints: async (scope?: LiteratureCollectionScope) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      return boardRelationHints(scope || explorerContext.scope);
+    },
+    addBoardNode: async (
+      itemKey: string,
+      geometry: Partial<BoardNodeGeometry>,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      const item = contextItem(itemKey, targetScope.libraryID);
+      const paper = await ensureCatalogPaper(item);
+      const node = await createDefaultBoardPaperNode(
+        bundle,
+        paper.id,
+        geometry,
+      );
+      return paperNodeView(node, paper, targetScope.libraryID);
+    },
+    addBoardCandidate: async (
+      candidate: LiteratureCandidate,
+      geometry: Partial<BoardNodeGeometry>,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      const localItem = candidate.membership.inLibrary &&
+        candidate.membership.itemID
+        ? Zotero.Items.get(candidate.membership.itemID) as Zotero.Item | false
+        : false;
+      const paper = localItem && localItem.libraryID === targetScope.libraryID
+        ? await ensureCatalogPaper(localItem)
+        : candidate.paperID
+          ? await pinCatalogPaper(candidate.paperID)
+          : await ensureCatalogExternalPaper({
+            identifiers: {
+              doi: candidate.identifiers.DOI,
+              arxiv: candidate.identifiers.arXiv,
+              semanticScholarPaperId: candidate.identifiers.paperID,
+              openAlexId: candidate.identifiers.openAlex,
+            },
+            title: candidate.title || candidate.text || "Untitled",
+            authors: [...(candidate.authors || [])],
+            year: candidate.year,
+            type: candidate.type,
+            primaryVenue: candidate.primaryVenue,
+            abstract: candidate.abstract,
+          });
+      const node = await createDefaultBoardPaperNode(
+        bundle,
+        paper.id,
+        geometry,
+      );
+      return paperNodeView(node, paper, targetScope.libraryID);
+    },
+    addBoardTextNode: async (
+      geometry: Partial<BoardNodeGeometry>,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      return boardNodeView(
+        await createDefaultBoardTextNode(bundle, geometry),
+        targetScope.libraryID,
+      );
+    },
+    moveBoardNode: async (
+      nodeID: string,
+      geometry: Partial<BoardNodeGeometry>,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      const node = await moveDefaultBoardNode(bundle, nodeID, geometry);
+      return boardNodeView(node, targetScope.libraryID);
+    },
+    updateBoardTextBlock: async (
+      nodeID: string,
+      blockID: string,
+      text: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      return boardNodeView(
+        await updateDefaultBoardTextBlock(
+          bundle,
+          nodeID,
+          blockID,
+          text,
+        ),
+        targetScope.libraryID,
+      );
+    },
+    embedBoardPaper: async (
+      nodeID: string,
+      itemKey: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      const paper = await ensureCatalogPaper(
+        contextItem(itemKey, targetScope.libraryID),
+      );
+      return boardNodeView(
+        await addDefaultBoardPaperBlock(bundle, nodeID, paper.id),
+        targetScope.libraryID,
+      );
+    },
+    deleteBoardBlock: async (
+      nodeID: string,
+      blockID: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const targetScope = scope || explorerContext.scope;
+      const bundle = await ensureProjectForScope(targetScope);
+      return boardNodeView(
+        await deleteDefaultBoardContentBlock(bundle, nodeID, blockID),
+        targetScope.libraryID,
+      );
+    },
+    addBoardEdge: async (
+      sourceNodeID: string,
+      targetNodeID: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const bundle = await ensureProjectForScope(scope || explorerContext.scope);
+      return createDefaultBoardManualEdge(
+        bundle,
+        sourceNodeID,
+        targetNodeID,
+      );
+    },
+    deleteBoardNode: async (
+      nodeID: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const bundle = await ensureProjectForScope(scope || explorerContext.scope);
+      const edges = await listDefaultBoardEdges(bundle);
+      const incident = edges.filter((edge) =>
+        edge.sourceNodeID === nodeID || edge.targetNodeID === nodeID);
+      for (const edge of incident) {
+        await deleteDefaultBoardEdge(bundle, edge.id);
+      }
+      await deleteDefaultBoardNode(bundle, nodeID);
+      return { id: nodeID, deletedEdgeIDs: incident.map((edge) => edge.id) };
+    },
+    deleteBoardEdge: async (
+      edgeID: string,
+      scope?: LiteratureCollectionScope,
+    ) => {
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      const bundle = await ensureProjectForScope(scope || explorerContext.scope);
+      await deleteDefaultBoardEdge(bundle, edgeID);
+      return { id: edgeID };
+    },
     collectionSnapshot: async (scope?: LiteratureCollectionScope) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
-      if (!explorerContext) { throw new Error("Literature Explorer has no scope"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
       return explorerViews.getLiteratureCollectionSnapshot(
         scope || explorerContext.scope,
       );
@@ -249,29 +685,48 @@ function explorerApi() {
       refresh = false,
       libraryID?: number,
     ) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
-      explorerContext!.itemKey = itemKey;
-      explorerContext!.kind = kind;
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
+      if (!explorerContext) { throw new Error("Unizero Home has no scope"); }
+      explorerContext.itemKey = itemKey;
+      explorerContext.kind = kind;
+      const paper = await contextPaper(itemKey);
+      if (paper) {
+        return explorerViews.getExternalLiteratureSnapshot(
+          paper,
+          kind,
+          scopeLibraryID(libraryID),
+          refresh,
+        );
+      }
       return explorerViews.getLiteratureSnapshot(
         contextItem(itemKey, libraryID),
         kind,
         refresh,
       );
     },
-    // Derived library graph for the overview. Read-only: it neither fetches from
-    // providers nor writes cache records, so calling it is always cheap after the
-    // first (index-building) call.
-    graph: async (scope?: LiteratureCollectionScope) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
-      if (!explorerContext) { throw new Error("Literature Explorer has no scope"); }
-      return explorerViews.getLiteratureGraph(scope || explorerContext.scope);
+    snapshotStatus: async (
+      itemKey: string,
+      kind: LiteratureRelationKind,
+      libraryID?: number,
+    ) => {
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
+      if (kind === "relation") { return { loaded: true }; }
+      const paper = await contextPaper(itemKey);
+      const statuses = paper
+        ? await explorerViews.externalRelationStatuses(paper)
+        : await explorerViews.relationStatuses(
+          contextItem(itemKey, libraryID),
+        );
+      return statuses[kind];
     },
+    // Derived library graph centred on one paper. Read-only: it neither fetches
+    // from providers nor writes cache records, so calling it is always cheap after
+    // the first (index-building) call.
     focusedGraph: async (
       itemKey: string,
       scope?: LiteratureCollectionScope,
     ) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
-      // Same scope as the overview board, so both surfaces show one graph.
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       return explorerViews.getLiteratureFocusedGraph(
         contextItem(itemKey, scope?.libraryID),
         scope || explorerContext?.scope,
@@ -307,7 +762,14 @@ function explorerApi() {
       return explorerViews.saveGraphSettings(settings);
     },
     loadMoreCitations: async (itemKey: string, libraryID?: number) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
+      const paper = await contextPaper(itemKey);
+      if (paper) {
+        return explorerViews.loadMoreExternalLiteratureCitations(
+          paper,
+          scopeLibraryID(libraryID),
+        );
+      }
       return explorerViews.loadMoreLiteratureCitations(
         contextItem(itemKey, libraryID),
       );
@@ -318,9 +780,18 @@ function explorerApi() {
       sourceKey: RelationSourceKey,
       libraryID?: number,
     ) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       explorerContext!.itemKey = itemKey;
       explorerContext!.kind = kind;
+      const paper = await contextPaper(itemKey);
+      if (paper) {
+        return explorerViews.refreshExternalLiteratureSource(
+          paper,
+          kind,
+          sourceKey,
+          scopeLibraryID(libraryID),
+        );
+      }
       return explorerViews.refreshLiteratureSource(
         contextItem(itemKey, libraryID),
         kind,
@@ -328,9 +799,19 @@ function explorerApi() {
       );
     },
     addToLibrary: async (itemKey: string, candidate: LiteratureCandidate) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
+      // A Zotero seed files its discoveries alongside itself. An external seed
+      // has no library or collections of its own to inherit, so the window's
+      // current scope decides where the new item lands.
+      const external = Boolean(await contextPaper(itemKey));
+      const destination = external
+        ? paperDestinationFromScope(
+          scopeLibraryID(),
+          explorerContext?.scope.collectionID,
+        )
+        : paperDestinationFromItem(contextItem(itemKey));
       return explorerViews.addLiteratureCandidateToLibrary(
-        contextItem(itemKey),
+        destination,
         candidate,
       );
     },
@@ -339,7 +820,7 @@ function explorerApi() {
       kind: LiteratureRelationKind,
       refresh = false,
     ) => {
-      if (!explorerViews) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerViews) { throw new Error("Unizero Home is unavailable"); }
       const item = contextItem(itemKey);
       await explorerViews.getLiteratureSnapshot(item, kind, refresh);
       return explorerViews.getLiteratureCollectionPaper(item);
@@ -348,28 +829,9 @@ function explorerApi() {
     // of the providers' diagnostics, safe to poll while a load is in flight.
     relationProgress: (kind: LiteratureRelationKind) =>
       explorerViews ? explorerViews.relationProgress(kind) : [],
-    // Cache-only re-probe of the given papers' loaded state, so returning to the
-    // collection view reflects anything loaded meanwhile (item pane, prior session).
-    refreshCollectionStatuses: async (
-      libraryID: number,
-      itemKeys: string[],
-    ) => {
-      if (!explorerViews) { return {}; }
-      const out: Record<
-        string,
-        Awaited<ReturnType<Views["relationStatuses"]>>
-      > = {};
-      for (const key of itemKeys) {
-        const item = Zotero.Items.getByLibraryAndKey(libraryID, key) as
-          | Zotero.Item
-          | false;
-        if (item) { out[key] = await explorerViews.relationStatuses(item); }
-      }
-      return out;
-    },
     convertItem: async (itemKey: string) => {
       if (!explorerOwner || !explorerViews) {
-        throw new Error("Literature Explorer is unavailable");
+        throw new Error("Unizero Home is unavailable");
       }
       const item = contextItem(itemKey);
       await convertItems(
@@ -386,7 +848,7 @@ function explorerApi() {
     // Zotero's own viewer path: it honours the reader preference, opens in the main
     // window, and handles a missing file with its own dialog.
     openPdf: async (itemKey: string) => {
-      if (!explorerOwner) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerOwner) { throw new Error("Unizero Home is unavailable"); }
       const item = contextItem(itemKey);
       let attachment = pdfAttachment(item);
       if (!attachment) {
@@ -428,7 +890,7 @@ function explorerApi() {
      * nothing" from "failed" — cancelling is neither an error nor a change.
      */
     editMarkdownLink: async (itemKey: string) => {
-      if (!explorerOwner) { throw new Error("Literature Explorer is unavailable"); }
+      if (!explorerOwner) { throw new Error("Unizero Home is unavailable"); }
       const item = contextItem(itemKey);
       const attachment = markdownAttachment(item);
       if (!attachment) { throw new Error("This paper has no Markdown attachment"); }

@@ -113,4 +113,29 @@ describe("UniConnection.libraryGraph (whole-library overview)", () => {
     expect(afterNumeric).not.toBe(afterScoped);
     expect(idSet(afterNumeric).has("1:C")).toBe(false);
   });
+
+  it("projects references onto external Papers present on a Board", async () => {
+    const { uc } = sampleLibrary();
+    const connections = await uc.boardConnections(1, [
+      { paperID: "paper-b", scopedKey: "1:B", edge: "doi:10/b" },
+      { paperID: "paper-d", scopedKey: "1:D", edge: "s2:dsha" },
+      { paperID: "paper-x", edge: "doi:10/x" },
+    ]);
+
+    expect(connections).toContainEqual({
+      sourcePaperID: "paper-b",
+      targetPaperID: "paper-x",
+      type: "cites",
+    });
+    expect(connections).toContainEqual({
+      sourcePaperID: "paper-d",
+      targetPaperID: "paper-x",
+      type: "cites",
+    });
+    expect(connections).toContainEqual({
+      sourcePaperID: "paper-b",
+      targetPaperID: "paper-d",
+      type: "coupled",
+    });
+  });
 });
