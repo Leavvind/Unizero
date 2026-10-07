@@ -36,6 +36,19 @@ export type RawFrontmatterMatch =
   | "unizero-item"
   | "citekeyProperty";
 
+/** Explicit library-scoped identity must override filename and alias matches. */
+export function hasConflictingRawIdentity(
+  frontmatter: Record<string, unknown> | undefined,
+  paper: RawMatchPaper,
+): boolean {
+  if (!frontmatter || paper.libraryID == null) { return false; }
+  const scoped = String(frontmatter["unizero-item"] || "").trim();
+  if (scoped) { return scoped !== `${paper.libraryID}:${paper.itemKey}`; }
+  const uid = String(frontmatter.uid || "").trim();
+  return /^unizero-\d+-/.test(uid)
+    && uid !== `unizero-${paper.libraryID}-${paper.itemKey}`;
+}
+
 /**
  * Pure frontmatter match.
  *
@@ -48,6 +61,7 @@ export function matchRawFrontmatter(
   settings: RawMatchSettings,
 ): RawFrontmatterMatch | undefined {
   if (!frontmatter) { return undefined; }
+  if (hasConflictingRawIdentity(frontmatter, paper)) { return undefined; }
 
   if (String(frontmatter[settings.itemKeyProperty] || "") === paper.itemKey) {
     return "itemKeyProperty";

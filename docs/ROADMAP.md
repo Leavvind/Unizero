@@ -20,6 +20,11 @@ jumps, free-text `@` completion, library/paper panes, DataTransfer drag of
 
 - Manual verification in Obsidian against a running Zotero: rendering in both editor
   modes (including left-click on pills), the multi-word suggester, and every jump target.
+- Manual verification of first-click Canvas creation in the configured new-note
+  location, filename collisions, and bindings after file and parent-folder
+  renames/moves, including reopening Obsidian to confirm the updated paths persist.
+- Manual verification of rapid paper/tab switching during requests, plugin unload
+  during vault indexing, and Raw files with conflicting library-scoped identities.
 - **Canvas / native drag look.** Dropping plain `@libraryID/itemKey` text already
   produces a working citation. A native-looking drag (Obsidian Canvas, unofficial
   `app.dragManager`) should be weighed against what it buys.

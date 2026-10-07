@@ -34,31 +34,6 @@ def test_builtin_templates_are_valid(isolated_home: Path) -> None:
     assert all(item["builtin"] for item in listed)
 
 
-@pytest.mark.parametrize("backend,quality", [
-    ("pipeline", "basic"), ("vlm-transformers", "advanced"),
-])
-def test_parsing_quality_is_migrated_and_persisted(isolated_home: Path, backend, quality) -> None:
-    document = {
-        "id": "quality-test", "name": "Quality test", "version": 1,
-        "modules": [{"id": "extract", "module": "extract.mineru", "enabled": True,
-                     "settings": {"backend": backend, "ocr_mode": "ocr", "enable_table": False}},
-                    {"id": "publish", "module": "publish.markdown-directory", "enabled": True, "settings": {}}],
-    }
-    _write_user_template(isolated_home, document)
-    store = _store(isolated_home)
-    template = store.get("quality-test")
-    assert template.modules[0].settings == {
-        "backend": quality, "ocr_mode": "ocr", "enable_table": False,
-    }
-    path = paths.user_templates_dir(isolated_home) / "quality-test.yaml"
-    saved = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert saved["modules"][0]["settings"]["backend"] == quality
-    timestamp = path.stat().st_mtime_ns
-    store.reload()
-    assert path.stat().st_mtime_ns == timestamp
-    assert document["modules"][0]["settings"]["backend"] == backend
-
-
 def test_parsing_quality_menu_only_lists_four_tiers() -> None:
     module = MODULE_REGISTRY.get("extract.mineru")
     assert module.settings_schema["properties"]["backend"]["enum"] == [

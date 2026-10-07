@@ -16,6 +16,7 @@ import {
   Notice,
   Plugin,
   TFile,
+  TFolder,
   type Editor,
   type WorkspaceLeaf,
 } from "obsidian";
@@ -39,6 +40,7 @@ import type { PillHost } from "./pill";
 import { citationLivePreview, citationPostProcessor } from "./render";
 import { CitationSuggest } from "./suggest";
 import { VaultIndex } from "./vaultIndex";
+import { renameCanvasLinks } from "./canvasLinks";
 import {
   DEFAULT_SETTINGS,
   UnizeroSettingTab,
@@ -84,11 +86,26 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     this.registerEvent(this.app.vault.on("delete", (file) => {
       if (file instanceof TFile) {
         this.vaultIndex.removeFile(file.path);
+      } else if (file instanceof TFolder) {
+        this.vaultIndex.removeFolder(file.path);
       }
     }));
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
-      if (file instanceof TFile && (file.extension === "md" || file.extension === "canvas")) {
+      if (renameCanvasLinks(
+        this.settings.canvasLinks, oldPath, file.path, file instanceof TFolder,
+      )) {
+        void this.saveSettings("none").catch((error: unknown) => {
+          console.error("UniZero: could not save renamed Canvas links", error);
+          new Notice(
+            "UniZero: could not save the updated Canvas links. "
+            + "They may be lost after restarting Obsidian.",
+          );
+        });
+      }
+      if (file instanceof TFile) {
         void this.vaultIndex.renameFile(oldPath, file);
+      } else if (file instanceof TFolder) {
+        void this.vaultIndex.renameFolder(oldPath, file.path);
       }
     }));
 
@@ -149,7 +166,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
   onunload(): void {
     // Registered views, extensions, and processors are released by Plugin's own
     // teardown; the store's listeners belong to elements that go with them.
-    this.vaultIndex?.clear();
+    this.vaultIndex?.dispose();
   }
 
   async loadSettings(): Promise<void> {

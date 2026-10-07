@@ -102,35 +102,39 @@ export class VaultIndex {
 
   private readonly listeners = new Set<VaultIndexListener>();
 
-  private isInitialized = false;
+  private generation = 0;
+  private readonly revisions = new Map<string, number>();
+  private nextRevision = 0;
+  private disposed = false;
 
   constructor(private readonly app: App) {}
 
   /** Scan all Markdown and Canvas files in the vault. */
   async initialize(): Promise<void> {
+    if (this.disposed) { return; }
     this.clear();
+    const generation = this.generation;
     const files = this.app.vault.getFiles().filter(
       (file) => file.extension === "md" || file.extension === "canvas",
     );
     await Promise.all(
-      files.map(async (file) => {
-        try {
-          const content = await this.app.vault.cachedRead(file);
-          this.indexFileContent(file, content, false);
-        } catch (error) {
-          console.error(`UniZero: failed to index ${file.path}`, error);
-        }
-      }),
+      files.map((file) => this.indexFile(file, false)),
     );
-    this.isInitialized = true;
-    this.notify();
+    if (generation === this.generation) { this.notify(); }
   }
 
   /** Re-index a single modified/created file. */
-  async indexFile(file: TFile): Promise<void> {
+  async indexFile(file: TFile, notify = true): Promise<void> {
+    if (this.disposed) { return; }
+    const path = file.path;
+    const generation = this.generation;
+    const revision = ++this.nextRevision;
+    this.revisions.set(path, revision);
     try {
       const content = await this.app.vault.cachedRead(file);
-      this.indexFileContent(file, content, true);
+      if (generation !== this.generation || revision !== this.revisions.get(path)
+        || file.path !== path) { return; }
+      this.indexFileContent(file, content, notify);
     } catch (error) {
       console.error(`UniZero: failed to index ${file.path}`, error);
     }
@@ -139,11 +143,33 @@ export class VaultIndex {
   /** Update index for a renamed file. */
   async renameFile(oldPath: string, file: TFile): Promise<void> {
     this.removeFile(oldPath, false);
-    await this.indexFile(file);
+    if (file.extension === "md" || file.extension === "canvas") {
+      await this.indexFile(file, false);
+    }
+    this.notify();
+  }
+
+  /** Folder events may arrive without individual descendant events. */
+  async renameFolder(oldPath: string, newPath: string): Promise<void> {
+    this.removeFolder(oldPath, false);
+    const files = this.app.vault.getFiles().filter((file) =>
+      file.path.startsWith(`${newPath}/`)
+      && (file.extension === "md" || file.extension === "canvas"));
+    await Promise.all(files.map((file) => this.indexFile(file, false)));
+    this.notify();
+  }
+
+  removeFolder(path: string, notify = true): void {
+    const prefix = `${path}/`;
+    for (const filePath of new Set([...this.fileOccurrences.keys(), ...this.revisions.keys()])) {
+      if (filePath.startsWith(prefix)) { this.removeFile(filePath, false); }
+    }
+    if (notify) { this.notify(); }
   }
 
   /** Remove a deleted file from the index. */
   removeFile(path: string, notify = true): void {
+    this.revisions.delete(path);
     const previous = this.fileOccurrences.get(path);
     if (!previous || previous.length === 0) {
       this.fileOccurrences.delete(path);
@@ -226,8 +252,16 @@ export class VaultIndex {
   }
 
   clear(): void {
+    this.generation += 1;
+    this.revisions.clear();
     this.fileOccurrences.clear();
     this.paperOccurrences.clear();
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.clear();
+    this.listeners.clear();
   }
 
   /**

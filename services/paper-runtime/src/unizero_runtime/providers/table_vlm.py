@@ -1,13 +1,13 @@
 """
-table_vlm.py — refine complex tables with MinerU's VLM backend.
+table_vlm.py — refine complex tables with MinerU's advanced tier.
 
-The pipeline backend garbles complex tables (merged cells, significance
+The basic tier garbles complex tables (merged cells, significance
 stars). This module re-runs ONLY the pages containing flagged tables through
 MinerU's advanced tier (one invocation, model load amortized) and swaps the
 better <table> HTML into the markdown.
 
 Matching is positional: tables appear in the same (page, order-within-page)
-sequence in both backends' content_lists.
+sequence in both tiers' content_lists.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def refine_tables(
         src.close()
     mini_to_orig = {mi: p for mi, p in enumerate(pages)}
 
-    # ---- run VLM backend once ----
+    # ---- run advanced tier once ----
     vlm_out = work_dir / "vlm_out"
     cmd = mineru_command(mini, vlm_out, backend="advanced")
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -84,7 +84,7 @@ def refine_tables(
         if s and not s.startswith(("Layout", "Predict", "Extract", "Post", "Processing")):
             log("[vlm] " + s[-160:])
     if proc.wait() != 0:
-        log("[vlm] vlm-engine failed — tables left as-is")
+        log("[vlm] advanced tier failed — tables left as-is")
         return md_text, content_list, 0
 
     cl_files = list(vlm_out.rglob("*_content_list.json"))

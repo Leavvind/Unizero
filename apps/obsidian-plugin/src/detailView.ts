@@ -73,6 +73,8 @@ export class UnizeroDetailView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.generation += 1;
+    this.busy = false;
     this.unsubscribeStore?.();
     this.unsubscribeStore = undefined;
     this.unsubscribeVaultIndex?.();
@@ -91,6 +93,7 @@ export class UnizeroDetailView extends ItemView {
     this.ref = { libraryID: ref.libraryID, itemKey: ref.itemKey };
     this.relations = undefined;
     this.relationsError = undefined;
+    this.busy = false;
     this.generation += 1;
 
     this.unsubscribeStore?.();
@@ -103,6 +106,7 @@ export class UnizeroDetailView extends ItemView {
   }
 
   private async loadRelations(fetch: boolean): Promise<void> {
+    if (this.busy) { return; }
     if (this.kind === "vault") { return; }
     const ref = this.ref;
     if (!ref) { return; }
@@ -242,7 +246,7 @@ export class UnizeroDetailView extends ItemView {
           itemKey: paper.itemKey,
         }, paper));
     }
-    // Hand-made note surface: first open (or a broken path) picks a .canvas.
+    // Hand-made note surface: first open creates and binds a .canvas.
     this.actionButton(actions, "layout-dashboard", "Canvas", () =>
       openCanvas(this.app, paper, this.plugin.canvasLinkStore()));
 
@@ -275,6 +279,8 @@ export class UnizeroDetailView extends ItemView {
       button.toggleClass("is-active", tab.kind === this.kind);
       button.addEventListener("click", () => {
         if (this.kind === tab.kind) { return; }
+        this.generation += 1;
+        this.busy = false;
         this.kind = tab.kind;
         if (this.kind === "vault") {
           this.render();

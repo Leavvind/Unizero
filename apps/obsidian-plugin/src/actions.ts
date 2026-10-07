@@ -11,7 +11,7 @@
  * (by a person or an AI). It is not the hand-written note surface.
  *
  * "Canvas" is the user's real note for a paper — a vault `.canvas` they create
- * and link manually (first open picks a file; a missing path asks again).
+ * on first open (automatically created and linked; a missing path asks again).
  */
 
 import {
@@ -24,7 +24,8 @@ import {
 import { shell } from "electron";
 import type { BridgePaper, UnizeroBridge } from "./bridge";
 import { withPdfPage, type PaperRef } from "./citation";
-import { matchRawFrontmatter } from "./rawMatch";
+import { hasConflictingRawIdentity, matchRawFrontmatter } from "./rawMatch";
+import { createCanvasForPaper } from "./canvasCreation";
 import type { UnizeroSettings } from "./settings";
 
 export { matchRawFrontmatter } from "./rawMatch";
@@ -81,12 +82,16 @@ export function findRawForPaper(
   const folder = settings.literatureFolder;
   if (folder) {
     const byKey = app.vault.getAbstractFileByPath(`${folder}/${paper.itemKey}.md`);
-    if (byKey instanceof TFile) { return byKey; }
+    if (byKey instanceof TFile && !hasConflictingRawIdentity(
+      app.metadataCache.getFileCache(byKey)?.frontmatter, paper,
+    )) { return byKey; }
     if (paper.citekey) {
       const byCitekey = app.vault.getAbstractFileByPath(
         `${folder}/${paper.citekey}.md`,
       );
-      if (byCitekey instanceof TFile) { return byCitekey; }
+      if (byCitekey instanceof TFile && !hasConflictingRawIdentity(
+        app.metadataCache.getFileCache(byCitekey)?.frontmatter, paper,
+      )) { return byCitekey; }
     }
   }
 
@@ -192,7 +197,7 @@ export function resolveCanvasFile(
   const normalized = normalizePath(path.trim());
   if (!normalized) { return undefined; }
   const file = app.vault.getAbstractFileByPath(normalized);
-  return file instanceof TFile ? file : undefined;
+  return file instanceof TFile && file.extension === "canvas" ? file : undefined;
 }
 
 export function findCanvasForPaper(
@@ -211,8 +216,9 @@ export function findCanvasForPaper(
  * Open the paper's Canvas note — the hand-made note surface for this paper.
  *
  * Links live in plugin settings (`canvasLinks`), not in the `.canvas` file
- * (Canvas JSON has no frontmatter). First open, or a broken path, prompts for
- * a vault `.canvas` file and remembers it until the path fails again.
+ * (Canvas JSON has no frontmatter). First open creates a title-named Canvas;
+ * a broken path prompts for an existing file. Vault rename events keep the
+ * stored path up to date.
  */
 export async function openCanvas(
   app: App,
@@ -221,13 +227,23 @@ export async function openCanvas(
 ): Promise<void> {
   const key = canvasLinkKey(paper);
   const existingPath = links.get(key);
-  let file = resolveCanvasFile(app, existingPath);
+  const file = resolveCanvasFile(app, existingPath);
   if (file) {
     await app.workspace.getLeaf(false).openFile(file);
     return;
   }
 
   const label = paperLabel(paper);
+  if (!existingPath) {
+    try {
+      const created = await createCanvasForPaper(app, paper, links);
+      await app.workspace.getLeaf(false).openFile(created);
+    } catch (error) {
+      console.error("UniZero: could not create or open Canvas", error);
+      new Notice(`Could not create or open Canvas — ${(error as Error).message}`);
+    }
+    return;
+  }
   if (existingPath) {
     new Notice(
       `Canvas for ${label} was “${existingPath}”, but that file is missing. Pick a Canvas.`,
@@ -239,7 +255,7 @@ export async function openCanvas(
     placeholder: "Search Canvas files in the vault…",
     instructions:
       "Pick the Obsidian Canvas that is this paper’s real note. "
-      + "The path is remembered until the file is moved or deleted.",
+      + "The link follows file and folder renames or moves while UniZero is enabled.",
     choosePurpose: "link Canvas",
     getItems: () => app.vault.getFiles()
       .filter((entry) => entry.extension === "canvas")

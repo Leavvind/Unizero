@@ -69,6 +69,7 @@ export class UnizeroLibraryView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.generation += 1;
     this.unsubscribeVaultIndex?.();
     this.unsubscribeVaultIndex = undefined;
   }
@@ -179,7 +180,7 @@ export class UnizeroLibraryView extends ItemView {
     }
     settings.lastLibraryID = this.libraryID;
     settings.lastCollectionKey = this.collectionKey;
-    await this.plugin.saveData(settings);
+    await this.plugin.saveSettings("none");
   }
 
   private visibleItems(): BridgeCollectionItem[] {

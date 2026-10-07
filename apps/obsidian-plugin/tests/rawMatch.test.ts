@@ -61,6 +61,16 @@ describe("matchRawFrontmatter", () => {
     )).toBe("citekeyProperty");
   });
 
+  it("rejects another library's scoped identity even when key and citekey match", () => {
+    expect(matchRawFrontmatter({
+      "unizero-item": "2:HLP48L8X", uid: paper.itemKey,
+      "zotero-key": paper.itemKey, citekey: paper.citekey,
+    }, paper, settings)).toBeUndefined();
+    expect(matchRawFrontmatter({
+      uid: "unizero-2-HLP48L8X", "zotero-key": paper.itemKey, citekey: paper.citekey,
+    }, paper, settings)).toBeUndefined();
+  });
+
   it("returns undefined when nothing matches", () => {
     expect(matchRawFrontmatter(
       { title: "Something else", uid: "OTHERKEY" },

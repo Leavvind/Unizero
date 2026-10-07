@@ -1,76 +1,50 @@
 # UniZero for Obsidian
 
-The **active note-taking front end** of UniZero: free-text search, durable citations, and
-jumps into the same Zotero library the add-on manages.
-
-The plugin stores no bibliographic data. Zotero, the reference cache, and the Paper
-catalog all live in the [Zotero add-on](../zotero-addon); this is a view of them over
-the add-on’s localhost bridge. One side-effect is allowed: **Convert to Markdown**
-posts to the bridge and runs the same conversion job as Zotero’s item menu. Importing
-explored papers or other library write-back still needs a separate design.
-
-## Sidebars
-
-| Command | Side | Role |
-| --- | --- | --- |
-| **Open the library pane** | Left | Pick a library/collection, browse items, open a paper |
-| **Open the paper pane** | Right | Metadata, References, Citations, Relation |
-
-The library pane can switch libraries and collections inside Obsidian; the last choice
-is remembered across sessions. Click a row to open it in the paper pane; right-click for
-insert / PDF / Raw / Canvas / convert.
-
-**Insert & drag.** *Insert citation* (library context menu or paper-pane Relation row)
-writes `@libraryID/itemKey` into the **last Markdown note you had open**, even while a
-sidebar holds focus. You can also **drag** a library row, the paper-pane header, or an
-in-library Relation row onto the note body (plain `@libraryID/itemKey` text via
-DataTransfer). Native Canvas / `app.dragManager` integration is not implemented.
-
-## Syntax
-
-| Written | Click does |
-| --- | --- |
-| `@libraryID/itemKey` | Opens the paper pane: metadata, References, Citations, Relation |
-| `@libraryID/itemKey.md` | Opens the converted Raw Markdown in this vault |
-| `@libraryID/itemKey.pdf` | Opens the PDF in Zotero |
-| `@libraryID/itemKey.pdf:15` | Opens the PDF in Zotero at physical page 15 |
-
-Example: `@1/HLP48L8X`. 
-
-Right-clicking a pill offers 
-- Open paper pane
-- Open Raw or Convert to Markdown
-- Open Canvas (hand-made note; first open picks a `.canvas` file)
-- Open PDF in Zotero  
-Conversion runs in Zotero (UniZero panel)
-
-The pill label defaults to **Author (year)** (or title). 
-
-**Citation style** 
-- can be switched within Unizero Setting
-
-Finding a paper from typing `@` ,which opens a completion list backed by the Zotero library. 
-
- `libraryID/itemKey` is what gets *written*.
-
-Identity
-
-| Role | What it is |
-| --- | --- |
-| **Search** | Free text at the `@` prompt |
-| **Written address** | `@libraryID/itemKey` in the note — durable, unambiguous across libraries |
-| **Display** | Author (year) / title on the pill; citekey may appear in the detail pane as metadata |
-
-
+Search Zotero papers, cite them in notes, and open their metadata, Raw Markdown,
+Canvas, or PDF. Zotero remains the source of bibliographic data; the plugin reads
+the local UniZero bridge. Only explicit conversion starts a Zotero-side job.
 
 ## Requirements
 
-- Zotero 7 or later, running, with the UniZero add-on installed.
-- Zotero’s HTTP server enabled (it is by default; `extensions.zotero.httpServer.enabled`).
-- Desktop Obsidian. The plugin talks to `127.0.0.1` and opens `zotero://` links, neither
-  of which exists on mobile.
+Desktop Obsidian and running Zotero 7+ with the UniZero add-on. Zotero's HTTP
+server must be enabled (`extensions.zotero.httpServer.enabled`).
+
+## Use
+
+- **Library pane** (left): browse libraries and collections; right-click a paper
+  to insert a citation or open its files. The last collection is remembered.
+- **Paper pane** (right): metadata, vault citation locations, References, Citations,
+  and Relation. Uncached relations require an explicit **Fetch from providers**.
+- Type `@` followed by author, title, or year to search. Insert and drag actions
+  write `@libraryID/itemKey`; citation labels and appearance are configurable.
+  Sidebar insertion uses the active editor or last open Markdown note. Dragging
+  inserts plain citation text; native Canvas drag integration is not implemented.
+
+| Citation | Click action |
+| --- | --- |
+| `@1/HLP48L8X` | Open the paper pane |
+| `@1/HLP48L8X.md` | Open Raw Markdown |
+| `@1/HLP48L8X.pdf` | Open the PDF in Zotero |
+| `@1/HLP48L8X.pdf:15` | Open physical PDF page 15 |
+
+Right-click a citation for Raw, Canvas, PDF, or conversion. Raw files are located
+using the configured folder and identity frontmatter; missing converted files can
+be linked manually. Conversion progress appears in Zotero's UniZero panel.
+
+## Canvas
+
+The first click creates, binds, and opens an empty `<paper title>.canvas` in
+Obsidian's configured new-note location. Filenames are sanitized and shortened as
+needed; unusable titles fall back to `Paper libraryID-itemKey`. Name collisions
+get a numbered suffix, preserving existing files.
+
+Bindings follow file and parent-folder renames/moves while UniZero is enabled and
+persist across restarts. Changes while Obsidian is closed or UniZero is disabled
+cannot be tracked; missing files prompt you to select a Canvas again.
 
 ## Development
+
+Run from this directory:
 
 ```bash
 npm install
@@ -79,11 +53,9 @@ npm test
 npm run build
 ```
 
-`npm run dev` starts esbuild in watch mode. To try it in a vault, symlink or copy this
-directory’s `manifest.json`, `main.js`, and `styles.css` into
-`<vault>/.obsidian/plugins/unizero/`.
+`npm run dev` watches for changes. Copy or symlink `manifest.json`, `main.js`, and
+`styles.css` into `<vault>/.obsidian/plugins/unizero/`, then reload the plugin.
 
-`npm test` covers the citation syntax, which is the part with no Obsidian dependency.
-Rendering, the suggester, the library pane, the detail pane, and everything touching
-the bridge need a manual check in a real vault against a running Zotero (add-on with
-the `collections` / `collection-items` bridge capabilities).
+Tests cover host-independent logic and mocked asynchronous workflows. Rendering,
+search suggestions, panes, bridge calls, Canvas creation, and rename persistence
+still require manual checks in a real vault against Zotero.

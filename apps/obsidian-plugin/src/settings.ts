@@ -26,9 +26,9 @@ export interface UnizeroSettings {
    */
   itemKeyProperty: string;
   /**
-   * Hand-linked Canvas notes: `libraryID/itemKey` → vault path of a `.canvas`
+   * Canvas notes: `libraryID/itemKey` → vault path of a `.canvas`
    * file. Canvas is the real note surface; paths are set on first open (or
-   * when a stored path is missing).
+   * when a stored path is missing), and follow vault file/folder rename events.
    */
   canvasLinks: Record<string, string>;
   /**
@@ -175,8 +175,10 @@ export class UnizeroSettingTab extends PluginSettingTab {
       cls: "setting-item-description",
       text:
         "Canvas is the hand-made note for a paper. Paper pane / library / "
-        + "citation menus open it; the first click (or a missing path) asks "
-        + "you to pick a .canvas file. "
+        + "citation menus open it; the first click creates and links a Canvas "
+        + "named after the paper in Obsidian's configured new-note location. "
+        + "A missing linked file asks you to pick its new location. "
+        + "Links follow file and folder renames or moves while UniZero is enabled. "
         + (linked
           ? `${linked} paper${linked === 1 ? "" : "s"} currently linked in this vault.`
           : "No Canvas links stored yet."),

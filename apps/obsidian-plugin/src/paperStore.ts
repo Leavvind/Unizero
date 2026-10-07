@@ -32,6 +32,7 @@ interface Entry {
   /** Present only while a request is in flight; later callers await this one. */
   pending?: Promise<PaperState>;
   listeners: Set<Listener>;
+  generation: number;
 }
 
 export class PaperStore {
@@ -52,6 +53,7 @@ export class PaperStore {
         ref: { libraryID: ref.libraryID, itemKey: ref.itemKey },
         state: { status: "loading" },
         listeners: new Set(),
+        generation: 0,
       };
       this.entries.set(key, entry);
     }
@@ -86,13 +88,20 @@ export class PaperStore {
     }
     if (entry.pending) { return entry.pending; }
 
+    const generation = entry.generation;
+    const publishCurrent = (state: PaperState): PaperState => {
+      if (this.entries.get(key) !== entry || entry.generation !== generation) {
+        return state;
+      }
+      return this.publish(ref, state);
+    };
     const pending = this.bridge.paper(ref)
-      .then((paper) => this.publish(ref, { status: "ready", paper }))
+      .then((paper) => publishCurrent({ status: "ready", paper }))
       .catch((error: unknown) => {
         if (error instanceof BridgeError && error.status === 404) {
-          return this.publish(ref, { status: "missing" });
+          return publishCurrent({ status: "missing" });
         }
-        return this.publish(ref, {
+        return publishCurrent({
           status: "error",
           message: (error as Error)?.message || "could not reach Zotero",
         });
@@ -154,6 +163,7 @@ export class PaperStore {
         this.entries.delete(key);
         continue;
       }
+      entry.generation += 1;
       delete entry.pending;
       this.publish(entry.ref, { status: "loading" });
       void this.load(entry.ref);

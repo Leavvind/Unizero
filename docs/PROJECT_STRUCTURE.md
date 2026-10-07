@@ -7,7 +7,7 @@ UniZero/
 ├── apps/
 │   ├── obsidian-plugin/
 │   │   ├── src/                 Citation syntax, renderers, suggester, library/detail panes, bridge client
-│   │   ├── tests/               Vitest over the Obsidian-free citation syntax
+│   │   ├── tests/               Vitest over citation, file identity, and asynchronous state logic
 │   │   ├── manifest.json        Obsidian plugin manifest
 │   │   ├── styles.css           Pill and detail-pane styling
 │   │   └── package.json

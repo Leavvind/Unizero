@@ -18,7 +18,7 @@ DEFAULT_CONFIG = {
     "work_dir": "",
     "bbt_rpc": "http://127.0.0.1:23119/better-bibtex/json-rpc",
     "options": {
-        "backend": "pipeline",
+        "backend": "basic",
         "ocr_mode": "auto",
         "language": "en",
         "device": "auto",

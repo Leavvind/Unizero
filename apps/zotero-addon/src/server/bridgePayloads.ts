@@ -289,7 +289,7 @@ function collectionByLibraryAndKey(
       Zotero.Collection | false | undefined;
     if (found) { return found; }
   }
-  const rows = api.getByLibrary?.(libraryID) as Zotero.Collection[] | false | undefined;
+  const rows = api.getByLibrary?.(libraryID, true) as Zotero.Collection[] | false | undefined;
   if (!rows || !Array.isArray(rows)) { return undefined; }
   return rows.find((collection) => String((collection as any).key || "") === collectionKey);
 }
@@ -309,7 +309,7 @@ export function bridgeCollections(): BridgeCollections {
 
   const collections: BridgeCollection[] = [];
   for (const library of libraries) {
-    const rows = Zotero.Collections.getByLibrary(library.libraryID) as
+    const rows = Zotero.Collections.getByLibrary(library.libraryID, true) as
       Zotero.Collection[] | false | undefined;
     if (!rows || !Array.isArray(rows)) { continue; }
 
