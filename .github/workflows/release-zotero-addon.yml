@@ -31,7 +31,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/zotero-addon/package-lock.json
+          cache-dependency-path: |
+            apps/zotero-addon/package-lock.json
+            apps/obsidian-plugin/package-lock.json
 
       - name: Verify release tag
         shell: bash
@@ -60,6 +62,21 @@ jobs:
       - name: Build XPI
         run: npm run build
 
+      - name: Build Obsidian plugin
+        working-directory: apps/obsidian-plugin
+        shell: bash
+        run: |
+          npm ci
+          npm run check
+          npm test
+          # One tag releases both plugins; stamp the tag version into the manifest
+          # so Obsidian (and BRAT) see the same version as the XPI.
+          package_version="$(node --print "require('../zotero-addon/package.json').version")"
+          node --input-type=module --eval \
+            "import fs from 'fs'; const m = JSON.parse(fs.readFileSync('manifest.json','utf8')); m.version = '${package_version}'; fs.writeFileSync('manifest.json', JSON.stringify(m, null, 2) + '\n');"
+          npm run build
+          test -s main.js
+
       - name: Verify release files
         shell: bash
         run: |
@@ -85,9 +102,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           package_version="$(node --print "require('./package.json').version")"
+          release_assets=(
+            build/unizero.xpi
+            ../obsidian-plugin/main.js
+            ../obsidian-plugin/manifest.json
+            ../obsidian-plugin/styles.css
+          )
 
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" build/unizero.xpi --clobber
+            gh release upload "${GITHUB_REF_NAME}" "${release_assets[@]}" --clobber
             exit 0
           fi
 
@@ -98,4 +121,4 @@ jobs:
             release_flags+=(--latest)
           fi
 
-          gh release create "${GITHUB_REF_NAME}" build/unizero.xpi "${release_flags[@]}"
+          gh release create "${GITHUB_REF_NAME}" "${release_assets[@]}" "${release_flags[@]}"
