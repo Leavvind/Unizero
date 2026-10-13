@@ -13,11 +13,11 @@
 import { config } from "../../package.json";
 import { convertSelected } from "../features/conversion/commands";
 import { annotateSelected } from "../features/annotations/commands";
-import { ensure } from "../runtime-client/process";
+import { health } from "../runtime-client/process";
 import { runtimeClient } from "../runtime-client/client";
 import { getString } from "../utils/locale";
 import { showError } from "./progress";
-import { noteConversionFailure, noteServiceFailure } from "./notices";
+import { noteConversionFailure } from "./notices";
 
 const MENU_CONVERT = `${config.addonRef}-convert-menu`;
 const MENU_ANNOTATE = `${config.addonRef}-annotate-menuitem`;
@@ -127,12 +127,59 @@ function releaseItemMenuOrdering(mainWindow: Window): void {
   }
 }
 
+interface MenuTemplate {
+  id: string;
+  name?: string;
+  description?: string;
+}
+
+/** Last list the running service returned; shown at once the next time the menu opens. */
+let knownTemplates: MenuTemplate[] = [];
+
+function fillTemplatePopup(
+  mainWindow: Window,
+  document: Document,
+  templatePopup: Element,
+  templates: MenuTemplate[],
+): void {
+  templatePopup.textContent = "";
+  if (!templates.length) {
+    // Converting must stay possible without the template list: offer the default
+    // template rather than an empty menu.
+    const fallback = (document as any).createXULElement("menuitem");
+    fallback.setAttribute("label", `${FALLBACK_TEMPLATE_NAME} (default template)`);
+    fallback.addEventListener("command", () => {
+      convertSelected(mainWindow, FALLBACK_TEMPLATE_ID, FALLBACK_TEMPLATE_NAME)
+        .catch((convertError) => noteConversionFailure(String(convertError)));
+    });
+    templatePopup.appendChild(fallback);
+    return;
+  }
+  for (const template of templates) {
+    const entry = (document as any).createXULElement("menuitem");
+    entry.setAttribute("label", template.name || template.id);
+    entry.setAttribute("tooltiptext", template.description || template.id);
+    entry.addEventListener("command", () => {
+      convertSelected(mainWindow, template.id, template.name || template.id)
+        .catch((error) => noteConversionFailure(String(error)));
+    });
+    templatePopup.appendChild(entry);
+  }
+}
+
 /**
  * Build the "Generate Markdown from template" submenu.
  *
- * The template list is fetched when the menu opens rather than prefetched at
+ * The template list is refreshed when the menu opens rather than prefetched at
  * startup: a list captured at startup would be stale for anyone who has since edited
- * their templates, and the service may still be coming up at that point anyway.
+ * their templates.
+ *
+ * Opening this submenu must never start the service. Starting resolves the launch
+ * plan with synchronous interpreter probes and opens a progress window; doing either
+ * while a context menu holds the input grab freezes Zotero's menus until restart.
+ * The popup is filled synchronously from the last known list (or the default
+ * template) and only upgraded if an already-running service answers. Starting the
+ * service is left to the conversion command, which runs after the menu has closed.
  */
 function buildConvertMenu(mainWindow: Window, document: Document): Element {
   const convert = (document as any).createXULElement("menu");
@@ -140,46 +187,30 @@ function buildConvertMenu(mainWindow: Window, document: Document): Element {
   convert.setAttribute("label", "Generate Markdown from template");
 
   const templatePopup = (document as any).createXULElement("menupopup");
-  const loading = (document as any).createXULElement("menuitem");
-  loading.setAttribute("label", "Loading templates…");
-  loading.setAttribute("disabled", "true");
-  templatePopup.appendChild(loading);
+  fillTemplatePopup(mainWindow, document, templatePopup, knownTemplates);
 
-  templatePopup.addEventListener("popupshowing", async (event: Event) => {
+  let refreshing = false;
+  templatePopup.addEventListener("popupshowing", (event: Event) => {
     // A submenu's own popupshowing bubbles up here; handle only this level.
     if (event.target !== templatePopup) { return; }
-    templatePopup.textContent = "";
-    try {
-      // Reported as a notice rather than a popup: the user is only browsing a menu,
-      // and the fallback entry below still lets them convert.
-      if (!(await ensure({ reportError: noteServiceFailure }))) {
-        throw new Error("The local service is not running");
+    fillTemplatePopup(mainWindow, document, templatePopup, knownTemplates);
+    if (refreshing) { return; }
+    refreshing = true;
+    void (async () => {
+      try {
+        if (!(await health())) { return; }
+        const templates = (await runtimeClient.templates()).templates || [];
+        knownTemplates = templates;
+        const state = (templatePopup as any).state;
+        if (state === "open" || state === "showing") {
+          fillTemplatePopup(mainWindow, document, templatePopup, templates);
+        }
+      } catch (error) {
+        ztoolkit.log(`template menu refresh failed: ${error}`);
+      } finally {
+        refreshing = false;
       }
-      const response = await runtimeClient.templates();
-      const templates = response.templates || [];
-      if (!templates.length) { throw new Error("No templates available"); }
-
-      for (const template of templates) {
-        const entry = (document as any).createXULElement("menuitem");
-        entry.setAttribute("label", template.name || template.id);
-        entry.setAttribute("tooltiptext", template.description || template.id);
-        entry.addEventListener("command", () => {
-          convertSelected(mainWindow, template.id, template.name)
-            .catch((error) => noteConversionFailure(String(error)));
-        });
-        templatePopup.appendChild(entry);
-      }
-    } catch (error) {
-      // Converting must stay possible without the template list: offer the default
-      // template rather than an empty menu.
-      const fallback = (document as any).createXULElement("menuitem");
-      fallback.setAttribute("label", `${FALLBACK_TEMPLATE_NAME} (default template)`);
-      fallback.addEventListener("command", () => {
-        convertSelected(mainWindow, FALLBACK_TEMPLATE_ID, FALLBACK_TEMPLATE_NAME)
-          .catch((convertError) => noteConversionFailure(String(convertError)));
-      });
-      templatePopup.appendChild(fallback);
-    }
+    })();
   });
 
   convert.appendChild(templatePopup);
