@@ -424,10 +424,13 @@ export default class Views {
     this.registeredPaneID = itemPaneManager.registerSection({
       paneID: "Reference",
       pluginID: config.addonRef,
-      bodyXHTML: `
-        <linkset>
-          <html:link rel="localization" href="${config.addonRef}-addon.ftl"></html:link>
-        </linkset>`,
+      // No <link rel="localization"> in the body: every section instance (library
+      // pane and each reader tab) would add one to the main document, and closing a
+      // reader tab removes it again, which drops the add-on's FTL from document.l10n
+      // even though other links to it remain. Zotero's item-menu build then fails in
+      // translateFragment and the item context menu never opens until restart. The
+      // resource is inserted once per main window in hooks.onMainWindowLoad instead.
+      bodyXHTML: "",
       header: {
         l10nID: `${config.addonRef}-itemPaneSection-header`,
         icon: `chrome://${config.addonRef}/content/icons/reference.svg`,

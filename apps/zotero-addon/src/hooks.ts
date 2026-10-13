@@ -25,6 +25,10 @@ async function onMainWindowLoad(win: Window): Promise<void> {
   migrateLegacyPrefs();
   migrateLegacyRuntimePrefs();
 
+  // The add-on's Fluent strings (item pane section, menus) live in the main
+  // document's l10n for the window's whole lifetime; see the note in views.ts.
+  (win as any).MozXULElement?.insertFTLIfNeeded?.(`${config.addonRef}-addon.ftl`);
+
   await featureRegistry.onWindowLoad(win);
 }
 
