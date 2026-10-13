@@ -1,14 +1,15 @@
 /**
  * What each citation form does when clicked.
  *
- * `@libraryID/itemKey` stays inside Obsidian; `.md` resolves to a vault Raw file;
+ * `@libraryID/itemKey` stays inside Obsidian; `.md` opens the paper's Raw note in Zotero;
  * `.pdf` / `.pdf:{page}` hand off to Zotero (optional physical page via `?page=`).
  * Conversion is the one side-effect this plugin may request: it posts to the
  * bridge's convert action, which runs the same Zotero menu command — it does
  * not edit bibliographic fields from Obsidian.
  *
- * "Raw" is the converted Markdown published for reading and light format edits
- * (by a person or an AI). It is not the hand-written note surface.
+ * "Raw" is the converted paper, published by conversion as an editable Zotero child
+ * note (tagged `unizero:raw-note`, rendered by Better Notes). It is for reading and
+ * light format edits, not the hand-written note surface.
  *
  * "Canvas" is the user's real note for a paper — a vault `.canvas` they create
  * on first open (automatically created and linked; a missing path asks again).
@@ -24,25 +25,13 @@ import {
 import { shell } from "electron";
 import type { BridgePaper, UnizeroBridge } from "./bridge";
 import { withPdfPage, type PaperRef } from "./citation";
-import { hasConflictingRawIdentity, matchRawFrontmatter } from "./rawMatch";
 import { createCanvasForPaper } from "./canvasCreation";
 import type { UnizeroSettings } from "./settings";
 
-export { matchRawFrontmatter } from "./rawMatch";
-export type { RawFrontmatterMatch } from "./rawMatch";
-
-/** Fields needed to decide Open Raw vs Convert, and to locate a vault file. */
-export interface MarkdownAvailability {
-  itemKey: string;
-  libraryID?: number;
-  citekey?: string;
-  /** Collection-list / library-row flag from the bridge. */
-  hasMarkdown?: boolean;
-  links?: {
-    markdown?: string;
-    hasMarkdownAttachment: boolean;
-  };
-}
+/** A full paper payload, or a library-pane row, as far as Open Raw vs Convert goes. */
+export type RawNoteAvailability =
+  | { links: { rawNote?: string } }
+  | { hasRawNote: boolean };
 
 /** Paper identity used by Canvas links and labels. */
 export type PaperIdentity = {
@@ -67,126 +56,15 @@ export function canvasLinkKey(paper: Pick<PaperIdentity, "libraryID" | "itemKey"
 }
 
 /**
- * Find the vault Raw file for a paper.
- *
- * Path heuristics (folder + itemKey / citekey filename) run first for the
- * common layout. Frontmatter scan covers title-named publish output from
- * conversion (`{{ title }}.md`) and older files that only carry `uid` /
- * `unizero-item`.
- */
-export function findRawForPaper(
-  app: App,
-  paper: MarkdownAvailability,
-  settings: UnizeroSettings,
-): TFile | undefined {
-  const folder = settings.literatureFolder;
-  if (folder) {
-    const byKey = app.vault.getAbstractFileByPath(`${folder}/${paper.itemKey}.md`);
-    if (byKey instanceof TFile && !hasConflictingRawIdentity(
-      app.metadataCache.getFileCache(byKey)?.frontmatter, paper,
-    )) { return byKey; }
-    if (paper.citekey) {
-      const byCitekey = app.vault.getAbstractFileByPath(
-        `${folder}/${paper.citekey}.md`,
-      );
-      if (byCitekey instanceof TFile && !hasConflictingRawIdentity(
-        app.metadataCache.getFileCache(byCitekey)?.frontmatter, paper,
-      )) { return byCitekey; }
-    }
-  }
-
-  let citekeyMatch: TFile | undefined;
-  for (const file of app.vault.getMarkdownFiles()) {
-    const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
-    const match = matchRawFrontmatter(frontmatter, paper, settings);
-    if (!match) { continue; }
-    if (match === "citekeyProperty") {
-      if (!citekeyMatch) { citekeyMatch = file; }
-      continue;
-    }
-    // itemKey / uid / unizero-item are durable — return immediately.
-    return file;
-  }
-  return citekeyMatch;
-}
-
-/** @deprecated Use {@link findRawForPaper}. */
-export const findNoteForPaper = findRawForPaper;
-
-/**
  * Open Raw vs Convert is exclusive in Obsidian menus.
  *
- * True when Zotero already has a Markdown attachment / recorded URL, or a Raw
- * file for this item already exists in the vault. Re-conversion stays a
- * Zotero-menu action so the surface does not offer both at once.
+ * True when the paper has a Raw note in Zotero. Re-conversion stays a Zotero-menu
+ * action so the surface does not offer both at once.
  */
-export function hasMarkdownAvailable(
-  app: App,
-  paper: MarkdownAvailability,
-  settings: UnizeroSettings,
-): boolean {
-  if (paper.hasMarkdown) { return true; }
-  if (paper.links?.hasMarkdownAttachment || paper.links?.markdown) { return true; }
-  return Boolean(findRawForPaper(app, paper, settings));
-}
-
-/**
- * Stamp conversion-compatible identity onto a vault file so later opens resolve
- * without relying on filename or Advanced URI.
- */
-export async function stampRawIdentity(
-  app: App,
-  file: TFile,
-  paper: Pick<MarkdownAvailability, "itemKey" | "libraryID" | "citekey">,
-  settings: Pick<UnizeroSettings, "itemKeyProperty" | "citekeyProperty">,
-): Promise<void> {
-  await app.fileManager.processFrontMatter(file, (fm) => {
-    fm[settings.itemKeyProperty] = paper.itemKey;
-    fm.uid = paper.itemKey;
-    if (paper.libraryID != null) {
-      fm["unizero-item"] = `${paper.libraryID}:${paper.itemKey}`;
-    }
-    if (paper.citekey) {
-      fm[settings.citekeyProperty] = paper.citekey;
-    }
-  });
-}
-
-/**
- * Ask the user to pick a vault Markdown file and link it as this paper's Raw.
- *
- * Used only when Open Raw cannot resolve a file (Zotero has an attachment, but
- * the vault has no matching Raw). Not a separate menu entry.
- */
-export async function linkRawForPaper(
-  app: App,
-  paper: Pick<
-    MarkdownAvailability,
-    "itemKey" | "libraryID" | "citekey"
-  > & { title?: string },
-  settings: UnizeroSettings,
-): Promise<TFile | undefined> {
-  const label = paperLabel(paper);
-  const file = await pickVaultFile(app, {
-    title: `Link Raw for ${label}`,
-    placeholder: "Search Markdown files in the vault…",
-    instructions:
-      "Pick the converted Markdown in this vault. UniZero will write identity "
-      + "frontmatter so it opens next time.",
-    choosePurpose: "link as Raw",
-    getItems: () => app.vault.getMarkdownFiles()
-      .slice()
-      .sort((a, b) => a.path.localeCompare(b.path)),
-  });
-  if (!file) { return undefined; }
-  try {
-    await stampRawIdentity(app, file, paper, settings);
-    new Notice(`Linked Raw: ${file.path}`);
-    return file;
-  } catch (error) {
-    new Notice(`Could not write Raw identity — ${(error as Error).message}`);
-    return undefined;
-  }
+export function hasRawNote(paper: RawNoteAvailability): boolean {
+  return "hasRawNote" in paper
+    ? paper.hasRawNote
+    : Boolean(paper.links.rawNote);
 }
 
 export function resolveCanvasFile(
@@ -367,55 +245,26 @@ function paperLabel(
   return paper.itemKey;
 }
 
-export async function openRaw(
-  app: App,
-  paper: BridgePaper,
-  settings: UnizeroSettings,
-  options: { offerLinkOnMiss?: boolean } = {},
-): Promise<void> {
-  const offerLink = options.offerLinkOnMiss !== false;
-  const file = findRawForPaper(app, paper, settings);
-  if (file) {
-    await app.workspace.getLeaf(false).openFile(file);
+/** Select the paper's Raw note in Zotero, where Better Notes shows it. */
+export async function openRaw(paper: BridgePaper): Promise<void> {
+  if (paper.links.rawNote) {
+    await openExternal(paper.links.rawNote);
     return;
   }
-
-  // The add-on records a user-editable obsidian:// URL at conversion time. It may
-  // point into a different vault or rely on the Advanced URI plugin, so it is the
-  // fallback rather than the primary path.
-  if (paper.links.markdown) {
-    await openExternal(paper.links.markdown);
-    return;
-  }
-
-  const label = paperLabel(paper);
-  if (paper.links.hasMarkdownAttachment) {
-    new Notice(
-      `${label} has a Markdown attachment in Zotero, but no Raw file in this vault.`
-      + (offerLink ? " Pick a file to link, or cancel." : ""),
-    );
-    if (offerLink) {
-      const linked = await linkRawForPaper(app, paper, settings);
-      if (linked) {
-        await app.workspace.getLeaf(false).openFile(linked);
-      }
-    }
-    return;
-  }
-
   new Notice(
-    `${label} has not been converted to Markdown yet. Use “Convert to Markdown”.`,
+    `${paperLabel(paper)} has no Raw note in Zotero yet. Use “Convert to Markdown”.`,
   );
 }
-
-/** @deprecated Use {@link openRaw}. */
-export const openMarkdownNote = openRaw;
 
 /**
  * Ask Zotero to run the paper-to-Markdown conversion for this item.
  *
  * The job runs in Zotero (UniZero panel); Obsidian only receives the acceptance
- * ack. After it finishes, open the Raw file again from the menu.
+ * ack. After it finishes, open the Raw note from the menu.
+ *
+ * Cached papers are never refreshed on their own, so a menu can still offer
+ * Convert after an earlier conversion finished. The paper is read again first, and
+ * an existing Raw note is opened instead of converting twice.
  */
 export async function convertToMarkdown(
   bridge: UnizeroBridge,
@@ -423,11 +272,16 @@ export async function convertToMarkdown(
   paper?: BridgePaper,
 ): Promise<void> {
   const label = paper?.title || `${ref.libraryID}/${ref.itemKey}`;
+  const current = await bridge.paper(ref).catch(() => undefined);
+  if (current && hasRawNote(current)) {
+    await openRaw(current);
+    return;
+  }
   try {
     const result = await bridge.convert(ref);
     new Notice(
       result.message
-      || `Conversion started for “${label}”. Watch the UniZero panel in Zotero, then open Raw again.`,
+      || `Conversion started for “${label}”. Watch the UniZero panel in Zotero, then open Raw.`,
     );
   } catch (error) {
     new Notice(`UniZero: could not start conversion — ${(error as Error).message}`);

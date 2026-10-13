@@ -22,7 +22,7 @@ import {
 } from "obsidian";
 import {
   convertToMarkdown,
-  hasMarkdownAvailable,
+  hasRawNote,
   openCanvas,
   openRaw,
   openZoteroPdf,
@@ -182,6 +182,10 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       ...loaded,
       canvasLinks: links,
     };
+    // Vault Raw files gave way to the Zotero Raw note; drop their old settings.
+    for (const key of ["literatureFolder", "itemKeyProperty", "citekeyProperty"]) {
+      delete (this.settings as unknown as Record<string, unknown>)[key];
+    }
     // Early builds used "citekey" as a pill label; map it onto the durable form.
     if ((this.settings.pillLabel as string) === "citekey") {
       this.settings.pillLabel = "itemKey";
@@ -233,7 +237,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
 
   activate(action: CitationAction, ref: PaperRef, paper: BridgePaper, page?: number): void {
     if (action === "markdown") {
-      void openRaw(this.app, paper, this.settings);
+      void openRaw(paper);
       return;
     }
     if (action === "pdf") {
@@ -251,11 +255,11 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       .setIcon("graduation-cap")
       .onClick(() => { void this.showInDetailView(ref); }));
 
-    if (hasMarkdownAvailable(this.app, paper, this.settings)) {
+    if (hasRawNote(paper)) {
       menu.addItem((item) => item
         .setTitle("Open Raw")
         .setIcon("file-symlink")
-        .onClick(() => { void openRaw(this.app, paper, this.settings); }));
+        .onClick(() => { void openRaw(paper); }));
     } else {
       menu.addItem((item) => item
         .setTitle("Convert to Markdown")

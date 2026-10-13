@@ -13,19 +13,6 @@ export interface UnizeroSettings {
   pillLabel: PillLabel;
   pillStyle: PillStyle;
   /**
-   * Folder searched first for Raw Markdown (converted papers). Empty means
-   * path heuristics are skipped and the whole vault is matched by frontmatter.
-   */
-  literatureFolder: string;
-  /** Frontmatter property holding a Raw file's citekey (fallback match). */
-  citekeyProperty: string;
-  /**
-   * Frontmatter property holding the Zotero item key. Preferred match; also
-   * written when Open Raw has to pick a vault file. Conversion itself writes
-   * `uid` / `unizero-item`.
-   */
-  itemKeyProperty: string;
-  /**
    * Canvas notes: `libraryID/itemKey` → vault path of a `.canvas`
    * file. Canvas is the real note surface; paths are set on first open (or
    * when a stored path is missing), and follow vault file/folder rename events.
@@ -47,9 +34,6 @@ export const DEFAULT_SETTINGS: UnizeroSettings = {
   endpoint: "http://127.0.0.1:23119",
   pillLabel: "authorYear",
   pillStyle: "framed",
-  literatureFolder: "",
-  citekeyProperty: "citekey",
-  itemKeyProperty: "zotero-key",
   canvasLinks: {},
   lastLibraryID: null,
   lastCollectionKey: "",
@@ -109,63 +93,6 @@ export class UnizeroSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.plugin.settings.pillStyle = value as PillStyle;
           await this.plugin.saveSettings("rerender");
-        }));
-
-    new Setting(containerEl).setName("Raw Markdown").setHeading();
-
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text:
-        "Raw is the converted paper Markdown for reading and format correction "
-        + "(human or AI) — not the hand-written note. Conversion writes uid and "
-        + "unizero-item. If Open Raw cannot find a file but Zotero has a Markdown "
-        + "attachment, you are prompted to pick one in the vault.",
-    });
-
-    new Setting(containerEl)
-      .setName("Raw folder")
-      .setDesc(
-        "Searched first when opening a .md citation, for a file named after the "
-        + "item key (or citekey). Leave empty to search the whole vault by "
-        + "frontmatter (uid, unizero-item, or the properties below). "
-        + "Often matches the conversion publish destination (e.g. 20_Papers).",
-      )
-      .addText((text) => text
-        .setPlaceholder("20_Papers")
-        .setValue(this.plugin.settings.literatureFolder)
-        .onChange(async (value) => {
-          this.plugin.settings.literatureFolder = value.replace(/^\/+|\/+$/g, "");
-          await this.plugin.saveSettings("none");
-        }));
-
-    new Setting(containerEl)
-      .setName("Zotero item key property")
-      .setDesc(
-        "Frontmatter property holding the Zotero item key. Preferred when matching "
-        + "vault Raw files to papers; also written when Open Raw picks a file.",
-      )
-      .addText((text) => text
-        .setPlaceholder(DEFAULT_SETTINGS.itemKeyProperty)
-        .setValue(this.plugin.settings.itemKeyProperty)
-        .onChange(async (value) => {
-          this.plugin.settings.itemKeyProperty = value.trim() ||
-            DEFAULT_SETTINGS.itemKeyProperty;
-          await this.plugin.saveSettings("none");
-        }));
-
-    new Setting(containerEl)
-      .setName("Citekey property")
-      .setDesc(
-        "Frontmatter property matched as a fallback against the citekey "
-        + "(also written when Open Raw picks a file, when known).",
-      )
-      .addText((text) => text
-        .setPlaceholder(DEFAULT_SETTINGS.citekeyProperty)
-        .setValue(this.plugin.settings.citekeyProperty)
-        .onChange(async (value) => {
-          this.plugin.settings.citekeyProperty = value.trim() ||
-            DEFAULT_SETTINGS.citekeyProperty;
-          await this.plugin.saveSettings("none");
         }));
 
     new Setting(containerEl).setName("Canvas notes").setHeading();

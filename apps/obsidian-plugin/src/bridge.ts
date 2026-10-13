@@ -31,6 +31,8 @@ export interface BridgePaperLinks {
   zoteroPdf?: string;
   markdown?: string;
   hasMarkdownAttachment: boolean;
+  /** Selects the paper's Raw note in Zotero; absent when it has none. */
+  rawNote?: string;
 }
 
 export interface BridgePaper {
@@ -128,6 +130,7 @@ export interface BridgeCollectionItem {
   venue?: string;
   hasPDF: boolean;
   hasMarkdown: boolean;
+  hasRawNote: boolean;
   dateAdded?: string;
 }
 

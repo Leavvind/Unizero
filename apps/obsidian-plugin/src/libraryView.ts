@@ -18,7 +18,7 @@ import type {
 import { enableCitationDrag, type PaperRef } from "./citation";
 import {
   convertToMarkdown,
-  hasMarkdownAvailable,
+  hasRawNote,
   openCanvas,
   openRaw,
   openZoteroPdf,
@@ -513,8 +513,8 @@ export class UnizeroLibraryView extends ItemView {
     if (item.hasPDF) {
       badges.createSpan({ cls: "unizero-badge", text: "PDF" });
     }
-    if (item.hasMarkdown) {
-      badges.createSpan({ cls: "unizero-badge", text: "MD" });
+    if (item.hasRawNote) {
+      badges.createSpan({ cls: "unizero-badge", text: "Raw" });
     }
     const vaultCount = this.plugin.vaultIndex.getCount(ref);
     if (vaultCount > 0) {
@@ -575,14 +575,14 @@ export class UnizeroLibraryView extends ItemView {
         }
       }));
 
-    if (hasMarkdownAvailable(this.app, item, this.plugin.settings)) {
+    if (hasRawNote(item)) {
       menu.addItem((entry) => entry
         .setTitle("Open Raw")
         .setIcon("file-symlink")
         .onClick(async () => {
           try {
             const paper = await this.plugin.bridge.paper(ref);
-            await openRaw(this.app, paper, this.plugin.settings);
+            await openRaw(paper);
           } catch (error) {
             new Notice(`UniZero: ${(error as Error).message}`);
           }

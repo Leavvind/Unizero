@@ -19,6 +19,7 @@ import {
   literaturePaperMetadata,
   markdownAttachment,
   pdfAttachment,
+  rawNote,
 } from "../zotero/literatureCollectionAdapter";
 import { libraryScope } from "../zotero/libraryScope";
 import { readMarkdownLink } from "../zotero/markdownLinkRegistry";
@@ -35,6 +36,8 @@ export interface BridgePaperLinks {
   markdown?: string;
   /** True when a Markdown attachment exists even though no URL was recorded. */
   hasMarkdownAttachment: boolean;
+  /** Present when the paper has a Raw note: selects that child note in Zotero. */
+  rawNote?: string;
 }
 
 export interface BridgePaper {
@@ -126,6 +129,7 @@ export async function bridgePaperFromItem(
 ): Promise<BridgePaper> {
   const scope = libraryScope(item.libraryID);
   const pdf = pdfAttachment(item);
+  const note = rawNote(item);
   const markdownLink = await readMarkdownLink(item).catch(() => undefined);
   const identifiers = readItemPaperIdentifiers(item);
 
@@ -155,6 +159,7 @@ export async function bridgePaperFromItem(
       zoteroPdf: pdf ? `zotero://open-pdf/${scope}/items/${pdf.key}` : undefined,
       markdown: markdownLink?.url,
       hasMarkdownAttachment: Boolean(markdownAttachment(item)),
+      rawNote: note ? `zotero://select/${scope}/items/${note.key}` : undefined,
     },
   };
 }
@@ -261,6 +266,8 @@ export interface BridgeCollectionItem {
   venue?: string;
   hasPDF: boolean;
   hasMarkdown: boolean;
+  /** The paper has a Raw note (see `BridgePaperLinks.rawNote`). */
+  hasRawNote: boolean;
   dateAdded?: string;
 }
 
@@ -394,6 +401,7 @@ export async function bridgeCollectionItems(
         venue: meta.publicationTitle,
         hasPDF: meta.hasPDF,
         hasMarkdown: meta.hasMarkdown,
+        hasRawNote: Boolean(rawNote(item)),
         dateAdded: meta.dateAdded,
       };
     }),

@@ -44,15 +44,17 @@ well as, a vault file. The note carries no frontmatter. Open work:
 - Manual verification in Zotero with Better Notes: the note appears under the paper,
   page links and formulas render, an existing note is kept on re-conversion, and
   `Replace` regenerates it.
-- **Migration.** Move the vault `Papers` Markdown (it holds the user's edits) into Raw
-  notes, then delete the `ZoMiner MD` and `ZoMiner MD Copy` attachments; keep
-  `ZoMiner Tables`. Back up the vault folder first.
+- **Migration.** The vault `Papers` Markdown was moved into Raw notes and removed from
+  the vault on 2026-10-13. Still open: delete the `ZoMiner MD` and `ZoMiner MD Copy`
+  attachments; keep `ZoMiner Tables`.
 - **Long books.** A Chinese note synced at 800 KB and failed at 860 KB; the add-on only
   warns past 600 KB. Splitting a book across chapter notes under an index note is not
   implemented.
-- **Obsidian plugin.** Open Raw still resolves a vault file; it should open the Zotero
-  note instead once vault output is retired. Annotation injection also targets the vault
-  Markdown and has no note equivalent yet.
+- **Obsidian plugin.** Open Raw and `.md` citations select the Raw note in Zotero
+  (bridge `links.rawNote`, `hasRawNote` on library rows); vault Raw lookup and its
+  settings are gone. Open: manual check in a vault against Zotero.
+- **Annotation injection** (add-on) still targets the vault Markdown and has no note
+  equivalent yet.
 
 ## Verification
 
