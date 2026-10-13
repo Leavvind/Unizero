@@ -2,6 +2,7 @@ import {
   NOTE_SOFT_LIMIT_BYTES,
   RawNoteUnavailableError,
   betterNotesConverter,
+  betterNotesNoteLink,
   noteBytes,
   publishRawNote,
   wrapNoteHtml,
@@ -122,5 +123,29 @@ describe("Raw note", () => {
       api: { convert: { md2html: async (md: string) => `<h1>${md}</h1>` } },
     };
     expect(await betterNotesConverter().md2html("T")).toBe("<h1>T</h1>");
+  });
+});
+
+describe("Better Notes note link", () => {
+  const libraries: Record<number, { libraryType: string }> = {
+    1: { libraryType: "user" },
+    5: { libraryType: "group" },
+    9: { libraryType: "feed" },
+  };
+  const note = (libraryID: number): any => ({ libraryID, key: "IQQ6S4FN" });
+
+  beforeEach(() => {
+    (globalThis as any).Zotero.Libraries = { get: (id: number) => libraries[id] };
+  });
+
+  it("is absent without Better Notes", () => {
+    expect(betterNotesNoteLink(note(1))).toBeUndefined();
+  });
+
+  it("uses u for the user library and the libraryID for a group", () => {
+    (globalThis as any).Zotero.BetterNotes = {};
+    expect(betterNotesNoteLink(note(1))).toBe("zotero://note/u/IQQ6S4FN/");
+    expect(betterNotesNoteLink(note(5))).toBe("zotero://note/5/IQQ6S4FN/");
+    expect(betterNotesNoteLink(note(9))).toBeUndefined();
   });
 });

@@ -55,6 +55,23 @@ export function betterNotesConverter(): MarkdownConverter {
   return { md2html: (markdown) => convert.md2html(markdown) };
 }
 
+/**
+ * Better Notes' own link to a note, which opens it in the note editor.
+ *
+ * Mirrors Better Notes' `getNoteLink`: `u` for the user library, otherwise the
+ * library's `libraryID` (not the group ID). Absent when Better Notes is not
+ * installed, since nothing else handles `zotero://note`.
+ */
+export function betterNotesNoteLink(note: Zotero.Item): string | undefined {
+  if (!(Zotero as any).BetterNotes) { return undefined; }
+  const library = (Zotero.Libraries as any).get?.(note.libraryID);
+  if (!library) { return undefined; }
+  const scope = library.libraryType === "user" ? "u"
+    : library.libraryType === "group" ? String(note.libraryID)
+    : undefined;
+  return scope ? `zotero://note/${scope}/${note.key}/` : undefined;
+}
+
 export function wrapNoteHtml(html: string): string {
   return `<div data-schema-version="${NOTE_SCHEMA_VERSION}">${html}</div>`;
 }

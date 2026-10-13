@@ -23,13 +23,13 @@ server must be enabled (`extensions.zotero.httpServer.enabled`).
 | Citation | Click action |
 | --- | --- |
 | `@1/HLP48L8X` | Open the paper pane |
-| `@1/HLP48L8X.md` | Select the Raw note in Zotero |
+| `@1/HLP48L8X.md` | Open the Raw note in Zotero |
 | `@1/HLP48L8X.pdf` | Open the PDF in Zotero |
 | `@1/HLP48L8X.pdf:15` | Open physical PDF page 15 |
 
 Right-click a citation for Raw, Canvas, PDF, or conversion. Raw is the converted
 paper kept as an editable Zotero child note (tagged `unizero:raw-note`, rendered by
-Better Notes); the plugin selects it in Zotero and offers conversion only when the
+Better Notes); the plugin opens it in Better Notes (or selects it in Zotero) and offers conversion only when the
 paper has none. Conversion progress appears in Zotero's UniZero panel.
 
 ## Canvas

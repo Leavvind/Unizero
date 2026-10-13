@@ -245,10 +245,14 @@ function paperLabel(
   return paper.itemKey;
 }
 
-/** Select the paper's Raw note in Zotero, where Better Notes shows it. */
+/**
+ * Open the paper's Raw note in Zotero: in Better Notes' editor when the add-on
+ * reports a Better Notes link, otherwise by selecting the note.
+ */
 export async function openRaw(paper: BridgePaper): Promise<void> {
-  if (paper.links.rawNote) {
-    await openExternal(paper.links.rawNote);
+  const url = paper.links.rawNoteOpen || paper.links.rawNote;
+  if (url) {
+    await openExternal(url);
     return;
   }
   new Notice(

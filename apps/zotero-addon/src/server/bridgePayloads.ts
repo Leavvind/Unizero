@@ -23,6 +23,7 @@ import {
 } from "../zotero/literatureCollectionAdapter";
 import { libraryScope } from "../zotero/libraryScope";
 import { readMarkdownLink } from "../zotero/markdownLinkRegistry";
+import { betterNotesNoteLink } from "../zotero/rawNoteAdapter";
 
 /** Incremented only when an existing field changes meaning or disappears. */
 export const BRIDGE_API_VERSION = 1;
@@ -38,6 +39,8 @@ export interface BridgePaperLinks {
   hasMarkdownAttachment: boolean;
   /** Present when the paper has a Raw note: selects that child note in Zotero. */
   rawNote?: string;
+  /** Present with `rawNote` when Better Notes is installed: opens the note in its editor. */
+  rawNoteOpen?: string;
 }
 
 export interface BridgePaper {
@@ -160,6 +163,7 @@ export async function bridgePaperFromItem(
       markdown: markdownLink?.url,
       hasMarkdownAttachment: Boolean(markdownAttachment(item)),
       rawNote: note ? `zotero://select/${scope}/items/${note.key}` : undefined,
+      rawNoteOpen: note ? betterNotesNoteLink(note) : undefined,
     },
   };
 }
