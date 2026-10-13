@@ -77,3 +77,41 @@ describe("vault index lifecycle", () => {
     expect(index.getCount(ref)).toBe(0);
   });
 });
+
+describe("vault index notifications", () => {
+  function index() {
+    const vault = new VaultIndex({} as App);
+    let notified = 0;
+    vault.subscribe(() => { notified += 1; });
+    return { vault, notified: () => notified };
+  }
+
+  it("stays quiet when an edit leaves the citations unchanged", () => {
+    const { vault, notified } = index();
+    vault.indexFileContent(file("a.md"), "x @1/ABCD1234\nplain");
+    expect(notified()).toBe(1);
+
+    vault.indexFileContent(file("a.md"), "x @1/ABCD1234\nplain, edited");
+    vault.indexFileContent(file("b.md"), "no citations here");
+    vault.removeFile("c.md");
+    expect(notified()).toBe(1);
+    expect(vault.getCount(ref)).toBe(1);
+  });
+
+  it("updates one file's share without touching the others", () => {
+    const { vault, notified } = index();
+    vault.indexFileContent(file("a.md"), "@1/ABCD1234 @1/ABCD1234");
+    vault.indexFileContent(file("b.canvas"), JSON.stringify({
+      nodes: [{ id: "n", type: "text", text: "@1/ABCD1234" }],
+    }));
+    expect(vault.getCount(ref)).toBe(3);
+
+    vault.indexFileContent(file("a.md"), "@1/ABCD1234");
+    expect(vault.getCount(ref)).toBe(2);
+    expect(vault.getOccurrences(ref).map((o) => o.filePath).sort()).toEqual(["a.md", "b.canvas"]);
+
+    vault.removeFile("b.canvas");
+    expect(vault.getOccurrences(ref).map((o) => o.filePath)).toEqual(["a.md"]);
+    expect(notified()).toBe(4);
+  });
+});

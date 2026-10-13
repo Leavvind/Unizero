@@ -44,15 +44,20 @@ function fakeItem(
 }
 
 const library: Record<number, any[]> = {};
+const libraryTypes: Record<number, string> = {};
 
 beforeEach(() => {
   invalidateCitekeyIndex();
   for (const key of Object.keys(library)) { delete library[Number(key)]; }
+  for (const key of Object.keys(libraryTypes)) { delete libraryTypes[Number(key)]; }
 
   (globalThis as any).Zotero.Libraries = {
     userLibraryID: 1,
     get: () => undefined,
-    getAll: () => Object.keys(library).map((id) => ({ libraryID: Number(id) })),
+    getAll: () => Object.keys(library).map((id) => ({
+      libraryID: Number(id),
+      libraryType: libraryTypes[Number(id)] || "user",
+    })),
   };
   (globalThis as any).Zotero.Items = {
     getAll: async (libraryID: number) => library[libraryID] || [],
@@ -188,6 +193,52 @@ describe("resolveCitekey", () => {
     invalidateCitekeyIndex();
     expect(await resolveCitekey("smithSecondTitle2020")).toBeTruthy();
     expect(await resolveCitekey("smithFirstTitle2020")).toBeUndefined();
+  });
+
+  it("does not cache an index built across an invalidation", async () => {
+    library[1] = [fakeItem(1, "AAA", { title: "First Title", date: "2020" },
+      [{ lastName: "Smith" }])];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const original = (globalThis as any).Zotero.Items.getAll;
+    (globalThis as any).Zotero.Items.getAll = async (libraryID: number) => {
+      const snapshot = [...(library[libraryID] || [])];
+      await gate;
+      return snapshot;
+    };
+
+    const stale = resolveCitekey("smithFirstTitle2020");
+    // The edit lands while the first build is still reading.
+    library[1] = [fakeItem(1, "AAA", { title: "Second Title", date: "2020" },
+      [{ lastName: "Smith" }])];
+    invalidateCitekeyIndex();
+    release();
+    expect(await stale).toBeTruthy();
+
+    (globalThis as any).Zotero.Items.getAll = original;
+    expect(await resolveCitekey("smithSecondTitle2020")).toBeTruthy();
+  });
+
+  it("shares one build between concurrent lookups", async () => {
+    library[1] = [fakeItem(1, "AAA", { title: "First Title", date: "2020" },
+      [{ lastName: "Smith" }])];
+    const getAll = vi.fn(async (libraryID: number) => library[libraryID] || []);
+    (globalThis as any).Zotero.Items.getAll = getAll;
+
+    await Promise.all([
+      resolveCitekey("smithFirstTitle2020"),
+      suggestCitekeys("smith", 10),
+    ]);
+    expect(getAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("never searches a feed library", async () => {
+    library[1] = [];
+    library[4] = [fakeItem(4, "RSS", { title: "Feed Entry", date: "2024" },
+      [{ lastName: "Smith" }])];
+    libraryTypes[4] = "feed";
+    expect(await resolveCitekey("smithFeedEntry2024")).toBeUndefined();
+    expect(await suggestCitekeys("smith", 10)).toEqual([]);
   });
 });
 

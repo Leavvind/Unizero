@@ -151,35 +151,80 @@ export function citekeyForItem(item: Zotero.Item): string {
  *
  * Zotero has no query for "the item whose derived key is X" — only pinned keys
  * live in a searchable field — so the index is the only way to resolve the
- * fallback form. It is cached per library and dropped wholesale when any item
- * changes, because a single title edit can change one key and un-collide another.
+ * fallback form. It is cached per library and dropped wholesale when any regular
+ * item changes, because a single title edit can change one key and un-collide
+ * another.
+ *
+ * Each entry also carries the fields `@` completion ranks on, so a keystroke reads
+ * the index instead of every item's fields again.
  */
-const indexes = new Map<number, Map<string, CitekeyLocation[]>>();
+interface IndexedItem extends CitekeyLocation {
+  title: string;
+  authors: string[];
+  year?: string;
+}
+
+type LibraryIndex = Map<string, IndexedItem[]>;
+
+const indexes = new Map<number, LibraryIndex>();
+/** One build per library at a time; later callers await it. */
+const building = new Map<number, Promise<LibraryIndex>>();
+/**
+ * Bumped by every invalidation. A build that started before one must not cache
+ * its result: it may have read the item that just changed.
+ */
+let indexGeneration = 0;
 let observerID: string | undefined;
 
-async function libraryIndex(libraryID: number): Promise<Map<string, CitekeyLocation[]>> {
-  const cached = indexes.get(libraryID);
-  if (cached) { return cached; }
-
-  const index = new Map<string, CitekeyLocation[]>();
+async function buildLibraryIndex(libraryID: number): Promise<LibraryIndex> {
+  const index: LibraryIndex = new Map();
   const items = await Zotero.Items.getAll(libraryID, true);
   for (const item of items) {
     if (!item.isRegularItem()) { continue; }
     const citekey = citekeyForItem(item);
-    const locations = index.get(citekey);
-    const location: CitekeyLocation = { libraryID, itemKey: String(item.key) };
-    if (locations) {
-      locations.push(location);
+    const entry: IndexedItem = {
+      libraryID,
+      itemKey: String(item.key),
+      title: String(item.getField("title") || ""),
+      authors: item.getCreators()
+        .map((creator) => String(creator.lastName || creator.firstName || "").trim())
+        .filter(Boolean),
+      year: yearSegment(item) || undefined,
+    };
+    const entries = index.get(citekey);
+    if (entries) {
+      entries.push(entry);
     } else {
-      index.set(citekey, [location]);
+      index.set(citekey, [entry]);
     }
   }
-  indexes.set(libraryID, index);
   return index;
 }
 
+function libraryIndex(libraryID: number): Promise<LibraryIndex> {
+  const cached = indexes.get(libraryID);
+  if (cached) { return Promise.resolve(cached); }
+  const inFlight = building.get(libraryID);
+  if (inFlight) { return inFlight; }
+
+  const generation = indexGeneration;
+  const build = buildLibraryIndex(libraryID).then((index) => {
+    if (generation === indexGeneration) { indexes.set(libraryID, index); }
+    return index;
+  }).finally(() => {
+    if (building.get(libraryID) === build) { building.delete(libraryID); }
+  });
+  building.set(libraryID, build);
+  return build;
+}
+
+/**
+ * Libraries a citation may point into. Feeds are excluded: their items are RSS
+ * entries Zotero prunes on its own, so a citation to one would not last.
+ */
 function searchedLibraries(preferred?: number): number[] {
   const all = Zotero.Libraries.getAll()
+    .filter((library) => library.libraryType !== "feed")
     .map((library) => Number(library.libraryID))
     .filter((libraryID) => Number.isInteger(libraryID));
   if (preferred === undefined || !all.includes(preferred)) { return all; }
@@ -198,10 +243,14 @@ export async function resolveCitekey(
     const candidates = index.get(citekey);
     if (candidates?.length) {
       return {
-        ...candidates[0],
+        libraryID: candidates[0].libraryID,
+        itemKey: candidates[0].itemKey,
         citekey,
         ambiguous: candidates.length > 1,
-        candidates: [...candidates],
+        candidates: candidates.map(({ libraryID: id, itemKey }) => ({
+          libraryID: id,
+          itemKey,
+        })),
       };
     }
   }
@@ -241,29 +290,13 @@ export async function suggestCitekeys(
 
   for (const libraryID of searchedLibraries(preferredLibraryID)) {
     const index = await libraryIndex(libraryID);
-    for (const [citekey, locations] of index) {
-      for (const location of locations) {
-        const item = libraryItem(location.libraryID, location.itemKey);
-        if (!item) { continue; }
-
-        const title = String(item.getField("title") || "");
-        const authors = item.getCreators()
-          .map((creator) => String(creator.lastName || creator.firstName || "").trim())
-          .filter(Boolean);
-        const year = yearSegment(item) || undefined;
-
+    for (const [citekey, entries] of index) {
+      for (const { libraryID: id, itemKey, title, authors, year } of entries) {
         const rank = rankSuggestion(needle, citekey, title, authors, year);
         if (rank < 0) { continue; }
-
         scored.push({
           rank,
-          suggestion: {
-            ...location,
-            citekey,
-            title,
-            authors,
-            year,
-          },
+          suggestion: { libraryID: id, itemKey, citekey, title, authors, year },
         });
       }
     }
@@ -322,6 +355,7 @@ function rankToken(
 }
 
 export function invalidateCitekeyIndex(libraryID?: number): void {
+  indexGeneration += 1;
   if (libraryID === undefined) {
     indexes.clear();
     return;
@@ -330,10 +364,20 @@ export function invalidateCitekeyIndex(libraryID?: number): void {
 }
 
 /**
- * Drop the index whenever items change.
+ * Notes, attachments, and annotations derive no key, so their churn — a
+ * conversion adding its Raw note and attachments, say — keeps the index.
+ * An item that can no longer be read is treated as relevant.
+ */
+function touchesRegularItem(id: number | string): boolean {
+  const item = Zotero.Items.get(Number(id)) as Zotero.Item | false;
+  return !item || item.isRegularItem();
+}
+
+/**
+ * Drop the index whenever a regular item changes.
  *
- * Registered once per process, alongside the bridge that depends on it. The
- * observer deliberately ignores which items changed: a derived key depends on
+ * Registered once per process, alongside the bridge that depends on it. Beyond
+ * skipping child items, the observer deliberately ignores which items changed: a derived key depends on
  * title, creators, and date, and a collision depends on every other item, so
  * there is no cheap incremental update that stays correct.
  */
@@ -341,7 +385,8 @@ export function registerCitekeyInvalidation(): void {
   if (observerID) { return; }
   observerID = Zotero.Notifier.registerObserver(
     {
-      notify(_event: string, _type: string, _ids: (number | string)[], _extraData: unknown) {
+      notify(event: string, _type: string, ids: (number | string)[], _extraData: unknown) {
+        if (event !== "delete" && !ids.some(touchesRegularItem)) { return; }
         invalidateCitekeyIndex();
       },
     },
@@ -354,5 +399,5 @@ export function unregisterCitekeyInvalidation(): void {
   if (!observerID) { return; }
   Zotero.Notifier.unregisterObserver(observerID);
   observerID = undefined;
-  indexes.clear();
+  invalidateCitekeyIndex();
 }

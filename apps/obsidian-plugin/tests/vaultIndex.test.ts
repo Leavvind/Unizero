@@ -84,6 +84,34 @@ Line 3: referring back to @1/SAMEKEY1 again.`;
   });
 });
 
+describe("scanTextCitations and code", () => {
+  it("skips citations inside fenced code blocks", () => {
+    const text = [
+      "@1/BEFORE",
+      "````md",
+      "@1/INSIDE.pdf:3",
+      "```",
+      "@1/STILLIN",
+      "````",
+      "@1/AFTER",
+      "~~~",
+      "@1/TILDE",
+      "~~~",
+    ].join("\n");
+    const keys = scanTextCitations(text, { filePath: "a.md" }).map((o) => o.token.itemKey);
+    expect(keys).toEqual(["BEFORE", "AFTER"]);
+  });
+
+  it("skips inline code but keeps offsets of citations beside it", () => {
+    const line = "see `@1/CODE` and ``@1/DOUBLE`` then @1/REAL";
+    const [only, ...rest] = scanTextCitations(line, { filePath: "a.md" });
+    expect(rest).toEqual([]);
+    expect(only.token.itemKey).toBe("REAL");
+    expect(only.ch).toBe(line.indexOf("@1/REAL"));
+    expect(only.lineText).toBe(line);
+  });
+});
+
 describe("scanCanvasCitations", () => {
   it("extracts citations from Obsidian Canvas cards and preserves node IDs", () => {
     const canvasData = {

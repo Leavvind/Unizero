@@ -26,8 +26,23 @@ export interface VaultCitationOccurrence {
 
 export type VaultIndexListener = () => void;
 
+/** A fence opener/closer: up to three spaces, then three or more ` or ~. */
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * Blank out inline code spans, keeping every other offset where it was.
+ *
+ * Both renderers leave `@1/KEY` inside code as text, so the index must not count
+ * it either — otherwise the Vault tab lists, and jumps to, code samples.
+ */
+function maskInlineCode(line: string): string {
+  return line.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (span) => " ".repeat(span.length));
+}
+
 /**
  * Helper to extract citations from plain text / markdown.
+ *
+ * Fenced code blocks and inline code are skipped, matching what renders as a pill.
  */
 export function scanTextCitations(
   text: string,
@@ -35,10 +50,24 @@ export function scanTextCitations(
 ): VaultCitationOccurrence[] {
   const occurrences: VaultCitationOccurrence[] = [];
   const lines = text.split(/\r?\n/);
+  let fence: string | undefined;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const lineText = lines[lineIndex];
+    const marker = FENCE.exec(lineText)?.[1];
+    if (fence) {
+      // A fence closes only on the same character, at least as long.
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length
+        && !lineText.slice(lineText.indexOf(marker) + marker.length).trim()) {
+        fence = undefined;
+      }
+      continue;
+    }
+    if (marker) {
+      fence = marker;
+      continue;
+    }
     if (!lineText.includes("@")) { continue; }
-    const tokens = scanCitations(lineText);
+    const tokens = scanCitations(maskInlineCode(lineText));
     for (const token of tokens) {
       occurrences.push({
         file: fileMeta.file as TFile,
@@ -93,12 +122,22 @@ export function scanCanvasCitations(
   return occurrences;
 }
 
+/** What a subscriber renders from a file's occurrences, in order. */
+function signature(occurrences: VaultCitationOccurrence[]): string {
+  return occurrences
+    .map((o) => `${o.nodeId ?? ""}\u0000${o.line}\u0000${o.ch}\u0000${o.token.raw}\u0000${o.lineText}`)
+    .join("\u0001");
+}
+
 export class VaultIndex {
   /** Map of normalized file path -> list of occurrences in that file. */
   private readonly fileOccurrences = new Map<string, VaultCitationOccurrence[]>();
 
-  /** Map of `libraryID/itemKey` -> list of occurrences. */
-  private readonly paperOccurrences = new Map<string, VaultCitationOccurrence[]>();
+  /**
+   * Map of `libraryID/itemKey` -> file path -> that file's occurrences of the paper.
+   * Kept per file so one edit replaces one file's share instead of rebuilding all.
+   */
+  private readonly paperOccurrences = new Map<string, Map<string, VaultCitationOccurrence[]>>();
 
   private readonly listeners = new Set<VaultIndexListener>();
 
@@ -170,17 +209,8 @@ export class VaultIndex {
   /** Remove a deleted file from the index. */
   removeFile(path: string, notify = true): void {
     this.revisions.delete(path);
-    const previous = this.fileOccurrences.get(path);
-    if (!previous || previous.length === 0) {
-      this.fileOccurrences.delete(path);
-      return;
-    }
-
-    this.fileOccurrences.delete(path);
-    this.rebuildPaperIndex();
-    if (notify) {
-      this.notify();
-    }
+    const changed = this.replaceFile(path, []);
+    if (changed && notify) { this.notify(); }
   }
 
   /** Index parsed content for a file and optionally notify subscribers. */
@@ -188,49 +218,65 @@ export class VaultIndex {
     const occurrences = file.extension === "canvas"
       ? scanCanvasCitations(content, { file, filePath: file.path })
       : scanTextCitations(content, { file, filePath: file.path });
-
-    if (occurrences.length === 0) {
-      const hadPrevious = this.fileOccurrences.has(file.path);
-      this.fileOccurrences.delete(file.path);
-      if (hadPrevious) {
-        this.rebuildPaperIndex();
-        if (notify) { this.notify(); }
-      }
-      return;
-    }
-
-    this.fileOccurrences.set(file.path, occurrences);
-    this.rebuildPaperIndex();
-    if (notify) {
-      this.notify();
-    }
+    const changed = this.replaceFile(file.path, occurrences);
+    if (changed && notify) { this.notify(); }
   }
 
-  /** Reconstruct the paper -> occurrences mapping from fileOccurrences. */
-  private rebuildPaperIndex(): void {
-    this.paperOccurrences.clear();
-    for (const occurrences of this.fileOccurrences.values()) {
-      for (const occurrence of occurrences) {
-        const key = paperRefKey(occurrence.token);
-        let list = this.paperOccurrences.get(key);
-        if (!list) {
-          list = [];
-          this.paperOccurrences.set(key, list);
-        }
-        list.push(occurrence);
-      }
+  /**
+   * Swap one file's occurrences in both maps. Returns false when nothing a
+   * subscriber shows has changed, so an edit away from any citation costs no
+   * re-render.
+   */
+  private replaceFile(path: string, occurrences: VaultCitationOccurrence[]): boolean {
+    const previous = this.fileOccurrences.get(path) || [];
+    if (signature(previous) === signature(occurrences)) {
+      // Same citations at the same places; keep the fresh TFile reference.
+      if (occurrences.length) { this.fileOccurrences.set(path, occurrences); }
+      return false;
     }
+
+    for (const occurrence of previous) {
+      const key = paperRefKey(occurrence.token);
+      const byFile = this.paperOccurrences.get(key);
+      byFile?.delete(path);
+      if (byFile && !byFile.size) { this.paperOccurrences.delete(key); }
+    }
+
+    if (!occurrences.length) {
+      this.fileOccurrences.delete(path);
+      return true;
+    }
+    this.fileOccurrences.set(path, occurrences);
+    for (const occurrence of occurrences) {
+      const key = paperRefKey(occurrence.token);
+      let byFile = this.paperOccurrences.get(key);
+      if (!byFile) {
+        byFile = new Map();
+        this.paperOccurrences.set(key, byFile);
+      }
+      let list = byFile.get(path);
+      if (!list) {
+        list = [];
+        byFile.set(path, list);
+      }
+      list.push(occurrence);
+    }
+    return true;
   }
 
   /** Get all occurrences of a paper in the vault. */
   getOccurrences(ref: PaperRef): VaultCitationOccurrence[] {
-    const key = paperRefKey(ref);
-    return this.paperOccurrences.get(key) || [];
+    const byFile = this.paperOccurrences.get(paperRefKey(ref));
+    return byFile ? [...byFile.values()].flat() : [];
   }
 
   /** Get total number of citations of a paper in the vault. */
   getCount(ref: PaperRef): number {
-    return this.getOccurrences(ref).length;
+    let count = 0;
+    for (const list of this.paperOccurrences.get(paperRefKey(ref))?.values() || []) {
+      count += list.length;
+    }
+    return count;
   }
 
   /** Subscribe to index changes. */

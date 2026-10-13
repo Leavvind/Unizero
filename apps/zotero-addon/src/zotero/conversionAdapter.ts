@@ -306,8 +306,7 @@ async function attachImportedCopy(
     ...findArtifacts(context.parent, kind, context.source, title),
     ...legacyArtifacts(context, [title, ...legacyTitles], imported),
   ];
-  for (const attachment of candidates) { await attachment.eraseTx(); }
-
+  // Import first: if it fails, the previous copy is still the user's only one.
   const created = await Zotero.Attachments.importFromFile({
     file: path,
     parentItemID: context.parent.id,
@@ -315,6 +314,7 @@ async function attachImportedCopy(
     contentType,
   });
   await markArtifact(created, kind, context.source);
+  for (const attachment of candidates) { await attachment.eraseTx(); }
   ztoolkit.log(`imported attachment '${title}': ${path}`);
 }
 

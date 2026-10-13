@@ -305,9 +305,13 @@ function collectionByLibraryAndKey(
   return rows.find((collection) => String((collection as any).key || "") === collectionKey);
 }
 
-/** Flat list of libraries and their collections for a collection picker. */
+/**
+ * Flat list of libraries and their collections for a collection picker. Feeds are
+ * left out: a citation to an RSS entry would not survive Zotero pruning it.
+ */
 export function bridgeCollections(): BridgeCollections {
   const libraries: BridgeLibrary[] = Zotero.Libraries.getAll()
+    .filter((library) => library.libraryType !== "feed")
     .map((library) => {
       const libraryID = Number(library.libraryID);
       return {

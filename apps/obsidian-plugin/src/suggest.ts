@@ -22,8 +22,17 @@ import type { BridgeSuggestion } from "./bridge";
 import type UnizeroPlugin from "./main";
 
 const SUGGEST_LIMIT = 20;
+/**
+ * Quiet time before a query goes to Zotero. Its HTTP server is single-threaded,
+ * and every keystroke of `@acemoglu` would otherwise be a full-library search.
+ */
+const SUGGEST_DEBOUNCE_MS = 150;
 
 export class CitationSuggest extends EditorSuggest<BridgeSuggestion> {
+  /** Calls waiting for the current quiet period; all get the latest query's result. */
+  private waiting: ((suggestions: BridgeSuggestion[]) => void)[] = [];
+  private timer?: number;
+
   constructor(app: App, private readonly plugin: UnizeroPlugin) {
     super(app);
   }
@@ -44,9 +53,28 @@ export class CitationSuggest extends EditorSuggest<BridgeSuggestion> {
     };
   }
 
-  async getSuggestions(context: EditorSuggestContext): Promise<BridgeSuggestion[]> {
+  /**
+   * Debounced: a call superseded within the quiet period resolves with the newer
+   * query's results rather than sending its own request.
+   */
+  getSuggestions(context: EditorSuggestContext): Promise<BridgeSuggestion[]> {
+    return new Promise((resolve) => {
+      this.waiting.push(resolve);
+      window.clearTimeout(this.timer);
+      this.timer = window.setTimeout(() => {
+        const batch = this.waiting;
+        this.waiting = [];
+        this.timer = undefined;
+        void this.search(context.query).then((suggestions) => {
+          for (const done of batch) { done(suggestions); }
+        });
+      }, SUGGEST_DEBOUNCE_MS);
+    });
+  }
+
+  private async search(query: string): Promise<BridgeSuggestion[]> {
     try {
-      return await this.plugin.bridge.suggest(context.query, SUGGEST_LIMIT);
+      return await this.plugin.bridge.suggest(query, SUGGEST_LIMIT);
     } catch {
       // A closed popup is the right answer when Zotero is not running. The pill
       // for whatever the user types anyway will report the failure with room to

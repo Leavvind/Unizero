@@ -41,6 +41,25 @@ const TABS: { kind: DetailTabKind; label: string }[] = [
   { kind: "relation", label: "Relation" },
 ];
 
+/**
+ * A related paper's web page, or undefined.
+ *
+ * The URL comes from a provider record, not from this plugin, and Electron hands
+ * whatever `window.open` gets to the OS. Only http(s) may leave; anything else —
+ * `file:`, an app's custom scheme — falls back to the DOI page or no button.
+ */
+function sourceUrl(related: BridgeRelatedPaper): string | undefined {
+  if (related.url) {
+    try {
+      const url = new URL(related.url);
+      if (url.protocol === "https:" || url.protocol === "http:") { return url.href; }
+    } catch {
+      // Not a URL at all; try the DOI.
+    }
+  }
+  return related.doi ? `https://doi.org/${encodeURI(related.doi)}` : undefined;
+}
+
 export class UnizeroDetailView extends ItemView {
   private ref?: PaperRef;
   private kind: DetailTabKind = "vault";
@@ -462,12 +481,10 @@ export class UnizeroDetailView extends ItemView {
       actions.createSpan({ cls: "unizero-row__note", text: "not in library" });
     }
 
-    if (related.doi || related.url) {
+    const source = sourceUrl(related);
+    if (source) {
       const link = actions.createEl("button", { text: "Source" });
-      link.addEventListener("click", () => {
-        const url = related.url || `https://doi.org/${related.doi}`;
-        window.open(url, "_blank");
-      });
+      link.addEventListener("click", () => { window.open(source, "_blank"); });
     }
   }
 

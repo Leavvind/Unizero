@@ -65,20 +65,18 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     this.store = new PaperStore(this.bridge);
     this.vaultIndex = new VaultIndex(this.app);
 
-    if (this.app.workspace.layoutReady) {
+    // Obsidian fires `create` for every existing file while the vault loads, so
+    // that listener waits for layout-ready; `initialize` covers what came before.
+    this.app.workspace.onLayoutReady(() => {
       void this.vaultIndex.initialize();
-    } else {
-      this.app.workspace.onLayoutReady(() => {
-        void this.vaultIndex.initialize();
-      });
-    }
+      this.registerEvent(this.app.vault.on("create", (file) => {
+        if (file instanceof TFile && (file.extension === "md" || file.extension === "canvas")) {
+          void this.vaultIndex.indexFile(file);
+        }
+      }));
+    });
 
     this.registerEvent(this.app.vault.on("modify", (file) => {
-      if (file instanceof TFile && (file.extension === "md" || file.extension === "canvas")) {
-        void this.vaultIndex.indexFile(file);
-      }
-    }));
-    this.registerEvent(this.app.vault.on("create", (file) => {
       if (file instanceof TFile && (file.extension === "md" || file.extension === "canvas")) {
         void this.vaultIndex.indexFile(file);
       }

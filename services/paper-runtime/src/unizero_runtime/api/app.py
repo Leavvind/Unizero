@@ -55,6 +55,38 @@ def _error(status_code: int, code: str, message: str, details=None) -> JSONRespo
     )
 
 
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]", "::1"})
+
+
+def _hostname(value: str) -> str:
+    """Host header or Origin authority without its port."""
+    value = value.strip().lower()
+    if value.startswith("["):
+        return value[: value.find("]") + 1] if "]" in value else value
+    return value.rsplit(":", 1)[0] if value.count(":") == 1 else value
+
+
+def _refusal(request: Request) -> str | None:
+    """
+    Why a request must not reach the API, or None.
+
+    The service binds loopback, but a browser on the same machine can still reach
+    it. A body-less POST such as /shutdown needs no CORS preflight, so any web page
+    could send one; a DNS-rebinding page could read and write everything. The
+    add-on calls from Zotero's privileged context, which sends neither a cross-site
+    Sec-Fetch-Site nor a web Origin, and always addresses the loopback host.
+    """
+    if _hostname(request.headers.get("host", "")) not in LOOPBACK_HOSTS:
+        return "requests must address the loopback host"
+    if request.headers.get("sec-fetch-site", "").lower() in {"cross-site", "same-site"}:
+        return "cross-site browser requests are not accepted"
+    origin = request.headers.get("origin", "").strip().lower()
+    if origin.startswith(("http://", "https://")):
+        if _hostname(origin.split("://", 1)[1].split("/", 1)[0]) not in LOOPBACK_HOSTS:
+            return "cross-origin browser requests are not accepted"
+    return None
+
+
 def _job_status(job: Job, log_tail: int) -> dict:
     tail_size = max(0, min(log_tail, 200))
     return {
@@ -94,6 +126,13 @@ def create_app(
         version=SERVICE_VERSION,
         description="Versioned local transport for ZoMiner paper workflows.",
     )
+
+    @app.middleware("http")
+    async def refuse_browser_pages(request: Request, call_next):
+        reason = _refusal(request)
+        if reason:
+            return _error(403, "forbidden_origin", reason)
+        return await call_next(request)
 
     @app.exception_handler(ServiceError)
     async def service_error_handler(_request: Request, exc: ServiceError):

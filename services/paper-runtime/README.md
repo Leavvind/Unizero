@@ -4,7 +4,9 @@ The optional Python service for PDF extraction, Markdown transformation, artifac
 publishing, and annotation injection.
 
 It exposes `/api/v1` on localhost, does not access Zotero directly, and is not required
-for metadata or literature-relations features.
+for metadata or literature-relations features. Requests addressed to a non-loopback
+`Host`, or sent by a cross-site browser page (`Sec-Fetch-Site` or a web `Origin`), are
+refused with `403 forbidden_origin`, so a web page cannot stop or reconfigure it.
 
 The built-in conversion template extracts the PDF bibliography before Markdown cleanup
 and returns ordered structured records with raw citation text, source page, and any

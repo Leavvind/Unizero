@@ -24,7 +24,9 @@ ADDON_REQUIRED_CAPABILITIES = {"convert", "annotate", "jobs"}
 
 @pytest.fixture
 def client(isolated_home: Path) -> TestClient:
-    return TestClient(build_runtime(isolated_home).app)
+    # The service refuses any Host other than loopback; TestClient's default is
+    # "testserver".
+    return TestClient(build_runtime(isolated_home).app, base_url="http://127.0.0.1:23120")
 
 
 def test_health_satisfies_the_addon_handshake(client: TestClient) -> None:
@@ -144,3 +146,36 @@ def test_modules_endpoint_lists_registered_pipeline_steps(client: TestClient) ->
     # The built-in template is expressed in terms of these; drift breaks conversion.
     assert "transform.frontmatter" in ids
     assert "transform.references" in ids
+
+
+def test_a_rebound_host_is_refused(client: TestClient) -> None:
+    response = client.get(f"{PREFIX}/config", headers={"Host": "attacker.example:23120"})
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "forbidden_origin"
+
+
+def test_a_cross_site_page_cannot_post(client: TestClient) -> None:
+    by_fetch_site = client.post(
+        f"{PREFIX}/config",
+        json={"papers_dir": "x"},
+        headers={"Sec-Fetch-Site": "cross-site"},
+    )
+    by_origin = client.post(
+        f"{PREFIX}/config",
+        json={"papers_dir": "x"},
+        headers={"Origin": "https://attacker.example"},
+    )
+
+    assert by_fetch_site.status_code == 403
+    assert by_origin.status_code == 403
+    assert client.get(f"{PREFIX}/config").json()["config"]["papers_dir"] != "x"
+
+
+def test_loopback_origins_and_privileged_callers_are_accepted(client: TestClient) -> None:
+    assert client.get(f"{PREFIX}/health").status_code == 200
+    assert client.get(
+        f"{PREFIX}/health",
+        headers={"Origin": "http://localhost:23120", "Sec-Fetch-Site": "same-origin"},
+    ).status_code == 200
+    assert client.get(f"{PREFIX}/health", headers={"Host": "[::1]:23120"}).status_code == 200
