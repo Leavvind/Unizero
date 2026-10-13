@@ -65,13 +65,12 @@ def test_builtin_note_template_is_note_only(isolated_home: Path) -> None:
     assert template is not None
     enabled = {item.module for item in template.modules if item.enabled}
     assert "publish.zotero-note" in enabled
-    assert "publish.markdown-directory" not in enabled
-    # Frontmatter stays switched on: with no vault output it simply has no effect.
-    frontmatter = next(
-        item for item in template.modules if item.module == "transform.frontmatter"
-    )
-    assert frontmatter.enabled
-    assert MODULE_REGISTRY.inactive_reason(template, frontmatter)
+    # The list holds only what runs; the vault output and Frontmatter are added by
+    # the user when wanted.
+    modules = {item.module for item in template.modules}
+    assert "publish.markdown-directory" not in modules
+    assert "transform.frontmatter" not in modules
+    assert all(item.enabled for item in template.modules)
 
 
 def test_frontmatter_applies_once_the_vault_output_is_enabled() -> None:

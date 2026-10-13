@@ -275,20 +275,9 @@ var Panel = {
       card.className = "step" + (index === this.selectedStep ? " selected" : "")
         + (off || idle ? " off" : "");
       card.addEventListener("click", () => { this.selectedStep = index; this.renderSteps(); });
-      // Extract is the one module a template cannot run without; every other
-      // module, Publish outputs included, is simply switched on or off.
+      // A module is in the list or it is not; Extract is the one a template
+      // cannot run without.
       let required = definition.role === "extract";
-      let toggle = document.createElement("input");
-      toggle.type = "checkbox";
-      toggle.checked = !off;
-      toggle.disabled = required;
-      toggle.title = required ? "Required" : (off ? "Turn this module on" : "Turn this module off");
-      toggle.addEventListener("click", (event) => event.stopPropagation());
-      toggle.addEventListener("change", () => {
-        step.enabled = toggle.checked;
-        this.renderSteps();
-      });
-      card.appendChild(toggle);
       let label = document.createElement("div");
       label.innerHTML = "<div class='step-name'></div><div class='step-meta'><span class='role-badge'></span><span class='step-id'></span></div>";
       label.children[0].textContent = definition.name;
