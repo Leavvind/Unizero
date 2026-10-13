@@ -105,7 +105,7 @@ export async function convertItems(
       // error; repeating it as a notice would put the same failure on screen twice.
       if (final.status !== "done") { continue; }
 
-      await markConverted(target, final.result || {}, {
+      const warnings = await markConverted(target, final.result || {}, {
         mdSnapshot: getConversionPref("mdSnapshot"),
         markdownUrl: target.parent
           ? defaultMarkdownUrl(
@@ -114,6 +114,7 @@ export async function convertItems(
           )
           : "",
       });
+      for (const warning of warnings) { noteConversionFailure(warning, title); }
     } catch (error) {
       // Either the runtime never accepted the request — so there is no job row to
       // carry the reason — or the Zotero-side registration after it failed, which the

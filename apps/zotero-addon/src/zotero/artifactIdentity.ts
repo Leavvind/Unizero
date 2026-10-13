@@ -32,8 +32,13 @@
  * them there.
  */
 
-/** Generated artifacts use one owned kind per user-visible output. */
-export type ArtifactKind = "markdown" | "markdown-copy" | "tables" | "references";
+/**
+ * Generated artifacts use one owned kind per user-visible output. `raw-note` is a
+ * child note rather than an attachment, and carries the ownership tag only: its
+ * body is the user's working copy, so there is no record to keep in it.
+ */
+export type ArtifactKind =
+  | "markdown" | "markdown-copy" | "tables" | "references" | "raw-note";
 
 const TAG_PREFIX = "unizero:";
 
@@ -164,4 +169,30 @@ export async function adoptArtifact(
 ): Promise<void> {
   ztoolkit.log(`adopting legacy artifact ${attachment.key} as ${kind}`);
   await markArtifact(attachment, kind, source);
+}
+
+/**
+ * Child notes of a parent that carry the ownership tag for a kind.
+ *
+ * Notes have no source record, so one paper has one owned note per kind; a note
+ * the user wrote themselves never carries the tag and is never matched.
+ */
+export function findOwnedNotes(
+  parent: Zotero.Item,
+  kind: ArtifactKind,
+): Zotero.Item[] {
+  const wanted = kindTag(kind);
+  const found: Zotero.Item[] = [];
+  for (const id of parent.getNotes()) {
+    const note = Zotero.Items.get(id);
+    if (note && note.getTags().some((tag) => tag.tag === wanted)) {
+      found.push(note);
+    }
+  }
+  return found;
+}
+
+/** Tag a note we created, using the same automatic tag type as attachments. */
+export function tagOwnedNote(note: Zotero.Item, kind: ArtifactKind): void {
+  note.addTag(kindTag(kind), AUTOMATIC_TAG);
 }

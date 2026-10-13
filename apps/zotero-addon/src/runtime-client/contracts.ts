@@ -156,8 +156,13 @@ export interface ExtractedReference {
 }
 
 export interface JobResult {
-  md_path?: string;
+  /** Absent when the template has no Markdown-directory Publish module. */
+  md_path?: string | null;
   tables_html_path?: string;
+  /** Raw Markdown for the Zotero note, written by a `publish.zotero-note` module. */
+  note_md_path?: string;
+  /** What to do when the paper already has a Raw note: `skip` or `replace`. */
+  note_existing?: string;
   references?: ExtractedReference[];
   references_count?: number;
   [key: string]: unknown;

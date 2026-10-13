@@ -578,14 +578,18 @@ class ConvertOptions:
 
 @dataclass
 class ConvertResult:
-    md_path: Path
-    images_dir: Optional[Path]
+    """Published artifacts; each Publish module contributes its own."""
+
+    md_path: Optional[Path] = None
+    images_dir: Optional[Path] = None
     pages_found: int = 0
     pages_injected: int = 0
     warnings: list[str] = field(default_factory=list)
     workflow: dict = field(default_factory=dict)
     tables_html_path: Optional[Path] = None
     references: Optional[list[dict[str, Any]]] = None
+    note_md_path: Optional[Path] = None
+    note_existing: str = "skip"
 
 
 def _mineru_cmd(src: Path, out_dir: Path, opts: ConvertOptions) -> list[str]:
@@ -637,6 +641,8 @@ class ConversionContext:
     final_md: Optional[Path] = None
     final_images: Optional[Path] = None
     tables_html: Optional[Path] = None
+    note_md: Optional[Path] = None
+    note_existing: str = "skip"
     pages_found: int = 0
     pages_injected: int = 0
 
@@ -1035,6 +1041,25 @@ def _stage_publish(ctx: ConversionContext, settings: dict[str, Any]) -> None:
     ctx.log(f"[vault] wrote {ctx.final_md}")
 
 
+def _stage_publish_note(ctx: ConversionContext, settings: dict[str, Any]) -> None:
+    """Hand the body to the add-on, which turns it into a Zotero note.
+
+    The runtime never touches Zotero, so this stage only leaves the Markdown where
+    the add-on can read it. The file goes to the persistent store rather than the
+    work directory, which is removed when the job ends. No frontmatter: a note's
+    identity is the Zotero item it hangs under, not a YAML header.
+    """
+    out_md = _require_output(ctx)
+    if ctx.store_dir is None:
+        raise RuntimeError("the Zotero note output needs a runtime store directory")
+    body = ctx.body or out_md.read_text(encoding="utf-8")
+    ctx.store_dir.mkdir(parents=True, exist_ok=True)
+    ctx.note_md = ctx.store_dir / f"{ctx.artifact_key}.note.md"
+    ctx.note_md.write_text(body, encoding="utf-8")
+    ctx.note_existing = str(settings.get("existing_note") or "skip")
+    ctx.log(f"[note] wrote {ctx.note_md}")
+
+
 def _object_schema(properties: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "object",
@@ -1224,7 +1249,7 @@ MODULE_REGISTRY.register(WorkflowModule(
         "Save the Markdown and its referenced images to a destination "
         "directory. Absolute paths, paths relative to the default output base "
         "directory, and obsidian://<vault>/<subdirectory> are all supported. "
-        "Publish is a required template module."
+        "A template needs at least one Publish module."
     ),
     defaults={
         "destination": "20_Papers", "filename": "{{ title }}.md",
@@ -1257,6 +1282,30 @@ MODULE_REGISTRY.register(WorkflowModule(
             "type": "string", "title": "When the file already exists",
             "enum": ["overwrite", "skip", "rename"],
             "enumNames": ["Overwrite", "Skip", "Rename automatically"],
+        },
+    }),
+))
+MODULE_REGISTRY.register(WorkflowModule(
+    id="publish.zotero-note",
+    name="Publish · Zotero note (Better Notes)",
+    role="publish",
+    handler=_stage_publish_note,
+    description=(
+        "Create the paper's Raw Markdown as a Zotero note under the item, "
+        "rendered by Better Notes. The note carries no frontmatter and is the "
+        "copy you read and edit; the Markdown file itself is not kept. Needs the "
+        "Better Notes plugin in Zotero."
+    ),
+    defaults={"existing_note": "skip"},
+    settings_schema=_object_schema({
+        "existing_note": {
+            "type": "string", "title": "When the paper already has a Raw note",
+            "enum": ["skip", "replace"],
+            "enumNames": ["Keep it (never overwrite my edits)", "Replace it"],
+            "description": (
+                "The note is meant to be edited, so Replace discards every "
+                "change made to it since the last conversion."
+            ),
         },
     }),
 ))
@@ -1299,12 +1348,14 @@ def convert_pdf(
         store_dir=store_dir,
     )
     report = WorkflowRunner(template, MODULE_REGISTRY).run(context, log)
-    if context.final_md is None:
+    if context.final_md is None and context.note_md is None:
         raise RuntimeError(f"template '{template.id}' produced no Markdown artifact")
     return ConvertResult(
         md_path=context.final_md,
         images_dir=context.final_images,
         tables_html_path=context.tables_html,
+        note_md_path=context.note_md,
+        note_existing=context.note_existing,
         pages_found=context.pages_found,
         pages_injected=context.pages_injected,
         warnings=context.warnings,

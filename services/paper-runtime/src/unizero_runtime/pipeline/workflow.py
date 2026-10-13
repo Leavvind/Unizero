@@ -224,8 +224,8 @@ class ModuleRegistry(Generic[ContextT]):
 
         if roles.count("extract") != 1:
             errors.append("template must enable exactly one Extract module")
-        if roles.count("publish") != 1:
-            errors.append("template must enable exactly one Publish module")
+        if roles.count("publish") < 1:
+            errors.append("template must enable at least one Publish module")
         if "extract" in roles and "publish" in roles:
             extract_index = roles.index("extract")
             publish_index = roles.index("publish")
@@ -235,8 +235,8 @@ class ModuleRegistry(Generic[ContextT]):
                 errors.append("Prepare modules must run before Extract")
             if any(role == "process" for role in roles[:extract_index]):
                 errors.append("Process modules must run after Extract")
-            if publish_index != len(roles) - 1:
-                errors.append("Publish must be the final enabled module")
+            if any(role != "publish" for role in roles[publish_index:]):
+                errors.append("Publish modules must be the final enabled modules")
         if errors:
             raise ValueError("; ".join(errors))
 

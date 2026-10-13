@@ -1,0 +1,68 @@
+schema_version: 1
+id: paper-to-better-notes
+name: Generate Raw note (Better Notes)
+version: 1
+description: Convert a Zotero PDF with MinerU and keep the result as an editable Zotero note. The Obsidian vault output is off; enable it, with Frontmatter, to publish there as well.
+modules:
+  - id: extract
+    module: extract.mineru
+    enabled: true
+    settings:
+      execution: local
+      backend: basic
+      ocr_mode: auto
+      language: auto
+      enable_formula: true
+      enable_table: true
+      chunking:
+        enabled: true
+        threshold_pages: 200
+        chunk_size: 50
+
+  - id: page-links
+    module: transform.zotero-page-links
+    enabled: true
+    settings: {}
+
+  - id: references
+    module: transform.references
+    enabled: true
+    settings:
+      warn_if_empty: true
+
+  - id: markdown-cleanup
+    module: transform.markdown-cleanup
+    enabled: true
+    settings:
+      images_mode: none
+      table_mode: none
+      strip_repeated_lines: false
+      strip_references: true
+      table_vlm: false
+
+  - id: tables-export
+    module: export.zotero-tables
+    enabled: true
+    settings:
+      include_figures: false
+
+  - id: frontmatter
+    module: transform.frontmatter
+    enabled: false
+    settings: {}
+
+  - id: publish-vault
+    module: publish.markdown-directory
+    enabled: false
+    settings:
+      destination: 20_Papers
+      filename: "{{ title }}.md"
+      attachments_directory: attachments
+      copy_referenced_only: true
+      existing_file: overwrite
+
+  - id: publish-note
+    module: publish.zotero-note
+    enabled: true
+    settings:
+      existing_note: skip

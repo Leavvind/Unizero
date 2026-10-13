@@ -35,6 +35,25 @@ jumps, free-text `@` completion, library/paper panes, DataTransfer drag of
 - Richer literature exploration in the note surface (discovery, ranking, multi-hop
   jumps) — product headroom; each slice needs a clear scope.
 
+## Raw note (Better Notes)
+
+The template `paper-to-better-notes` can publish a paper's Raw Markdown as an editable
+Zotero child note (`publish.zotero-note`, rendered by Better Notes) instead of, or as
+well as, a vault file. The note carries no frontmatter. Open work:
+
+- Manual verification in Zotero with Better Notes: the note appears under the paper,
+  page links and formulas render, an existing note is kept on re-conversion, and
+  `Replace` regenerates it.
+- **Migration.** Move the vault `Papers` Markdown (it holds the user's edits) into Raw
+  notes, then delete the `ZoMiner MD` and `ZoMiner MD Copy` attachments; keep
+  `ZoMiner Tables`. Back up the vault folder first.
+- **Long books.** A Chinese note synced at 800 KB and failed at 860 KB; the add-on only
+  warns past 600 KB. Splitting a book across chapter notes under an index note is not
+  implemented.
+- **Obsidian plugin.** Open Raw still resolves a vault file; it should open the Zotero
+  note instead once vault output is retired. Annotation injection also targets the vault
+  Markdown and has no note equivalent yet.
+
 ## Verification
 
 Neither type checking nor Vitest exercises Zotero or Obsidian hosts. Manual checks:

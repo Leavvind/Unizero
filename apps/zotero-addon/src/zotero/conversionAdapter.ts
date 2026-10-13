@@ -25,6 +25,9 @@ import {
 import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
 import { libraryScope } from "./libraryScope";
 import { ensureMarkdownLink } from "./markdownLinkRegistry";
+import {
+  NOTE_SOFT_LIMIT_BYTES, publishRawNote, type RawNoteExisting,
+} from "./rawNoteAdapter";
 
 const GENERATED_TAG = "MD/generated";
 const MD_ATTACHMENT_TITLE = "ZoMiner MD";
@@ -357,18 +360,59 @@ async function attachReferences(
 }
 
 /**
+ * Turn the runtime's Raw Markdown into the paper's note, then drop the hand-off file.
+ *
+ * Unlike the attachments, a failure here is not swallowed: the note is the only copy
+ * of the converted text when the template has no vault output, so the user has to
+ * hear about it. The hand-off file is kept in that case, so nothing is lost.
+ * Returns what the user should be told even though the note was created.
+ */
+async function attachRawNote(
+  parent: Zotero.Item,
+  path: string,
+  existing: RawNoteExisting,
+): Promise<string[]> {
+  const markdown = await IOUtils.readUTF8(path) as string;
+  const result = await publishRawNote(parent, markdown, existing);
+  try {
+    await IOUtils.remove(path, { ignoreAbsent: true });
+  } catch (error) {
+    ztoolkit.log(`raw note hand-off cleanup failed: ${error}`);
+  }
+  ztoolkit.log(`raw note ${result.outcome} (${result.bytes} bytes)`);
+
+  const warnings: string[] = [];
+  if (result.outcome === "kept") {
+    warnings.push(
+      "This paper already has a Raw note, so it was kept as it is. Set the " +
+      "template's note output to Replace to regenerate it.",
+    );
+  }
+  if (result.oversize) {
+    warnings.push(
+      `The Raw note is ${Math.round(result.bytes / 1024)} KB, past the ` +
+      `${NOTE_SOFT_LIMIT_BYTES / 1024} KB where Zotero may stop syncing a note. ` +
+      "Check that it syncs to your other devices.",
+    );
+  }
+  return warnings;
+}
+
+/**
  * Register the artifacts once a conversion finishes.
  *
- * Each kind gets its own try/catch: a failed table export must not stop
- * already-converted Markdown from being attached.
+ * Each attachment kind gets its own try/catch: a failed table export must not stop
+ * already-converted Markdown from being attached. The Raw note goes last and is
+ * allowed to throw. Returns warnings to show the user for a conversion that did
+ * succeed.
  */
 export async function markConverted(
   target: ConversionTarget,
   result: JobResult | undefined,
   options: { mdSnapshot: boolean; markdownUrl: string },
-): Promise<void> {
+): Promise<string[]> {
   const parent = target.parent;
-  if (!parent) { return; }
+  if (!parent) { return []; }
 
   // Must be read before addTag: asking after tagging always answers true, which
   // destroys the evidence. When adopting a legacy artifact it is the only proof
@@ -430,4 +474,15 @@ export async function markConverted(
       ztoolkit.log(`references attach failed: ${error}`);
     }
   }
+
+  if (!outcome.note_md_path) { return []; }
+  // One Raw note per paper: a supplement would have to share or replace it.
+  if (target.isSupplement) {
+    return ["Supplementary files do not get a Raw note."];
+  }
+  return attachRawNote(
+    parent,
+    outcome.note_md_path,
+    outcome.note_existing === "replace" ? "replace" : "skip",
+  );
 }

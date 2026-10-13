@@ -11,6 +11,12 @@ and returns ordered structured records with raw citation text, source page, and 
 DOI/arXiv identifier printed in the paper. It does not query scholarly providers or
 guess bibliographic metadata.
 
+A template ends with one or more Publish modules. `publish.markdown-directory` writes the
+Markdown (with frontmatter) to a directory or Obsidian vault; `publish.zotero-note` leaves
+the body, without frontmatter, in the runtime store for the add-on to turn into a Zotero
+note. The runtime never creates the note itself, and the hand-off path and replace policy
+come back in the job result as `note_md_path` and `note_existing`.
+
 ## Install
 
 Python 3.12 is required.

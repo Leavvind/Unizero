@@ -274,7 +274,7 @@ class ZoMinerApplication:
         for warning in result.warnings:
             job.append(f"[warn] {warning}")
         job.result = {
-            "md_path": str(result.md_path),
+            "md_path": str(result.md_path) if result.md_path else None,
             "images_dir": str(result.images_dir) if result.images_dir else None,
             "tables_html_path": (
                 str(result.tables_html_path) if result.tables_html_path else None
@@ -286,6 +286,9 @@ class ZoMinerApplication:
             "template": result.workflow,
             "workflow": result.workflow,
         }
+        if result.note_md_path is not None:
+            job.result["note_md_path"] = str(result.note_md_path)
+            job.result["note_existing"] = result.note_existing
         if result.references is not None:
             job.result["references"] = result.references
             job.result["references_count"] = len(result.references)
