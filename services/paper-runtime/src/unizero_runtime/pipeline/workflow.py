@@ -23,6 +23,11 @@ class WorkflowModule(Generic[ContextT]):
     description: str = ""
     settings_schema: dict[str, Any] = field(default_factory=dict)
     defaults: dict[str, Any] = field(default_factory=dict)
+    #: Module ids this one serves. When none of them is enabled in the same
+    #: template the module has nothing to feed, so the runner skips it instead of
+    #: making the user switch it off by hand (Frontmatter only matters to the
+    #: Markdown-directory output).
+    requires_any: tuple[str, ...] = ()
 
     def describe(self) -> dict[str, Any]:
         return {
@@ -32,6 +37,7 @@ class WorkflowModule(Generic[ContextT]):
             "description": self.description,
             "settings_schema": copy.deepcopy(self.settings_schema),
             "defaults": copy.deepcopy(self.defaults),
+            "requires_any": list(self.requires_any),
         }
 
 
@@ -146,6 +152,24 @@ class ModuleRegistry(Generic[ContextT]):
         if module is None:
             raise ValueError(f"unknown module '{item.module}'")
         return _merge(module.defaults, item.settings)
+
+    def inactive_reason(
+        self,
+        template: WorkflowTemplate,
+        item: TemplateModule,
+    ) -> str:
+        """Why an enabled module is skipped, or "" when it runs."""
+        definition = self.get(item.module)
+        if definition is None or not definition.requires_any:
+            return ""
+        enabled = {other.module for other in template.modules if other.enabled}
+        if enabled & set(definition.requires_any):
+            return ""
+        names = [
+            self.get(module_id).name if self.get(module_id) else module_id
+            for module_id in definition.requires_any
+        ]
+        return "needs " + " or ".join(names) + " to be enabled"
 
     @staticmethod
     def _validate_settings(
@@ -278,6 +302,11 @@ class WorkflowRunner(Generic[ContextT]):
             module = self.registry.get(item.module)
             if module is None:  # validated above; keeps type checkers honest.
                 raise RuntimeError(f"unknown module '{item.module}'")
+            reason = self.registry.inactive_reason(self.template, item)
+            if reason:
+                report.stages.append(StageReport(item.id, item.module, "skipped", 0))
+                log(f"[module:{item.id}] skipped: {reason}")
+                continue
             settings = self.registry.settings_for(item)
             started = time.perf_counter()
             log(f"[module:{item.id}] {item.module} started")

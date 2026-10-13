@@ -17,6 +17,12 @@ the body, without frontmatter, in the runtime store for the add-on to turn into 
 note. The runtime never creates the note itself, and the hand-off path and replace policy
 come back in the job result as `note_md_path` and `note_existing`.
 
+A module can declare `requires_any`, the modules it serves. When none of them is enabled
+the runner skips it with a log line instead of asking the user to switch it off:
+`transform.frontmatter` serves `publish.markdown-directory`, so a note-only template can
+keep Frontmatter enabled and it simply does nothing. The same field is returned by
+`GET /api/v1/modules` for the panel.
+
 ## Install
 
 Python 3.12 is required.

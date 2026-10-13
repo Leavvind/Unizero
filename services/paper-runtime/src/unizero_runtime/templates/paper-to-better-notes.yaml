@@ -2,7 +2,7 @@ schema_version: 1
 id: paper-to-better-notes
 name: Generate Raw note (Better Notes)
 version: 1
-description: Convert a Zotero PDF with MinerU and keep the result as an editable Zotero note. The Obsidian vault output is off; enable it, with Frontmatter, to publish there as well.
+description: Convert a Zotero PDF with MinerU and keep the result as an editable Zotero note. The Obsidian vault output is off; switch on "Publish · Markdown directory" to publish there as well (Frontmatter then applies to it automatically).
 modules:
   - id: extract
     module: extract.mineru
@@ -48,8 +48,27 @@ modules:
 
   - id: frontmatter
     module: transform.frontmatter
-    enabled: false
-    settings: {}
+    enabled: true
+    settings:
+      properties:
+        - {key: title, value: "{{ title }}", type: text}
+        - {key: aliases, value: "{{ citekey }}", type: list}
+        - {key: authors, value: "{{ authors }}", type: list}
+        - {key: year, value: "{{ year }}", type: number}
+        - {key: citekey, value: "{{ citekey }}", type: text}
+        - {key: uid, value: "{{ uid }}", type: text}
+        - {key: doi, value: "{{ doi }}", type: text}
+        - {key: publication, value: "{{ publication }}", type: text}
+        - {key: unizero-item, value: "{{ unizero_item }}", type: text}
+        - {key: zotero, value: "{{ zotero_select }}", type: text}
+        - {key: unizero-attachment, value: "{{ unizero_attachment }}", type: text}
+        - {key: pdf, value: "{{ zotero_pdf }}", type: text}
+        - {key: pdf-path, value: "{{ pdf_path }}", type: text}
+        - {key: semantic-scholar, value: "{{ semantic_scholar }}", type: text}
+        - {key: citations, value: "{{ citations }}", type: number}
+        - {key: tags, value: [paper], type: list}
+        - {key: created, value: "{{ today }}", type: date}
+        - {key: converter, value: "{{ converter }}", type: text}
 
   - id: publish-vault
     module: publish.markdown-directory

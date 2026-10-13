@@ -66,7 +66,71 @@ def test_builtin_note_template_is_note_only(isolated_home: Path) -> None:
     enabled = {item.module for item in template.modules if item.enabled}
     assert "publish.zotero-note" in enabled
     assert "publish.markdown-directory" not in enabled
-    assert "transform.frontmatter" not in enabled
+    # Frontmatter stays switched on: with no vault output it simply has no effect.
+    frontmatter = next(
+        item for item in template.modules if item.module == "transform.frontmatter"
+    )
+    assert frontmatter.enabled
+    assert MODULE_REGISTRY.inactive_reason(template, frontmatter)
+
+
+def test_frontmatter_applies_once_the_vault_output_is_enabled() -> None:
+    frontmatter = ("transform.frontmatter", "process", True)
+    without_vault = _template(EXTRACT, frontmatter, NOTE)
+    with_vault = _template(EXTRACT, frontmatter, NOTE, VAULT)
+    disabled_vault = _template(
+        EXTRACT, frontmatter, NOTE, ("publish.markdown-directory", "publish", False),
+    )
+
+    assert "Markdown directory" in MODULE_REGISTRY.inactive_reason(
+        without_vault, without_vault.modules[1],
+    )
+    assert MODULE_REGISTRY.inactive_reason(with_vault, with_vault.modules[1]) == ""
+    assert MODULE_REGISTRY.inactive_reason(
+        disabled_vault, disabled_vault.modules[1],
+    )
+
+
+def test_the_runner_skips_a_module_whose_output_is_off() -> None:
+    from unizero_runtime.pipeline.workflow import (
+        ModuleRegistry,
+        WorkflowModule,
+        WorkflowRunner,
+    )
+
+    ran: list[str] = []
+    registry: ModuleRegistry = ModuleRegistry()
+    for module_id, role, requires in (
+        ("a.extract", "extract", ()),
+        ("a.feeder", "process", ("a.vault",)),
+        ("a.vault", "publish", ()),
+        ("a.note", "publish", ()),
+    ):
+        registry.register(WorkflowModule(
+            id=module_id,
+            name=module_id,
+            role=role,
+            handler=lambda _ctx, _settings, name=module_id: ran.append(name),
+            requires_any=requires,
+        ))
+
+    def run(vault_enabled: bool) -> list[str]:
+        ran.clear()
+        template = WorkflowTemplate.from_dict({
+            "id": "t",
+            "name": "t",
+            "modules": [
+                {"id": "x", "module": "a.extract"},
+                {"id": "f", "module": "a.feeder"},
+                {"id": "v", "module": "a.vault", "enabled": vault_enabled},
+                {"id": "n", "module": "a.note"},
+            ],
+        })
+        WorkflowRunner(template, registry).run(object(), lambda _line: None)
+        return list(ran)
+
+    assert run(True) == ["a.extract", "a.feeder", "a.vault", "a.note"]
+    assert run(False) == ["a.extract", "a.note"]
 
 
 def test_a_template_may_publish_to_the_vault_and_a_note() -> None:

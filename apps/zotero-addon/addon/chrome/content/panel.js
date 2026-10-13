@@ -269,17 +269,32 @@ var Panel = {
     if (!this.current) return;
     this.current.modules.forEach((step, index) => {
       let definition = this.moduleDefinition(step) || { name: step.module, role: "?" };
+      let off = step.enabled === false;
+      let idle = off ? "" : this.inactiveReason(step);
       let card = document.createElement("div");
-      card.className = "step" + (index === this.selectedStep ? " selected" : "");
+      card.className = "step" + (index === this.selectedStep ? " selected" : "")
+        + (off || idle ? " off" : "");
       card.addEventListener("click", () => { this.selectedStep = index; this.renderSteps(); });
-      let required = definition.role === "extract" || definition.role === "publish";
+      // Extract is the one module a template cannot run without; every other
+      // module, Publish outputs included, is simply switched on or off.
+      let required = definition.role === "extract";
+      let toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.checked = !off;
+      toggle.disabled = required;
+      toggle.title = required ? "Required" : (off ? "Turn this module on" : "Turn this module off");
+      toggle.addEventListener("click", (event) => event.stopPropagation());
+      toggle.addEventListener("change", () => {
+        step.enabled = toggle.checked;
+        this.renderSteps();
+      });
+      card.appendChild(toggle);
       let label = document.createElement("div");
       label.innerHTML = "<div class='step-name'></div><div class='step-meta'><span class='role-badge'></span><span class='step-id'></span></div>";
-      label.children[0].textContent = definition.name
-        + (step.enabled === false ? " (disabled, see YAML)" : "");
-      let roleLabels = { prepare: "Prepare", extract: "Extract", process: "Process", publish: "Publish" };
+      label.children[0].textContent = definition.name;
+      let roleLabels = { prepare: "Prepare", extract: "Extract", process: "Process", publish: "Output" };
       label.children[1].children[0].textContent = roleLabels[definition.role] || definition.role;
-      label.children[1].children[1].textContent = step.id;
+      label.children[1].children[1].textContent = idle ? "Not used: " + idle : (off ? "Off" : step.id);
       label.title = step.module;
       card.appendChild(label);
       let buttons = document.createElement("div");
@@ -294,6 +309,23 @@ var Panel = {
     });
     this.renderModuleAddOptions();
     this.renderSettings();
+  },
+
+  // Mirrors ModuleRegistry.inactive_reason in the runtime: a module that only
+  // serves other modules (Frontmatter serves the Markdown directory output) has
+  // nothing to do while none of them is on.
+  inactiveReason(step) {
+    let definition = this.moduleDefinition(step);
+    let needs = definition && definition.requires_any;
+    if (!needs || !needs.length || !this.current) return "";
+    let served = this.current.modules.some(
+      (item) => item.enabled !== false && needs.includes(item.module),
+    );
+    if (served) return "";
+    return "needs " + needs.map((id) => {
+      let other = this.moduleDefs[id];
+      return other ? other.name : id;
+    }).join(" or ") + " on";
   },
 
   smallButton(text, callback, className) {
@@ -329,8 +361,7 @@ var Panel = {
       this.current ? this.current.modules.map((item) => item.module) : [],
     );
     let available = Object.values(this.moduleDefs).filter(
-      (definition) => definition.role !== "extract" && definition.role !== "publish"
-        && !used.has(definition.id),
+      (definition) => definition.role !== "extract" && !used.has(definition.id),
     );
     if (!available.length) {
       let hint = document.createElement("div");
@@ -368,9 +399,13 @@ var Panel = {
       let itemDefinition = this.moduleDefinition(existing);
       return itemDefinition && itemDefinition.role === "extract";
     });
+    // Outputs run last, so a new one goes to the end; everything else goes in
+    // front of the first output.
     let index = definition.role === "prepare"
       ? (extractIndex < 0 ? 0 : extractIndex)
-      : (publishIndex < 0 ? this.current.modules.length : publishIndex);
+      : definition.role === "publish"
+        ? this.current.modules.length
+        : (publishIndex < 0 ? this.current.modules.length : publishIndex);
     this.current.modules.splice(index, 0, item);
     this.selectedStep = index;
     this.renderSteps();

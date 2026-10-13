@@ -1204,11 +1204,13 @@ MODULE_REGISTRY.register(WorkflowModule(
     handler=_stage_frontmatter,
     description=(
         "Map metadata onto the Obsidian properties written at the top of the "
-        "Markdown. Disable this module and the document is published with no "
-        "frontmatter at all — note that Publish then loses the "
-        "unizero-attachment marker it uses to avoid overwriting a document "
+        "Markdown directory output. It only applies when that output is "
+        "enabled; the Zotero note never carries frontmatter. Turn this module "
+        "off and the vault file has no frontmatter at all — Publish then loses "
+        "the unizero-attachment marker it uses to avoid overwriting a document "
         "owned by a different Zotero attachment."
     ),
+    requires_any=("publish.markdown-directory",),
     defaults={"properties": copy.deepcopy(DEFAULT_FRONTMATTER_PROPERTIES)},
     settings_schema=_object_schema({
         "properties": {
