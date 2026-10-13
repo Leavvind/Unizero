@@ -33,7 +33,7 @@ export interface BridgePaperLinks {
   hasMarkdownAttachment: boolean;
   /** Selects the paper's Raw note in Zotero; absent when it has none. */
   rawNote?: string;
-  /** Opens the Raw note in Better Notes' editor; absent without Better Notes. */
+  /** Opens the Raw note in Better Notes' editor; absent while Better Notes is not running. */
   rawNoteOpen?: string;
 }
 

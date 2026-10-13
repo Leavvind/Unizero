@@ -50,10 +50,10 @@ well as, a vault file. The note carries no frontmatter. Open work:
 - **Long books.** A Chinese note synced at 800 KB and failed at 860 KB; the add-on only
   warns past 600 KB. Splitting a book across chapter notes under an index note is not
   implemented.
-- **Obsidian plugin.** Open Raw and `.md` citations open the Raw note in Better Notes
-  (`links.rawNoteOpen`), falling back to selecting it in Zotero
-  (bridge `links.rawNote`, `hasRawNote` on library rows); vault Raw lookup and its
-  settings are gone. Open: manual check in a vault against Zotero.
+- **Obsidian plugin.** Open Raw and `.md` citations select the Raw note in Zotero
+  (bridge `links.rawNote`, `hasRawNote` on library rows) and then open it in Better
+  Notes (`links.rawNoteOpen`, present only while Better Notes is running); vault Raw
+  lookup and its settings are gone. Open: manual check in a vault against Zotero.
 - **Annotation injection** (add-on) still targets the vault Markdown and has no note
   equivalent yet.
 

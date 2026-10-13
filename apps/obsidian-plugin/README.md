@@ -29,8 +29,9 @@ server must be enabled (`extensions.zotero.httpServer.enabled`).
 
 Right-click a citation for Raw, Canvas, PDF, or conversion. Raw is the converted
 paper kept as an editable Zotero child note (tagged `unizero:raw-note`, rendered by
-Better Notes); the plugin opens it in Better Notes (or selects it in Zotero) and offers conversion only when the
-paper has none. Conversion progress appears in Zotero's UniZero panel.
+Better Notes); the plugin selects it in Zotero, opens it in Better Notes when that is
+running, and offers conversion only when the paper has none. Conversion progress
+appears in Zotero's UniZero panel.
 
 ## Canvas
 

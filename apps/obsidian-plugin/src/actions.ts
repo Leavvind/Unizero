@@ -246,13 +246,18 @@ function paperLabel(
 }
 
 /**
- * Open the paper's Raw note in Zotero: in Better Notes' editor when the add-on
- * reports a Better Notes link, otherwise by selecting the note.
+ * Open the paper's Raw note in Zotero: select it, then open it in Better Notes'
+ * editor when the add-on reports a Better Notes link.
+ *
+ * Selecting comes first because a `zotero://note` link that nothing handles
+ * fails silently — the OS still hands it to Zotero, so there is no error to fall
+ * back on. That happens when the paper was cached while Better Notes was running
+ * and it has since been disabled. The selection keeps the user on the note.
  */
 export async function openRaw(paper: BridgePaper): Promise<void> {
-  const url = paper.links.rawNoteOpen || paper.links.rawNote;
-  if (url) {
-    await openExternal(url);
+  if (paper.links.rawNote) {
+    await openExternal(paper.links.rawNote);
+    if (paper.links.rawNoteOpen) { await openExternal(paper.links.rawNoteOpen); }
     return;
   }
   new Notice(

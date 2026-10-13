@@ -5,6 +5,7 @@ import {
   betterNotesNoteLink,
   noteBytes,
   publishRawNote,
+  rawNoteLinks,
   wrapNoteHtml,
 } from "../src/zotero/rawNoteAdapter";
 
@@ -133,19 +134,49 @@ describe("Better Notes note link", () => {
     9: { libraryType: "feed" },
   };
   const note = (libraryID: number): any => ({ libraryID, key: "IQQ6S4FN" });
+  let originalLibraries: unknown;
 
   beforeEach(() => {
-    (globalThis as any).Zotero.Libraries = { get: (id: number) => libraries[id] };
+    originalLibraries = (globalThis as any).Zotero.Libraries;
+    (globalThis as any).Zotero.Libraries = {
+      ...(originalLibraries as object),
+      get: (id: number) => libraries[id],
+    };
+  });
+
+  afterEach(() => {
+    (globalThis as any).Zotero.Libraries = originalLibraries;
   });
 
   it("is absent without Better Notes", () => {
     expect(betterNotesNoteLink(note(1))).toBeUndefined();
   });
 
-  it("uses u for the user library and the libraryID for a group", () => {
+  it("is absent when only Better Notes' global is left behind", () => {
     (globalThis as any).Zotero.BetterNotes = {};
+    expect(betterNotesNoteLink(note(1))).toBeUndefined();
+  });
+
+  it("uses u for the user library and the libraryID for a group", () => {
+    (globalThis as any).Zotero.BetterNotes = { api: {} };
     expect(betterNotesNoteLink(note(1))).toBe("zotero://note/u/IQQ6S4FN/");
     expect(betterNotesNoteLink(note(5))).toBe("zotero://note/5/IQQ6S4FN/");
     expect(betterNotesNoteLink(note(9))).toBeUndefined();
+  });
+
+  it("gives the bridge both links for a note, and neither without one", () => {
+    (globalThis as any).Zotero.BetterNotes = { api: {} };
+    expect(rawNoteLinks(note(5), "groups/77")).toEqual({
+      rawNote: "zotero://select/groups/77/items/IQQ6S4FN",
+      rawNoteOpen: "zotero://note/5/IQQ6S4FN/",
+    });
+    expect(rawNoteLinks(undefined, "library")).toEqual({});
+  });
+
+  it("keeps the select link when Better Notes is not running", () => {
+    expect(rawNoteLinks(note(1), "library")).toEqual({
+      rawNote: "zotero://select/library/items/IQQ6S4FN",
+      rawNoteOpen: undefined,
+    });
   });
 });
