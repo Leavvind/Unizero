@@ -12,7 +12,7 @@ import type {
   LiteratureCollectionScope,
 } from "../modules/literatureRelations";
 import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
-import { findOwnedNotes } from "./artifactIdentity";
+import { rawNotes } from "./rawNoteAdapter";
 
 const MARKDOWN_TAGS = new Set(["unizero:markdown", "unizero:markdown-copy"]);
 
@@ -140,9 +140,12 @@ export function hasMarkdownAttachment(item: Zotero.Item): boolean {
   return Boolean(markdownAttachment(item));
 }
 
-/** The paper's Raw note (the owned `raw-note` child), when conversion created one. */
+/**
+ * The paper's Raw note (the owned `raw-note` child), when conversion created one;
+ * the first part when a long document was split.
+ */
 export function rawNote(item: Zotero.Item): Zotero.Item | undefined {
-  return findOwnedNotes(item, "raw-note")[0];
+  return rawNotes(item)[0];
 }
 
 export function pdfAttachment(item: Zotero.Item): Zotero.Item | undefined {

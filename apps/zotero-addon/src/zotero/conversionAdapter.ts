@@ -26,7 +26,7 @@ import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
 import { libraryScope } from "./libraryScope";
 import { ensureMarkdownLink } from "./markdownLinkRegistry";
 import {
-  NOTE_SOFT_LIMIT_BYTES, publishRawNote, type RawNoteExisting,
+  NOTE_MAX_CHARS, publishRawNote, type RawNoteExisting,
 } from "./rawNoteAdapter";
 
 const GENERATED_TAG = "MD/generated";
@@ -379,7 +379,9 @@ async function attachRawNote(
   } catch (error) {
     ztoolkit.log(`raw note hand-off cleanup failed: ${error}`);
   }
-  ztoolkit.log(`raw note ${result.outcome} (${result.bytes} bytes)`);
+  ztoolkit.log(
+    `raw note ${result.outcome} (${result.parts} part(s), ${result.chars} chars)`,
+  );
 
   const warnings: string[] = [];
   if (result.outcome === "kept") {
@@ -388,11 +390,18 @@ async function attachRawNote(
       "template's note output to Replace to regenerate it.",
     );
   }
+  if (result.parts > 1) {
+    warnings.push(
+      `The Raw note is ${result.chars.toLocaleString("en-US")} characters, too long ` +
+      `for one note to sync, so it was split into ${result.parts} notes by section ` +
+      "(Part 1, Part 2, …).",
+    );
+  }
   if (result.oversize) {
     warnings.push(
-      `The Raw note is ${Math.round(result.bytes / 1024)} KB, past the ` +
-      `${NOTE_SOFT_LIMIT_BYTES / 1024} KB where Zotero may stop syncing a note. ` +
-      "Check that it syncs to your other devices.",
+      "One section of the Raw note is still past " +
+      `${NOTE_MAX_CHARS.toLocaleString("en-US")} characters and could not be split ` +
+      "further. Check that it syncs to your other devices.",
     );
   }
   return warnings;
