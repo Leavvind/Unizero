@@ -33,20 +33,26 @@ Raw notes are rendered and linked by the add-on itself; Better Notes is no longe
 required. Current behaviour is in the [add-on README](../apps/zotero-addon/README.md);
 decisions and traps are in [ZOTERO_NOTES.md](ZOTERO_NOTES.md). Open work:
 
-- **Manual verification in Zotero with Better Notes disabled.** A converted note renders
-  formulas, tables, and page links; Skip keeps an existing note and Replace regenerates
-  it; `zotero://note` links open the note in a tab from Obsidian `Raw` and from links
-  inside older notes, in the user library and a group library.
+- **Manual verification, remainder.** With Better Notes disabled, formulas, tables, page
+  links and Skip are verified. Replace regenerating an existing note is not yet checked.
+  `zotero://note` links in a group library are untested and there is no current need.
+- **Position links, refinement.** Block and section links work; the user sees room to improve
+  them. Collect the specifics before changing anything.
+- **Note editor, not built yet.** Markdown paste and table column resizing (Better Notes has
+  both); see ZOTERO_NOTES.md part 4.
 - **Long documents, manual check.** On a real long book every part syncs, Obsidian
   `Raw` opens part 1, and Replace on a split note reuses the parts and trashes surplus
   ones only.
 - **Conversion runs on the main thread.** The longest book takes about 2.5 s and
   freezes the UI meanwhile; move it to a Worker if that proves unacceptable.
 - **Note to Markdown** (copying note content into Obsidian) is designed in
-  ZOTERO_NOTES.md but not implemented; its entry point is undecided.
+  ZOTERO_NOTES.md but deferred. Plain copy and paste already carries most formatting;
+  mapping Zotero citations to `@libraryID/itemKey` waits until there is a way to insert
+  citations in ordinary notes.
 - **Annotation injection** still targets the vault Markdown and has no note equivalent.
-- **Migration.** The vault `Papers` Markdown moved into Raw notes on 2026-10-13. Still
-  open: delete the `ZoMiner MD` and `ZoMiner MD Copy` attachments; keep `ZoMiner Tables`.
+  Highlights across PDF, Raw note and Obsidian need an anchor that survives edits: links
+  use heading text plus an occurrence count (`?section=…&n=`) or a block index (`?line=`),
+  and neither marks a range inside a block.
 
 ## Verification
 
