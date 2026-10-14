@@ -1,7 +1,5 @@
 # Architecture
 
-This document describes the architecture that exists now.
-
 ## System
 
 ```mermaid
@@ -54,9 +52,8 @@ flowchart LR
 plane (cache, relations, Paper catalog, conversion) → Zotero items / scholarly providers /
 paper runtime.
 
-**Legacy (dashed):** Unizero Home (Project View / Board) still ships in the XPI and talks
-to the same data plane through a window API bridge. It is not the product focus. Item-pane
-previews and the per-paper Graph tab remain available.
+**Legacy (dashed):** Unizero Home (Project View / Board) reaches the same data plane
+through a window API bridge.
 
 Metadata, literature relations, and the Paper catalog run in the add-on. PDF conversion,
 artifact publishing, and Markdown annotation injection require the local runtime.
@@ -238,15 +235,19 @@ Neither component reaches through an HTTP boundary to reuse the other’s implem
 | Highlight and underline annotations | Zotero attachment annotations |
 | Provider responses | Refreshable add-on cache, one shard per item |
 | Reverse-reference index, coupling, graph topology | Derived from the reference cache; rebuildable, never authoritative |
-| Graph layout coordinates | `<dataDir>/unizero/graph/<libraryID>.json`, versioned and discardable |
-| Graph display and force settings | `<dataDir>/unizero/graph/settings.json` |
+| Graph layout coordinates | Add-on data directory, per library; versioned and discardable |
+| Graph display and force settings | Add-on data directory |
 | Conversion templates and jobs | Paper runtime |
 | Work files and processing records | Runtime home |
 | Published Markdown | User-selected filesystem destination |
+| Converted paper text inside Zotero | Raw note: a child note tagged `unizero:raw-note` |
 | Extracted PDF bibliography | Versioned `ZoMiner References` Zotero JSON attachment |
 | Note identity (`uid` frontmatter) | Published Markdown; the runtime supplies a stable default |
-| Zotero item ↔ Obsidian URL binding | `<dataDir>/unizero/markdown-links/<libraryID>.json` |
+| Zotero item ↔ Obsidian URL binding | Add-on data directory, per library |
 | Generated Zotero attachment identity | `unizero:<kind>` tags |
+
+Add-on file paths are listed under *Stored state* in the
+[add-on README](../apps/zotero-addon/README.md#stored-state).
 
 Derived data never becomes a second authority for Zotero metadata. Layout coordinates sit
 outside the shard tree on purpose: shards are keyed by item and swept when an item

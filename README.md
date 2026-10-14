@@ -29,22 +29,15 @@ The **library backend** and scholarly data plane inside Zotero:
 - fetching and caching References / Citations through scholarly providers;
 - derived relation index, Paper catalog, and optional WebDAV sync of Project documents.
 
-It exposes a **mostly read-only localhost bridge** for Obsidian: GET endpoints never
-mutate Zotero or the Paper catalog; the sole action endpoint is `POST /convert`.
+It also hosts the localhost bridge the Obsidian plugin talks to.
 
 ### Paper runtime (`services/paper-runtime`)
 
 Optional local Python service for PDF → Markdown conversion and related document jobs.
 Talks to the add-on only through the versioned `/api/v1` contract.
 
-## Product direction (this branch)
-
-| Surface | Role |
-| --- | --- |
-| **Obsidian plugin** | Active development focus: citations, panes, search, jumps |
-| **Zotero add-on data plane** | Required backend: providers, cache, relations, Paper catalog, bridge, conversion |
-| **Unizero Home (Project View / Board)** | **Legacy** — still ships in the XPI; do not extend unless a task says so |
-| Item-pane literature previews / per-paper graph | Still in the add-on; not the main roadmap |
+The add-on also still ships **Unizero Home** (Project View / Board), now a legacy
+surface. Current priorities are listed in [AGENTS.md](AGENTS.md).
 
 ## Repository
 
@@ -73,42 +66,12 @@ Start with:
 
 ## Development
 
-There is no root build command. Build each component from its directory.
-
-**Obsidian plugin (current focus):**
-
-```bash
-cd apps/obsidian-plugin
-npm ci
-npm run check
-npm test
-npm run build
-```
-
-**Zotero add-on:**
-
-```bash
-cd apps/zotero-addon
-npm ci
-npm run check
-npm test
-npm run build
-```
-
-The add-on build writes `apps/zotero-addon/build/unizero.xpi`.
-
-**Paper runtime:**
-
-```bash
-cd services/paper-runtime
-uv venv --python 3.12
-uv pip install -e ".[dev]"
-.venv/Scripts/python.exe -m pytest   # Windows; use .venv/bin/python on macOS/Linux
-```
-
-Runtime installation, Zotero profile setup, and Obsidian vault install steps live in the
-component READMEs. Host UI (Zotero or Obsidian) always needs a manual check on top of
-automated tests.
+There is no root build command. Each component builds and tests from its own directory;
+setup, build, and test commands are in its README:
+[Obsidian plugin](apps/obsidian-plugin/README.md#development),
+[Zotero add-on](apps/zotero-addon/README.md#build),
+[paper runtime](services/paper-runtime/README.md#install).
+Host UI (Zotero or Obsidian) always needs a manual check on top of automated tests.
 
 ## License
 

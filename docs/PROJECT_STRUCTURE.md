@@ -1,7 +1,5 @@
 # Project Structure
 
-This is a map of the repository as it exists now.
-
 ```text
 UniZero/
 ├── apps/
@@ -133,8 +131,7 @@ import bundle modules.
 - Runtime API handlers validate and map; application services orchestrate.
 - Pipeline steps do not access Zotero.
 - Cross-process shapes start in `packages/contracts`.
-- The Obsidian bridge is mostly read-only (GET + `POST /convert` only); note rendering
-  must never trigger unbidden provider fetches or conversion.
+- The Obsidian bridge keeps the rules in [Bridge contract](ARCHITECTURE.md#bridge-contract).
 
 Do not create a directory for a planned abstraction until executable code or a real
 schema needs it.

@@ -2,25 +2,18 @@
 
 The Zotero application component: **library backend** for UniZero. It owns Zotero
 lifecycle, preferences, scholarly-provider access, item and attachment mutations, the
-derived relation index, the mostly-read-only bridge used by the Obsidian plugin, and the
-client for the local paper runtime.
-
-Product framing: Zotero holds the library; Obsidian is the active note front end. See the
-repository [README](../../README.md) and [AGENTS.md](../../AGENTS.md).
-
-**Unizero Home (Project View / Board) is legacy on this branch.** The UI still ships and
-tests may still load it, but it is not the product focus — do not extend it unless a task
-says so. Prefer Obsidian-side work and the data/bridge surfaces below.
+derived relation index, the bridge used by the Obsidian plugin, and the client for the
+local paper runtime. It also still ships the legacy Unizero Home UI.
 
 ## Capabilities
 
 **Bridge (Obsidian)**
 
-- Mostly read-only localhost endpoints on Zotero’s HTTP server (`src/server/`).
+- Localhost endpoints on Zotero’s HTTP server (`src/server/`).
 - GET: libraries, collections, paper resolve, relations from cache, citekey lookup.
-- Sole action: `POST /convert` — same conversion job as the Zotero item menu.
-- No unbidden provider fetches: a cache miss returns `loaded: false` unless
-  `fetch=1` is explicit. See [ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+- One action, `POST /convert`, which starts the same job as the Zotero item menu.
+- Rules (read-only GETs, no unbidden provider fetches):
+  [Bridge contract](../../docs/ARCHITECTURE.md#bridge-contract).
 
 **Literature data**
 
@@ -31,14 +24,11 @@ says so. Prefer Obsidian-side work and the data/bridge surfaces below.
   references — both derived locally with no extra network access.
 - Filtering discovered works by library status, influence, year, publication type, and
   order, plus importing missing papers into the current library.
-- A stable Paper catalog. Every loaded References/Citations candidate gets a Paper ID at
-  `cache` retention, which pinning and Zotero binding promote to `pinned` or `zotero`.
-  Observations use one directed citation model. Only a successful terminal provider
-  snapshot replaces stale observations and collects orphaned cache-only Papers; incomplete
-  pages and provider failures preserve prior evidence. Explicit identity merges leave
-  redirects for old Paper IDs.
+- A stable Paper catalog giving every loaded References/Citations result a Paper ID;
+  retention, observations, and merges are described in
+  [ARCHITECTURE.md](../../docs/ARCHITECTURE.md#paper-catalog).
 - A force-directed Graph tab per paper (item-pane / explorer detail), with adjustable
-  display and force settings. The full-library Collection graph was removed.
+  display and force settings.
 
 **Conversion, annotations, and sync**
 
@@ -94,19 +84,10 @@ responsibility when a feature change needs it.
 
 ## Dialog content
 
-`addon/chrome/content/panel.js`, `literature-explorer.js`, and `literature-graph.js` are
-plain JavaScript outside the TypeScript bundle. They implement the template editor, the
-legacy Home Board, and the per-paper force-graph renderer. Vitest covers host-independent
-dialog behaviour under `happy-dom`; Zotero APIs and the real canvas need a manual check.
-
-They reach the add-on only through `window.arguments[0].api`. Graph constraints:
-
-- force-graph callbacks run in an unhandled animation loop — wrap every callback in
-  `guard()`;
-- layout coordinates are valid only at the force scale that produced them — bump
-  `GRAPH_LAYOUT_VERSION` in `src/modules/views.ts` when code changes coordinate meaning.
-
-Detail: [UNICONNECTION.md](../../docs/UNICONNECTION.md).
+`addon/chrome/content/` holds plain JavaScript dialogs outside the TypeScript bundle: the
+template editor, the legacy Home Board, and the per-paper graph renderer. Their file map
+is in [PROJECT_STRUCTURE.md](../../docs/PROJECT_STRUCTURE.md#dialog-content-add-on) and
+their load-bearing constraints are in [AGENTS.md](../../AGENTS.md#zotero-constraints).
 
 ## Stored state
 
@@ -170,12 +151,3 @@ For a packaged build, install `build/unizero.xpi` from Zotero’s add-on manager
 
 Type checking does not verify Zotero APIs, window lifecycle, XUL, or the external dialogs.
 Changes in those areas require a manual Zotero check.
-
-## Related documentation
-
-- [Documentation map](../../docs/README.md)
-- [Repository architecture](../../docs/ARCHITECTURE.md)
-- [Project structure](../../docs/PROJECT_STRUCTURE.md)
-- [Legacy Home maintenance](../../docs/LEGACY_HOME.md)
-- [Derived relation index and graph](../../docs/UNICONNECTION.md)
-- [Legacy data support](../../docs/LEGACY_SUPPORT.md)

@@ -3,23 +3,15 @@
 This file contains unfinished work only. Current behavior is documented in the component
 READMEs and `docs/ARCHITECTURE.md`. Nothing here is a work order by itself.
 
-## Active focus
-
-**Obsidian plugin** (`apps/obsidian-plugin`) against the add-on’s bridge (GET + convert).
-Zotero-side **data** work (providers, cache, relations, conversion, bridge contract)
-stays in scope when Obsidian needs it.
-
-**Unizero Home / Board** is **legacy**: do not schedule new Home UI work here unless
-product direction changes. Maintenance notes live in [LEGACY_HOME.md](LEGACY_HOME.md).
+Priorities follow *Current focus* in [AGENTS.md](../AGENTS.md): Obsidian first, Zotero
+data work when Obsidian needs it, no new Unizero Home UI.
 
 ## Obsidian plugin
 
-The first slice — `@libraryID/itemKey` pills (Author/year display), `.md` / `.pdf`
-jumps, free-text `@` completion, library/paper panes, DataTransfer drag of
-`@libraryID/itemKey` into notes, and a detail pane — is implemented. Open work:
-
-- Manual verification in Obsidian against a running Zotero: rendering in both editor
-  modes (including left-click on pills), the multi-word suggester, and every jump target.
+- Manual verification in Obsidian against a running Zotero with the installed XPI:
+  bridge ping and paper resolve, rendering in both editor modes, pill left-click and
+  right-click actions, the multi-word suggester, every jump target, detail-pane
+  relations without unbidden provider fetches, and Convert to Markdown.
 - Manual verification of first-click Canvas creation in the configured new-note
   location, filename collisions, and bindings after file and parent-folder
   renames/moves, including reopening Obsidian to confirm the updated paths persist.
@@ -58,15 +50,8 @@ decisions and traps are in [ZOTERO_NOTES.md](ZOTERO_NOTES.md). Open work:
 
 ## Verification
 
-Neither type checking nor Vitest exercises Zotero or Obsidian hosts. Manual checks:
-
-### Blocking for Obsidian work
-
-- Bridge ping and paper resolve with the installed XPI; free-text multi-word `@`
-  completion; pill left-click / right-click actions; detail pane relations without
-  unbidden provider fetches; Convert to Markdown from the plugin.
-
-### Add-on / runtime (still owed; not every iteration)
+Neither type checking nor Vitest exercises Zotero or Obsidian hosts. Obsidian checks are
+listed above; add-on and runtime checks still owed (not every iteration):
 
 - **Smoke.** Startup, shutdown, metadata review, References/Citations previews, Collection
   status and quick actions, relation filtering, current-library import, conversion,
@@ -146,12 +131,5 @@ Neither type checking nor Vitest exercises Zotero or Obsidian hosts. Manual chec
 - Allow frontmatter properties to draw on a versioned Zotero snapshot rather than
   the item’s state at conversion time.
 
-## Legacy notes (not a build plan)
-
-Home/Board product wishlist and full-library graph ideas are **not** active roadmap.
-If that code must be touched, read [LEGACY_HOME.md](LEGACY_HOME.md) and the graph
-traps in [UNICONNECTION.md](UNICONNECTION.md). Prefer equivalent work in the Obsidian
-plugin.
-
 Prioritize verified behavior and clear boundaries over directory reshuffling. Do not
-implement Background or Legacy items unless the task asks for them.
+implement Background items unless the task asks for them.

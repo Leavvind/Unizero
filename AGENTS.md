@@ -21,9 +21,7 @@ Obsidian is the active note-taking front end.
 | **Background** | Item-pane literature UI, per-paper graph | Maintain when a task touches them; not the main roadmap |
 
 Write-back from Obsidian into Zotero / UniZero (import explored papers, etc.) is
-**planned**, not present. Do not add bibliographic or Paper-catalog mutations over
-the bridge without a separate write design. The narrow exception is
-`POST /unizero/v1/convert`, which starts the same conversion job as the Zotero menu.
+planned, not present; see rule 11 below.
 
 ### Default read order
 
@@ -134,7 +132,7 @@ page.
 
 `addon/chrome/content/panel.js`, `literature-explorer.js`, and `literature-graph.js` run
 outside the TypeScript bundle and type checker. Changes there require extra review and
-manual testing. Two of their constraints are load-bearing:
+manual testing. Three of their constraints are load-bearing:
 
 - Callbacks handed to `force-graph` run synchronously inside an animation loop with no
   error handling, so one unguarded throw freezes the canvas permanently. Keep every
@@ -194,9 +192,9 @@ npm test
 npm run build
 ```
 
-`npm test` covers the citation syntax, the only part free of Obsidian. Rendering, the
-suggester, the detail pane, and every bridge call need a manual check in a real vault
-against a running Zotero.
+`npm test` covers the citation syntax, Canvas creation and links, the vault index, and
+the paper store's request ownership, mocking Obsidian where needed. Rendering, the suggester, the panes, and every
+bridge call need a manual check in a real vault against a running Zotero.
 
 From `services/paper-runtime`:
 

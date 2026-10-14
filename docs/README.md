@@ -8,21 +8,16 @@ Two kinds of document live here, and they are read differently.
   written before or during its construction. Kept for the constraints, not as a task
   list.
 
-**Product direction (this branch):** Obsidian is the active note front end; the Zotero
-add-on remains the library backend (metadata, conversion, annotations, References /
-Citations cache, bridge). **Unizero Home is legacy** — keep only for maintenance when a
-task names that surface. See the root [README](../README.md) and [AGENTS.md](../AGENTS.md).
-
-| Document | Kind | Default open? | Read it when |
-| --- | --- | --- | --- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Current state | Ownership / boundary changes | A change affects ownership, layering, or dependency direction (Obsidian-first diagram) |
-| [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | Current state | Finding a path | You need to know where code belongs (Obsidian paths first) |
-| [LEGACY_SUPPORT.md](LEGACY_SUPPORT.md) | Current state | Removing compat code | You are about to remove or bypass a compatibility reader |
-| [ROADMAP.md](ROADMAP.md) | Plan | Looking for unfinished work | Unfinished work only; nothing here is a work order by itself. Obsidian section first. |
-| [LEGACY_HOME.md](LEGACY_HOME.md) | Maintenance · **legacy surface** | **No** | Only if a task explicitly touches Home / Board / Project View |
-| [UNICONNECTION.md](UNICONNECTION.md) | Design and handoff | **No** (unless relations/graph) | Derived reverse-reference index; graph render traps when editing the Graph tab |
-| [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md) | Design and handoff | **No** | Portable state sync / WebDAV invariants, or extending sync past Project/Board |
-| [ZOTERO_NOTES.md](ZOTERO_NOTES.md) | Design and handoff (Chinese) | Raw note / note links | Replacing Better Notes: Markdown↔note conversion and `zotero://note` links |
+| Document | Kind | Read it when |
+| --- | --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Current state | A change affects ownership, layering, or dependency direction |
+| [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | Current state | You need to know where code belongs |
+| [LEGACY_SUPPORT.md](LEGACY_SUPPORT.md) | Current state | You are about to remove or bypass a compatibility reader |
+| [ROADMAP.md](ROADMAP.md) | Plan | You are looking for unfinished work |
+| [LEGACY_HOME.md](LEGACY_HOME.md) | Maintenance (legacy surface) | Only if a task explicitly touches Home / Board / Project View |
+| [UNICONNECTION.md](UNICONNECTION.md) | Design and handoff | A task touches the derived reverse-reference index or the Graph tab |
+| [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md) | Design and handoff | A task touches sync / WebDAV invariants or extends sync past Project/Board |
+| [ZOTERO_NOTES.md](ZOTERO_NOTES.md) | Design and handoff (Chinese) | A task touches Raw notes, Markdown↔note conversion, or `zotero://note` links |
 
 Component behaviour and commands are documented next to the code:
 
