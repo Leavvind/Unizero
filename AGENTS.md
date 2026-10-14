@@ -107,6 +107,7 @@ The process boundary is described in `docs/ARCHITECTURE.md`.
 | `apps/zotero-addon/src/zotero` | Zotero item, attachment, annotation, and identity adapters |
 | `apps/zotero-addon/src/ui` | Menus, panel bridge, progress, and service notices |
 | `apps/zotero-addon/src/modules` | Established relations, metadata, cache, and item-pane code |
+| `apps/zotero-addon/src/notes` | Pure Markdown → Zotero note HTML conversion (no Zotero APIs) |
 | `apps/zotero-addon/src/server` | Localhost bridge (GET + convert action) and citekey resolution |
 | `apps/obsidian-plugin/src` | Obsidian rendering, suggester, detail pane, and bridge client (active front end) |
 | `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, **legacy** Unizero Home, graph renderer |
@@ -182,7 +183,7 @@ npm run build
 `npm run check` includes TypeScript and shared-contract drift checks. `npm test` runs
 Vitest over the parts that are deliberately free of Zotero: the derived relation index,
 the graph builders, Project and Paper persistence, the sync engine and WebDAV backend,
-and the Home dialog loaded under `happy-dom`. Lifecycle, menus, providers, and every
+the Markdown → note converter, and the Home dialog loaded under `happy-dom`. Lifecycle, menus, providers, and every
 privileged Zotero API remain untested and need a manual Zotero check.
 
 From `apps/obsidian-plugin`:

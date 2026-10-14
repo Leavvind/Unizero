@@ -22,6 +22,7 @@ task names that surface. See the root [README](../README.md) and [AGENTS.md](../
 | [LEGACY_HOME.md](LEGACY_HOME.md) | Maintenance · **legacy surface** | **No** | Only if a task explicitly touches Home / Board / Project View |
 | [UNICONNECTION.md](UNICONNECTION.md) | Design and handoff | **No** (unless relations/graph) | Derived reverse-reference index; graph render traps when editing the Graph tab |
 | [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md) | Design and handoff | **No** | Portable state sync / WebDAV invariants, or extending sync past Project/Board |
+| [ZOTERO_NOTES.md](ZOTERO_NOTES.md) | Design and handoff (Chinese) | Raw note / note links | Replacing Better Notes: Markdown↔note conversion and `zotero://note` links |
 
 Component behaviour and commands are documented next to the code:
 

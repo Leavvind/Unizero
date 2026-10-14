@@ -44,6 +44,14 @@ says so. Prefer Obsidian-side work and the data/bridge surfaces below.
 
 - PDF conversion commands and generated-artifact registration, including a versioned
   structured References JSON attachment produced from the PDF bibliography.
+- Raw notes: the converted Markdown kept as an editable child note tagged
+  `unizero:raw-note`, rendered by the built-in converter in `src/notes/` (a port of
+  Better Notes', which is not required). Images are dropped. A note past 450,000
+  characters of HTML — Zotero's sync limit counts characters, not bytes — is split
+  into parts of top-level sections, each opening with a `Part i/n` line; Skip keeps
+  existing notes, Replace reuses the parts and trashes only surplus marked parts.
+- `zotero://note/u/<key>/` and `zotero://note/<groupID>/<key>/` links open a note in a
+  tab, including links Better Notes wrote into older notes.
 - Annotation export and Markdown injection.
 - Runtime lifecycle, jobs, service notices, and templates.
 - Manual and scheduled WebDAV sync for Project, Board, node, edge, and tombstone
@@ -69,12 +77,13 @@ hints remain for existing users. Maintenance traps and document shapes:
 | `src/core/` | Static feature registry and lifecycle dispatch |
 | `src/features/` | Conversion and annotation command orchestration |
 | `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
+| `src/notes/` | Pure Markdown → Zotero note HTML converter (ported from Better Notes) |
 | `src/modules/uniConnection.ts` | Derived reverse-reference index, coupling, graph topology |
 | `src/modules/uniConnectionSync.ts` | Notifier-driven index maintenance and reference backfill |
 | `src/server/` | Bridge endpoints (GET + convert) and citekey resolution |
 | `src/projects/` | Versioned Project/Board/Paper shapes and local Project repository |
 | `src/runtime-client/` | HTTP contracts, client, launch resolution, process state |
-| `src/zotero/` | Zotero adapters, library scope, artifact identity |
+| `src/zotero/` | Zotero adapters, library scope, artifact identity, `zotero://note` links |
 | `src/ui/` | Menus, progress, service notices, panel and Home bridges |
 | `addon/` | Manifest, locales, preferences, icons, dialog markup and scripts |
 | `tests/` | Vitest: Projects, derived index, graph builders, Home dialog |

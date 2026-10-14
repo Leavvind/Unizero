@@ -23,8 +23,8 @@ jumps, free-text `@` completion, library/paper panes, DataTransfer drag of
 - Manual verification of first-click Canvas creation in the configured new-note
   location, filename collisions, and bindings after file and parent-folder
   renames/moves, including reopening Obsidian to confirm the updated paths persist.
-- Manual verification of rapid paper/tab switching during requests, plugin unload
-  during vault indexing, and Raw files with conflicting library-scoped identities.
+- Manual verification of rapid paper/tab switching during requests and plugin unload
+  during vault indexing.
 - **Canvas / native drag look.** Dropping plain `@libraryID/itemKey` text already
   produces a working citation. A native-looking drag (Obsidian Canvas, unofficial
   `app.dragManager`) should be weighed against what it buys.
@@ -35,27 +35,26 @@ jumps, free-text `@` completion, library/paper panes, DataTransfer drag of
 - Richer literature exploration in the note surface (discovery, ranking, multi-hop
   jumps) — product headroom; each slice needs a clear scope.
 
-## Raw note (Better Notes)
+## Raw note
 
-The template `paper-to-better-notes` can publish a paper's Raw Markdown as an editable
-Zotero child note (`publish.zotero-note`, rendered by Better Notes) instead of, or as
-well as, a vault file. The note carries no frontmatter. Open work:
+Raw notes are rendered and linked by the add-on itself; Better Notes is no longer
+required. Current behaviour is in the [add-on README](../apps/zotero-addon/README.md);
+decisions and traps are in [ZOTERO_NOTES.md](ZOTERO_NOTES.md). Open work:
 
-- Manual verification in Zotero with Better Notes: the note appears under the paper,
-  page links and formulas render, an existing note is kept on re-conversion, and
-  `Replace` regenerates it.
-- **Migration.** The vault `Papers` Markdown was moved into Raw notes and removed from
-  the vault on 2026-10-13. Still open: delete the `ZoMiner MD` and `ZoMiner MD Copy`
-  attachments; keep `ZoMiner Tables`.
-- **Long books.** A Chinese note synced at 800 KB and failed at 860 KB; the add-on only
-  warns past 600 KB. Splitting a book across chapter notes under an index note is not
-  implemented.
-- **Obsidian plugin.** Open Raw and `.md` citations select the Raw note in Zotero
-  (bridge `links.rawNote`, `hasRawNote` on library rows) and then open it in Better
-  Notes (`links.rawNoteOpen`, present only while Better Notes is running); vault Raw
-  lookup and its settings are gone. Open: manual check in a vault against Zotero.
-- **Annotation injection** (add-on) still targets the vault Markdown and has no note
-  equivalent yet.
+- **Manual verification in Zotero with Better Notes disabled.** A converted note renders
+  formulas, tables, and page links; Skip keeps an existing note and Replace regenerates
+  it; `zotero://note` links open the note in a tab from Obsidian `Raw` and from links
+  inside older notes, in the user library and a group library.
+- **Long documents, manual check.** On a real long book every part syncs, Obsidian
+  `Raw` opens part 1, and Replace on a split note reuses the parts and trashes surplus
+  ones only.
+- **Conversion runs on the main thread.** The longest book takes about 2.5 s and
+  freezes the UI meanwhile; move it to a Worker if that proves unacceptable.
+- **Note to Markdown** (copying note content into Obsidian) is designed in
+  ZOTERO_NOTES.md but not implemented; its entry point is undecided.
+- **Annotation injection** still targets the vault Markdown and has no note equivalent.
+- **Migration.** The vault `Papers` Markdown moved into Raw notes on 2026-10-13. Still
+  open: delete the `ZoMiner MD` and `ZoMiner MD Copy` attachments; keep `ZoMiner Tables`.
 
 ## Verification
 
@@ -111,6 +110,9 @@ Neither type checking nor Vitest exercises Zotero or Obsidian hosts. Manual chec
 
 ## Add-on maintainability
 
+- Check that the built bundle evaluates without a DOM as part of `npm run check`. A
+  dependency touching `document` at load once disabled the whole add-on, and Vitest
+  (Node) cannot see it.
 - Add host-independent tests for the feature registry, contract client, library scope,
   artifact identity, and metadata comparison.
 - Extract view state, network orchestration, and Zotero mutations from
