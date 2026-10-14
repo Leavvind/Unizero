@@ -12,7 +12,7 @@ const PORTABLE_OBJECT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 /**
  * Persisted object IDs are opaque names, never paths. Keep this deliberately
- * narrower than a general filename so imported sync data cannot escape a
+ * narrower than a general filename so stored object IDs cannot escape a
  * repository root or create platform-dependent paths.
  */
 export function isPortableObjectID(value: unknown): value is string {
@@ -58,8 +58,8 @@ export interface ProjectDocument {
 }
 
 /**
- * Board objects are separate from their nodes and edges so moving one card does
- * not turn the whole project into one sync-conflict document.
+ * Board objects are separate from their nodes and edges so moving one card does not
+ * require rewriting the whole project document.
  */
 export interface BoardDocument {
   schema: typeof BOARD_SCHEMA;
@@ -180,7 +180,7 @@ export interface PaperDocument {
 }
 
 /**
- * An explicit, user-reviewed identity merge keeps old Board and sync references
+ * An explicit, user-reviewed identity merge keeps old Board references
  * resolvable without pretending that two provider identifiers were always known
  * to describe one Paper.
  */
@@ -214,9 +214,3 @@ export interface ProjectBundle {
   project: ProjectDocument;
   defaultBoard: BoardDocument;
 }
-
-export type PortableProjectObject =
-  | ProjectDocument
-  | BoardDocument
-  | BoardNodeDocument
-  | BoardManualEdgeDocument;

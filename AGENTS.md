@@ -32,9 +32,8 @@ planned, not present; see rule 11 below.
 3. `apps/zotero-addon/src/server/` only if the bridge contract or payloads change
 4. `docs/ARCHITECTURE.md` only if ownership or process boundaries move
 
-**Do not open by default:** `docs/LEGACY_HOME.md`, `docs/UNICONNECTION.md` Graph traps,
-Board/sync design in `docs/SYNC_AND_LITERATURE_SOURCES.md` — unless the task is
-explicitly about that surface.
+**Do not open by default:** `docs/LEGACY_HOME.md` or `docs/UNICONNECTION.md` Graph traps
+unless the task is explicitly about that surface.
 
 **Add-on data / conversion / providers:** component README → `docs/PROJECT_STRUCTURE.md`
 → the owning path in the table below.
@@ -180,7 +179,7 @@ npm run build
 
 `npm run check` includes TypeScript and shared-contract drift checks. `npm test` runs
 Vitest over the parts that are deliberately free of Zotero: the derived relation index,
-the graph builders, Project and Paper persistence, the sync engine and WebDAV backend,
+the graph builders, Project and Paper persistence,
 the Markdown → note converter, and the Home dialog loaded under `happy-dom`. Lifecycle, menus, providers, and every
 privileged Zotero API remain untested and need a manual Zotero check.
 

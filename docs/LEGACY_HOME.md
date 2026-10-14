@@ -5,7 +5,7 @@
 > the Zotero data plane. Do not extend Home unless a task names it explicitly.
 >
 > **Authority:** Behaviour and ownership rules that still apply system-wide live in
-> [ARCHITECTURE.md](ARCHITECTURE.md) (Paper catalog, Project documents, sync). This file
+> [ARCHITECTURE.md](ARCHITECTURE.md) (Paper catalog, Project documents). This file
 > is only maintenance traps for the Home UI and its on-disk shapes.
 
 ## What still ships
@@ -24,11 +24,6 @@
 ```text
 <Zotero data dir>/unizero/projects/     Project, Board, nodes, edges, tombstones
 ```
-
-Implemented sync namespaces (`src/sync/types.ts`): `project.meta`, `project.board`,
-`project.board-node`, `project.board-edge`. Literature namespaces and portable settings
-are not wired — see [ROADMAP.md](ROADMAP.md) and
-[SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md).
 
 Node schema is a discriminated union: `kind: "paper"` (standalone paper shorthand) and
 `kind: "text"` (ordered blocks with stable IDs). PaperBlocks store `paperID` only —
@@ -62,7 +57,7 @@ Dialog scripts are plain JS outside the TypeScript bundle. They only receive
    `GRAPH_LAYOUT_VERSION` in `views.ts` when code changes coordinate meaning; user force
    settings are covered by the stored force signature.
 5. **Board geometry is not graph layout.** Board positions are user-authored Project
-   state (syncable). Graph layout under `unizero/graph/` is discardable display state.
+   state. Graph layout under `unizero/graph/` is discardable display state.
    Do not mix namespaces.
 
 ## What not to do

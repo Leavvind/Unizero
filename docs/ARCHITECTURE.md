@@ -163,27 +163,6 @@ Rules this layer keeps:
 
 Design detail: [UNICONNECTION.md](UNICONNECTION.md).
 
-## Sync (Project documents)
-
-Project documents sync through a backend-neutral engine using per-device manifests and
-immutable packs. The WebDAV adapter owns only HTTPS, Basic authorization, collections, and
-conditional requests. A process-wide scheduler runs after a delayed startup and then at a
-user-selected interval of 30 minutes or longer.
-
-Three rules keep a device from being stranded or misreported:
-
-- **A run that reports remaining work is a continuation, not a result.** Large first
-  syncs span several runs; the scheduler retries promptly; neither claims success
-  mid-transfer.
-- **An unknown namespace is skipped, never fatal.** The checkpoint records skipped packs
-  so a build that registers the namespace can replay them.
-- **Content addressing is locale-independent.** Checksums use code-unit ordering and
-  invariant case folding.
-
-Credentials are device-local (Login Manager under the WebDAV origin and an add-on-specific
-realm). No credential enters a typed document, pack, checkpoint, or log. Design notes and
-unimplemented Literature namespaces: [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md).
-
 ## Runtime layers
 
 | Layer | Path | Role |
@@ -230,8 +209,6 @@ Neither component reaches through an HTTP boundary to reuse the other’s implem
 | Bibliographic fields and item relations | Zotero items |
 | Stable library/external paper identity and Zotero bindings | UniZero Paper catalog |
 | Project identity, Board objects and paper-node layout | Versioned Project documents |
-| Object merge, local checkpoint, manifest, and pack semantics | Sync engine |
-| HTTPS, Basic authorization, WebDAV collections, and ETags | WebDAV backend |
 | Highlight and underline annotations | Zotero attachment annotations |
 | Provider responses | Refreshable add-on cache, one shard per item |
 | Reverse-reference index, coupling, graph topology | Derived from the reference cache; rebuildable, never authoritative |

@@ -1,141 +1,96 @@
 # Roadmap
 
-This file contains unfinished work only. Current behavior is documented in the component
-READMEs and `docs/ARCHITECTURE.md`. Nothing here is a work order by itself.
+Open plans and recorded verification tasks only; this is not a work order.
+Current behavior is in the component READMEs and [ARCHITECTURE.md](ARCHITECTURE.md).
+Obsidian is the active product surface; do not extend legacy Home UI.
 
-Priorities follow *Current focus* in [AGENTS.md](../AGENTS.md): Obsidian first, Zotero
-data work when Obsidian needs it, no new Unizero Home UI.
+Feature ideas, manual checks, and code maintenance are listed separately below.
+Manual checks are historical open records, not evidence of a known defect.
 
 ## Obsidian plugin
 
-- Manual verification in Obsidian against a running Zotero with the installed XPI:
-  bridge ping and paper resolve, rendering in both editor modes, pill left-click and
-  right-click actions, the multi-word suggester, every jump target, detail-pane
-  relations without unbidden provider fetches, and Convert to Markdown.
-- Manual verification of first-click Canvas creation in the configured new-note
-  location, filename collisions, and bindings after file and parent-folder
-  renames/moves, including reopening Obsidian to confirm the updated paths persist.
-- Manual verification of rapid paper/tab switching during requests and plugin unload
-  during vault indexing.
-- **Canvas / native drag look.** Dropping plain `@libraryID/itemKey` text already
-  produces a working citation. A native-looking drag (Obsidian Canvas, unofficial
-  `app.dragManager`) should be weighed against what it buys.
-- **Write-back design (not implemented):** exploring from Obsidian and creating or
-  updating material in UniZero / Zotero. Needs its own contract. The bridge already
-  allows one narrow action (`POST /convert` → Zotero conversion job); do not treat
-  that as a blank cheque for bibliographic mutations.
-- Richer literature exploration in the note surface (discovery, ranking, multi-hop
-  jumps) — product headroom; each slice needs a clear scope.
+- **Import from Obsidian.** Let an explicit user action add or update papers in Zotero
+  from exploration results. Not implemented; needs a separate write contract.
+  The existing bridge only permits conversion through `POST /convert`.
+- **Literature exploration.** Discover papers, sort results, and follow related papers
+  from notes. The next concrete feature still needs to be chosen.
 
 ## Raw note
 
-Raw notes are rendered and linked by the add-on itself; Better Notes is no longer
-required. Current behaviour is in the [add-on README](../apps/zotero-addon/README.md);
-decisions and traps are in [ZOTERO_NOTES.md](ZOTERO_NOTES.md). Open work:
+Current behavior: [add-on README](../apps/zotero-addon/README.md).
+Maintenance constraints: [ZOTERO_NOTES.md](ZOTERO_NOTES.md).
 
-- **Manual verification, remainder.** With Better Notes disabled, formulas, tables, page
-  links and Skip are verified. Replace regenerating an existing note is not yet checked.
-  `zotero://note` links in a group library are untested and there is no current need.
-- **Position links, refinement.** Block and section links work; the user sees room to improve
-  them. Collect the specifics before changing anything.
-- **Note editor, not built yet.** Markdown paste and table column resizing (Better Notes has
-  both); see ZOTERO_NOTES.md part 4.
-- **Long documents, manual check.** On a real long book every part syncs, Obsidian
-  `Raw` opens part 1, and Replace on a split note reuses the parts and trashes surplus
-  ones only.
-- **Conversion runs on the main thread.** The longest book takes about 2.5 s and
-  freezes the UI meanwhile; move it to a Worker if that proves unacceptable.
-- **Note to Markdown** (copying note content into Obsidian) is designed in
-  ZOTERO_NOTES.md but deferred. Plain copy and paste already carries most formatting;
-  mapping Zotero citations to `@libraryID/itemKey` waits until there is a way to insert
-  citations in ordinary notes.
-- **Annotation injection** still targets the vault Markdown and has no note equivalent.
-  Highlights across PDF, Raw note and Obsidian need an anchor that survives edits: links
-  use heading text plus an occurrence count (`?section=…&n=`) or a block index (`?line=`),
-  and neither marks a range inside a block.
+- **Position links.** Improve links to blocks and headings after the desired behavior
+  is clarified. Existing links already work.
+- **Paste and tables.** Add Markdown paste and draggable table column widths.
+  The other note editor enhancements are already implemented.
+- **Long documents — manual check.** Verify every part syncs, Obsidian Raw opens part 1,
+  and Replace reuses split notes and trashes only surplus marked parts.
+- **Copy as Markdown — deferred.** Plain copy and paste already retains most formatting.
+  Converting Zotero citations to `@libraryID/itemKey` depends on a way to insert
+  citations in ordinary notes. No copy command or note-export bridge is implemented.
+- **PDF highlights in Raw notes.** Annotation injection currently writes to vault
+  Markdown only. A note equivalent needs a way to locate highlighted text after edits;
+  existing heading and block links do not identify a text range.
 
 ## Verification
 
-Neither type checking nor Vitest exercises Zotero or Obsidian hosts. Obsidian checks are
-listed above; add-on and runtime checks still owed (not every iteration):
+These remaining records have not been reconfirmed during documentation cleanup.
+Run relevant checks when changing the affected area; host behavior is not covered by
+TypeScript or Vitest. Obsidian basic behavior and Canvas/file bindings, plus Raw note
+Replace and group-library links, were confirmed complete by the user on 2026-10-14
+and removed from the open list.
 
-- **Smoke.** Startup, shutdown, metadata review, References/Citations previews, Collection
-  status and quick actions, relation filtering, current-library import, conversion,
-  artifact registration, annotation injection.
-- **Windows and preferences.** Closing one main window leaves the other’s pane and menus
-  intact. Preferences survive close/reopen; a runtime port change reaches a manually
-  started service. Service auto start/stop is silent; a failed start appears in the
-  panel’s Jobs list with a working retry.
-- **Conversion.** Personal and group libraries, same-title items, repeated runs. Generated
-  attachment identity survives a rename without touching similarly titled user
-  attachments. A real MinerU run: Markdown, tables, links, annotations, and the versioned
-  `ZoMiner References` artifact — including an empty bibliography and a re-conversion that
-  replaces a stale one.
-- **Parsing quality.** Verify representative text/scanned papers, chunked page
-  offsets, exported images/tables, and Advanced table refinement in Zotero.
-- **Literature data.** A References query with OpenAlex and Crossref empty and Semantic
-  Scholar restricted keeps all three source states across a reopen. Preview A → B → A
-  reuses A silently, a real miss shows progress, and a zero-Citations result survives a
-  restart without turning an all-provider failure into a cache hit.
-- **Sync.** Credentials survive close/reopen through Login Manager; unchecking remember
-  removes only UniZero’s credential; automatic sync keeps its interval across a restart;
-  offline startup is quiet; each notification mode behaves as labelled. A first sync
-  spanning several runs continues promptly and claims success only when nothing remains.
-- **Sync across two real devices.** Personal and group libraries, with the two machines
-  holding different local `libraryID`s for the same portable scope. Device settings and
-  secrets are never overwritten from the remote. WebDAV authentication failure, TLS
-  failure, and insufficient quota each surface a visible, distinguishable error. Once
-  Literature namespaces land: device A fetches References, device B restores them and
-  rebuilds Relation without calling a provider, and editing an item’s DOI causes the old
-  cached record to be rejected rather than loosely matched.
-- **Legacy surfaces (only if touching that code):** Board Text Node caret under background
-  refresh; per-paper Graph tab dark theme, layout persistence, and `guard()` behaviour.
+- **Basic operation.** Startup/shutdown, metadata review, References/Citations previews,
+  Collection status/actions, relation filtering, current-library import, conversion,
+  artifact registration, and annotation injection.
+- **Windows and settings.** Closing one window leaves another working. Settings persist;
+  runtime port changes reach a manually started service. Automatic start/stop is silent;
+  failed startup appears in Jobs with a working retry.
+- **Conversion.** Personal/group libraries, same-title papers, repeated runs, and renamed
+  generated attachments without affecting user attachments. Real MinerU output includes
+  Markdown, tables, links, annotations, and References JSON, including empty references
+  and replacement of stale output.
+- **Literature cache.** Preserve distinct provider states across reopen, including empty
+  OpenAlex/Crossref results and restricted Semantic Scholar. Switching A → B → A reuses
+  cache quietly; misses show progress. Empty Citations persist across restart without
+  treating failed requests as successful empty results.
+- **Legacy UI — only when touched.** Board text caret under refresh, Graph dark theme,
+  layout persistence, and guarded rendering callbacks.
 
 ## Contracts and artifacts
 
-- Cover config, job-list, module-description, template-write, and shutdown payloads in
-  the shared HTTP schema.
-- Validate field values as well as field names and requiredness.
-- Define a versioned artifact envelope for Markdown and tables.
-- Provide clear add-on/runtime upgrade guidance when capabilities are incompatible.
+These are add-on/runtime communication and output-format improvements.
+
+- **Document all HTTP messages.** Cover configuration, job lists, module descriptions,
+  template writes, and shutdown in the shared schema.
+- **Check message values.** Validate allowed values as well as field names and required fields.
+- **Version generated output.** Define a shared versioned wrapper for Markdown and tables
+  so readers can identify the output format.
+- **Explain incompatible versions.** Tell users which add-on/runtime component to upgrade.
 
 ## Add-on maintainability
 
-- Check that the built bundle evaluates without a DOM as part of `npm run check`. A
-  dependency touching `document` at load once disabled the whole add-on, and Vitest
-  (Node) cannot see it.
-- Add host-independent tests for the feature registry, contract client, library scope,
-  artifact identity, and metadata comparison.
-- Extract view state, network orchestration, and Zotero mutations from
-  `src/modules/views.ts` as those areas change.
-- Move the template-editor dialog logic in `addon/chrome/content/panel.js` under the
-  TypeScript build.
+These are code maintenance tasks, not new user features.
 
-## Literature data and sync
+- **Catch startup dependency failures.** Add a no-DOM bundle evaluation to `npm run check`;
+  a dependency using `document` during load previously disabled the add-on.
+- **Test core logic.** Cover feature registration, the HTTP client, library scope,
+  generated-artifact identity, and metadata comparison without requiring Zotero.
+- **Reduce `views.ts` responsibilities when touched.** Separate view state, network work,
+  and Zotero mutations as related features change; no standalone wholesale rewrite.
+- **Type-check the template editor.** Move its logic from `addon/chrome/content/panel.js`
+  into the TypeScript build.
 
-- Reclaim remote sync packs. Packs are immutable and never deleted, so remote storage
-  grows without bound. Designing reclamation is a prerequisite — the operation deletes
-  remote data irreversibly. Constraints: [SYNC_AND_LITERATURE_SOURCES.md](SYNC_AND_LITERATURE_SOURCES.md).
-- Give the Paper lifecycle a user-facing conflict-review workflow and lifecycle
-  diagnostics. Identity merges and redirects currently have no UI.
-- Extend sync past Project and Board: same-subject Project identity migration/redirect
-  and conflict review, then Literature Paper/observation/redirect packs, then References,
-  Citations, and explicitly portable settings. Device paths and secrets stay local.
-- Introduce a capability-based literature-source boundary before adding more out-of-library
-  exploration. An optional local corpus behind the runtime API is only worth evaluating
-  after real queries show online providers and the portable cache are insufficient.
+## Background ideas
 
-## Background — product / data work
+These are possibilities, not selected implementation tasks.
 
-- Integrate an explicit, provider-backed publication ranking before any UI exposes a
-  Publication Level filter; do not infer rank from venue names.
-- Let metadata review resolve conflicts field by field, rather than accepting or
-  rejecting a candidate paper whole.
-- Carry provider provenance and retrieval time for volatile scholarly data — the
-  citation count on an item is currently a bare number with no "as of".
-- Add annotation profiles with type, color, tags, comments, and managed output modes.
-- Allow frontmatter properties to draw on a versioned Zotero snapshot rather than
-  the item’s state at conversion time.
-
-Prioritize verified behavior and clear boundaries over directory reshuffling. Do not
-implement Background items unless the task asks for them.
+- **Publication ranking.** Use an explicit data provider before offering a ranking filter;
+  do not guess from publication names.
+- **Review metadata field by field.** Accept or reject individual conflicting fields
+  instead of the entire candidate paper.
+- **Show data source and age.** Record the source and retrieval time for changing values
+  such as citation counts.
+- **Annotation presets.** Configure annotation types, colors, tags, comments, and how
+  managed output is generated.

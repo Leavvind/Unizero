@@ -71,19 +71,3 @@ pref("extensions.zotero.__addonRef__.noteEditor.outline", true);
 pref("extensions.zotero.__addonRef__.noteEditor.outline.open", true);
 // Alt+1 / Alt+2 highlight and underline tools, 1-4 colors, 0 clears.
 pref("extensions.zotero.__addonRef__.noteEditor.tools", true);
-
-// ---- WebDAV sync ----
-// The application password is intentionally absent: Firefox Login Manager owns
-// the secret, just as it does for Zotero's built-in WebDAV support.
-pref("extensions.zotero.__addonRef__.sync.webdav.baseURL", "https://dav.jianguoyun.com/dav/");
-pref("extensions.zotero.__addonRef__.sync.webdav.username", "");
-pref("extensions.zotero.__addonRef__.sync.webdav.remoteRoot", "Unizero/v1");
-pref("extensions.zotero.__addonRef__.sync.webdav.deviceID", "");
-pref("extensions.zotero.__addonRef__.sync.webdav.rememberPassword", true);
-pref("extensions.zotero.__addonRef__.sync.webdav.autoSync", false);
-pref("extensions.zotero.__addonRef__.sync.webdav.intervalMinutes", 30);
-pref("extensions.zotero.__addonRef__.sync.webdav.notificationMode", "errors");
-pref("extensions.zotero.__addonRef__.sync.webdav.lastAttemptAt", 0);
-pref("extensions.zotero.__addonRef__.sync.webdav.lastSuccessAt", 0);
-pref("extensions.zotero.__addonRef__.sync.webdav.lastError", "");
-

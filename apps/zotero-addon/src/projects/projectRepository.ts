@@ -1,15 +1,11 @@
 /**
  * Local repository for user-authored Unizero Home projects.
  *
- * The files are a local projection, not a remote protocol:
+ * Local files:
  *
  *   <dataDir>/unizero/projects/index.json
  *   <dataDir>/unizero/projects/objects/<projectID>/project.json
  *   <dataDir>/unizero/projects/objects/<projectID>/boards/<boardID>.json
- *
- * Project and Board already have independent versioned envelopes so a future
- * sync engine can transport typed objects without uploading this directory as a
- * monolithic database file.
  */
 
 import { config } from "../../package.json";
@@ -34,7 +30,6 @@ import {
   type BoardDocument,
   type ProjectBundle,
   type ProjectDocument,
-  type PortableProjectObject,
   type ProjectSubject,
 } from "./types";
 
@@ -217,38 +212,6 @@ export class ProjectRepository {
     }
     return nodes.sort((left, right) =>
       left.createdAt - right.createdAt || compareCodeUnits(left.id, right.id));
-  }
-
-  /**
-   * Everything sync may transport. This walks only each Project's default
-   * Board, which is all a Project has today. The Board schema already allows
-   * more than one, so adding a second Board without extending this listing
-   * would silently exclude it from sync — grow this first.
-   */
-  public async listPortableObjects(): Promise<PortableProjectObject[]> {
-    await this.writes.settled();
-    const index = await this.loadIndex();
-    const objects: PortableProjectObject[] = [];
-    for (const projectID of [...new Set(Object.values(index.subjects))].sort()) {
-      const bundle = await this.readBundle(projectID);
-      objects.push(bundle.project, bundle.defaultBoard);
-      objects.push(...await this.listBoardNodesRaw(
-        projectID,
-        bundle.defaultBoard.id,
-      ));
-      objects.push(...await this.listBoardEdgesRaw(
-        projectID,
-        bundle.defaultBoard.id,
-      ));
-    }
-    return objects;
-  }
-
-  /** Returns what was actually written, which may be normalized. */
-  public async applyPortableObject(
-    object: PortableProjectObject,
-  ): Promise<PortableProjectObject> {
-    return this.writes.run(() => this.applyPortableObjectExclusive(object));
   }
 
   public async createPaperNode(
@@ -512,164 +475,6 @@ export class ProjectRepository {
       await this.writeJSON(this.edgePath(projectID, boardID, edgeID), result);
     });
     return result;
-  }
-
-  private async listBoardNodesRaw(
-    projectID: string,
-    boardID: string,
-  ): Promise<BoardNodeDocument[]> {
-    let paths: string[];
-    try {
-      paths = await IOUtils.getChildren(this.nodesPath(projectID, boardID));
-    } catch (error) {
-      if (isMissingFile(error)) { return []; }
-      throw error;
-    }
-    const nodes: BoardNodeDocument[] = [];
-    for (const path of paths) {
-      if (!String(path).endsWith(".json")) { continue; }
-      // One damaged file must not stop every other object from syncing, which
-      // throwing here would do: this feeds the whole portable-object listing.
-      // Skipping matches how the Board's own read path already treats it.
-      try {
-        const node = this.validBoardNode(
-          await this.readJSON(path),
-          projectID,
-          boardID,
-        );
-        if (node) {
-          nodes.push(node);
-          continue;
-        }
-      } catch (error) {
-        ztoolkit.log(`Board node unreadable at ${path}: ${error}`);
-        continue;
-      }
-      ztoolkit.log(`Board node excluded from sync, invalid at ${path}`);
-    }
-    return nodes.sort((left, right) =>
-      left.createdAt - right.createdAt || compareCodeUnits(left.id, right.id));
-  }
-
-  private async listBoardEdgesRaw(
-    projectID: string,
-    boardID: string,
-  ): Promise<BoardManualEdgeDocument[]> {
-    let paths: string[];
-    try {
-      paths = await IOUtils.getChildren(this.edgesPath(projectID, boardID));
-    } catch (error) {
-      if (isMissingFile(error)) { return []; }
-      throw error;
-    }
-    const edges: BoardManualEdgeDocument[] = [];
-    for (const path of paths) {
-      if (!String(path).endsWith(".json")) { continue; }
-      try {
-        const edge = this.validBoardEdge(
-          await this.readJSON(path),
-          projectID,
-          boardID,
-        );
-        if (edge) {
-          edges.push(edge);
-          continue;
-        }
-      } catch (error) {
-        ztoolkit.log(`Board edge unreadable at ${path}: ${error}`);
-        continue;
-      }
-      ztoolkit.log(`Board edge excluded from sync, invalid at ${path}`);
-    }
-    return edges.sort((left, right) =>
-      left.createdAt - right.createdAt || compareCodeUnits(left.id, right.id));
-  }
-
-  private async applyPortableObjectExclusive(
-    object: PortableProjectObject,
-  ): Promise<PortableProjectObject> {
-    if (
-      object.schema === PROJECT_SCHEMA &&
-      "subject" in object &&
-      typeof object.defaultBoardID === "string"
-    ) {
-      const key = projectSubjectKey(object.subject);
-      const index = await this.loadIndex();
-      const existingID = index.subjects[key];
-      if (existingID && existingID !== object.id) {
-        throw new Error(
-          `Project subject already belongs to another Project: ${key}`,
-        );
-      }
-      await this.writeJSON(this.projectPath(object.id), object);
-      if (existingID !== object.id) {
-        this.index = {
-          schema: PROJECT_INDEX_SCHEMA,
-          subjects: { ...index.subjects, [key]: object.id },
-        };
-        await this.writeJSON(this.indexPath(), this.index);
-      }
-      return object;
-    }
-
-    if (
-      object.schema === BOARD_SCHEMA &&
-      "projectID" in object &&
-      !("boardID" in object) &&
-      typeof object.name === "string"
-    ) {
-      const project = await this.readJSON(this.projectPath(object.projectID));
-      if (
-        project?.schema !== PROJECT_SCHEMA ||
-        project?.defaultBoardID !== object.id
-      ) {
-        throw new Error(`Board does not belong to its Project: ${object.id}`);
-      }
-      await this.writeJSON(
-        this.boardPath(object.projectID, object.id),
-        object,
-      );
-      return object;
-    }
-
-    if (
-      "projectID" in object &&
-      "boardID" in object &&
-      object.kind === "manual"
-    ) {
-      await this.assertBoard(object.projectID, object.boardID);
-      const edge = this.validBoardEdge(
-        object,
-        object.projectID,
-        object.boardID,
-      );
-      if (!edge) {
-        throw new Error(`Unsupported or invalid Board edge: ${object.id}`);
-      }
-      await this.writeJSON(
-        this.edgePath(object.projectID, object.boardID, object.id),
-        edge,
-      );
-      return edge;
-    }
-
-    if ("projectID" in object && "boardID" in object) {
-      await this.assertBoard(object.projectID, object.boardID);
-      const node = this.validBoardNode(
-        object,
-        object.projectID,
-        object.boardID,
-      );
-      if (!node) {
-        throw new Error(`Unsupported or invalid Board node: ${object.id}`);
-      }
-      await this.writeJSON(
-        this.nodePath(object.projectID, object.boardID, object.id),
-        node,
-      );
-      return node;
-    }
-    throw new Error("Unsupported portable Project object");
   }
 
   private async ensureProjectExclusive(
@@ -980,17 +785,6 @@ export async function listDefaultBoardEdges(
     bundle.project.id,
     bundle.defaultBoard.id,
   );
-}
-
-export async function listPortableProjectObjects():
-Promise<PortableProjectObject[]> {
-  return defaultRepository().listPortableObjects();
-}
-
-export async function applyPortableProjectObject(
-  object: PortableProjectObject,
-): Promise<PortableProjectObject> {
-  return defaultRepository().applyPortableObject(object);
 }
 
 export async function createDefaultBoardPaperNode(

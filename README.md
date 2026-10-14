@@ -27,7 +27,7 @@ The **library backend** and scholarly data plane inside Zotero:
 - PDF → Markdown conversion (via the local paper runtime);
 - annotation export and injection into Markdown;
 - fetching and caching References / Citations through scholarly providers;
-- derived relation index, Paper catalog, and optional WebDAV sync of Project documents.
+- derived relation index and Paper catalog.
 
 It also hosts the localhost bridge the Obsidian plugin talks to.
 

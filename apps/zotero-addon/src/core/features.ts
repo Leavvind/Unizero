@@ -5,7 +5,6 @@ import Views from "../modules/views";
 import { uniConnectionSync } from "../modules/uniConnectionSync";
 import { startInBackground, stopOnShutdown } from "../runtime-client/process";
 import { registerBridgeEndpoints, unregisterBridgeEndpoints } from "../server/bridge";
-import { webDAVSyncScheduler } from "../sync/scheduler";
 import { registerNoteEditorStyle, unregisterNoteEditorStyle } from "../zotero/noteEditor";
 import { registerNoteLinkHandler, unregisterNoteLinkHandler } from "../zotero/noteLinks";
 import { noteServiceFailure } from "../ui/notices";
@@ -126,19 +125,6 @@ const annotations: FeatureModule = {
   },
 };
 
-const projectSync: FeatureModule = {
-  id: "project.sync",
-  onWindowLoad() {
-    webDAVSyncScheduler.start();
-  },
-  onAppShutdown() {
-    webDAVSyncScheduler.stop();
-  },
-  onShutdown() {
-    webDAVSyncScheduler.stop();
-  },
-};
-
 /**
  * Read-only HTTP endpoints on Zotero's existing localhost server, used by editors
  * that cannot be loaded into this process. The endpoint table is process-wide, so
@@ -191,7 +177,6 @@ export const featureRegistry = new FeatureRegistry([
   metadata,
   conversion,
   annotations,
-  projectSync,
   bridge,
   noteLinks,
   noteEditor,

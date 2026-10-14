@@ -30,7 +30,7 @@ local paper runtime. It also still ships the legacy Unizero Home UI.
 - A force-directed Graph tab per paper (item-pane / explorer detail), with adjustable
   display and force settings.
 
-**Conversion, annotations, and sync**
+**Conversion and annotations**
 
 - PDF conversion commands and generated-artifact registration, including a versioned
   structured References JSON attachment produced from the PDF bibliography.
@@ -55,10 +55,6 @@ local paper runtime. It also still ships the legacy Unizero Home UI.
   colors of what is selected or clicked; `Esc` leaves the tool. Hidden preference `…noteEditor.tools` turns it off.
 - Annotation export and Markdown injection.
 - Runtime lifecycle, jobs, service notices, and templates.
-- Manual and scheduled WebDAV sync for Project, Board, node, edge, and tombstone
-  documents. Application passwords live in Zotero’s Login Manager under an add-on-specific
-  realm and never reach preferences or sync packs. Automatic sync is opt-in and runs no
-  more often than every 30 minutes.
 
 Document conversion and annotation injection require `services/paper-runtime`. Everything
 else runs without it.
