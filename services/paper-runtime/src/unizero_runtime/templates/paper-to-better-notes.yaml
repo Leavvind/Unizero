@@ -1,6 +1,6 @@
 schema_version: 1
 id: paper-to-better-notes
-name: Generate Raw note (Better Notes)
+name: Generate Raw note
 version: 1
 description: Convert a Zotero PDF with MinerU and keep the result as an editable Zotero note. Add "Publish · Markdown directory" (and Frontmatter) to publish to an Obsidian vault as well.
 modules:

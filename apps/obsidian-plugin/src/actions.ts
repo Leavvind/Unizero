@@ -8,7 +8,7 @@
  * not edit bibliographic fields from Obsidian.
  *
  * "Raw" is the converted paper, published by conversion as an editable Zotero child
- * note (tagged `unizero:raw-note`, rendered by Better Notes). It is for reading and
+ * note (tagged `unizero:raw-note`). It is for reading and
  * light format edits, not the hand-written note surface.
  *
  * "Canvas" is the user's real note for a paper — a vault `.canvas` they create
@@ -246,18 +246,17 @@ function paperLabel(
 }
 
 /**
- * Open the paper's Raw note in Zotero: select it, then open it in Better Notes'
- * editor when the add-on reports a Better Notes link.
+ * Open the paper's Raw note in Zotero: in a note tab through the add-on's
+ * `zotero://note` handler, or by selecting it when the add-on reports no such link.
  *
- * Selecting comes first because a `zotero://note` link that nothing handles
- * fails silently — the OS still hands it to Zotero, so there is no error to fall
- * back on. That happens when the paper was cached while Better Notes was running
- * and it has since been disabled. The selection keeps the user on the note.
+ * Never both: the OS hands each URL to Zotero without waiting for the previous
+ * one, so a select that finishes late switches back to the library tab and hides
+ * the note that was just opened.
  */
 export async function openRaw(paper: BridgePaper): Promise<void> {
-  if (paper.links.rawNote) {
-    await openExternal(paper.links.rawNote);
-    if (paper.links.rawNoteOpen) { await openExternal(paper.links.rawNoteOpen); }
+  const link = paper.links.rawNoteOpen ?? paper.links.rawNote;
+  if (link) {
+    await openExternal(link);
     return;
   }
   new Notice(

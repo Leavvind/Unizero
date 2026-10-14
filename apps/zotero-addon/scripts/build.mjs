@@ -219,6 +219,13 @@ async function esbuild() {
     },
     bundle: true,
     target: "firefox102",
+    // The bundle is evaluated where there is no `document`. This package's
+    // "browser" build calls document.createElement at load, which aborts the
+    // whole add-on, so take its DOM-free build instead.
+    alias: {
+      "decode-named-character-reference":
+        "./node_modules/decode-named-character-reference/index.js",
+    },
     outfile: path.join(
       buildDir,
       `addon/chrome/content/scripts/${config.addonRef}.js`,

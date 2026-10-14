@@ -6,6 +6,7 @@ import { uniConnectionSync } from "../modules/uniConnectionSync";
 import { startInBackground, stopOnShutdown } from "../runtime-client/process";
 import { registerBridgeEndpoints, unregisterBridgeEndpoints } from "../server/bridge";
 import { webDAVSyncScheduler } from "../sync/scheduler";
+import { registerNoteLinkHandler, unregisterNoteLinkHandler } from "../zotero/noteLinks";
 import { noteServiceFailure } from "../ui/notices";
 import {
   registerAnnotationMenu,
@@ -156,6 +157,20 @@ const bridge: FeatureModule = {
   },
 };
 
+/**
+ * `zotero://note` links, which open a note in a tab. The protocol table is
+ * process-wide, so registration is idempotent like the bridge's.
+ */
+const noteLinks: FeatureModule = {
+  id: "notes.links",
+  onWindowLoad() {
+    registerNoteLinkHandler();
+  },
+  onShutdown() {
+    unregisterNoteLinkHandler();
+  },
+};
+
 export const featureRegistry = new FeatureRegistry([
   relations,
   metadata,
@@ -163,4 +178,5 @@ export const featureRegistry = new FeatureRegistry([
   annotations,
   projectSync,
   bridge,
+  noteLinks,
 ]);

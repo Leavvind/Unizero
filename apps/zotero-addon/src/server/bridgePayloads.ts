@@ -39,7 +39,7 @@ export interface BridgePaperLinks {
   hasMarkdownAttachment: boolean;
   /** Present when the paper has a Raw note: selects that child note in Zotero. */
   rawNote?: string;
-  /** Present with `rawNote` while Better Notes is running: opens the note in its editor. */
+  /** Present with `rawNote`: opens the note in a note tab (`zotero://note`). */
   rawNoteOpen?: string;
 }
 

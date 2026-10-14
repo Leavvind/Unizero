@@ -1,8 +1,5 @@
 import {
   NOTE_SOFT_LIMIT_BYTES,
-  RawNoteUnavailableError,
-  betterNotesConverter,
-  betterNotesNoteLink,
   noteBytes,
   publishRawNote,
   rawNoteLinks,
@@ -46,7 +43,6 @@ beforeEach(() => {
   FakeNote.saved = [];
   (globalThis as any).Zotero.Item = FakeNote;
   (globalThis as any).Zotero.Items.get = (id: number) => library.get(id);
-  delete (globalThis as any).Zotero.BetterNotes;
 });
 
 describe("Raw note", () => {
@@ -114,69 +110,40 @@ describe("Raw note", () => {
     expect(result.oversize).toBe(true);
   });
 
-  it("fails clearly when Better Notes is missing", () => {
-    expect(() => betterNotesConverter()).toThrow(RawNoteUnavailableError);
-    expect(() => betterNotesConverter()).toThrow(/Better Notes/);
-  });
-
-  it("uses Better Notes' converter when it is installed", async () => {
-    (globalThis as any).Zotero.BetterNotes = {
-      api: { convert: { md2html: async (md: string) => `<h1>${md}</h1>` } },
-    };
-    expect(await betterNotesConverter().md2html("T")).toBe("<h1>T</h1>");
+  it("renders with the built-in converter by default", async () => {
+    await publishRawNote(parentWith(), "# T", "skip");
+    expect(FakeNote.saved[0].html).toBe('<div data-schema-version="9"><h1>T</h1></div>');
   });
 });
 
-describe("Better Notes note link", () => {
+describe("Raw note links", () => {
   const libraries: Record<number, { libraryType: string }> = {
     1: { libraryType: "user" },
     5: { libraryType: "group" },
-    9: { libraryType: "feed" },
   };
   const note = (libraryID: number): any => ({ libraryID, key: "IQQ6S4FN" });
-  let originalLibraries: unknown;
+  let original: { Libraries: unknown; Groups: unknown };
 
   beforeEach(() => {
-    originalLibraries = (globalThis as any).Zotero.Libraries;
-    (globalThis as any).Zotero.Libraries = {
-      ...(originalLibraries as object),
-      get: (id: number) => libraries[id],
-    };
+    const zotero = (globalThis as any).Zotero;
+    original = { Libraries: zotero.Libraries, Groups: zotero.Groups };
+    zotero.Libraries = { ...(zotero.Libraries as object), get: (id: number) => libraries[id] };
+    zotero.Groups = { getGroupIDFromLibraryID: (id: number) => (id === 5 ? 77 : false) };
   });
 
   afterEach(() => {
-    (globalThis as any).Zotero.Libraries = originalLibraries;
-  });
-
-  it("is absent without Better Notes", () => {
-    expect(betterNotesNoteLink(note(1))).toBeUndefined();
-  });
-
-  it("is absent when only Better Notes' global is left behind", () => {
-    (globalThis as any).Zotero.BetterNotes = {};
-    expect(betterNotesNoteLink(note(1))).toBeUndefined();
-  });
-
-  it("uses u for the user library and the libraryID for a group", () => {
-    (globalThis as any).Zotero.BetterNotes = { api: {} };
-    expect(betterNotesNoteLink(note(1))).toBe("zotero://note/u/IQQ6S4FN/");
-    expect(betterNotesNoteLink(note(5))).toBe("zotero://note/5/IQQ6S4FN/");
-    expect(betterNotesNoteLink(note(9))).toBeUndefined();
+    Object.assign((globalThis as any).Zotero, original);
   });
 
   it("gives the bridge both links for a note, and neither without one", () => {
-    (globalThis as any).Zotero.BetterNotes = { api: {} };
     expect(rawNoteLinks(note(5), "groups/77")).toEqual({
       rawNote: "zotero://select/groups/77/items/IQQ6S4FN",
-      rawNoteOpen: "zotero://note/5/IQQ6S4FN/",
+      rawNoteOpen: "zotero://note/77/IQQ6S4FN/",
     });
-    expect(rawNoteLinks(undefined, "library")).toEqual({});
-  });
-
-  it("keeps the select link when Better Notes is not running", () => {
     expect(rawNoteLinks(note(1), "library")).toEqual({
       rawNote: "zotero://select/library/items/IQQ6S4FN",
-      rawNoteOpen: undefined,
+      rawNoteOpen: "zotero://note/u/IQQ6S4FN/",
     });
+    expect(rawNoteLinks(undefined, "library")).toEqual({});
   });
 });

@@ -1289,14 +1289,13 @@ MODULE_REGISTRY.register(WorkflowModule(
 ))
 MODULE_REGISTRY.register(WorkflowModule(
     id="publish.zotero-note",
-    name="Publish · Zotero note (Better Notes)",
+    name="Publish · Zotero note",
     role="publish",
     handler=_stage_publish_note,
     description=(
         "Create the paper's Raw Markdown as a Zotero note under the item, "
-        "rendered by Better Notes. The note carries no frontmatter and is the "
-        "copy you read and edit; the Markdown file itself is not kept. Needs the "
-        "Better Notes plugin in Zotero."
+        "rendered by the UniZero add-on. The note carries no frontmatter and is "
+        "the copy you read and edit; the Markdown file itself is not kept."
     ),
     defaults={"existing_note": "skip"},
     settings_schema=_object_schema({
