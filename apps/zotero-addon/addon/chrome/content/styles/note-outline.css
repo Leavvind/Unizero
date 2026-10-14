@@ -1,0 +1,125 @@
+/*
+ * Outline sidebar of a note tab, injected into the note-editor iframe by
+ * src/zotero/noteOutline.ts. Colors come from system colors so the panel follows the
+ * editor's light/dark scheme.
+ */
+
+:root {
+  --uz-outline-width: 240px;
+}
+
+#unizero-note-outline {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: var(--uz-outline-width);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: Canvas;
+  color: CanvasText;
+  border-inline-end: 1px solid color-mix(in srgb, CanvasText 15%, transparent);
+  font-size: 13px;
+  z-index: 2;
+}
+
+#unizero-note-outline header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 6px 12px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+#unizero-note-outline .uz-outline-close,
+#unizero-note-outline-toggle {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+  font: inherit;
+}
+
+#unizero-note-outline .uz-outline-close {
+  padding: 0 6px;
+  font-size: 16px;
+  line-height: 20px;
+}
+
+#unizero-note-outline .uz-outline-close:hover,
+#unizero-note-outline-toggle:hover {
+  background: color-mix(in srgb, CanvasText 10%, transparent);
+}
+
+#unizero-note-outline .uz-outline-list {
+  flex: 1;
+  overflow: auto;
+  padding: 0 4px 8px;
+}
+
+#unizero-note-outline .uz-outline-item {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 8px 3px calc(8px + var(--uz-depth, 0) * 14px);
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+#unizero-note-outline .uz-outline-item:hover {
+  background: color-mix(in srgb, CanvasText 8%, transparent);
+}
+
+#unizero-note-outline .uz-outline-item[aria-current="true"] {
+  background: color-mix(in srgb, AccentColor 22%, transparent);
+  font-weight: 600;
+}
+
+#unizero-note-outline .uz-outline-empty {
+  padding: 4px 12px;
+  opacity: 0.55;
+}
+
+#unizero-note-outline-toggle {
+  position: absolute;
+  left: 8px;
+  padding: 2px 8px;
+  z-index: 2;
+  opacity: 0.6;
+}
+
+#unizero-note-outline-toggle:hover {
+  opacity: 1;
+}
+
+/* Room for the panel beside the text, and one or the other of panel and button. */
+[data-uz-outline="open"] .editor-core {
+  margin-left: var(--uz-outline-width);
+}
+
+[data-uz-outline="open"] #unizero-note-outline-toggle,
+[data-uz-outline="closed"] #unizero-note-outline {
+  display: none;
+}
+
+/* A narrow tab has no room for it. */
+@media (max-width: 640px) {
+  #unizero-note-outline,
+  #unizero-note-outline-toggle {
+    display: none;
+  }
+
+  [data-uz-outline="open"] .editor-core {
+    margin-left: 0;
+  }
+}

@@ -28,6 +28,16 @@ describe("zotero://note links", () => {
     expect(noteLink({ libraryID: 9, key: "IQQ6S4FN" } as any)).toBeUndefined();
   });
 
+  it("appends a location to the link it builds", () => {
+    const note = { libraryID: 1, key: "IQQ6S4FN" } as any;
+    expect(noteLink(note, { line: 12 })).toBe("zotero://note/u/IQQ6S4FN/?line=12");
+    expect(noteLink(note, { section: "Introduction", occurrence: 2 }))
+      .toBe("zotero://note/u/IQQ6S4FN/?section=Introduction&n=2");
+    expect(noteLink({ libraryID: 5, key: "IQQ6S4FN" } as any, { line: 3 }))
+      .toBe("zotero://note/77/IQQ6S4FN/?line=3");
+    expect(parseNoteLink(noteLink(note, { section: "A & B" })!)).toEqual({ libraryID: 1, key: "IQQ6S4FN" });
+  });
+
   it("round-trips through the parser", () => {
     expect(parseNoteLink("zotero://note/u/IQQ6S4FN/")).toEqual({ libraryID: 1, key: "IQQ6S4FN" });
     expect(parseNoteLink("zotero://note/77/IQQ6S4FN/")).toEqual({ libraryID: 5, key: "IQQ6S4FN" });

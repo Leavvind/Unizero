@@ -6,6 +6,7 @@ import { uniConnectionSync } from "../modules/uniConnectionSync";
 import { startInBackground, stopOnShutdown } from "../runtime-client/process";
 import { registerBridgeEndpoints, unregisterBridgeEndpoints } from "../server/bridge";
 import { webDAVSyncScheduler } from "../sync/scheduler";
+import { registerNoteEditorStyle, unregisterNoteEditorStyle } from "../zotero/noteEditor";
 import { registerNoteLinkHandler, unregisterNoteLinkHandler } from "../zotero/noteLinks";
 import { noteServiceFailure } from "../ui/notices";
 import {
@@ -171,6 +172,20 @@ const noteLinks: FeatureModule = {
   },
 };
 
+/**
+ * The note editor's look. The hook on `Zotero.Notes` is process-wide, so
+ * registration is idempotent like the note links'.
+ */
+const noteEditor: FeatureModule = {
+  id: "notes.editor",
+  async onWindowLoad() {
+    await registerNoteEditorStyle();
+  },
+  onShutdown() {
+    unregisterNoteEditorStyle();
+  },
+};
+
 export const featureRegistry = new FeatureRegistry([
   relations,
   metadata,
@@ -179,4 +194,5 @@ export const featureRegistry = new FeatureRegistry([
   projectSync,
   bridge,
   noteLinks,
+  noteEditor,
 ]);

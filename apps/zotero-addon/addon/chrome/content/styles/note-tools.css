@@ -1,0 +1,41 @@
+/*
+ * Badge showing the active annotation tool, injected into the note-editor iframe by
+ * src/zotero/noteTools.ts.
+ */
+
+#unizero-note-tool {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: Canvas;
+  color: CanvasText;
+  border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, CanvasText 18%, transparent);
+  font-size: 12px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+#unizero-note-tool[hidden] {
+  display: none;
+}
+
+#unizero-note-tool .uz-tool-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
+}
+
+#unizero-note-tool .uz-tool-name {
+  font-weight: 600;
+}
+
+#unizero-note-tool .uz-tool-hint {
+  opacity: 0.6;
+}

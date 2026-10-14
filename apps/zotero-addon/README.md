@@ -41,7 +41,18 @@ local paper runtime. It also still ships the legacy Unizero Home UI.
   into parts of top-level sections, each opening with a `Part i/n` line; Skip keeps
   existing notes, Replace reuses the parts and trashes only surplus marked parts.
 - `zotero://note/u/<key>/` and `zotero://note/<groupID>/<key>/` links open a note in a
-  tab, including links Better Notes wrote into older notes.
+  tab, including links Better Notes wrote into older notes. A `?line=` (block index),
+  `?section=` (heading text) or `?section=…&n=2` (second heading with that text) scrolls
+  the tab to that position. The note editor's right-click menu copies such a link to the
+  block or section under the pointer.
+- A note editor look (colors, heading sizes, list spacing, highlight colors) injected
+  into each note-editor iframe from `addon/chrome/content/styles/note-editor.css`;
+  turn it off with the hidden preference `extensions.zotero.unizero.noteEditor.style`.
+- An outline sidebar in note tabs (headings, click to scroll, follows the scroll position),
+  injected into the same iframe; hidden preference `…noteEditor.outline` turns it off.
+- Annotation tools in the note editor, with the PDF reader's keys: `Alt+1` highlight,
+  `1`–`4` yellow/red/green/blue, then select text to apply; `Alt+2` eraser, which clears the
+  colors of what is selected or clicked; `Esc` leaves the tool. Hidden preference `…noteEditor.tools` turns it off.
 - Annotation export and Markdown injection.
 - Runtime lifecycle, jobs, service notices, and templates.
 - Manual and scheduled WebDAV sync for Project, Board, node, edge, and tombstone
@@ -67,7 +78,7 @@ hints remain for existing users. Maintenance traps and document shapes:
 | `src/core/` | Static feature registry and lifecycle dispatch |
 | `src/features/` | Conversion and annotation command orchestration |
 | `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
-| `src/notes/` | Pure Markdown → Zotero note HTML converter (ported from Better Notes) |
+| `src/notes/` | Pure note logic: Markdown → note HTML converter (ported from Better Notes), link positions, outline, tool keys |
 | `src/modules/uniConnection.ts` | Derived reverse-reference index, coupling, graph topology |
 | `src/modules/uniConnectionSync.ts` | Notifier-driven index maintenance and reference backfill |
 | `src/server/` | Bridge endpoints (GET + convert) and citekey resolution |

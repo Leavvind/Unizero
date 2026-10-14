@@ -8,9 +8,12 @@
  *
  * Zotero has no public hook for a new `zotero://` path, so the handler is installed
  * the way Better Notes does it: through the protocol handler's private
- * `_extensions` table. Query parameters (`line`, `section`) are accepted and
- * ignored — scrolling needs the note editor's internals.
+ * `_extensions` table. The query (`line`, `section`, `n`; see
+ * `src/notes/noteLocation.ts`) scrolls the opened note to that position.
  */
+
+import { formatNoteLocation, isEmptyLocation, parseNoteLocation, type NoteLocation } from "../notes/noteLocation";
+import { revealNoteLocation } from "./noteNavigation";
 
 const EXTENSION_KEY = "zotero://note";
 
@@ -19,13 +22,14 @@ export interface NoteLinkTarget {
   key: string;
 }
 
-export function noteLink(note: Zotero.Item): string | undefined {
+export function noteLink(note: Zotero.Item, location: NoteLocation = {}): string | undefined {
   const library = Zotero.Libraries.get(note.libraryID);
   if (!library) { return undefined; }
-  if (library.libraryType === "user") { return `zotero://note/u/${note.key}/`; }
+  const query = formatNoteLocation(location);
+  if (library.libraryType === "user") { return `zotero://note/u/${note.key}/${query}`; }
   if (library.libraryType === "group") {
     const groupID = Zotero.Groups.getGroupIDFromLibraryID(note.libraryID);
-    return groupID ? `zotero://note/${groupID}/${note.key}/` : undefined;
+    return groupID ? `zotero://note/${groupID}/${note.key}/${query}` : undefined;
   }
   return undefined;
 }
@@ -41,7 +45,10 @@ export function parseNoteLink(link: string): NoteLinkTarget | undefined {
   return { libraryID, key: match[2].toUpperCase() };
 }
 
-/** Open the linked note in a tab. Returns false when the link names no note. */
+/**
+ * Open the linked note in a tab, scrolled to the position the link names. Returns
+ * false when the link names no note; a position that cannot be found still opens it.
+ */
 export async function openNoteLink(link: string): Promise<boolean> {
   const target = parseNoteLink(link);
   if (!target) { return false; }
@@ -50,6 +57,10 @@ export async function openNoteLink(link: string): Promise<boolean> {
   const win = Zotero.getMainWindow() as any;
   if (!win?.ZoteroPane) { return false; }
   await win.ZoteroPane.openNote(note.id, { openInWindow: false });
+  const location = parseNoteLocation(link);
+  if (!isEmptyLocation(location) && !(await revealNoteLocation(note.id, location))) {
+    Zotero.debug(`UniZero: could not scroll ${link}`);
+  }
   return true;
 }
 

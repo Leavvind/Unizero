@@ -63,6 +63,15 @@ pref("extensions.zotero.__addonRef__.conversion.mdSnapshot", true);
 // left empty, notes open by absolute path, which does not.
 pref("extensions.zotero.__addonRef__.conversion.obsidianVault", "");
 
+// ---- Note editor ----
+// Inject the UniZero look into note editors; see src/zotero/noteEditor.ts.
+pref("extensions.zotero.__addonRef__.noteEditor.style", true);
+// Outline sidebar in note tabs, and whether it is open.
+pref("extensions.zotero.__addonRef__.noteEditor.outline", true);
+pref("extensions.zotero.__addonRef__.noteEditor.outline.open", true);
+// Alt+1 / Alt+2 highlight and underline tools, 1-4 colors, 0 clears.
+pref("extensions.zotero.__addonRef__.noteEditor.tools", true);
+
 // ---- WebDAV sync ----
 // The application password is intentionally absent: Firefox Login Manager owns
 // the secret, just as it does for Zotero's built-in WebDAV support.
