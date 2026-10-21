@@ -37,10 +37,6 @@ above, not only the most recent one.
   `__placeholder__` templating in `addon/`.
 - **zotero-types** (https://github.com/windingwind/zotero-types) — MIT, development-time
   type definitions only.
-- **zotero-better-notes** (https://github.com/windingwind/zotero-better-notes) —
-  AGPL-3.0, Copyright (C) windingwind and contributors. The `zotero://note` URL shape
-  and handler installation in `src/zotero/noteLinks.ts` follow its `src/utils/link.ts`
-  and `src/modules/noteLink.ts`.
 
 ### Data sources
 

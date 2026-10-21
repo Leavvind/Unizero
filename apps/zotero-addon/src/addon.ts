@@ -32,7 +32,6 @@ class Addon {
   public api: {
     uniConnection?: UniConnection;
     uniConnectionSync?: UniConnectionSync;
-    noteEditorProbe?: () => Promise<unknown>;
     readerShortcutProbe?: () => unknown;
   };
 

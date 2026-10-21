@@ -30,7 +30,7 @@ local paper runtime. It also still ships the legacy Unizero Home UI.
 - A force-directed Graph tab per paper (item-pane / explorer detail), with adjustable
   display and force settings.
 
-**Conversion and annotations**
+**Conversion, annotations, and reader**
 
 - PDF conversion commands and generated-artifact registration, including a versioned
   structured References JSON attachment produced from the PDF bibliography.
@@ -42,21 +42,10 @@ local paper runtime. It also still ships the legacy Unizero Home UI.
   **Raw Backup** (`unizero:raw-backup`) is replaced by every conversion. Images the
   Markdown links to sit beside each file under `attachments/`. A paper with
   supplements gets one pair per PDF.
-- `zotero://note/u/<key>/` and `zotero://note/<groupID>/<key>/` links open a note in a
-  tab, including links Better Notes wrote into older notes. A `?line=` (block index),
-  `?section=` (heading text) or `?section=…&n=2` (second heading with that text) scrolls
-  the tab to that position. The note editor's right-click menu copies such a link to the
-  block or section under the pointer.
-- A note editor look (colors, heading sizes, list spacing, highlight colors) injected
-  into each note-editor iframe from `addon/chrome/content/styles/note-editor.css`;
-  turn it off with the hidden preference `extensions.zotero.unizero.noteEditor.style`.
-- An outline sidebar in note tabs (headings, click to scroll, follows the scroll position),
-  injected into the same iframe; hidden preference `…noteEditor.outline` turns it off.
-- Selection shortcuts, meant for mouse buttons or gestures, that mean the same in a note
-  and in the reader: `Cmd+Option+B` / `R` / `P` (`Ctrl+Alt` on Windows) highlight the
-  selected text blue / red / purple (in the reader, as a highlight annotation);
-  `Cmd+Option+\` (`Ctrl+Alt+\`) clears the selection's formatting except links (notes
-  only). Bold and italic stay the editor's own `Cmd+B` / `Cmd+I`. Hidden preference `…editShortcuts` turns them off.
+- Reader highlight shortcuts, meant for mouse buttons or gestures: `Cmd+Option+B` / `R`
+  / `P` (`Ctrl+Alt` on Windows) turn the selected PDF, EPUB or snapshot text into a
+  blue / red / purple highlight annotation. Hidden preference `…editShortcuts` turns
+  them off.
 - Annotation export and Markdown injection.
 - Runtime lifecycle, jobs, service notices, and templates.
 
@@ -78,13 +67,12 @@ hints remain for existing users. Maintenance traps and document shapes:
 | `src/core/` | Static feature registry and lifecycle dispatch |
 | `src/features/` | Conversion and annotation command orchestration |
 | `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
-| `src/notes/` | Pure note logic: link positions, outline, selection shortcut keys |
 | `src/modules/uniConnection.ts` | Derived reverse-reference index, coupling, graph topology |
 | `src/modules/uniConnectionSync.ts` | Notifier-driven index maintenance and reference backfill |
 | `src/server/` | Bridge endpoints (GET + convert) and citekey resolution |
 | `src/projects/` | Versioned Project/Board/Paper shapes and local Project repository |
 | `src/runtime-client/` | HTTP contracts, client, launch resolution, process state |
-| `src/zotero/` | Zotero adapters, library scope, artifact identity, `zotero://note` links |
+| `src/zotero/` | Zotero adapters, library scope, artifact identity, reader shortcuts |
 | `src/ui/` | Menus, progress, service notices, panel and Home bridges |
 | `addon/` | Manifest, locales, preferences, icons, dialog markup and scripts |
 | `tests/` | Vitest: Projects, derived index, graph builders, Home dialog |

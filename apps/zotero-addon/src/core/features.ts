@@ -5,8 +5,6 @@ import Views from "../modules/views";
 import { uniConnectionSync } from "../modules/uniConnectionSync";
 import { startInBackground, stopOnShutdown } from "../runtime-client/process";
 import { registerBridgeEndpoints, unregisterBridgeEndpoints } from "../server/bridge";
-import { registerNoteEditorStyle, unregisterNoteEditorStyle } from "../zotero/noteEditor";
-import { registerNoteLinkHandler, unregisterNoteLinkHandler } from "../zotero/noteLinks";
 import { registerReaderShortcuts, unregisterReaderShortcuts } from "../zotero/readerShortcuts";
 import { noteServiceFailure } from "../ui/notices";
 import {
@@ -146,37 +144,8 @@ const bridge: FeatureModule = {
 };
 
 /**
- * `zotero://note` links, which open a note in a tab. The protocol table is
- * process-wide, so registration is idempotent like the bridge's.
- */
-const noteLinks: FeatureModule = {
-  id: "notes.links",
-  onWindowLoad() {
-    registerNoteLinkHandler();
-  },
-  onShutdown() {
-    unregisterNoteLinkHandler();
-  },
-};
-
-/**
- * The note editor's look. The hook on `Zotero.Notes` is process-wide, so
- * registration is idempotent like the note links'.
- */
-const noteEditor: FeatureModule = {
-  id: "notes.editor",
-  async onWindowLoad() {
-    await registerNoteEditorStyle();
-  },
-  onShutdown() {
-    unregisterNoteEditorStyle();
-  },
-};
-
-/**
- * Selection shortcuts in the reader; the note editor's half is set up with the
- * editor above. The reader's listener table is process-wide, so registration is
- * idempotent like the note links'.
+ * Selection shortcuts in the reader. The reader's listener table is process-wide,
+ * so registration is idempotent like the bridge's.
  */
 const readerShortcuts: FeatureModule = {
   id: "reader.shortcuts",
@@ -194,7 +163,5 @@ export const featureRegistry = new FeatureRegistry([
   conversion,
   annotations,
   bridge,
-  noteLinks,
-  noteEditor,
   readerShortcuts,
 ]);

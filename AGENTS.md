@@ -104,7 +104,6 @@ The process boundary is described in `docs/ARCHITECTURE.md`.
 | `apps/zotero-addon/src/zotero` | Zotero item, attachment, annotation, and identity adapters |
 | `apps/zotero-addon/src/ui` | Menus, panel bridge, progress, and service notices |
 | `apps/zotero-addon/src/modules` | Established relations, metadata, cache, and item-pane code |
-| `apps/zotero-addon/src/notes` | Pure note logic, no Zotero APIs: link positions, outline, selection shortcut keys |
 | `apps/zotero-addon/src/server` | Localhost bridge (GET + convert action) and citekey resolution |
 | `apps/obsidian-plugin/src` | Obsidian rendering, suggester, detail pane, and bridge client (active front end) |
 | `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, **legacy** Unizero Home, graph renderer |

@@ -180,7 +180,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       ...loaded,
       canvasLinks: links,
     };
-    // Vault Raw files gave way to the Zotero Raw note; drop their old settings.
+    // Raw no longer lives in a vault folder (it is a Zotero attachment); drop those settings.
     for (const key of ["literatureFolder", "itemKeyProperty", "citekeyProperty"]) {
       delete (this.settings as unknown as Record<string, unknown>)[key];
     }

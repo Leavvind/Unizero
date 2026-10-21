@@ -365,7 +365,7 @@ export function invalidateCitekeyIndex(libraryID?: number): void {
 
 /**
  * Notes, attachments, and annotations derive no key, so their churn — a
- * conversion adding its Raw note and attachments, say — keeps the index.
+ * conversion adding its Raw attachments, say — keeps the index.
  * An item that can no longer be read is treated as relevant.
  */
 function touchesRegularItem(id: number | string): boolean {

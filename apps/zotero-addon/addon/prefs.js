@@ -63,13 +63,8 @@ pref("extensions.zotero.__addonRef__.conversion.mdSnapshot", true);
 // left empty, notes open by absolute path, which does not.
 pref("extensions.zotero.__addonRef__.conversion.obsidianVault", "");
 
-// ---- Note editor ----
-// Inject the UniZero look into note editors; see src/zotero/noteEditor.ts.
-pref("extensions.zotero.__addonRef__.noteEditor.style", true);
-// Outline sidebar in note tabs, and whether it is open.
-pref("extensions.zotero.__addonRef__.noteEditor.outline", true);
-pref("extensions.zotero.__addonRef__.noteEditor.outline.open", true);
-// Selection shortcuts in notes and the reader: Cmd+Option+B/R/P (Ctrl+Alt on Windows)
-// highlight blue/red/purple, Cmd+Option+\ clears formatting in notes; see
-// src/notes/editShortcuts.ts. Replaces noteEditor.tools, migrated in src/modules/migrate.ts.
+// ---- Reader ----
+// Selection shortcuts in the reader: Cmd+Option+B/R/P (Ctrl+Alt on Windows) turn the
+// selection into a blue/red/purple highlight; see src/zotero/readerShortcutKeys.ts.
+// Replaces noteEditor.tools, migrated in src/modules/migrate.ts.
 pref("extensions.zotero.__addonRef__.editShortcuts", true);

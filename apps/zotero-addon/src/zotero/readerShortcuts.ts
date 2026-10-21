@@ -1,7 +1,6 @@
 /**
- * Selection shortcuts in the reader (see `src/notes/editShortcuts.ts`): the highlight
- * keys turn the selected text into a highlight annotation of their color. Clearing
- * formatting means nothing here and is left alone.
+ * Selection shortcuts in the reader (keys in `readerShortcutKeys.ts`): the highlight
+ * keys turn the selected text into a highlight annotation of their color.
  *
  * The reader already makes a highlight from the selection on `Ctrl+Option+1` (on every
  * platform), in the highlight tool's current color, for PDF, EPUB and snapshots alike.
@@ -21,7 +20,7 @@
  */
 
 import { config } from "../../package.json";
-import { EDIT_SHORTCUTS_PREF, HIGHLIGHT_COLORS, editAction } from "../notes/editShortcuts";
+import { HIGHLIGHT_COLORS, SELECTION_SHORTCUTS_PREF, highlightKey } from "./readerShortcutKeys";
 
 /** Every window a listener sits on, with what takes it off. */
 const attached = new Map<Window, () => void>();
@@ -48,7 +47,7 @@ export function unregisterReaderShortcuts(): void {
 }
 
 function onSelectionPopup(event: { reader: _ZoteroTypes.ReaderInstance }): void {
-  if (!Zotero.Prefs.get(EDIT_SHORTCUTS_PREF)) { return; }
+  if (!Zotero.Prefs.get(SELECTION_SHORTCUTS_PREF)) { return; }
   const reader = event.reader as any;
   try {
     // Keys reach the view that has the selection, or the reader's own UI when the popup has focus.
@@ -69,16 +68,16 @@ function attach(win: Window, reader: any): void {
   if (attached.has(win)) { return; }
   const onKeyDown = (event: KeyboardEvent) => {
     // The switch is read per key, so turning it off takes effect in windows already attached.
-    if (event.isComposing || !Zotero.Prefs.get(EDIT_SHORTCUTS_PREF)) { return; }
+    if (event.isComposing || !Zotero.Prefs.get(SELECTION_SHORTCUTS_PREF)) { return; }
     // Text fields in the reader's own UI (annotation comments, search) keep their keys.
     if (isTextField(event.target)) { return; }
-    const action = editAction(event, Zotero.isMac);
-    if (!action || action.type !== "highlight") { return; }
+    const color = highlightKey(event, Zotero.isMac);
+    if (!color) { return; }
     event.preventDefault();
     event.stopPropagation();
     // A held key repeats; one press makes one annotation.
     if (event.repeat) { return; }
-    highlightSelection(reader, win, HIGHLIGHT_COLORS[action.color]);
+    highlightSelection(reader, win, HIGHLIGHT_COLORS[color]);
   };
   const dispose = () => {
     try { win.removeEventListener("keydown", onKeyDown, true); } catch { /* the window is gone */ }
@@ -151,7 +150,7 @@ function unwaived(win: any): Window | undefined {
  */
 export function probeReaderShortcuts(): Record<string, unknown> {
   const report: Record<string, unknown> = {
-    enabled: !!Zotero.Prefs.get(EDIT_SHORTCUTS_PREF),
+    enabled: !!Zotero.Prefs.get(SELECTION_SHORTCUTS_PREF),
     isMac: Zotero.isMac,
     registered,
     attachedWindows: attached.size,

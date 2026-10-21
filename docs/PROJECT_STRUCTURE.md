@@ -81,9 +81,7 @@ data are not part of this structure.
 | Add a conversion or annotation command | `apps/zotero-addon/src/features/` |
 | Change a menu or panel integration | `apps/zotero-addon/src/ui/` |
 | Read or mutate Zotero items/attachments | `apps/zotero-addon/src/zotero/` |
-| Change how Markdown renders as a Zotero note | `apps/zotero-addon/src/notes/` |
-| Change `zotero://note` link handling | `apps/zotero-addon/src/zotero/noteLinks.ts` (positions: `src/notes/noteLocation.ts`) |
-| Change the note editor (look, outline, annotation tools, copy-link menu) | `apps/zotero-addon/src/zotero/noteEditor.ts` and the files it names; CSS in `addon/chrome/content/styles/` |
+| Change the reader's highlight shortcuts | `apps/zotero-addon/src/zotero/readerShortcuts.ts` (keys: `readerShortcutKeys.ts`) |
 | Change References, Citations, or metadata UI | `apps/zotero-addon/src/modules/` |
 | Change relation or graph topology | `apps/zotero-addon/src/modules/uniConnection.ts` |
 | Change index maintenance or reference backfill | `apps/zotero-addon/src/modules/uniConnectionSync.ts` |

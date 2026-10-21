@@ -16,7 +16,6 @@ Two kinds of document live here, and they are read differently.
 | [ROADMAP.md](ROADMAP.md) | Plan | You are looking for unfinished work |
 | [LEGACY_HOME.md](LEGACY_HOME.md) | Maintenance (legacy surface) | Only if a task explicitly touches Home / Board / Project View |
 | [UNICONNECTION.md](UNICONNECTION.md) | Design and handoff | A task touches the derived reverse-reference index or the Graph tab |
-| [ZOTERO_NOTES.md](ZOTERO_NOTES.md) | Maintenance (Chinese) | A task touches the note editor enhancements or `zotero://note` links |
 
 Component behaviour and commands are documented next to the code:
 

@@ -28,31 +28,20 @@ Current behavior: [add-on README](../apps/zotero-addon/README.md).
 - **Annotations into Raw.** Annotation injection writes to vault Markdown only; Raw is
   now a Markdown file too, but injecting into it would edit the user's working copy.
 
-## Zotero notes
+## Zotero reader
 
-Maintenance constraints: [ZOTERO_NOTES.md](ZOTERO_NOTES.md).
-
-- **Position links.** Improve links to blocks and headings after the desired behavior
-  is clarified. Existing links already work.
-- **Paste and tables.** Add Markdown paste and draggable table column widths.
-  The other note editor enhancements are already implemented.
-- **Selection shortcuts — manual check.** In a real Zotero, check that `Cmd+Option+B/R/P`
-  highlight a note selection and turn a PDF, EPUB and snapshot selection into a highlight
-  annotation of that color without changing the reader's tool color (also in split view's
-  second view), that `Ctrl+Alt` does the same on Windows while AltGr still types its
-  characters, that annotation comments keep their keys, and that
-  `Cmd+Option+\` clears a note selection's formatting but keeps links.
-- **Copy as Markdown — deferred.** Plain copy and paste already retains most formatting.
-  Converting Zotero citations to `@libraryID/itemKey` depends on a way to insert
-  citations in ordinary notes. No copy command or note-export bridge is implemented.
+- **Highlight shortcuts — manual check.** In a real Zotero, check that `Cmd+Option+B/R/P`
+  turn a PDF, EPUB and snapshot selection into a highlight annotation of that color
+  without changing the reader's tool color (also in split view's second view), that
+  `Ctrl+Alt` does the same on Windows while AltGr still types its characters, and that
+  annotation comments keep their keys.
 
 ## Verification
 
 These remaining records have not been reconfirmed during documentation cleanup.
 Run relevant checks when changing the affected area; host behavior is not covered by
-TypeScript or Vitest. Obsidian basic behavior and Canvas/file bindings, plus
-group-library note links, were confirmed complete by the user on 2026-10-14 and
-removed from the open list.
+TypeScript or Vitest. Obsidian basic behavior and Canvas/file bindings were confirmed
+complete by the user on 2026-10-14 and removed from the open list.
 
 - **Basic operation.** Startup/shutdown, metadata review, References/Citations previews,
   Collection status/actions, relation filtering, current-library import, conversion,
