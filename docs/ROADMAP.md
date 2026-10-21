@@ -15,17 +15,27 @@ Manual checks are historical open records, not evidence of a known defect.
 - **Literature exploration.** Discover papers, sort results, and follow related papers
   from notes. The next concrete feature still needs to be chosen.
 
-## Raw note
+## Raw Markdown
 
 Current behavior: [add-on README](../apps/zotero-addon/README.md).
+
+- **Raw attachments — manual check.** In a real Zotero, convert with
+  `paper-to-zotero-markdown` and check that Raw and Raw Backup appear, that opening Raw
+  from Zotero and from Obsidian's Raw action opens Obsidian, that a second conversion
+  replaces only Raw Backup, that deleting Raw lets the next conversion recreate it, and
+  that a supplement gets its own pair. With `images_mode: all`, check that images show
+  beside both files and survive Zotero file sync (WebDAV and Zotero storage).
+- **Annotations into Raw.** Annotation injection writes to vault Markdown only; Raw is
+  now a Markdown file too, but injecting into it would edit the user's working copy.
+
+## Zotero notes
+
 Maintenance constraints: [ZOTERO_NOTES.md](ZOTERO_NOTES.md).
 
 - **Position links.** Improve links to blocks and headings after the desired behavior
   is clarified. Existing links already work.
 - **Paste and tables.** Add Markdown paste and draggable table column widths.
   The other note editor enhancements are already implemented.
-- **Long documents — manual check.** Verify every part syncs, Obsidian Raw opens part 1,
-  and Replace reuses split notes and trashes only surplus marked parts.
 - **Selection shortcuts — manual check.** In a real Zotero, check that `Cmd+Option+B/R/P`
   highlight a note selection and turn a PDF, EPUB and snapshot selection into a highlight
   annotation of that color without changing the reader's tool color (also in split view's
@@ -35,17 +45,14 @@ Maintenance constraints: [ZOTERO_NOTES.md](ZOTERO_NOTES.md).
 - **Copy as Markdown — deferred.** Plain copy and paste already retains most formatting.
   Converting Zotero citations to `@libraryID/itemKey` depends on a way to insert
   citations in ordinary notes. No copy command or note-export bridge is implemented.
-- **PDF highlights in Raw notes.** Annotation injection currently writes to vault
-  Markdown only. A note equivalent needs a way to locate highlighted text after edits;
-  existing heading and block links do not identify a text range.
 
 ## Verification
 
 These remaining records have not been reconfirmed during documentation cleanup.
 Run relevant checks when changing the affected area; host behavior is not covered by
-TypeScript or Vitest. Obsidian basic behavior and Canvas/file bindings, plus Raw note
-Replace and group-library links, were confirmed complete by the user on 2026-10-14
-and removed from the open list.
+TypeScript or Vitest. Obsidian basic behavior and Canvas/file bindings, plus
+group-library note links, were confirmed complete by the user on 2026-10-14 and
+removed from the open list.
 
 - **Basic operation.** Startup/shutdown, metadata review, References/Citations previews,
   Collection status/actions, relation filtering, current-library import, conversion,

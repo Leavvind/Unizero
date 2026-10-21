@@ -20,6 +20,12 @@ from .steps import DEFAULT_FRONTMATTER_PROPERTIES
 #: where they can be reviewed and reused.
 REMOVED_MODULES = {"enrich.semantic-scholar"}
 
+#: Modules replaced by another. publish.zotero-note turned the Markdown into a
+#: Zotero note; publish.zotero-markdown stores it as a Markdown attachment that
+#: is edited in Obsidian, and never overwrites the edited copy, so the note's
+#: "existing note" setting has no counterpart and is dropped.
+REPLACED_MODULES = {"publish.zotero-note": "publish.zotero-markdown"}
+
 _FRONTMATTER_MODULE = "transform.frontmatter"
 _PAPER_TO_MARKDOWN = "paper-to-markdown"
 _UID_TEMPLATE_VERSION = 2
@@ -78,6 +84,10 @@ def migrate_template_dict(value: dict[str, Any]) -> dict[str, Any]:
             continue
         if str(item.get("module") or "").strip() in REMOVED_MODULES:
             continue
+        replacement = REPLACED_MODULES.get(str(item.get("module") or "").strip())
+        if replacement:
+            item["module"] = replacement
+            item["settings"] = {}
         settings = item.get("settings")
         if (
             str(item.get("module") or "").strip() == _FRONTMATTER_MODULE

@@ -588,8 +588,8 @@ class ConvertResult:
     workflow: dict = field(default_factory=dict)
     tables_html_path: Optional[Path] = None
     references: Optional[list[dict[str, Any]]] = None
-    note_md_path: Optional[Path] = None
-    note_existing: str = "skip"
+    zotero_md_path: Optional[Path] = None
+    zotero_md_images_dir: Optional[Path] = None
 
 
 def _mineru_cmd(src: Path, out_dir: Path, opts: ConvertOptions) -> list[str]:
@@ -641,8 +641,8 @@ class ConversionContext:
     final_md: Optional[Path] = None
     final_images: Optional[Path] = None
     tables_html: Optional[Path] = None
-    note_md: Optional[Path] = None
-    note_existing: str = "skip"
+    zotero_md: Optional[Path] = None
+    zotero_md_images: Optional[Path] = None
     pages_found: int = 0
     pages_injected: int = 0
 
@@ -897,6 +897,59 @@ def resolve_obsidian_destination(destination: str) -> Path:
     )
 
 
+def _render_filename(ctx: ConversionContext, settings: dict[str, Any]) -> str:
+    filename_template = str(settings.get("filename") or "{{ title }}.md")
+    rendered_filename = (
+        filename_template
+        .replace("{{ title }}", ctx.meta.title or ctx.citekey)
+        .replace("{{ citekey }}", ctx.citekey)
+    )
+    suffix = Path(rendered_filename).suffix or ".md"
+    filename_stem = Path(rendered_filename).stem
+    return safe_filename(filename_stem, ctx.citekey) + suffix
+
+
+def _copy_images(
+    body: str,
+    src_images: Path,
+    target_dir: Path,
+    link_prefix: str,
+    referenced_only: bool,
+) -> tuple[str, Optional[Path], int]:
+    """Copy the body's images into `target_dir` and point its links at `link_prefix`.
+
+    Returns the rewritten body, the directory and the number of images copied; the
+    body is returned unchanged with no directory when nothing was copied.
+    """
+    referenced = {
+        Path(match.group("path").replace("\\", "/")).name
+        for match in _IMG_REF_RE.finditer(body)
+    }
+    if not src_images.is_dir() or (referenced_only and not referenced):
+        return body, None, 0
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    target_dir.mkdir(parents=True)
+    copied = 0
+    for image in src_images.rglob("*"):
+        if image.is_file() and (not referenced_only or image.name in referenced):
+            shutil.copy2(image, target_dir / image.name)
+            copied += 1
+    if not copied:
+        shutil.rmtree(target_dir)
+        return body, None, 0
+    body = _IMG_REF_RE.sub(
+        lambda match: (
+            match.group(1)
+            + link_prefix
+            + Path(match.group("path").replace("\\", "/")).name
+            + match.group(3)
+        ),
+        body,
+    )
+    return body, target_dir, copied
+
+
 def _stage_publish(ctx: ConversionContext, settings: dict[str, Any]) -> None:
     out_md = _require_output(ctx)
     if not ctx.body:
@@ -918,17 +971,7 @@ def _stage_publish(ctx: ConversionContext, settings: dict[str, Any]) -> None:
             "absolute path instead",
         )
     ctx.papers_dir.mkdir(parents=True, exist_ok=True)
-    filename_template = str(settings.get("filename") or "{{ title }}.md")
-    rendered_filename = (
-        filename_template
-        .replace("{{ title }}", ctx.meta.title or ctx.citekey)
-        .replace("{{ citekey }}", ctx.citekey)
-    )
-    suffix = Path(rendered_filename).suffix or ".md"
-    filename_stem = Path(rendered_filename).stem
-    ctx.final_md = ctx.papers_dir / (
-        safe_filename(filename_stem, ctx.citekey) + suffix
-    )
+    ctx.final_md = ctx.papers_dir / _render_filename(ctx, settings)
 
     existing_file = str(settings.get("existing_file") or "overwrite")
     if ctx.final_md.exists() and existing_file == "overwrite":
@@ -993,41 +1036,18 @@ def _stage_publish(ctx: ConversionContext, settings: dict[str, Any]) -> None:
             ctx.final_md = ctx.papers_dir / f"{stem} ({counter}){suffix}"
             counter += 1
 
-    src_images = out_md.parent / "images"
-    referenced = {
-        Path(match.group("path").replace("\\", "/")).name
-        for match in _IMG_REF_RE.finditer(ctx.body)
-    }
-    copy_referenced_only = bool(settings.get("copy_referenced_only", True))
-    if src_images.is_dir() and (referenced or not copy_referenced_only):
-        attachments_directory = str(
-            settings.get("attachments_directory") or "attachments",
-        )
-        att_dir = ctx.papers_dir / attachments_directory / ctx.artifact_key
-        if att_dir.exists():
-            shutil.rmtree(att_dir)
-        att_dir.mkdir(parents=True)
-        copied = 0
-        for image in src_images.rglob("*"):
-            if image.is_file() and (
-                not copy_referenced_only or image.name in referenced
-            ):
-                shutil.copy2(image, att_dir / image.name)
-                copied += 1
-        if copied:
-            ctx.final_images = att_dir
-            ctx.body = _IMG_REF_RE.sub(
-                lambda match: (
-                    match.group(1)
-                    + f"{attachments_directory}/{ctx.artifact_key}/"
-                    + Path(match.group("path").replace("\\", "/")).name
-                    + match.group(3)
-                ),
-                ctx.body,
-            )
-            ctx.log(f"[vault] copied {copied} referenced image(s) -> {att_dir}")
-        else:
-            shutil.rmtree(att_dir)
+    attachments_directory = str(
+        settings.get("attachments_directory") or "attachments",
+    )
+    ctx.body, ctx.final_images, copied = _copy_images(
+        ctx.body,
+        out_md.parent / "images",
+        ctx.papers_dir / attachments_directory / ctx.artifact_key,
+        f"{attachments_directory}/{ctx.artifact_key}/",
+        bool(settings.get("copy_referenced_only", True)),
+    )
+    if copied:
+        ctx.log(f"[vault] copied {copied} referenced image(s) -> {ctx.final_images}")
 
     ctx.final_md.write_text(ctx.frontmatter + ctx.body, encoding="utf-8")
 
@@ -1041,23 +1061,39 @@ def _stage_publish(ctx: ConversionContext, settings: dict[str, Any]) -> None:
     ctx.log(f"[vault] wrote {ctx.final_md}")
 
 
-def _stage_publish_note(ctx: ConversionContext, settings: dict[str, Any]) -> None:
-    """Hand the body to the add-on, which turns it into a Zotero note.
+def _stage_publish_zotero_markdown(
+    ctx: ConversionContext,
+    settings: dict[str, Any],
+) -> None:
+    """Hand the document to the add-on, which attaches it to the Zotero item.
 
-    The runtime never touches Zotero, so this stage only leaves the Markdown where
-    the add-on can read it. The file goes to the persistent store rather than the
-    work directory, which is removed when the job ends. No frontmatter: a note's
-    identity is the Zotero item it hangs under, not a YAML header.
+    The runtime never touches Zotero, so this stage only leaves a bundle where the
+    add-on can read it: the Markdown, plus its referenced images under
+    `attachments/`. The bundle goes to the persistent store rather than the work
+    directory, which is removed when the job ends.
     """
     out_md = _require_output(ctx)
     if ctx.store_dir is None:
-        raise RuntimeError("the Zotero note output needs a runtime store directory")
+        raise RuntimeError(
+            "the Zotero Markdown output needs a runtime store directory",
+        )
     body = ctx.body or out_md.read_text(encoding="utf-8")
-    ctx.store_dir.mkdir(parents=True, exist_ok=True)
-    ctx.note_md = ctx.store_dir / f"{ctx.artifact_key}.note.md"
-    ctx.note_md.write_text(body, encoding="utf-8")
-    ctx.note_existing = str(settings.get("existing_note") or "skip")
-    ctx.log(f"[note] wrote {ctx.note_md}")
+    bundle = ctx.store_dir / f"{ctx.artifact_key}.zotero"
+    if bundle.exists():
+        shutil.rmtree(bundle)
+    bundle.mkdir(parents=True)
+    # The vault output may already have pointed the links at its own folder;
+    # images are matched by file name, so that does not matter here.
+    body, ctx.zotero_md_images, copied = _copy_images(
+        body,
+        out_md.parent / "images",
+        bundle / "attachments",
+        "attachments/",
+        True,
+    )
+    ctx.zotero_md = bundle / _render_filename(ctx, settings)
+    ctx.zotero_md.write_text(ctx.frontmatter + body, encoding="utf-8")
+    ctx.log(f"[zotero] wrote {ctx.zotero_md} ({copied} image(s))")
 
 
 def _object_schema(properties: dict[str, Any]) -> dict[str, Any]:
@@ -1204,13 +1240,13 @@ MODULE_REGISTRY.register(WorkflowModule(
     handler=_stage_frontmatter,
     description=(
         "Map metadata onto the Obsidian properties written at the top of the "
-        "Markdown directory output. It only applies when that output is "
-        "enabled; the Zotero note never carries frontmatter. Turn this module "
-        "off and the vault file has no frontmatter at all — Publish then loses "
-        "the unizero-attachment marker it uses to avoid overwriting a document "
-        "owned by a different Zotero attachment."
+        "Markdown directory output and the Zotero Markdown attachment. It only "
+        "applies when one of those outputs is enabled. Turn this module off and "
+        "the vault file has no frontmatter at all — Publish then loses the "
+        "unizero-attachment marker it uses to avoid overwriting a document owned "
+        "by a different Zotero attachment."
     ),
-    requires_any=("publish.markdown-directory",),
+    requires_any=("publish.markdown-directory", "publish.zotero-markdown"),
     defaults={"properties": copy.deepcopy(DEFAULT_FRONTMATTER_PROPERTIES)},
     settings_schema=_object_schema({
         "properties": {
@@ -1288,25 +1324,21 @@ MODULE_REGISTRY.register(WorkflowModule(
     }),
 ))
 MODULE_REGISTRY.register(WorkflowModule(
-    id="publish.zotero-note",
-    name="Publish · Zotero note",
+    id="publish.zotero-markdown",
+    name="Publish · Zotero Markdown attachment",
     role="publish",
-    handler=_stage_publish_note,
+    handler=_stage_publish_zotero_markdown,
     description=(
-        "Create the paper's Raw Markdown as a Zotero note under the item, "
-        "rendered by the UniZero add-on. The note carries no frontmatter and is "
-        "the copy you read and edit; the Markdown file itself is not kept."
+        "Store the Markdown under the Zotero item, opened with the system's "
+        "Markdown application. Every conversion replaces the Raw Backup "
+        "attachment; the Raw attachment is created once and is the copy you read "
+        "and edit, so re-converting never overwrites it."
     ),
-    defaults={"existing_note": "skip"},
+    defaults={"filename": "{{ title }}.md"},
     settings_schema=_object_schema({
-        "existing_note": {
-            "type": "string", "title": "When the paper already has a Raw note",
-            "enum": ["skip", "replace"],
-            "enumNames": ["Keep it (never overwrite my edits)", "Replace it"],
-            "description": (
-                "The note is meant to be edited, so Replace discards every "
-                "change made to it since the last conversion."
-            ),
+        "filename": {
+            "type": "string", "title": "Filename template",
+            "description": "Supports {{ title }} and {{ citekey }}.",
         },
     }),
 ))
@@ -1349,14 +1381,14 @@ def convert_pdf(
         store_dir=store_dir,
     )
     report = WorkflowRunner(template, MODULE_REGISTRY).run(context, log)
-    if context.final_md is None and context.note_md is None:
+    if context.final_md is None and context.zotero_md is None:
         raise RuntimeError(f"template '{template.id}' produced no Markdown artifact")
     return ConvertResult(
         md_path=context.final_md,
         images_dir=context.final_images,
         tables_html_path=context.tables_html,
-        note_md_path=context.note_md,
-        note_existing=context.note_existing,
+        zotero_md_path=context.zotero_md,
+        zotero_md_images_dir=context.zotero_md_images,
         pages_found=context.pages_found,
         pages_injected=context.pages_injected,
         warnings=context.warnings,

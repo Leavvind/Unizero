@@ -38,13 +38,9 @@ above, not only the most recent one.
 - **zotero-types** (https://github.com/windingwind/zotero-types) — MIT, development-time
   type definitions only.
 - **zotero-better-notes** (https://github.com/windingwind/zotero-better-notes) —
-  AGPL-3.0, Copyright (C) windingwind and contributors. `src/notes/markdownToNote.ts`
-  is ported from its `src/extras/convert.ts` (version 3.3.3, commit 4215a88), and the
-  `zotero://note` URL shape and handler installation in `src/zotero/noteLinks.ts`
-  follow its `src/utils/link.ts` and `src/modules/noteLink.ts`.
-- **unified, remark, rehype and related syntax-tree utilities**
-  (https://github.com/unifiedjs) — MIT, bundled as runtime dependencies of the
-  Markdown converter.
+  AGPL-3.0, Copyright (C) windingwind and contributors. The `zotero://note` URL shape
+  and handler installation in `src/zotero/noteLinks.ts` follow its `src/utils/link.ts`
+  and `src/modules/noteLink.ts`.
 
 ### Data sources
 

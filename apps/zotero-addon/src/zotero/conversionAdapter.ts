@@ -25,9 +25,6 @@ import {
 import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
 import { libraryScope } from "./libraryScope";
 import { ensureMarkdownLink } from "./markdownLinkRegistry";
-import {
-  NOTE_MAX_CHARS, publishRawNote, type RawNoteExisting,
-} from "./rawNoteAdapter";
 
 const GENERATED_TAG = "MD/generated";
 const MD_ATTACHMENT_TITLE = "ZoMiner MD";
@@ -39,6 +36,8 @@ const LEGACY_MD_COPY_ATTACHMENT_TITLE = "ZoMiner MD 副本";
 const TABLES_ATTACHMENT_TITLE = "ZoMiner Tables";
 const REFS_ATTACHMENT_TITLE = "ZoMiner References";
 const REFS_SCHEMA = "unizero.references/2";
+const RAW_ATTACHMENT_TITLE = "Raw";
+const RAW_BACKUP_ATTACHMENT_TITLE = "Raw Backup";
 
 export interface ConversionTarget {
   /** A standalone PDF attachment has no parent item. */
@@ -298,7 +297,7 @@ async function attachImportedCopy(
   title: string,
   contentType: string,
   legacyTitles: string[] = [],
-): Promise<void> {
+): Promise<Zotero.Item> {
   const imported = (attachment: Zotero.Item) =>
     !!attachment.isImportedAttachment?.();
 
@@ -316,6 +315,26 @@ async function attachImportedCopy(
   await markArtifact(created, kind, context.source);
   for (const attachment of candidates) { await attachment.eraseTx(); }
   ztoolkit.log(`imported attachment '${title}': ${path}`);
+  return created;
+}
+
+/**
+ * Copy the hand-off images into an imported attachment's storage directory, beside
+ * its file, where the Markdown's relative links expect them.
+ */
+async function copyImagesBeside(
+  attachment: Zotero.Item,
+  imagesDir: string,
+): Promise<void> {
+  const file = await attachment.getFilePathAsync();
+  if (!file) { throw new Error(`attachment ${attachment.key} has no file`); }
+  const directory = PathUtils.parent(file);
+  if (!directory) { throw new Error(`attachment ${attachment.key} has no directory`); }
+  await IOUtils.copy(
+    imagesDir,
+    PathUtils.join(directory, PathUtils.filename(imagesDir)),
+    { recursive: true },
+  );
 }
 
 /** Persist conversion's local PDF evidence as a versioned JSON attachment. */
@@ -360,60 +379,62 @@ async function attachReferences(
 }
 
 /**
- * Turn the runtime's Raw Markdown into the paper's note, then drop the hand-off file.
+ * Store the runtime's Markdown under the paper as Raw Backup, and as Raw when the
+ * paper has none, then drop the hand-off files.
  *
- * Unlike the attachments, a failure here is not swallowed: the note is the only copy
- * of the converted text when the template has no vault output, so the user has to
- * hear about it. The hand-off file is kept in that case, so nothing is lost.
- * Returns what the user should be told even though the note was created.
+ * Raw is the copy the user reads and edits in their Markdown application, so it is
+ * created once and never touched again; deleting it lets the next conversion create
+ * a fresh one. Raw Backup is replaced by every conversion.
+ *
+ * Unlike the other attachments, a failure here is not swallowed: Raw is the only
+ * copy of the converted text when the template has no vault output, so the user has
+ * to hear about it. The hand-off files are kept in that case, so nothing is lost.
  */
-async function attachRawNote(
-  parent: Zotero.Item,
+async function attachRaw(
+  context: ArtifactContext,
   path: string,
-  existing: RawNoteExisting,
-): Promise<string[]> {
-  const markdown = await IOUtils.readUTF8(path) as string;
-  const result = await publishRawNote(parent, markdown, existing);
+  imagesDir: string | undefined,
+): Promise<void> {
+  const backup = await attachImportedCopy(
+    context, "raw-backup", path,
+    RAW_BACKUP_ATTACHMENT_TITLE + context.suffix, "text/markdown",
+  );
+  if (imagesDir) { await copyImagesBeside(backup, imagesDir); }
+
+  const title = RAW_ATTACHMENT_TITLE + context.suffix;
+  if (findArtifacts(context.parent, "raw", context.source, title).length) {
+    ztoolkit.log(`kept existing Raw for ${context.parent.key}`);
+  } else {
+    const raw = await Zotero.Attachments.importFromFile({
+      file: path,
+      parentItemID: context.parent.id,
+      title,
+      contentType: "text/markdown",
+    });
+    await markArtifact(raw, "raw", context.source);
+    if (imagesDir) { await copyImagesBeside(raw, imagesDir); }
+    ztoolkit.log(`created Raw for ${context.parent.key}: ${path}`);
+  }
+
   try {
     await IOUtils.remove(path, { ignoreAbsent: true });
+    if (imagesDir) {
+      await IOUtils.remove(imagesDir, { recursive: true, ignoreAbsent: true });
+    }
+    // Only the now-empty hand-off directory; never recursive.
+    const bundle = PathUtils.parent(path);
+    if (bundle) { await IOUtils.remove(bundle, { ignoreAbsent: true }); }
   } catch (error) {
-    ztoolkit.log(`raw note hand-off cleanup failed: ${error}`);
+    ztoolkit.log(`Raw hand-off cleanup failed: ${error}`);
   }
-  ztoolkit.log(
-    `raw note ${result.outcome} (${result.parts} part(s), ${result.chars} chars)`,
-  );
-
-  const warnings: string[] = [];
-  if (result.outcome === "kept") {
-    warnings.push(
-      "This paper already has a Raw note, so it was kept as it is. Set the " +
-      "template's note output to Replace to regenerate it.",
-    );
-  }
-  if (result.parts > 1) {
-    warnings.push(
-      `The Raw note is ${result.chars.toLocaleString("en-US")} characters, too long ` +
-      `for one note to sync, so it was split into ${result.parts} notes by section ` +
-      "(Part 1, Part 2, …).",
-    );
-  }
-  if (result.oversize) {
-    warnings.push(
-      "One section of the Raw note is still past " +
-      `${NOTE_MAX_CHARS.toLocaleString("en-US")} characters and could not be split ` +
-      "further. Check that it syncs to your other devices.",
-    );
-  }
-  return warnings;
 }
 
 /**
  * Register the artifacts once a conversion finishes.
  *
  * Each attachment kind gets its own try/catch: a failed table export must not stop
- * already-converted Markdown from being attached. The Raw note goes last and is
- * allowed to throw. Returns warnings to show the user for a conversion that did
- * succeed.
+ * already-converted Markdown from being attached. Raw goes last and is allowed to
+ * throw. Returns warnings to show the user for a conversion that did succeed.
  */
 export async function markConverted(
   target: ConversionTarget,
@@ -421,7 +442,11 @@ export async function markConverted(
   options: { mdSnapshot: boolean; markdownUrl: string },
 ): Promise<string[]> {
   const parent = target.parent;
-  if (!parent) { return []; }
+  if (!parent) {
+    return result?.zotero_md_path
+      ? ["A standalone PDF has no parent item to keep Raw under."]
+      : [];
+  }
 
   // Must be read before addTag: asking after tagging always answers true, which
   // destroys the evidence. When adopting a legacy artifact it is the only proof
@@ -484,14 +509,10 @@ export async function markConverted(
     }
   }
 
-  if (!outcome.note_md_path) { return []; }
-  // One Raw note per paper: a supplement would have to share or replace it.
-  if (target.isSupplement) {
-    return ["Supplementary files do not get a Raw note."];
+  if (outcome.zotero_md_path) {
+    await attachRaw(
+      context, outcome.zotero_md_path, outcome.zotero_md_images_dir || undefined,
+    );
   }
-  return attachRawNote(
-    parent,
-    outcome.note_md_path,
-    outcome.note_existing === "replace" ? "replace" : "skip",
-  );
+  return [];
 }

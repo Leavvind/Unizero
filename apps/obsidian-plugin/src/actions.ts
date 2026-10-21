@@ -1,15 +1,16 @@
 /**
  * What each citation form does when clicked.
  *
- * `@libraryID/itemKey` stays inside Obsidian; `.md` opens the paper's Raw note in Zotero;
+ * `@libraryID/itemKey` stays inside Obsidian; `.md` opens the paper's Raw Markdown;
  * `.pdf` / `.pdf:{page}` hand off to Zotero (optional physical page via `?page=`).
  * Conversion is the one side-effect this plugin may request: it posts to the
  * bridge's convert action, which runs the same Zotero menu command — it does
  * not edit bibliographic fields from Obsidian.
  *
- * "Raw" is the converted paper, published by conversion as an editable Zotero child
- * note (tagged `unizero:raw-note`). It is for reading and
- * light format edits, not the hand-written note surface.
+ * "Raw" is the converted paper, stored by conversion as a Markdown attachment of
+ * the Zotero item (tagged `unizero:raw`) and opened with the system's Markdown
+ * application. It is for reading and light format edits, not the hand-written note
+ * surface.
  *
  * "Canvas" is the user's real note for a paper — a vault `.canvas` they create
  * on first open (automatically created and linked; a missing path asks again).
@@ -29,9 +30,9 @@ import { createCanvasForPaper } from "./canvasCreation";
 import type { UnizeroSettings } from "./settings";
 
 /** A full paper payload, or a library-pane row, as far as Open Raw vs Convert goes. */
-export type RawNoteAvailability =
-  | { links: { rawNote?: string } }
-  | { hasRawNote: boolean };
+export type RawAvailability =
+  | { links: { raw?: string } }
+  | { hasRaw: boolean };
 
 /** Paper identity used by Canvas links and labels. */
 export type PaperIdentity = {
@@ -58,13 +59,13 @@ export function canvasLinkKey(paper: Pick<PaperIdentity, "libraryID" | "itemKey"
 /**
  * Open Raw vs Convert is exclusive in Obsidian menus.
  *
- * True when the paper has a Raw note in Zotero. Re-conversion stays a Zotero-menu
- * action so the surface does not offer both at once.
+ * True when the paper has a Raw attachment in Zotero. Re-conversion stays a
+ * Zotero-menu action so the surface does not offer both at once.
  */
-export function hasRawNote(paper: RawNoteAvailability): boolean {
-  return "hasRawNote" in paper
-    ? paper.hasRawNote
-    : Boolean(paper.links.rawNote);
+export function hasRaw(paper: RawAvailability): boolean {
+  return "hasRaw" in paper
+    ? paper.hasRaw
+    : Boolean(paper.links.raw);
 }
 
 export function resolveCanvasFile(
@@ -246,21 +247,24 @@ function paperLabel(
 }
 
 /**
- * Open the paper's Raw note in Zotero: in a note tab through the add-on's
- * `zotero://note` handler, or by selecting it when the add-on reports no such link.
- *
- * Never both: the OS hands each URL to Zotero without waiting for the previous
- * one, so a select that finishes late switches back to the library tab and hides
- * the note that was just opened.
+ * Open the paper's Raw Markdown with the system's Markdown application — the same
+ * thing as opening the attachment from Zotero. Without the file on this machine
+ * (not yet synced down, say), select the attachment in Zotero instead.
  */
 export async function openRaw(paper: BridgePaper): Promise<void> {
-  const link = paper.links.rawNoteOpen ?? paper.links.rawNote;
-  if (link) {
-    await openExternal(link);
+  const path = paper.links.rawPath;
+  if (path && /\.md$/i.test(path)) {
+    // openPath reports failure as a message rather than by rejecting.
+    const failure = await shell.openPath(path);
+    if (!failure) { return; }
+    new Notice(`Could not open ${path}: ${failure}`);
+  }
+  if (paper.links.raw) {
+    await openExternal(paper.links.raw);
     return;
   }
   new Notice(
-    `${paperLabel(paper)} has no Raw note in Zotero yet. Use “Convert to Markdown”.`,
+    `${paperLabel(paper)} has no Raw in Zotero yet. Use “Convert to Markdown”.`,
   );
 }
 
@@ -268,11 +272,11 @@ export async function openRaw(paper: BridgePaper): Promise<void> {
  * Ask Zotero to run the paper-to-Markdown conversion for this item.
  *
  * The job runs in Zotero (UniZero panel); Obsidian only receives the acceptance
- * ack. After it finishes, open the Raw note from the menu.
+ * ack. After it finishes, open Raw from the menu.
  *
  * Cached papers are never refreshed on their own, so a menu can still offer
  * Convert after an earlier conversion finished. The paper is read again first, and
- * an existing Raw note is opened instead of converting twice.
+ * an existing Raw is opened instead of converting twice.
  */
 export async function convertToMarkdown(
   bridge: UnizeroBridge,
@@ -281,7 +285,7 @@ export async function convertToMarkdown(
 ): Promise<void> {
   const label = paper?.title || `${ref.libraryID}/${ref.itemKey}`;
   const current = await bridge.paper(ref).catch(() => undefined);
-  if (current && hasRawNote(current)) {
+  if (current && hasRaw(current)) {
     await openRaw(current);
     return;
   }

@@ -12,7 +12,7 @@ import type {
   LiteratureCollectionScope,
 } from "../modules/literatureRelations";
 import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
-import { rawNotes } from "./rawNoteAdapter";
+import { artifactSource, hasKind } from "./artifactIdentity";
 
 const MARKDOWN_TAGS = new Set(["unizero:markdown", "unizero:markdown-copy"]);
 
@@ -140,18 +140,22 @@ export function hasMarkdownAttachment(item: Zotero.Item): boolean {
   return Boolean(markdownAttachment(item));
 }
 
-/**
- * The paper's Raw note (the owned `raw-note` child), when conversion created one;
- * the first part when a long document was split.
- */
-export function rawNote(item: Zotero.Item): Zotero.Item | undefined {
-  return rawNotes(item)[0];
-}
-
 export function pdfAttachment(item: Zotero.Item): Zotero.Item | undefined {
   return attachments(item).find(
     (attachment) => attachment.attachmentContentType === "application/pdf",
   );
+}
+
+/**
+ * The paper's Raw (the owned `raw` Markdown attachment), when conversion created
+ * one. A paper with supplements has one Raw per PDF; the one converted from the
+ * paper's own PDF wins.
+ */
+export function rawAttachment(item: Zotero.Item): Zotero.Item | undefined {
+  const raws = attachments(item).filter((attachment) => hasKind(attachment, "raw"));
+  const pdf = pdfAttachment(item);
+  return raws.find((attachment) => pdf && artifactSource(attachment) === pdf.key)
+    ?? raws[0];
 }
 
 export function literaturePaperMetadata(

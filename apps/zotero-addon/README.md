@@ -34,12 +34,14 @@ local paper runtime. It also still ships the legacy Unizero Home UI.
 
 - PDF conversion commands and generated-artifact registration, including a versioned
   structured References JSON attachment produced from the PDF bibliography.
-- Raw notes: the converted Markdown kept as an editable child note tagged
-  `unizero:raw-note`, rendered by the built-in converter in `src/notes/` (a port of
-  Better Notes', which is not required). Images are dropped. A note past 450,000
-  characters of HTML — Zotero's sync limit counts characters, not bytes — is split
-  into parts of top-level sections, each opening with a `Part i/n` line; Skip keeps
-  existing notes, Replace reuses the parts and trashes only surplus marked parts.
+- Raw: the converted Markdown stored under the item as two imported attachments,
+  written by the runtime's `publish.zotero-markdown` module. **Raw**
+  (`unizero:raw`) is the working copy, opened from Zotero with the system's Markdown
+  application (Obsidian, when it is the default) and edited there; it is created
+  once and never overwritten — delete it to get a fresh one on the next conversion.
+  **Raw Backup** (`unizero:raw-backup`) is replaced by every conversion. Images the
+  Markdown links to sit beside each file under `attachments/`. A paper with
+  supplements gets one pair per PDF.
 - `zotero://note/u/<key>/` and `zotero://note/<groupID>/<key>/` links open a note in a
   tab, including links Better Notes wrote into older notes. A `?line=` (block index),
   `?section=` (heading text) or `?section=…&n=2` (second heading with that text) scrolls
@@ -76,7 +78,7 @@ hints remain for existing users. Maintenance traps and document shapes:
 | `src/core/` | Static feature registry and lifecycle dispatch |
 | `src/features/` | Conversion and annotation command orchestration |
 | `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
-| `src/notes/` | Pure note logic: Markdown → note HTML converter (ported from Better Notes), link positions, outline, tool keys |
+| `src/notes/` | Pure note logic: link positions, outline, selection shortcut keys |
 | `src/modules/uniConnection.ts` | Derived reverse-reference index, coupling, graph topology |
 | `src/modules/uniConnectionSync.ts` | Notifier-driven index maintenance and reference backfill |
 | `src/server/` | Bridge endpoints (GET + convert) and citekey resolution |

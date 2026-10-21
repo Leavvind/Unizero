@@ -19,14 +19,16 @@ import {
   literaturePaperMetadata,
   markdownAttachment,
   pdfAttachment,
-  rawNote,
+  rawAttachment,
 } from "../zotero/literatureCollectionAdapter";
 import { libraryScope } from "../zotero/libraryScope";
 import { readMarkdownLink } from "../zotero/markdownLinkRegistry";
-import { rawNoteLinks } from "../zotero/rawNoteAdapter";
 
-/** Incremented only when an existing field changes meaning or disappears. */
-export const BRIDGE_API_VERSION = 1;
+/**
+ * Incremented only when an existing field changes meaning or disappears.
+ * 2: the Raw note links gave way to the Raw Markdown attachment.
+ */
+export const BRIDGE_API_VERSION = 2;
 
 export interface BridgePaperLinks {
   /** Always present: selects the item in Zotero's own window. */
@@ -37,10 +39,13 @@ export interface BridgePaperLinks {
   markdown?: string;
   /** True when a Markdown attachment exists even though no URL was recorded. */
   hasMarkdownAttachment: boolean;
-  /** Present when the paper has a Raw note: selects that child note in Zotero. */
-  rawNote?: string;
-  /** Present with `rawNote`: opens the note in a note tab (`zotero://note`). */
-  rawNoteOpen?: string;
+  /** Present when the paper has a Raw attachment: selects it in Zotero. */
+  raw?: string;
+  /**
+   * With `raw`, when its file is on this machine: the absolute path of the Raw
+   * Markdown, which the consumer opens with the system's Markdown application.
+   */
+  rawPath?: string;
 }
 
 export interface BridgePaper {
@@ -132,7 +137,10 @@ export async function bridgePaperFromItem(
 ): Promise<BridgePaper> {
   const scope = libraryScope(item.libraryID);
   const pdf = pdfAttachment(item);
-  const note = rawNote(item);
+  const raw = rawAttachment(item);
+  const rawPath = raw
+    ? await raw.getFilePathAsync().catch(() => undefined) || undefined
+    : undefined;
   const markdownLink = await readMarkdownLink(item).catch(() => undefined);
   const identifiers = readItemPaperIdentifiers(item);
 
@@ -162,7 +170,8 @@ export async function bridgePaperFromItem(
       zoteroPdf: pdf ? `zotero://open-pdf/${scope}/items/${pdf.key}` : undefined,
       markdown: markdownLink?.url,
       hasMarkdownAttachment: Boolean(markdownAttachment(item)),
-      ...rawNoteLinks(note, scope),
+      raw: raw ? `zotero://select/${scope}/items/${raw.key}` : undefined,
+      rawPath,
     },
   };
 }
@@ -269,8 +278,8 @@ export interface BridgeCollectionItem {
   venue?: string;
   hasPDF: boolean;
   hasMarkdown: boolean;
-  /** The paper has a Raw note (see `BridgePaperLinks.rawNote`). */
-  hasRawNote: boolean;
+  /** The paper has a Raw attachment (see `BridgePaperLinks.raw`). */
+  hasRaw: boolean;
   dateAdded?: string;
 }
 
@@ -408,7 +417,7 @@ export async function bridgeCollectionItems(
         venue: meta.publicationTitle,
         hasPDF: meta.hasPDF,
         hasMarkdown: meta.hasMarkdown,
-        hasRawNote: Boolean(rawNote(item)),
+        hasRaw: Boolean(rawAttachment(item)),
         dateAdded: meta.dateAdded,
       };
     }),

@@ -37,8 +37,8 @@ const ITEM_MENU_COMMANDS = [MENU_LITERATURE, MENU_CONVERT, MENU_ANNOTATE];
  * Fallback template used when the service is unavailable or the template list
  * cannot be fetched. The runtime always ships it.
  */
-const FALLBACK_TEMPLATE_ID = "paper-to-markdown";
-const FALLBACK_TEMPLATE_NAME = "Generate paper Markdown";
+const FALLBACK_TEMPLATE_ID = "paper-to-zotero-markdown";
+const FALLBACK_TEMPLATE_NAME = "Generate Raw Markdown";
 
 type OpenPanel = (mainWindow: Window) => void;
 type OpenLiteratureCollection = (mainWindow: Window) => void;

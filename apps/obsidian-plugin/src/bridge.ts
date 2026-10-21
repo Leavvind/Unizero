@@ -16,7 +16,7 @@
 import { requestUrl } from "obsidian";
 import type { PaperRef } from "./citation";
 
-export const BRIDGE_API = 1;
+export const BRIDGE_API = 2;
 
 /**
  * Required by Zotero's HTTP server for any non-connector client. Without it,
@@ -31,10 +31,10 @@ export interface BridgePaperLinks {
   zoteroPdf?: string;
   markdown?: string;
   hasMarkdownAttachment: boolean;
-  /** Selects the paper's Raw note in Zotero; absent when it has none. */
-  rawNote?: string;
-  /** Opens the Raw note in a Zotero note tab; absent without a Raw note. */
-  rawNoteOpen?: string;
+  /** Selects the paper's Raw attachment in Zotero; absent when it has none. */
+  raw?: string;
+  /** Absolute path of the Raw Markdown; absent without Raw or without its file. */
+  rawPath?: string;
 }
 
 export interface BridgePaper {
@@ -132,7 +132,7 @@ export interface BridgeCollectionItem {
   venue?: string;
   hasPDF: boolean;
   hasMarkdown: boolean;
-  hasRawNote: boolean;
+  hasRaw: boolean;
   dateAdded?: string;
 }
 

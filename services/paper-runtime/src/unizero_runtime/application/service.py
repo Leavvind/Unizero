@@ -286,9 +286,10 @@ class ZoMinerApplication:
             "template": result.workflow,
             "workflow": result.workflow,
         }
-        if result.note_md_path is not None:
-            job.result["note_md_path"] = str(result.note_md_path)
-            job.result["note_existing"] = result.note_existing
+        if result.zotero_md_path is not None:
+            job.result["zotero_md_path"] = str(result.zotero_md_path)
+            if result.zotero_md_images_dir is not None:
+                job.result["zotero_md_images_dir"] = str(result.zotero_md_images_dir)
         if result.references is not None:
             job.result["references"] = result.references
             job.result["references_count"] = len(result.references)

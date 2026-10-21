@@ -24,7 +24,7 @@ import type { PaperState } from "./paperStore";
 import type UnizeroPlugin from "./main";
 import {
   convertToMarkdown,
-  hasRawNote,
+  hasRaw,
   openCanvas,
   openRaw,
   openZoteroPdf,
@@ -255,7 +255,7 @@ export class UnizeroDetailView extends ItemView {
 
     const actions = header.createDiv({ cls: "unizero-detail__actions" });
     this.actionButton(actions, "file-text", "PDF", () => openZoteroPdf(paper));
-    if (hasRawNote(paper)) {
+    if (hasRaw(paper)) {
       this.actionButton(actions, "file-symlink", "Raw", () => openRaw(paper));
     } else {
       this.actionButton(actions, "file-down", "Convert", () =>

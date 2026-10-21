@@ -14,15 +14,18 @@ DOI/arXiv identifier printed in the paper. It does not query scholarly providers
 guess bibliographic metadata.
 
 A template ends with one or more Publish modules. `publish.markdown-directory` writes the
-Markdown (with frontmatter) to a directory or Obsidian vault; `publish.zotero-note` leaves
-the body, without frontmatter, in the runtime store for the add-on to turn into a Zotero
-note. The runtime never creates the note itself, and the hand-off path and replace policy
-come back in the job result as `note_md_path` and `note_existing`.
+Markdown (with frontmatter) to a directory or Obsidian vault; `publish.zotero-markdown`
+leaves the same document, with its referenced images under `attachments/`, in a hand-off
+directory of the runtime store for the add-on to attach to the Zotero item as Raw and
+Raw Backup. The runtime never touches Zotero itself; the hand-off paths come back in the
+job result as `zotero_md_path` and, when there are images, `zotero_md_images_dir`. The
+built-in `paper-to-zotero-markdown` template uses it. A stored template that still names
+the removed `publish.zotero-note` is migrated to `publish.zotero-markdown` on load.
 
 A module can declare `requires_any`, the modules it serves. When none of them is enabled
 the runner skips it with a log line instead of asking the user to switch it off:
-`transform.frontmatter` serves `publish.markdown-directory`, so a note-only template can
-keep Frontmatter enabled and it simply does nothing. The same field is returned by
+`transform.frontmatter` serves both Markdown Publish modules, so a template with neither
+enabled can keep Frontmatter and it simply does nothing. The same field is returned by
 `GET /api/v1/modules` for the panel.
 
 ## Install

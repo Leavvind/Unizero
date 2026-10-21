@@ -22,7 +22,7 @@ import {
 } from "obsidian";
 import {
   convertToMarkdown,
-  hasRawNote,
+  hasRaw,
   openCanvas,
   openRaw,
   openZoteroPdf,
@@ -253,7 +253,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       .setIcon("graduation-cap")
       .onClick(() => { void this.showInDetailView(ref); }));
 
-    if (hasRawNote(paper)) {
+    if (hasRaw(paper)) {
       menu.addItem((item) => item
         .setTitle("Open Raw")
         .setIcon("file-symlink")

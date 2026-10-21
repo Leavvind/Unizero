@@ -159,10 +159,13 @@ export interface JobResult {
   /** Absent when the template has no Markdown-directory Publish module. */
   md_path?: string | null;
   tables_html_path?: string;
-  /** Raw Markdown for the Zotero note, written by a `publish.zotero-note` module. */
-  note_md_path?: string;
-  /** What to do when the paper already has a Raw note: `skip` or `replace`. */
-  note_existing?: string;
+  /**
+   * Markdown to attach to the Zotero item, written by a `publish.zotero-markdown`
+   * module into a hand-off directory the add-on removes once it is attached.
+   */
+  zotero_md_path?: string;
+  /** Images the Markdown links to as `<directory name>/<file>`; absent without any. */
+  zotero_md_images_dir?: string;
   references?: ExtractedReference[];
   references_count?: number;
   [key: string]: unknown;

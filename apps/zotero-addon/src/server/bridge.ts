@@ -58,9 +58,9 @@ const COLLECTIONS = `${ROOT}/collections`;
 const COLLECTION_ITEMS = `${ROOT}/collection-items`;
 const CONVERT = `${ROOT}/convert`;
 
-/** Same default template the item menu and Unizero Home convert path use. */
-const DEFAULT_CONVERT_TEMPLATE_ID = "paper-to-markdown";
-const DEFAULT_CONVERT_TEMPLATE_NAME = "Generate paper Markdown";
+/** Same default template as the item menu: it creates the Raw that Obsidian opens. */
+const DEFAULT_CONVERT_TEMPLATE_ID = "paper-to-zotero-markdown";
+const DEFAULT_CONVERT_TEMPLATE_NAME = "Generate Raw Markdown";
 
 const SUGGEST_LIMIT_DEFAULT = 20;
 const SUGGEST_LIMIT_MAX = 100;
@@ -377,7 +377,7 @@ async function handleConvert(query: RequestQuery): Promise<BridgeResponse> {
     libraryID,
     itemKey,
     message:
-      "Conversion started in Zotero. Watch the UniZero panel for progress, then open the note again.",
+      "Conversion started in Zotero. Watch the UniZero panel for progress, then open Raw.",
   });
 }
 

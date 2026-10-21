@@ -217,7 +217,7 @@ Neither component reaches through an HTTP boundary to reuse the other’s implem
 | Conversion templates and jobs | Paper runtime |
 | Work files and processing records | Runtime home |
 | Published Markdown | User-selected filesystem destination |
-| Converted paper text inside Zotero | Raw note: a child note tagged `unizero:raw-note` |
+| Converted paper text inside Zotero | Raw: an imported Markdown attachment tagged `unizero:raw`, edited by the user and never overwritten; `unizero:raw-backup` holds the latest conversion |
 | Extracted PDF bibliography | Versioned `ZoMiner References` Zotero JSON attachment |
 | Note identity (`uid` frontmatter) | Published Markdown; the runtime supplies a stable default |
 | Zotero item ↔ Obsidian URL binding | Add-on data directory, per library |

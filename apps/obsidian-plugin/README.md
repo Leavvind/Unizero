@@ -1,6 +1,6 @@
 # UniZero for Obsidian
 
-Search Zotero papers, cite them in notes, and open their metadata, Raw note,
+Search Zotero papers, cite them in notes, and open their metadata, Raw Markdown,
 Canvas, or PDF. Zotero remains the source of bibliographic data; the plugin reads
 the local UniZero bridge. Only explicit conversion starts a Zotero-side job.
 
@@ -23,16 +23,20 @@ server must be enabled (`extensions.zotero.httpServer.enabled`).
 | Citation | Click action |
 | --- | --- |
 | `@1/HLP48L8X` | Open the paper pane |
-| `@1/HLP48L8X.md` | Open the Raw note in Zotero |
+| `@1/HLP48L8X.md` | Open the Raw Markdown |
 | `@1/HLP48L8X.pdf` | Open the PDF in Zotero |
 | `@1/HLP48L8X.pdf:15` | Open physical PDF page 15 |
 
 Right-click a citation for Raw, Canvas, PDF, or conversion. Raw is the converted
-paper, kept as an editable Zotero child note tagged `unizero:raw-note`. The plugin
-opens it in a Zotero note tab; if the paper was split into parts, it opens part 1.
-An older add-on without note links only selects the note. Conversion is offered
-only when the paper has no Raw note, and its progress appears in Zotero's UniZero
-panel.
+paper, stored as a Markdown attachment of the Zotero item (tagged `unizero:raw`)
+and edited in place. The plugin opens its file with the system's Markdown
+application, as Zotero does — Obsidian, when it is the default for `.md` files.
+When the file is not on this machine, the attachment is selected in Zotero
+instead. Conversion is offered only when the paper has no Raw, uses the
+`paper-to-zotero-markdown` template, and its progress appears in Zotero's UniZero
+panel. Re-converting never overwrites Raw; it replaces the Raw Backup attachment.
+
+The add-on and this plugin must both speak bridge API 2.
 
 ## Canvas
 
