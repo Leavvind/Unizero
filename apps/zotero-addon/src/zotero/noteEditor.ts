@@ -1,7 +1,7 @@
 /**
  * Note editor integration: styles the note-editor iframe, adds "copy link" items to
- * its right-click menu, and reports what the editor exposes so later work can be
- * checked against a real Zotero.
+ * its right-click menu and the selection shortcuts, and reports what the editor exposes
+ * so later work can be checked against a real Zotero.
  *
  * Zotero has no public hook for a note editor appearing. Like Better Notes, this
  * wraps `Zotero.Notes.registerEditorInstance`, which is private: it fires at the
@@ -13,15 +13,14 @@
 import { config } from "../../package.json";
 import { sectionAtBlock, type NoteLocation } from "../notes/noteLocation";
 import { noteLink } from "./noteLinks";
-import { blockIndexOf, editorRoot, liveWindow, readBlocks } from "./noteNavigation";
+import { blockIndexOf, editorCore, editorRoot, liveWindow, readBlocks } from "./noteNavigation";
 import { attachOutline, detachOutline, hasOutline } from "./noteOutline";
-import { attachTools, describeColorPlugins, detachTools } from "./noteTools";
+import { attachShortcuts, describeShortcutHandles, detachShortcuts } from "./noteShortcuts";
 
 const STYLE_ID = `${config.addonRef}-note-editor-style`;
 const STYLE_PREF = `${config.addonRef}.noteEditor.style`;
 const STYLE_PATH = "chrome/content/styles/note-editor.css";
 const OUTLINE_STYLE_PATH = "chrome/content/styles/note-outline.css";
-const TOOLS_STYLE_PATH = "chrome/content/styles/note-tools.css";
 const MENU_CLASS = `${config.addonRef}-note-link-item`;
 
 type RegisterEditorInstance = (instance: Zotero.EditorInstance) => void;
@@ -29,7 +28,6 @@ type RegisterEditorInstance = (instance: Zotero.EditorInstance) => void;
 let active = false;
 let css = "";
 let outlineCss = "";
-let toolsCss = "";
 let original: RegisterEditorInstance | undefined;
 let wrapper: RegisterEditorInstance | undefined;
 /** The top-level block each editor document last had a right-click on. */
@@ -43,7 +41,6 @@ export async function registerNoteEditorStyle(): Promise<void> {
   // `rootURI` is a jar: or file: URL, which `Zotero.File.getContentsAsync` would take for a path.
   css = await readAddonFile(STYLE_PATH);
   outlineCss = await readAddonFile(OUTLINE_STYLE_PATH);
-  toolsCss = await readAddonFile(TOOLS_STYLE_PATH);
   const notes = Zotero.Notes;
   original = notes.registerEditorInstance;
   wrapper = function (this: unknown, instance: Zotero.EditorInstance) {
@@ -87,7 +84,7 @@ async function setUpWhenReady(editor: Zotero.EditorInstance): Promise<void> {
     // The item pane's copy is too narrow for a sidebar; only a tab gets one.
     const win = liveWindow(editor);
     if (win && editor._tabID) { attachOutline(win, outlineCss); }
-    if (win && !editor._readOnly) { attachTools(win, toolsCss); }
+    if (win && !editor._readOnly) { attachShortcuts(win); }
   } catch (error) {
     // The editor can be torn down before it finishes starting.
     Zotero.debug(`UniZero: note editor setup skipped: ${error}`);
@@ -97,7 +94,7 @@ async function setUpWhenReady(editor: Zotero.EditorInstance): Promise<void> {
 function tearDown(editor: Zotero.EditorInstance): void {
   const win = liveWindow(editor);
   win?.document.getElementById(STYLE_ID)?.remove();
-  if (win) { detachOutline(win); detachTools(win); }
+  if (win) { detachOutline(win); detachShortcuts(win); }
   win?.document.removeEventListener("contextmenu", onContextMenu, true);
   try {
     editor._popup?.removeEventListener("popupshowing", onPopupShowing);
@@ -241,7 +238,7 @@ function inspectEditorWindow(win: Window): Record<string, unknown> {
   const report: Record<string, unknown> = {
     styleApplied: !!doc.getElementById(STYLE_ID),
     outlinePanel: hasOutline(win),
-    colorPlugins: describeColorPlugins(win),
+    shortcuts: describeShortcutHandles(win),
     colorScheme: win.getComputedStyle(doc.documentElement).colorScheme,
     hasPrimaryEditor: !!root,
   };
@@ -256,7 +253,7 @@ function inspectEditorWindow(win: Window): Record<string, unknown> {
   const core = doc.querySelector(".editor-core");
   if (core) { report.scroll = { scrollHeight: core.scrollHeight, clientHeight: core.clientHeight }; }
   try {
-    const view = (win as any).wrappedJSObject?._currentEditorInstance?._editorCore?.view;
+    const view = editorCore(win)?.view;
     report.prosemirrorView = !!view;
     report.prosemirrorTopLevelBlocks = view?.state?.doc?.childCount ?? null;
   } catch (error) {

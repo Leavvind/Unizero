@@ -6,6 +6,7 @@ They are compatibility boundaries, not the organizing model for new code.
 | Reader | Supported state | Removal condition |
 | --- | --- | --- |
 | `apps/zotero-addon/src/modules/migrate.ts` | Older add-on preference prefixes | All relevant profiles have completed the guarded migration |
+| `apps/zotero-addon/src/modules/migrate.ts` (`migrateNoteToolsPref`) | The 0.5.17 `noteEditor.tools` switch, carried over as `editShortcuts` when it was off | Profiles have started once on a build that has it; it clears the old key, so a second run is already a no-op |
 | `apps/zotero-addon/src/runtime-client/settings.ts` | `extensions.zominer.*` runtime preferences | All relevant profiles have completed its independent migration |
 | `apps/zotero-addon/src/modules/localStorage.ts` | Single-document caches, under the current and older filenames | The one-shot import has run everywhere; it renames its source, so a second run is already a no-op |
 | `apps/zotero-addon/src/zotero/conversionAdapter.ts` | Untagged generated attachments with known historical titles | Existing libraries have adopted or intentionally abandoned those artifacts |

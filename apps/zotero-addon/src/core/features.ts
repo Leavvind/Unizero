@@ -7,6 +7,7 @@ import { startInBackground, stopOnShutdown } from "../runtime-client/process";
 import { registerBridgeEndpoints, unregisterBridgeEndpoints } from "../server/bridge";
 import { registerNoteEditorStyle, unregisterNoteEditorStyle } from "../zotero/noteEditor";
 import { registerNoteLinkHandler, unregisterNoteLinkHandler } from "../zotero/noteLinks";
+import { registerReaderShortcuts, unregisterReaderShortcuts } from "../zotero/readerShortcuts";
 import { noteServiceFailure } from "../ui/notices";
 import {
   registerAnnotationMenu,
@@ -172,6 +173,21 @@ const noteEditor: FeatureModule = {
   },
 };
 
+/**
+ * Selection shortcuts in the reader; the note editor's half is set up with the
+ * editor above. The reader's listener table is process-wide, so registration is
+ * idempotent like the note links'.
+ */
+const readerShortcuts: FeatureModule = {
+  id: "reader.shortcuts",
+  onWindowLoad() {
+    registerReaderShortcuts();
+  },
+  onShutdown() {
+    unregisterReaderShortcuts();
+  },
+};
+
 export const featureRegistry = new FeatureRegistry([
   relations,
   metadata,
@@ -180,4 +196,5 @@ export const featureRegistry = new FeatureRegistry([
   bridge,
   noteLinks,
   noteEditor,
+  readerShortcuts,
 ]);

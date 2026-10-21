@@ -20,6 +20,7 @@
  */
 
 import { config } from "../../package.json";
+import { EDIT_SHORTCUTS_PREF } from "../notes/editShortcuts";
 
 const PREFIX = `extensions.zotero.${config.addonRef}.`;
 const DONE_PREF = `${config.addonRef}.legacyPrefsMigrated`;
@@ -65,6 +66,27 @@ export function migrateLegacyPrefs(): void {
   } catch (error) {
     // A failed migration must not block startup: at worst the user re-enters the
     // settings. The DONE flag is left unset so the next start tries again.
+    Zotero.logError(error as Error);
+  }
+}
+
+/**
+ * The note editor's `Alt+digit` tools (0.5.17, `noteEditor.tools`) gave way to the
+ * selection shortcuts (`editShortcuts`), which also take keys from the editor. A user
+ * who switched the tools off keeps the add-on's keys off; the old key is then cleared,
+ * so this runs once. A new key the user already set is never overwritten.
+ */
+export function migrateNoteToolsPref(): void {
+  try {
+    const branch = (Zotero.Prefs as any).rootBranch;
+    const legacyKey = `${PREFIX}noteEditor.tools`;
+    if (!branch.prefHasUserValue(legacyKey)) { return; }
+    const targetKey = `extensions.zotero.${EDIT_SHORTCUTS_PREF}`;
+    if (!branch.prefHasUserValue(targetKey) && branch.getBoolPref(legacyKey) === false) {
+      branch.setBoolPref(targetKey, false);
+    }
+    branch.clearUserPref(legacyKey);
+  } catch (error) {
     Zotero.logError(error as Error);
   }
 }

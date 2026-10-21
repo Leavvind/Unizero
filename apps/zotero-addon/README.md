@@ -50,9 +50,11 @@ local paper runtime. It also still ships the legacy Unizero Home UI.
   turn it off with the hidden preference `extensions.zotero.unizero.noteEditor.style`.
 - An outline sidebar in note tabs (headings, click to scroll, follows the scroll position),
   injected into the same iframe; hidden preference `…noteEditor.outline` turns it off.
-- Annotation tools in the note editor, with the PDF reader's keys: `Alt+1` highlight,
-  `1`–`4` yellow/red/green/blue, then select text to apply; `Alt+2` eraser, which clears the
-  colors of what is selected or clicked; `Esc` leaves the tool. Hidden preference `…noteEditor.tools` turns it off.
+- Selection shortcuts, meant for mouse buttons or gestures, that mean the same in a note
+  and in the reader: `Cmd+Option+B` / `R` / `P` (`Ctrl+Alt` on Windows) highlight the
+  selected text blue / red / purple (in the reader, as a highlight annotation);
+  `Cmd+Option+\` (`Ctrl+Alt+\`) clears the selection's formatting except links (notes
+  only). Bold and italic stay the editor's own `Cmd+B` / `Cmd+I`. Hidden preference `…editShortcuts` turns them off.
 - Annotation export and Markdown injection.
 - Runtime lifecycle, jobs, service notices, and templates.
 

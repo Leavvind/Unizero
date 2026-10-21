@@ -26,6 +26,12 @@ Maintenance constraints: [ZOTERO_NOTES.md](ZOTERO_NOTES.md).
   The other note editor enhancements are already implemented.
 - **Long documents — manual check.** Verify every part syncs, Obsidian Raw opens part 1,
   and Replace reuses split notes and trashes only surplus marked parts.
+- **Selection shortcuts — manual check.** In a real Zotero, check that `Cmd+Option+B/R/P`
+  highlight a note selection and turn a PDF, EPUB and snapshot selection into a highlight
+  annotation of that color without changing the reader's tool color (also in split view's
+  second view), that `Ctrl+Alt` does the same on Windows while AltGr still types its
+  characters, that annotation comments keep their keys, and that
+  `Cmd+Option+\` clears a note selection's formatting but keeps links.
 - **Copy as Markdown — deferred.** Plain copy and paste already retains most formatting.
   Converting Zotero citations to `@libraryID/itemKey` depends on a way to insert
   citations in ordinary notes. No copy command or note-export bridge is implemented.

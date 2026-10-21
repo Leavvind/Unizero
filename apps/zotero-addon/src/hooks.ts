@@ -1,7 +1,7 @@
 import { config } from "../package.json";
 import { featureRegistry } from "./core/features";
 import { registerPrefsScripts } from "./modules/prefs";
-import { migrateLegacyPrefs } from "./modules/migrate";
+import { migrateLegacyPrefs, migrateNoteToolsPref } from "./modules/migrate";
 import { migrateLegacyRuntimePrefs } from "./runtime-client/settings";
 
 async function onStartup() {
@@ -24,6 +24,7 @@ async function onMainWindowLoad(win: Window): Promise<void> {
   // already too late.
   migrateLegacyPrefs();
   migrateLegacyRuntimePrefs();
+  migrateNoteToolsPref();
 
   // The add-on's Fluent strings (item pane section, menus) live in the main
   // document's l10n for the window's whole lifetime; see the note in views.ts.

@@ -27,6 +27,18 @@ export function editorRoot(win: Window): Element | null {
   return win.document.querySelector(".primary-editor");
 }
 
+/**
+ * The editor core inside the iframe, reached through `wrappedJSObject`: a private
+ * structure, so callers must expect it to be missing.
+ */
+export function editorCore(win: Window): any {
+  try {
+    return (win as any).wrappedJSObject?._currentEditorInstance?._editorCore;
+  } catch {
+    return undefined;
+  }
+}
+
 export function readBlocks(root: Element): NoteBlock[] {
   return Array.from(root.children).map((child) => ({
     tag: child.tagName.toLowerCase(),

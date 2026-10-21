@@ -69,5 +69,7 @@ pref("extensions.zotero.__addonRef__.noteEditor.style", true);
 // Outline sidebar in note tabs, and whether it is open.
 pref("extensions.zotero.__addonRef__.noteEditor.outline", true);
 pref("extensions.zotero.__addonRef__.noteEditor.outline.open", true);
-// Alt+1 / Alt+2 highlight and underline tools, 1-4 colors, 0 clears.
-pref("extensions.zotero.__addonRef__.noteEditor.tools", true);
+// Selection shortcuts in notes and the reader: Cmd+Option+B/R/P (Ctrl+Alt on Windows)
+// highlight blue/red/purple, Cmd+Option+\ clears formatting in notes; see
+// src/notes/editShortcuts.ts. Replaces noteEditor.tools, migrated in src/modules/migrate.ts.
+pref("extensions.zotero.__addonRef__.editShortcuts", true);

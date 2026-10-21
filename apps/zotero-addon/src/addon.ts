@@ -33,6 +33,7 @@ class Addon {
     uniConnection?: UniConnection;
     uniConnectionSync?: UniConnectionSync;
     noteEditorProbe?: () => Promise<unknown>;
+    readerShortcutProbe?: () => unknown;
   };
 
   constructor() {
