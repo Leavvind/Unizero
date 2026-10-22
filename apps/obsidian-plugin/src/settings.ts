@@ -33,6 +33,11 @@ export interface UnizeroSettings {
    * (all regular items), matching Unizero Home's library-level scope.
    */
   lastCollectionKey: string;
+  /**
+   * The library pane lists a collection's subcollection papers too, like
+   * Zotero's "Show Items from Subcollections".
+   */
+  showSubcollectionItems: boolean;
 }
 
 export const DEFAULT_SETTINGS: UnizeroSettings = {
@@ -43,6 +48,7 @@ export const DEFAULT_SETTINGS: UnizeroSettings = {
   canvasLinks: {},
   lastLibraryID: null,
   lastCollectionKey: "",
+  showSubcollectionItems: true,
 };
 
 export class UnizeroSettingTab extends PluginSettingTab {

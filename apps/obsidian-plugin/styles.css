@@ -524,6 +524,11 @@
   padding: 0.25em;
 }
 
+.unizero-library__subcollections.is-active {
+  color: var(--text-on-accent);
+  background-color: var(--interactive-accent);
+}
+
 .unizero-library__body {
   display: flex;
   flex-direction: column;

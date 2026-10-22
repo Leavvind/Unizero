@@ -288,6 +288,7 @@ async function handlePing(): Promise<BridgeResponse> {
       "canvas",
       "trash",
       "restore-raw",
+      "subcollections",
     ],
     ready: Boolean(activeViews()),
   });
@@ -362,7 +363,8 @@ async function handleCollections(): Promise<BridgeResponse> {
 
 /**
  * Papers in one collection (or the whole library when `collectionKey` is
- * omitted). Read-only membership; never fetches providers.
+ * omitted), with its subcollections' papers when `subcollections=1`. Read-only
+ * membership; never fetches providers.
  */
 async function handleCollectionItems(query: RequestQuery): Promise<BridgeResponse> {
   const libraryID = optionalLibraryID(query);
@@ -381,6 +383,7 @@ async function handleCollectionItems(query: RequestQuery): Promise<BridgeRespons
   const result = await bridgeCollectionItems(
     libraryID,
     rawKey || undefined,
+    String(query.subcollections || "") === "1",
   );
   if ("error" in result) {
     return failure(result.status, result.error);

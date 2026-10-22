@@ -90,20 +90,45 @@ export function selectedLiteratureScope(
   return { libraryID, name: libraryName(libraryID) };
 }
 
+/** A collection's items, then those of every subcollection below it, each once. */
+function itemsWithSubcollections(collection: Zotero.Collection): Zotero.Item[] {
+  const seen = new Set<number>();
+  const visited = new Set<number>();
+  const items: Zotero.Item[] = [];
+  const pending = [collection];
+  while (pending.length) {
+    const current = pending.shift() as Zotero.Collection;
+    if (visited.has(current.id)) { continue; }
+    visited.add(current.id);
+    for (const item of current.getChildItems(false, false)) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        items.push(item);
+      }
+    }
+    pending.push(...current.getChildCollections(false));
+  }
+  return items;
+}
+
 /**
  * Match Zotero's normal Collection semantics: items directly filed in the
  * selected Collection. Selecting a subcollection opens that subcollection as its
- * own scope instead of silently flattening the tree.
+ * own scope instead of silently flattening the tree. `includeSubcollections`
+ * matches Zotero's "Show Items from Subcollections" view option instead.
  */
 export async function literatureItemsInScope(
   scope: LiteratureCollectionScope,
+  options: { includeSubcollections?: boolean } = {},
 ): Promise<Zotero.Item[]> {
   let items: Zotero.Item[];
   if (scope.collectionID) {
     const collection = Zotero.Collections.get(scope.collectionID) as
       Zotero.Collection | false;
     if (!collection || collection.libraryID !== scope.libraryID) { return []; }
-    items = collection.getChildItems(false, false);
+    items = options.includeSubcollections
+      ? itemsWithSubcollections(collection)
+      : collection.getChildItems(false, false);
   } else {
     items = await Zotero.Items.getAll(scope.libraryID, true, false);
   }

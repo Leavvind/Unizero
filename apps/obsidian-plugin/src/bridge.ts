@@ -255,15 +255,19 @@ export class UnizeroBridge {
 
   /**
    * Papers filed in one collection, or every regular item in a library when
-   * `collectionKey` is omitted. Cache-only membership; never hits providers.
+   * `collectionKey` is omitted. `subcollections` adds the papers of every
+   * subcollection; an add-on without the `subcollections` capability ignores it.
+   * Cache-only membership; never hits providers.
    */
   collectionItems(
     libraryID: number,
     collectionKey?: string,
+    subcollections = false,
   ): Promise<BridgeCollectionItems> {
     return this.get<BridgeCollectionItems>("collection-items", {
       libraryID: String(libraryID),
       collectionKey: collectionKey || undefined,
+      subcollections: subcollections ? "1" : undefined,
     });
   }
 

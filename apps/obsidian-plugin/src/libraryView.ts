@@ -105,6 +105,7 @@ export class UnizeroLibraryView extends ItemView {
       const payload = await this.plugin.bridge.collectionItems(
         libraryID,
         this.collectionKey || undefined,
+        this.plugin.settings.showSubcollectionItems,
       );
       if (generation !== this.generation) { return; }
       this.items = payload.items || [];
@@ -137,6 +138,7 @@ export class UnizeroLibraryView extends ItemView {
       const payload = await this.plugin.bridge.collectionItems(
         this.libraryID,
         this.collectionKey || undefined,
+        this.plugin.settings.showSubcollectionItems,
       );
       if (generation !== this.generation) { return; }
       this.items = payload.items || [];
@@ -461,6 +463,23 @@ export class UnizeroLibraryView extends ItemView {
     sortSelect.addEventListener("change", () => {
       this.sortBy = sortSelect.value as "dateAdded" | "author" | "year";
       this.renderBody();
+    });
+
+    const subcollections = searchRow.createEl("button", {
+      cls: "unizero-library__refresh unizero-library__subcollections",
+      attr: {
+        "aria-label": "Show items from subcollections",
+        "aria-pressed": String(this.plugin.settings.showSubcollectionItems),
+        title: "Show items from subcollections",
+      },
+    });
+    setIcon(subcollections, "folder-tree");
+    subcollections.toggleClass("is-active", this.plugin.settings.showSubcollectionItems);
+    subcollections.disabled = this.busy;
+    subcollections.addEventListener("click", () => {
+      this.plugin.settings.showSubcollectionItems = !this.plugin.settings.showSubcollectionItems;
+      void this.plugin.saveSettings("none");
+      void this.loadItemsOnly();
     });
 
     const refresh = searchRow.createEl("button", {

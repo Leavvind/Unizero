@@ -422,12 +422,14 @@ export function bridgeCollections(): BridgeCollections {
 
 /**
  * Papers filed directly in a collection, or every regular item in a library
- * when `collectionKey` is omitted. Direct membership only — subcollections are
- * separate scopes, matching Unizero Home and Zotero's own collection pane.
+ * when `collectionKey` is omitted. By default subcollections are separate
+ * scopes, matching Unizero Home; `includeSubcollections` adds their papers, like
+ * Zotero's "Show Items from Subcollections".
  */
 export async function bridgeCollectionItems(
   libraryID: number,
   collectionKey?: string,
+  includeSubcollections = false,
 ): Promise<BridgeCollectionItems | { error: string; status: number }> {
   let collectionID: number | undefined;
   let name = libraryName(libraryID);
@@ -454,7 +456,7 @@ export async function bridgeCollectionItems(
     collectionID,
     collectionKey,
     name,
-  });
+  }, { includeSubcollections });
 
   return {
     scope: {

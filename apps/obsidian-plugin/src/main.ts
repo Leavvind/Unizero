@@ -184,6 +184,9 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     if (!["framed", "highlight", "solid"].includes(this.settings.pillStyle)) {
       this.settings.pillStyle = DEFAULT_SETTINGS.pillStyle;
     }
+    if (typeof this.settings.showSubcollectionItems !== "boolean") {
+      this.settings.showSubcollectionItems = DEFAULT_SETTINGS.showSubcollectionItems;
+    }
   }
 
   async saveSettings(
