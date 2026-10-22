@@ -361,20 +361,19 @@ export async function restoreRaw(
 }
 
 /**
- * The management entries of a paper menu: re-convert while Raw exists, restore
- * Raw from Raw Backup, and move Raw or Canvas to Zotero's trash.
+ * The Raw entries of a menu — the paper pane's right-click on Raw, and the
+ * management part of citation and library menus. Re-convert runs the default
+ * template; "Re-convert with template…" opens the template list as a second menu.
  */
-export function addManageItems(
+export function addRawItems(
   menu: Menu,
   context: ActionContext,
   paper: PaperIdentity & { links?: BridgePaper["links"] },
   state: ArtifactState,
   event: MouseEvent,
 ): void {
-  if (!state.hasRaw && !state.hasRawBackup && !state.hasCanvas) { return; }
   const ref = refOf(paper);
   const full = paper.links ? paper as BridgePaper : undefined;
-  menu.addSeparator();
   if (state.hasRaw) {
     menu.addItem((item) => item
       .setTitle("Re-convert (keeps Raw, updates Raw Backup)")
@@ -405,12 +404,34 @@ export function addManageItems(
       .setIcon("trash-2")
       .onClick(() => { void trash(context, paper, "raw", { ask: true }); }));
   }
-  if (state.hasCanvas) {
-    menu.addItem((item) => item
-      .setTitle("Move Canvas to Zotero trash")
-      .setIcon("trash-2")
-      .onClick(() => { void trash(context, paper, "canvas", { ask: true }); }));
-  }
+}
+
+/** The Canvas entries of a menu — the paper pane's right-click on Canvas, and others. */
+export function addCanvasItems(
+  menu: Menu,
+  context: ActionContext,
+  paper: PaperIdentity,
+  state: ArtifactState,
+): void {
+  if (!state.hasCanvas) { return; }
+  menu.addItem((item) => item
+    .setTitle("Move Canvas to Zotero trash")
+    .setIcon("trash-2")
+    .onClick(() => { void trash(context, paper, "canvas", { ask: true }); }));
+}
+
+/** Raw and Canvas entries after a separator, for citation and library menus. */
+export function addManageItems(
+  menu: Menu,
+  context: ActionContext,
+  paper: PaperIdentity & { links?: BridgePaper["links"] },
+  state: ArtifactState,
+  event: MouseEvent,
+): void {
+  if (!state.hasRaw && !state.hasRawBackup && !state.hasCanvas) { return; }
+  menu.addSeparator();
+  addRawItems(menu, context, paper, state, event);
+  addCanvasItems(menu, context, paper, state);
 }
 
 /**

@@ -23,7 +23,8 @@ import { enableCitationDrag, paperRefKey, type PaperRef } from "./citation";
 import type { PaperState } from "./paperStore";
 import type UnizeroPlugin from "./main";
 import {
-  addManageItems,
+  addCanvasItems,
+  addRawItems,
   artifactState,
   chooseTemplateAndConvert,
   convertToMarkdown,
@@ -258,11 +259,15 @@ export class UnizeroDetailView extends ItemView {
 
     const actions = header.createDiv({ cls: "unizero-detail__actions" });
     this.actionButton(actions, "file-text", "PDF", () => openZoteroPdf(paper));
+    const artifacts = artifactState(paper);
+    const ref = { libraryID: paper.libraryID, itemKey: paper.itemKey };
     if (hasRaw(paper)) {
-      this.actionButton(actions, "file-symlink", "Raw", () =>
+      const raw = this.actionButton(actions, "file-symlink", "Raw", () =>
         openRaw(paper, this.plugin.actionContext()));
+      raw.setAttr("aria-label", "Open Raw; right-click to re-convert, restore, or trash");
+      this.contextMenu(raw, (menu, event) =>
+        addRawItems(menu, this.plugin.actionContext(), paper, artifacts, event));
     } else {
-      const ref = { libraryID: paper.libraryID, itemKey: paper.itemKey };
       const convert = this.actionButton(actions, "file-down", "Convert", () =>
         convertToMarkdown(
           this.plugin.bridge, ref, paper, this.plugin.settings.defaultTemplate,
@@ -270,23 +275,33 @@ export class UnizeroDetailView extends ItemView {
       convert.setAttr("aria-label", "Convert with the default template; right-click to choose");
       convert.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        void chooseTemplateAndConvert(
-          this.plugin.bridge, ref, event, this.plugin.settings.defaultTemplate, paper,
-        );
+        if (!artifacts.hasRawBackup) {
+          void chooseTemplateAndConvert(
+            this.plugin.bridge, ref, event, this.plugin.settings.defaultTemplate, paper,
+          );
+          return;
+        }
+        // Raw was trashed but its backup remains: offer it beside the templates.
+        const menu = new Menu();
+        menu.addItem((item) => item
+          .setTitle("Convert with template…")
+          .setIcon("list")
+          .onClick(() => {
+            void chooseTemplateAndConvert(
+              this.plugin.bridge, ref, event, this.plugin.settings.defaultTemplate, paper,
+            );
+          }));
+        addRawItems(menu, this.plugin.actionContext(), paper, artifacts, event);
+        menu.showAtMouseEvent(event);
       });
     }
     // Hand-made note surface: the paper's Canvas attachment, created on first open.
-    this.actionButton(actions, "layout-dashboard", "Canvas", () =>
+    const canvas = this.actionButton(actions, "layout-dashboard", "Canvas", () =>
       openCanvas(this.plugin.actionContext(), paper));
-    const artifacts = artifactState(paper);
-    if (artifacts.hasRaw || artifacts.hasRawBackup || artifacts.hasCanvas) {
-      const more = this.actionButton(actions, "more-horizontal", "Manage", () => undefined);
-      more.setAttr("aria-label", "Re-convert, restore Raw, or move Raw or Canvas to the trash");
-      more.addEventListener("click", (event) => {
-        const menu = new Menu();
-        addManageItems(menu, this.plugin.actionContext(), paper, artifacts, event);
-        menu.showAtMouseEvent(event);
-      });
+    if (artifacts.hasCanvas) {
+      canvas.setAttr("aria-label", "Open Canvas; right-click to move it to the trash");
+      this.contextMenu(canvas, (menu) =>
+        addCanvasItems(menu, this.plugin.actionContext(), paper, artifacts));
     }
 
     if (paper.abstract) {
@@ -294,6 +309,19 @@ export class UnizeroDetailView extends ItemView {
       abstract.createEl("summary", { text: "Abstract" });
       abstract.createEl("p", { text: paper.abstract });
     }
+  }
+
+  /** Show a menu built by `build` when `target` is right-clicked. */
+  private contextMenu(
+    target: HTMLElement,
+    build: (menu: Menu, event: MouseEvent) => void,
+  ): void {
+    target.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      const menu = new Menu();
+      build(menu, event);
+      menu.showAtMouseEvent(event);
+    });
   }
 
   private actionButton(

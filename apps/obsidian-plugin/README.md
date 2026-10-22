@@ -62,12 +62,16 @@ this plugin's `data.json` (`canvasLinks`) for migration, but are no longer opene
 
 ## Managing Raw and Canvas
 
-The paper pane's **Manage** button, a citation's menu, and the library pane's menu
-offer, as far as the paper has a Raw, a Raw Backup, or a Canvas:
+In the paper pane, click **Raw** or **Canvas** to open it and right-click it to
+manage it: Raw's menu holds the Raw actions below, Canvas's menu its trash action.
+When the paper has no Raw but still has a Raw Backup, right-clicking **Convert**
+also offers the restore. A citation's menu and the library pane's menu list all of
+them, as far as the paper has a Raw, a Raw Backup, or a Canvas:
 
 | Action | Effect |
 | --- | --- |
-| Re-convert (keeps Raw, updates Raw Backup) | Runs conversion again, with the default template or one you pick. Raw is not touched. |
+| Re-convert (keeps Raw, updates Raw Backup) | Runs conversion again with the default template. Raw is not touched. |
+| Re-convert with template… | The same, with a template picked from a second menu. |
 | Restore Raw from Raw Backup | Replaces Raw with a copy of Raw Backup, the latest conversion, then opens it. The old Raw goes to Zotero's trash. |
 | Move Raw to Zotero trash | The next conversion creates a new Raw. |
 | Move Canvas to Zotero trash | The next Canvas click creates a new empty Canvas. |

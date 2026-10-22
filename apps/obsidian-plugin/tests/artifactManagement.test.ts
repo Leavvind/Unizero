@@ -29,7 +29,9 @@ vi.mock("obsidian", () => {
 
 import { Menu } from "obsidian";
 import {
+  addCanvasItems,
   addManageItems,
+  addRawItems,
   artifactState,
   trash,
   type ActionContext,
@@ -103,6 +105,32 @@ describe("artifact management", () => {
       hasRaw: false, hasRawBackup: true, hasCanvas: false,
     }, {} as MouseEvent);
     expect(titles(menu)).toEqual(["—", "Restore Raw from Raw Backup"]);
+  });
+
+  it("puts only the Raw entries on Raw's own menu", () => {
+    const menu = new Menu();
+    addRawItems(menu, context(), paper, {
+      hasRaw: true, hasRawBackup: false, hasCanvas: true,
+    }, {} as MouseEvent);
+    expect(titles(menu)).toEqual([
+      "Re-convert (keeps Raw, updates Raw Backup)",
+      "Re-convert with template…",
+      "Move Raw to Zotero trash",
+    ]);
+  });
+
+  it("puts only the trash entry on Canvas's own menu, and nothing without a Canvas", () => {
+    const withCanvas = new Menu();
+    addCanvasItems(withCanvas, context(), paper, {
+      hasRaw: true, hasRawBackup: true, hasCanvas: true,
+    });
+    expect(titles(withCanvas)).toEqual(["Move Canvas to Zotero trash"]);
+
+    const without = new Menu();
+    addCanvasItems(without, context(), paper, {
+      hasRaw: true, hasRawBackup: true, hasCanvas: false,
+    });
+    expect(titles(without)).toEqual([]);
   });
 
   it("trashes through the bridge and reports the change", async () => {
