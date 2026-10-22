@@ -145,7 +145,7 @@ def test_modules_endpoint_lists_registered_pipeline_steps(client: TestClient) ->
     ids = {module["id"] for module in modules}
     # The built-in template is expressed in terms of these; drift breaks conversion.
     assert "transform.frontmatter" in ids
-    assert "transform.references" in ids
+    assert "transform.content" in ids
 
 
 def test_a_rebound_host_is_refused(client: TestClient) -> None:

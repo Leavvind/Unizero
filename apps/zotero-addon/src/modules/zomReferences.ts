@@ -2,7 +2,7 @@
  * ZoMiner bridge.
  *
  * Reference extraction is delegated to ZoMiner: it converts the PDF to Markdown
- * with MinerU and, before `markdown-cleanup` strips the reference section, pulls
+ * with MinerU and, before `transform.content` strips the reference section, pulls
  * structured references out of content_list and attaches the result to the Zotero
  * item as an `application/json` attachment whose title starts with
  * "ZoMiner References".

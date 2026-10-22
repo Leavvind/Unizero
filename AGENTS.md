@@ -16,7 +16,7 @@ Obsidian is the active note-taking front end.
 | Priority | Surface | Guidance |
 | --- | --- | --- |
 | **Active** | `apps/obsidian-plugin` | Default place for new product work: citations, detail pane, search, jumps |
-| **Required backend** | `apps/zotero-addon` data plane + `src/server` bridge | Providers, reference cache, relations, Paper catalog, conversion client, mostly-read-only bridge (`POST /convert` only) |
+| **Required backend** | `apps/zotero-addon` data plane + `src/server` bridge | Providers, reference cache, relations, Paper catalog, conversion client, mostly-read-only bridge (`POST /convert` and `POST /canvas` only) |
 | **Legacy UI** | Unizero Home (Project View / Board) under `addon/chrome/content` and related Project/Board paths | Still in the tree; **do not extend, redesign, or “improve”** unless the user task names Home/Board explicitly |
 | **Background** | Item-pane literature UI, per-paper graph | Maintain when a task touches them; not the main roadmap |
 
@@ -50,7 +50,7 @@ UniZero has three executable components:
 The add-on and the runtime integrate through the versioned localhost HTTP API; the
 canonical v1 schema is `packages/contracts/http/v1.schema.json`. The add-on and the
 Obsidian plugin integrate through a separate bridge on Zotero's own HTTP server
-(GET data plane plus `POST /convert`), versioned by `BRIDGE_API_VERSION` in
+(GET data plane plus `POST /convert` and `POST /canvas`), versioned by `BRIDGE_API_VERSION` in
 `apps/zotero-addon/src/server/bridgePayloads.ts`. The two boundaries are unrelated and
 must not be merged.
 
@@ -84,8 +84,9 @@ and which are design notes; do not treat a design note as a work order.
     plain object on `window.arguments[0]`; they never import bundle modules.
 11. **The Obsidian bridge is mostly read-only and never fetches unbidden.** GET
     endpoints under `src/server` do not mutate Zotero or the Paper catalog. The only
-    write-shaped action is `POST /convert` (same conversion command as the Zotero
-    menu). Relations answer from cache; a miss is `loaded: false` so the caller can
+    write-shaped actions are `POST /convert` (same conversion command as the Zotero
+    menu) and `POST /canvas` (adds an empty `unizero:canvas` attachment to a paper
+    that has none; never writes into an existing one). Relations answer from cache; a miss is `loaded: false` so the caller can
     prompt. Only an explicit `fetch=1` may reach the providers. Rendering a note must
     never cause network work or start conversion.
 12. **A citekey is an alias, not an identity.** Persisted state uses `libraryID` plus
@@ -190,7 +191,7 @@ npm test
 npm run build
 ```
 
-`npm test` covers the citation syntax, Canvas creation and links, the vault index, and
+`npm test` covers the citation syntax, template choice, the vault index, and
 the paper store's request ownership, mocking Obsidian where needed. Rendering, the suggester, the panes, and every
 bridge call need a manual check in a real vault against a running Zotero.
 

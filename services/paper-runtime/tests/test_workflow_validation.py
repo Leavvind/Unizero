@@ -172,9 +172,13 @@ def test_a_legacy_template_drops_removed_enrichment_but_keeps_references(
     entry = next(item for item in store.list() if item["id"] == "paper-to-markdown")
     modules = [item["module"] for item in entry["modules"]]
     assert "enrich.semantic-scholar" not in modules
-    assert "transform.references" in modules
+    assert "transform.content" in modules
     assert "extract.mineru" in modules
-    assert modules.index("transform.references") > modules.index("extract.mineru")
+    assert modules.index("transform.content") > modules.index("extract.mineru")
+    content = next(
+        item for item in entry["modules"] if item["module"] == "transform.content"
+    )
+    assert content["settings"]["references"]["extract"] is True
 
 
 def test_legacy_frontmatter_settings_become_a_property_table(isolated_home: Path) -> None:
@@ -195,19 +199,47 @@ def test_legacy_frontmatter_settings_become_a_property_table(isolated_home: Path
     assert rows["title"]["value"] == "{{ title }}"
 
 
-def test_version_two_template_gains_reference_extraction_once(
-    isolated_home: Path,
-) -> None:
-    document = yaml.safe_load(
+def _builtin_document() -> dict:
+    return yaml.safe_load(
         (paths.builtin_templates_dir() / "paper-to-markdown.yaml").read_text(
             encoding="utf-8",
         ),
     )
-    document["version"] = 2
-    document["modules"] = [
-        item for item in document["modules"]
-        if item["module"] != "transform.references"
+
+
+def _with_legacy_content_modules(document: dict, *, references: bool) -> dict:
+    """Replace the Content module with the modules it was folded from."""
+    legacy = [
+        {"id": "markdown-cleanup", "module": "transform.markdown-cleanup",
+         "enabled": True,
+         "settings": {"images_mode": "all", "table_mode": "md",
+                      "strip_repeated_lines": True, "strip_references": False,
+                      "table_vlm": True}},
+        {"id": "tables-export", "module": "export.zotero-tables", "enabled": True,
+         "settings": {"include_figures": True}},
     ]
+    if references:
+        legacy.insert(0, {"id": "references", "module": "transform.references",
+                          "enabled": True, "settings": {"warn_if_empty": True}})
+    modules = document["modules"]
+    index = next(
+        i for i, item in enumerate(modules) if item["module"] == "transform.content"
+    )
+    document["modules"] = modules[:index] + legacy + modules[index + 1:]
+    return document
+
+
+def _content(template) -> dict:
+    items = [item for item in template.modules if item.module == "transform.content"]
+    assert len(items) == 1
+    return items[0].settings
+
+
+def test_version_two_template_gains_reference_extraction_once(
+    isolated_home: Path,
+) -> None:
+    document = _with_legacy_content_modules(_builtin_document(), references=False)
+    document["version"] = 2
     _write_user_template(isolated_home, document)
 
     store = _store(isolated_home)
@@ -215,11 +247,61 @@ def test_version_two_template_gains_reference_extraction_once(
     assert template is not None
     modules = [item.module for item in template.modules]
     assert template.version == 3
-    assert modules.count("transform.references") == 1
-    assert modules.index("transform.references") > modules.index("extract.mineru")
-    assert modules.index("transform.references") < modules.index(
-        "transform.markdown-cleanup",
+    assert modules.index("transform.content") > modules.index("extract.mineru")
+    assert modules.index("transform.content") < modules.index("transform.frontmatter")
+    assert _content(template)["references"]["extract"] is True
+
+
+def test_folded_modules_keep_their_settings(isolated_home: Path) -> None:
+    document = _with_legacy_content_modules(_builtin_document(), references=True)
+    extract = document["modules"][0]
+    extract["settings"].update({"enable_formula": False, "enable_table": True})
+    _write_user_template(isolated_home, document)
+
+    template = _store(isolated_home).get("paper-to-markdown")
+    assert template is not None
+    assert "enable_formula" not in template.modules[0].settings
+    assert _content(template) == {
+        "formulas": "remove",
+        "figures": "save",
+        "tables": {"markdown": "markdown", "refine_complex": True,
+                   "digest": True, "digest_figures": True},
+        "references": {"extract": True, "remove_from_body": False},
+        "remove_repeated_lines": True,
+    }
+    # the migrated document is persisted, so the next load needs no migration
+    saved = yaml.safe_load(
+        (paths.user_templates_dir(isolated_home) / "paper-to-markdown.yaml")
+        .read_text(encoding="utf-8"),
     )
+    assert "transform.markdown-cleanup" not in {m["module"] for m in saved["modules"]}
+
+
+def test_disabled_folded_modules_keep_their_effect() -> None:
+    from unizero_runtime.pipeline.migrations import migrate_template_dict
+
+    migrated = migrate_template_dict({
+        "schema_version": 1, "id": "custom", "name": "custom", "version": 1,
+        "modules": [
+            {"id": "extract", "module": "extract.mineru",
+             "settings": {"enable_table": False}},
+            {"id": "cleanup", "module": "transform.markdown-cleanup",
+             "enabled": False, "settings": {}},
+            {"id": "digest", "module": "export.zotero-tables", "settings": {}},
+            {"id": "publish", "module": "publish.markdown-directory", "settings": {}},
+        ],
+    })
+    content = migrated["modules"][1]
+    assert [m["module"] for m in migrated["modules"]] == [
+        "extract.mineru", "transform.content", "publish.markdown-directory",
+    ]
+    assert content["enabled"] is True
+    assert content["settings"]["references"] == {
+        "extract": False, "remove_from_body": False,
+    }
+    # tables were dropped at extraction, so neither the Markdown nor a digest had them
+    assert content["settings"]["tables"]["markdown"] == "pointer"
+    assert content["settings"]["tables"]["digest"] is False
 
 
 def test_version_one_property_table_gains_uid_once(isolated_home: Path) -> None:
@@ -247,7 +329,7 @@ def test_version_one_property_table_gains_uid_once(isolated_home: Path) -> None:
         if item.module == "transform.frontmatter"
     )
     keys = [row["key"] for row in loaded_frontmatter.settings["properties"]]
-    assert template.version == 3
+    assert template.version == 2
     assert keys.count("uid") == 1
     assert keys.index("uid") == keys.index("citekey") + 1
 
@@ -287,4 +369,4 @@ def test_a_legacy_document_posted_by_an_old_client_is_migrated(isolated_home: Pa
     document = store.save_dict(_legacy_template())
     modules = [item["module"] for item in document["template"]["modules"]]
     assert "enrich.semantic-scholar" not in modules
-    assert "transform.references" in modules
+    assert "transform.content" in modules

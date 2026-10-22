@@ -23,6 +23,7 @@ import { enableCitationDrag, paperRefKey, type PaperRef } from "./citation";
 import type { PaperState } from "./paperStore";
 import type UnizeroPlugin from "./main";
 import {
+  chooseTemplateAndConvert,
   convertToMarkdown,
   hasRaw,
   openCanvas,
@@ -258,15 +259,22 @@ export class UnizeroDetailView extends ItemView {
     if (hasRaw(paper)) {
       this.actionButton(actions, "file-symlink", "Raw", () => openRaw(paper));
     } else {
-      this.actionButton(actions, "file-down", "Convert", () =>
-        convertToMarkdown(this.plugin.bridge, {
-          libraryID: paper.libraryID,
-          itemKey: paper.itemKey,
-        }, paper));
+      const ref = { libraryID: paper.libraryID, itemKey: paper.itemKey };
+      const convert = this.actionButton(actions, "file-down", "Convert", () =>
+        convertToMarkdown(
+          this.plugin.bridge, ref, paper, this.plugin.settings.defaultTemplate,
+        ));
+      convert.setAttr("aria-label", "Convert with the default template; right-click to choose");
+      convert.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        void chooseTemplateAndConvert(
+          this.plugin.bridge, ref, event, this.plugin.settings.defaultTemplate, paper,
+        );
+      });
     }
-    // Hand-made note surface: first open creates and binds a .canvas.
+    // Hand-made note surface: the paper's Canvas attachment, created on first open.
     this.actionButton(actions, "layout-dashboard", "Canvas", () =>
-      openCanvas(this.app, paper, this.plugin.canvasLinkStore()));
+      openCanvas(this.plugin.bridge, paper));
 
     if (paper.abstract) {
       const abstract = header.createEl("details", { cls: "unizero-detail__abstract" });
@@ -280,11 +288,12 @@ export class UnizeroDetailView extends ItemView {
     icon: string,
     label: string,
     run: () => void | Promise<void>,
-  ): void {
+  ): HTMLButtonElement {
     const button = parent.createEl("button", { cls: "unizero-detail__action" });
     setIcon(button.createSpan(), icon);
     button.createSpan({ text: label });
     button.addEventListener("click", () => { void run(); });
+    return button;
   }
 
   private renderTabs(container: HTMLElement): void {

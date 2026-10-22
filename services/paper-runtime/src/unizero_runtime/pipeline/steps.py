@@ -665,8 +665,10 @@ def _stage_extract(ctx: ConversionContext, settings: dict[str, Any]) -> None:
     ctx.opts.language = "ch" if language == "zh" else language
     if ctx.opts.language not in {"auto", "en", "zh", "ch", ""}:
         raise ValueError("MinerU 4 uses automatic OCR language selection; use language=auto")
-    ctx.opts.enable_formula = bool(settings.get("enable_formula", ctx.opts.enable_formula))
-    ctx.opts.enable_table = bool(settings.get("enable_table", ctx.opts.enable_table))
+    # The Content module decides what the Markdown keeps; dropping blocks here
+    # would also hide them from the References and the table digest.
+    ctx.opts.enable_formula = True
+    ctx.opts.enable_table = True
     chunking = settings.get("chunking") or {}
     if bool(chunking.get("enabled", True)):
         ctx.opts.split_threshold = int(
@@ -735,50 +737,72 @@ def _stage_page_links(ctx: ConversionContext, _settings: dict[str, Any]) -> None
         ctx.warnings.append(f"page-link injection failed: {exc}")
 
 
-def _stage_references(ctx: ConversionContext, settings: dict[str, Any]) -> None:
-    """Extract ordered raw citations from MinerU's untouched content list."""
+#: Content-module choices → the post-processing pass vocabulary.
+_FIGURE_MODES = {"pointer": "none", "save": "all"}
+_TABLE_MODES = {"pointer": "none", "markdown": "md", "html": "html"}
+
+
+def _load_content_list(ctx: ConversionContext) -> None:
+    """Read MinerU's content list once; later steps share `ctx.content_list`."""
+    if ctx.content_list:
+        return
     if ctx.content_list_path is None:
         out_md = _require_output(ctx)
         candidates = list(out_md.parent.glob("*_content_list.json"))
         ctx.content_list_path = candidates[0] if candidates else None
     if ctx.content_list_path is None:
-        ctx.warnings.append("no _content_list.json — skipped reference extraction")
+        ctx.warnings.append(
+            "no _content_list.json — skipped references, table and figure handling",
+        )
         return
-    if not ctx.content_list:
-        try:
-            ctx.content_list = json.loads(
-                ctx.content_list_path.read_text(encoding="utf-8"),
-            )
-        except Exception as exc:
-            ctx.warnings.append(f"content_list unreadable: {exc}")
-            return
-
-    ctx.references = extract_references(ctx.content_list, ctx.log)
-    if not ctx.references and bool(settings.get("warn_if_empty", True)):
-        ctx.warnings.append("reference extraction found 0 references")
+    try:
+        ctx.content_list = json.loads(ctx.content_list_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        ctx.warnings.append(f"content_list unreadable: {exc}")
 
 
-def _stage_transform(ctx: ConversionContext, settings: dict[str, Any]) -> None:
-    ctx.opts.images_mode = str(settings.get("images_mode") or ctx.opts.images_mode)
-    ctx.opts.table_mode = str(settings.get("table_mode") or ctx.opts.table_mode)
-    ctx.opts.strip_repeated_lines = bool(
-        settings.get("strip_repeated_lines", ctx.opts.strip_repeated_lines),
-    )
-    ctx.opts.strip_references = bool(
-        settings.get("strip_references", ctx.opts.strip_references),
-    )
-    ctx.opts.table_vlm = bool(settings.get("table_vlm", ctx.opts.table_vlm))
+def _export_table_digest(ctx: ConversionContext, include_figures: bool) -> None:
     out_md = _require_output(ctx)
-    if ctx.content_list_path is not None:
-        try:
-            ctx.content_list = json.loads(
-                ctx.content_list_path.read_text(encoding="utf-8"),
-            )
-        except Exception as exc:
-            ctx.warnings.append(f"content_list unreadable: {exc}")
+    target_dir = ctx.store_dir if ctx.store_dir is not None else out_md.parent
+    try:
+        ctx.tables_html = export_tables_html(
+            ctx.content_list,
+            target_dir / f"{ctx.artifact_key}.tables.html",
+            title=ctx.meta.title or ctx.citekey,
+            citekey=ctx.citekey,
+            zotero_pdf_uri=ctx.meta.zotero_pdf_uri,
+            pdf_path=ctx.pdf_path,
+            images_root=out_md.parent / "images",
+            include_figures=include_figures,
+            log=ctx.log,
+        )
+    except Exception as exc:
+        # The digest is a side artifact; its failure must not abort the
+        # conversion.
+        ctx.warnings.append(f"table digest failed: {exc}")
+
+
+def _stage_content(ctx: ConversionContext, settings: dict[str, Any]) -> None:
+    """Decide what the Markdown keeps of formulas, figures, tables, and References.
+
+    Extraction always keeps every block, so the structured References and the
+    table digest read the full content list whatever the Markdown shows.
+    """
+    out_md = _require_output(ctx)
+    tables = settings.get("tables") or {}
+    references = settings.get("references") or {}
+    table_mode = _TABLE_MODES[str(tables.get("markdown") or "pointer")]
+    _load_content_list(ctx)
+
+    if bool(references.get("extract", True)) and ctx.content_list:
+        ctx.references = extract_references(ctx.content_list, ctx.log)
+        if not ctx.references:
+            ctx.warnings.append("reference extraction found 0 references")
 
     body_text = out_md.read_text(encoding="utf-8")
-    if ctx.opts.table_vlm and ctx.content_list:
+    # Refined HTML only ever reaches the Markdown; the digest shows page crops,
+    # so with tables reduced to pointers the second MinerU pass is wasted.
+    if bool(tables.get("refine_complex")) and table_mode != "none" and ctx.content_list:
         try:
             body_text, ctx.content_list, _ = refine_tables(
                 ctx.pdf_path,
@@ -794,53 +818,19 @@ def _stage_transform(ctx: ConversionContext, settings: dict[str, Any]) -> None:
     post_ctx = PostCtx(
         content_list=ctx.content_list,
         toc=read_pdf_toc(ctx.pdf_path),
-        zotero_pdf_uri=(
-            ctx.meta.zotero_pdf_uri
-        ),
+        zotero_pdf_uri=ctx.meta.zotero_pdf_uri,
         title=ctx.meta.title,
-        images_mode=ctx.opts.images_mode,
-        table_mode=ctx.opts.table_mode,
-        strip_repeated_lines=ctx.opts.strip_repeated_lines,
-        strip_references=ctx.opts.strip_references,
+        images_mode=_FIGURE_MODES[str(settings.get("figures") or "pointer")],
+        table_mode=table_mode,
+        strip_formulas=str(settings.get("formulas") or "keep") == "remove",
+        strip_repeated_lines=bool(settings.get("remove_repeated_lines", False)),
+        strip_references=bool(references.get("remove_from_body", True)),
         log=ctx.log,
     )
     ctx.body = run_passes(body_text, post_ctx)
 
-
-def _stage_tables_export(ctx: ConversionContext, settings: dict[str, Any]) -> None:
-    out_md = _require_output(ctx)
-    content_list = ctx.content_list
-    if not content_list:
-        cl_path = ctx.content_list_path
-        if cl_path is None:
-            candidates = list(out_md.parent.glob("*_content_list.json"))
-            cl_path = candidates[0] if candidates else None
-        if cl_path is not None:
-            try:
-                content_list = json.loads(cl_path.read_text(encoding="utf-8"))
-            except Exception as exc:
-                ctx.warnings.append(f"tables export: content_list unreadable: {exc}")
-                return
-    if not content_list:
-        ctx.warnings.append("tables export: no content_list — skipped")
-        return
-    target_dir = ctx.store_dir if ctx.store_dir is not None else out_md.parent
-    try:
-        ctx.tables_html = export_tables_html(
-            content_list,
-            target_dir / f"{ctx.artifact_key}.tables.html",
-            title=ctx.meta.title or ctx.citekey,
-            citekey=ctx.citekey,
-            zotero_pdf_uri=ctx.meta.zotero_pdf_uri,
-            pdf_path=ctx.pdf_path,
-            images_root=out_md.parent / "images",
-            include_figures=bool(settings.get("include_figures", False)),
-            log=ctx.log,
-        )
-    except Exception as exc:
-        # The digest is a side artifact; its failure must not abort the
-        # conversion.
-        ctx.warnings.append(f"tables export failed: {exc}")
+    if bool(tables.get("digest", True)) and ctx.content_list:
+        _export_table_digest(ctx, bool(tables.get("digest_figures", False)))
 
 
 def _stage_frontmatter(ctx: ConversionContext, settings: dict[str, Any]) -> None:
@@ -1118,8 +1108,6 @@ MODULE_REGISTRY.register(WorkflowModule(
         "backend": "basic",
         "ocr_mode": "auto",
         "language": "auto",
-        "enable_formula": True,
-        "enable_table": True,
         "chunking": {"enabled": True, "threshold_pages": 200, "chunk_size": 50},
     },
     settings_schema=_object_schema({
@@ -1143,10 +1131,6 @@ MODULE_REGISTRY.register(WorkflowModule(
             "enumNames": ["Auto", "English", "Chinese"],
             "description": "OCR language is selected automatically.",
         },
-        "enable_formula": {"type": "boolean", "title": "Include display formulas",
-                           "description": "Controls exported formula blocks; does not disable model inference or inline formulas."},
-        "enable_table": {"type": "boolean", "title": "Include tables",
-                         "description": "Controls exported table blocks; does not disable model inference."},
         "chunking": _object_schema({
             "enabled": {"type": "boolean", "title": "Chunk long PDFs"},
             "threshold_pages": {
@@ -1168,69 +1152,83 @@ MODULE_REGISTRY.register(WorkflowModule(
     settings_schema=_object_schema({}),
 ))
 MODULE_REGISTRY.register(WorkflowModule(
-    id="transform.references",
-    name="Reference extraction",
+    id="transform.content",
+    name="Content",
     role="process",
-    handler=_stage_references,
+    handler=_stage_content,
     description=(
-        "Extract the PDF bibliography into ordered structured records containing "
-        "raw citation text, source page, and identifiers printed in the paper. "
-        "Scholarly-provider resolution remains on the Zotero add-on side."
-    ),
-    defaults={"warn_if_empty": True},
-    settings_schema=_object_schema({
-        "warn_if_empty": {
-            "type": "boolean",
-            "title": "Warn when no references are found",
-        },
-    }),
-))
-MODULE_REGISTRY.register(WorkflowModule(
-    id="transform.markdown-cleanup",
-    name="Markdown post-processing",
-    role="process",
-    handler=_stage_transform,
-    description=(
-        "Handle the table of contents, headings, images, tables, repeated "
-        "lines, and References."
+        "Decide what the Markdown keeps of display formulas, figures, tables, and "
+        "the References section, and produce the structured References and the "
+        "table digest. Whatever the Markdown leaves out is replaced by a link to "
+        "its PDF page."
     ),
     defaults={
-        "images_mode": "none", "table_mode": "none",
-        "strip_repeated_lines": False, "strip_references": True,
-        "table_vlm": False,
+        "formulas": "keep",
+        "figures": "pointer",
+        "tables": {
+            "markdown": "pointer",
+            "refine_complex": False,
+            "digest": True,
+            "digest_figures": False,
+        },
+        "references": {"extract": True, "remove_from_body": True},
+        "remove_repeated_lines": False,
     },
     settings_schema=_object_schema({
-        "images_mode": {
-            "type": "string", "title": "Image mode", "enum": ["none", "all"],
-            "enumNames": ["PDF pointers only", "Save referenced images"],
+        "formulas": {
+            "type": "string", "title": "Display formulas",
+            "enum": ["keep", "remove"], "enumNames": ["Keep", "Remove"],
+            "description": "Inline formulas are always kept.",
         },
-        "table_mode": {
-            "type": "string", "title": "Table mode",
-            "enum": ["none", "md", "html"],
-            "enumNames": ["PDF pointers only", "Markdown", "HTML"],
+        "figures": {
+            "type": "string", "title": "Figures",
+            "enum": ["pointer", "save"],
+            "enumNames": ["Caption and PDF link", "Save images"],
         },
-        "strip_repeated_lines": {
-            "type": "boolean", "title": "Remove repeated lines",
+        "tables": _object_schema({
+            "markdown": {
+                "type": "string", "title": "In the Markdown",
+                "enum": ["pointer", "markdown", "html"],
+                "enumNames": ["PDF link only", "Markdown tables", "HTML tables"],
+                "description": (
+                    "Complex tables (merged cells) parse unreliably and become a "
+                    "PDF link unless refined."
+                ),
+            },
+            "refine_complex": {
+                "type": "boolean", "title": "Refine complex tables with a VLM",
+                "description": (
+                    "Re-parses only the pages with complex tables at the Advanced "
+                    "tier. Slow; has no effect with PDF link only."
+                ),
+            },
+            "digest": {
+                "type": "boolean", "title": "Table digest attachment",
+                "description": (
+                    "One HTML file with every table's page crop, caption, and page "
+                    "link, stored on the Zotero item and replaced on re-conversion."
+                ),
+            },
+            "digest_figures": {
+                "type": "boolean", "title": "Add figures to the digest",
+            },
+        }) | {"title": "Tables"},
+        "references": _object_schema({
+            "extract": {
+                "type": "boolean", "title": "Extract structured References",
+                "description": (
+                    "Ordered raw citations with page and printed DOI/arXiv, used "
+                    "by the add-on for papers without a DOI."
+                ),
+            },
+            "remove_from_body": {
+                "type": "boolean", "title": "Remove the References section",
+            },
+        }) | {"title": "References"},
+        "remove_repeated_lines": {
+            "type": "boolean", "title": "Remove repeated header/footer lines",
+            "description": "Drops short lines that recur five or more times.",
         },
-        "strip_references": {"type": "boolean", "title": "Remove References"},
-        "table_vlm": {
-            "type": "boolean", "title": "Refine complex tables with a VLM",
-        },
-    }),
-))
-MODULE_REGISTRY.register(WorkflowModule(
-    id="export.zotero-tables",
-    name="Table digest (Zotero attachment)",
-    role="process",
-    handler=_stage_tables_export,
-    description=(
-        "Collect every table's crop, caption, and page link into one "
-        "self-contained HTML file; the add-on stores it on the Zotero item as "
-        "an attachment (overwritten on re-conversion)."
-    ),
-    defaults={"include_figures": False},
-    settings_schema=_object_schema({
-        "include_figures": {"type": "boolean", "title": "Include figures too"},
     }),
 ))
 MODULE_REGISTRY.register(WorkflowModule(

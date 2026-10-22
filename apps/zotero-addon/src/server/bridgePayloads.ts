@@ -21,6 +21,7 @@ import {
   pdfAttachment,
   rawAttachment,
 } from "../zotero/literatureCollectionAdapter";
+import { canvasAttachment } from "../zotero/canvasAdapter";
 import { libraryScope } from "../zotero/libraryScope";
 import { readMarkdownLink } from "../zotero/markdownLinkRegistry";
 
@@ -46,6 +47,24 @@ export interface BridgePaperLinks {
    * Markdown, which the consumer opens with the system's Markdown application.
    */
   rawPath?: string;
+  /** Present when the paper has a Canvas attachment: selects it in Zotero. */
+  canvas?: string;
+  /**
+   * With `canvas`, when its file is on this machine: the absolute path of the
+   * `.canvas`, which the consumer opens with the system's handler.
+   */
+  canvasPath?: string;
+}
+
+/** Answer to `POST /canvas`: the paper's Canvas, created empty when it had none. */
+export interface BridgeCanvas {
+  libraryID: number;
+  itemKey: string;
+  created: boolean;
+  /** Selects the Canvas attachment in Zotero. */
+  canvas: string;
+  /** Absent when the attachment's file is not on this machine. */
+  canvasPath?: string;
 }
 
 export interface BridgePaper {
@@ -141,6 +160,7 @@ export async function bridgePaperFromItem(
   const rawPath = raw
     ? await raw.getFilePathAsync().catch(() => undefined) || undefined
     : undefined;
+  const canvas = canvasAttachment(item);
   const markdownLink = await readMarkdownLink(item).catch(() => undefined);
   const identifiers = readItemPaperIdentifiers(item);
 
@@ -172,7 +192,31 @@ export async function bridgePaperFromItem(
       hasMarkdownAttachment: Boolean(markdownAttachment(item)),
       raw: raw ? `zotero://select/${scope}/items/${raw.key}` : undefined,
       rawPath,
+      canvas: canvas ? attachmentSelectLink(canvas) : undefined,
+      canvasPath: canvas ? await attachmentFilePath(canvas) : undefined,
     },
+  };
+}
+
+function attachmentSelectLink(attachment: Zotero.Item): string {
+  return `zotero://select/${libraryScope(attachment.libraryID)}/items/${attachment.key}`;
+}
+
+async function attachmentFilePath(attachment: Zotero.Item): Promise<string | undefined> {
+  return await attachment.getFilePathAsync().catch(() => undefined) || undefined;
+}
+
+export async function bridgeCanvas(
+  item: Zotero.Item,
+  attachment: Zotero.Item,
+  created: boolean,
+): Promise<BridgeCanvas> {
+  return {
+    libraryID: item.libraryID,
+    itemKey: String(item.key),
+    created,
+    canvas: attachmentSelectLink(attachment),
+    canvasPath: await attachmentFilePath(attachment),
   };
 }
 
@@ -280,6 +324,8 @@ export interface BridgeCollectionItem {
   hasMarkdown: boolean;
   /** The paper has a Raw attachment (see `BridgePaperLinks.raw`). */
   hasRaw: boolean;
+  /** The paper has a Canvas attachment (see `BridgePaperLinks.canvas`). */
+  hasCanvas: boolean;
   dateAdded?: string;
 }
 
@@ -418,6 +464,7 @@ export async function bridgeCollectionItems(
         hasPDF: meta.hasPDF,
         hasMarkdown: meta.hasMarkdown,
         hasRaw: Boolean(rawAttachment(item)),
+        hasCanvas: Boolean(canvasAttachment(item)),
         dateAdded: meta.dateAdded,
       };
     }),

@@ -10,14 +10,18 @@
  * Load-bearing properties:
  *
  * - **Mostly read-only.** GET endpoints never mutate Zotero or the Paper catalog.
- *   The sole write-shaped exception is `POST /convert`, which starts the same
- *   conversion job the Zotero item menu already runs. It does not accept
- *   bibliographic edits, Paper-catalog writes, or exploration import from the
- *   editor — those need a separate write-back design.
+ *   There are two write-shaped exceptions: `POST /convert`, which starts the same
+ *   conversion job the Zotero item menu already runs, and `POST /canvas`, which
+ *   adds an empty `unizero:canvas` attachment to a paper that has none. Neither
+ *   accepts bibliographic edits, Paper-catalog writes, file contents, or
+ *   exploration import from the editor — those need a separate write-back design.
  * - **No unrequested provider traffic.** Relations answer from cache. A cache miss
  *   returns `loaded: false` so the consumer can prompt, exactly as Unizero Home
  *   does; only an explicit `fetch=1` is allowed to reach the network. Opening a
  *   note must never turn into a silent round of provider calls.
+ * - **Templates are listed, never started for.** `GET /templates` asks the paper
+ *   runtime only when it is already running; a stopped runtime is reported as
+ *   `available: false` rather than launched, as the Zotero item menu does.
  * - **Localhost only.** Zotero's server binds the loopback interface. Nothing here
  *   widens that, and no endpoint accepts an origin-supplied path or file target.
  *
@@ -28,10 +32,14 @@
 
 import { config, version } from "../../package.json";
 import { convertItems } from "../features/conversion/commands";
+import { canAddCanvas, ensureCanvasAttachment } from "../zotero/canvasAdapter";
+import { runtimeClient } from "../runtime-client/client";
+import { health } from "../runtime-client/process";
 import type Views from "../modules/views";
 import type { LiteratureRelationKind } from "../modules/literatureRelations";
 import {
   BRIDGE_API_VERSION,
+  bridgeCanvas,
   bridgeCollectionItems,
   bridgeCollections,
   bridgePaperFromItem,
@@ -57,10 +65,32 @@ const SUGGEST = `${ROOT}/suggest`;
 const COLLECTIONS = `${ROOT}/collections`;
 const COLLECTION_ITEMS = `${ROOT}/collection-items`;
 const CONVERT = `${ROOT}/convert`;
+const TEMPLATES = `${ROOT}/templates`;
+const CANVAS = `${ROOT}/canvas`;
 
 /** Same default template as the item menu: it creates the Raw that Obsidian opens. */
 const DEFAULT_CONVERT_TEMPLATE_ID = "paper-to-zotero-markdown";
 const DEFAULT_CONVERT_TEMPLATE_NAME = "Generate Raw Markdown";
+
+/** The runtime's own template-id rule (`_SAFE_ID` in pipeline/templates.py). */
+const TEMPLATE_ID = /^[a-z0-9][a-z0-9._-]{1,79}$/;
+
+interface BridgeTemplate {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/** Templates of the running runtime, or null when it is not running. */
+async function runningTemplates(): Promise<BridgeTemplate[] | null> {
+  if (!(await health())) { return null; }
+  const listed = (await runtimeClient.templates()).templates || [];
+  return listed.map((template) => ({
+    id: template.id,
+    name: template.name || template.id,
+    description: template.description || "",
+  }));
+}
 
 const SUGGEST_LIMIT_DEFAULT = 20;
 const SUGGEST_LIMIT_MAX = 100;
@@ -240,6 +270,8 @@ async function handlePing(): Promise<BridgeResponse> {
       "collections",
       "collection-items",
       "convert",
+      "templates",
+      "canvas",
     ],
     ready: Boolean(activeViews()),
   });
@@ -350,9 +382,35 @@ async function handleCollectionItems(query: RequestQuery): Promise<BridgeRespons
  * is intentional so an Obsidian click does not hold a localhost socket open for
  * the whole run.
  */
+async function handleTemplates(): Promise<BridgeResponse> {
+  const templates = await runningTemplates();
+  return json(200, {
+    available: templates !== null,
+    defaultTemplate: DEFAULT_CONVERT_TEMPLATE_ID,
+    templates: templates || [],
+  });
+}
+
 async function handleConvert(query: RequestQuery): Promise<BridgeResponse> {
   const found = await lookup(query);
   if (!found.found) { return found.response; }
+
+  // `template` is optional; without it the item menu's default runs.
+  const templateId = (query.template || "").trim() || DEFAULT_CONVERT_TEMPLATE_ID;
+  if (!TEMPLATE_ID.test(templateId)) {
+    return failure(400, `invalid template id "${templateId}"`);
+  }
+  let templateName = templateId === DEFAULT_CONVERT_TEMPLATE_ID
+    ? DEFAULT_CONVERT_TEMPLATE_NAME
+    : templateId;
+  // A running runtime can confirm the template now; a stopped one is started by
+  // the conversion command, which reports an unknown template in the panel.
+  const templates = await runningTemplates().catch(() => null);
+  if (templates) {
+    const known = templates.find((template) => template.id === templateId);
+    if (!known) { return failure(404, `no conversion template "${templateId}"`); }
+    templateName = known.name;
+  }
 
   const mainWindow = resolveMainWindow();
   if (!mainWindow) {
@@ -365,8 +423,8 @@ async function handleConvert(query: RequestQuery): Promise<BridgeResponse> {
   void convertItems(
     mainWindow,
     [found.item],
-    DEFAULT_CONVERT_TEMPLATE_ID,
-    DEFAULT_CONVERT_TEMPLATE_NAME,
+    templateId,
+    templateName,
   ).catch((error) => {
     ztoolkit.log("[bridge:convert] background conversion failed", error);
     Zotero.logError(error as Error);
@@ -376,9 +434,34 @@ async function handleConvert(query: RequestQuery): Promise<BridgeResponse> {
     accepted: true,
     libraryID,
     itemKey,
+    template: templateId,
     message:
-      "Conversion started in Zotero. Watch the UniZero panel for progress, then open Raw.",
+      `Conversion (${templateName}) started in Zotero. Watch the UniZero panel for progress.`,
   });
+}
+
+/**
+ * The paper's Canvas attachment, created empty when it has none. Repeating the
+ * request returns the same attachment; nothing here writes into an existing one.
+ */
+async function handleCanvas(query: RequestQuery): Promise<BridgeResponse> {
+  const found = await lookup(query);
+  if (!found.found) { return found.response; }
+  if (!found.item.isRegularItem()) {
+    return failure(400, "only a regular item can have a Canvas");
+  }
+
+  const result = await ensureCanvasAttachment(found.item)
+    .catch((error: unknown) => {
+      if (!canAddCanvas(found.item)) { return undefined; }
+      throw error;
+    });
+  if (!result) {
+    return failure(403, "this Zotero library does not allow new attachment files");
+  }
+  return json(result.created ? 201 : 200, await bridgeCanvas(
+    found.item, result.attachment, result.created,
+  ));
 }
 
 /** Prefer the frontmost main window; fall back to any open one. */
@@ -439,6 +522,8 @@ const endpoints: Record<string, () => void> = {
   [COLLECTIONS]: endpointFor("collections", handleCollections),
   [COLLECTION_ITEMS]: endpointFor("collection-items", handleCollectionItems),
   [CONVERT]: endpointFor("convert", handleConvert, ["POST"]),
+  [TEMPLATES]: endpointFor("templates", handleTemplates),
+  [CANVAS]: endpointFor("canvas", handleCanvas, ["POST"]),
 };
 
 let registered = false;

@@ -35,6 +35,10 @@ export interface BridgePaperLinks {
   raw?: string;
   /** Absolute path of the Raw Markdown; absent without Raw or without its file. */
   rawPath?: string;
+  /** Selects the paper's Canvas attachment in Zotero; absent when it has none. */
+  canvas?: string;
+  /** Absolute path of the `.canvas`; absent without Canvas or without its file. */
+  canvasPath?: string;
 }
 
 export interface BridgePaper {
@@ -133,6 +137,8 @@ export interface BridgeCollectionItem {
   hasPDF: boolean;
   hasMarkdown: boolean;
   hasRaw: boolean;
+  /** Absent from add-ons that predate Canvas attachments. */
+  hasCanvas?: boolean;
   dateAdded?: string;
 }
 
@@ -261,18 +267,63 @@ export class UnizeroBridge {
    * Returns as soon as Zotero accepts the job. The actual work runs in the
    * add-on / paper-runtime; progress is in the UniZero panel, not here.
    */
-  convert(ref: PaperRef): Promise<BridgeConvertAccepted> {
+  convert(ref: PaperRef, template?: string): Promise<BridgeConvertAccepted> {
     return this.request<BridgeConvertAccepted>("POST", "convert", {
+      libraryID: String(ref.libraryID),
+      itemKey: ref.itemKey,
+      template: template || undefined,
+    });
+  }
+
+  /**
+   * The paper's Canvas attachment in Zotero, which Zotero creates empty when the
+   * paper has none. Repeating the call returns the same attachment.
+   */
+  canvas(ref: PaperRef): Promise<BridgeCanvas> {
+    return this.request<BridgeCanvas>("POST", "canvas", {
       libraryID: String(ref.libraryID),
       itemKey: ref.itemKey,
     });
   }
+
+  /**
+   * Conversion templates of the paper runtime. Zotero never starts the runtime
+   * for this; a stopped one answers `available: false`.
+   */
+  templates(): Promise<BridgeTemplates> {
+    return this.get<BridgeTemplates>("templates", {});
+  }
+}
+
+export interface BridgeTemplate {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface BridgeTemplates {
+  available: boolean;
+  /** The template Zotero runs when a convert request names none. */
+  defaultTemplate: string;
+  templates: BridgeTemplate[];
+}
+
+export interface BridgeCanvas {
+  libraryID: number;
+  itemKey: string;
+  /** True when this call created the Canvas. */
+  created: boolean;
+  /** Selects the Canvas attachment in Zotero. */
+  canvas: string;
+  /** Absent when the attachment's file is not on this machine (not yet synced). */
+  canvasPath?: string;
 }
 
 export interface BridgeConvertAccepted {
   accepted: boolean;
   libraryID: number;
   itemKey: string;
+  template?: string;
   message?: string;
 }
 

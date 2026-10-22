@@ -10,8 +10,13 @@ local paper runtime. It also still ships the legacy Unizero Home UI.
 **Bridge (Obsidian)**
 
 - Localhost endpoints on Zotero’s HTTP server (`src/server/`).
-- GET: libraries, collections, paper resolve, relations from cache, citekey lookup.
-- One action, `POST /convert`, which starts the same job as the Zotero item menu.
+- GET: libraries, collections, paper resolve, relations from cache, citekey lookup,
+  and the conversion templates of an already-running runtime.
+- Two actions. `POST /convert` starts the same job as the Zotero item menu, with
+  `paper-to-zotero-markdown` or the template an optional `template` parameter names.
+  `POST /canvas` returns the paper's Canvas: a `.canvas` stored as an attachment of the
+  item (tagged `unizero:canvas`), created empty when the paper has none and never
+  written to afterwards.
 - Rules (read-only GETs, no unbidden provider fetches):
   [Bridge contract](../../docs/ARCHITECTURE.md#bridge-contract).
 
