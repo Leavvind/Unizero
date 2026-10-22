@@ -383,8 +383,8 @@ async function attachReferences(
  * paper has none, then drop the hand-off files.
  *
  * Raw is the copy the user reads and edits in their Markdown application, so it is
- * created once and never touched again; deleting it lets the next conversion create
- * a fresh one. Raw Backup is replaced by every conversion.
+ * created once and never touched again; deleting it, or its file, lets the next
+ * conversion create a fresh one. Raw Backup is replaced by every conversion.
  *
  * Unlike the other attachments, a failure here is not swallowed: Raw is the only
  * copy of the converted text when the template has no vault output, so the user has
@@ -402,9 +402,20 @@ async function attachRaw(
   if (imagesDir) { await copyImagesBeside(backup, imagesDir); }
 
   const title = RAW_ATTACHMENT_TITLE + context.suffix;
-  if (findArtifacts(context.parent, "raw", context.source, title).length) {
+  const existing = findArtifacts(context.parent, "raw", context.source, title);
+  const kept = [];
+  for (const raw of existing) {
+    if (await raw.fileExists()) { kept.push(raw); }
+  }
+  if (kept.length) {
     ztoolkit.log(`kept existing Raw for ${context.parent.key}`);
   } else {
+    // A Raw whose file was deleted would block every later conversion; it goes to
+    // the trash (not erased: synced storage may still hold the user's text).
+    if (existing.length) {
+      await Zotero.Items.trashTx(existing.map((raw) => raw.id));
+      ztoolkit.log(`trashed Raw without a file for ${context.parent.key}`);
+    }
     const raw = await Zotero.Attachments.importFromFile({
       file: path,
       parentItemID: context.parent.id,

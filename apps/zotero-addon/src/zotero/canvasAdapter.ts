@@ -9,6 +9,7 @@
  */
 
 import { hasKind, markArtifact } from "./artifactIdentity";
+import { libraryAcceptsFiles } from "./libraryScope";
 
 const CANVAS_ATTACHMENT_TITLE = "Canvas";
 const EMPTY_CANVAS = JSON.stringify({ nodes: [], edges: [] });
@@ -51,7 +52,7 @@ export interface CanvasResult {
 
 /**
  * Return the paper's Canvas, creating an empty one first when it has none.
- * Throws when the item's library does not allow new files (see `canAddCanvas`).
+ * Throws when the item's library does not allow new files (`libraryAcceptsFiles`).
  */
 export function ensureCanvasAttachment(item: Zotero.Item): Promise<CanvasResult> {
   const existing = canvasAttachment(item);
@@ -64,15 +65,8 @@ export function ensureCanvasAttachment(item: Zotero.Item): Promise<CanvasResult>
   return creation;
 }
 
-/** Whether the item's library accepts a new stored file (group permissions). */
-export function canAddCanvas(item: Zotero.Item): boolean {
-  const library = (Zotero.Libraries as any).get?.(item.libraryID) as
-    { editable?: boolean; filesEditable?: boolean } | false | undefined;
-  return Boolean(library && library.editable && library.filesEditable);
-}
-
 async function createCanvas(item: Zotero.Item): Promise<CanvasResult> {
-  if (!canAddCanvas(item)) {
+  if (!libraryAcceptsFiles(item.libraryID)) {
     throw new Error("This Zotero library does not allow new attachment files");
   }
 

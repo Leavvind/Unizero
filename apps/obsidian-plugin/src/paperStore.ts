@@ -136,6 +136,19 @@ export class PaperStore {
     };
   }
 
+  /**
+   * Re-read one paper, after something this plugin asked Zotero to do changed it.
+   * Live pills and panes see `loading` and then the fresh paper.
+   */
+  reload(ref: PaperRef): Promise<PaperState> {
+    const entry = this.entries.get(paperRefKey(ref));
+    if (!entry) { return this.load(ref); }
+    entry.generation += 1;
+    delete entry.pending;
+    this.publish(entry.ref, { status: "loading" });
+    return this.load(entry.ref);
+  }
+
   /** Repaint every live pill from cached state without touching the bridge. */
   refresh(): void {
     for (const entry of this.entries.values()) {

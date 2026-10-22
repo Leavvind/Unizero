@@ -11,8 +11,8 @@ Manual checks are historical open records, not evidence of a known defect.
 
 - **Import from Obsidian.** Let an explicit user action add or update papers in Zotero
   from exploration results. Not implemented; needs a separate write contract.
-  The existing bridge only permits conversion through `POST /convert` and creating an
-  empty Canvas attachment through `POST /canvas`.
+  The existing bridge only acts on the user's own artifacts (convert, create Canvas,
+  trash Raw or Canvas, restore Raw).
 - **Literature exploration.** Discover papers, sort results, and follow related papers
   from notes. The next concrete feature still needs to be chosen.
 
@@ -26,13 +26,14 @@ Current behavior: [add-on README](../apps/zotero-addon/README.md).
   replaces only Raw Backup, that deleting Raw lets the next conversion recreate it, and
   that a supplement gets its own pair. With `images_mode: all`, check that images show
   beside both files and survive Zotero file sync (WebDAV and Zotero storage).
+- **Raw and Canvas management — manual check.** In a real Zotero and vault, check
+  that Re-convert with a Raw replaces only Raw Backup; that Restore Raw from Raw Backup
+  trashes the old Raw, keeps images, and opens the new one; that both trash actions
+  ask first and land in Zotero's trash; that a Raw or Canvas whose file was deleted
+  offers its repair choices and that converting again replaces such a Raw; and that a
+  read-only group library reports the refusal.
 - **Annotations into Raw.** Annotation injection writes to vault Markdown only; Raw is
   now a Markdown file too, but injecting into it would edit the user's working copy.
-- **Canvas attachments — manual check.** In a real Zotero and vault, check that the
-  first Canvas click creates one `unizero:canvas` attachment named after the paper
-  (also for rapid repeated clicks), that later clicks reopen it, that it opens in
-  Obsidian from both Zotero and Obsidian, that a group library without file
-  permission reports the refusal, and that the file survives Zotero file sync.
 
 ## Zotero reader
 
@@ -47,18 +48,9 @@ Current behavior: [add-on README](../apps/zotero-addon/README.md).
 These remaining records have not been reconfirmed during documentation cleanup.
 Run relevant checks when changing the affected area; host behavior is not covered by
 TypeScript or Vitest. Obsidian basic behavior and Canvas/file bindings were confirmed
-complete by the user on 2026-10-14 and removed from the open list.
+complete by the user on 2026-10-14, and Canvas attachments, basic operation, windows
+and settings, and conversion on 2026-10-22; those were removed from the open list.
 
-- **Basic operation.** Startup/shutdown, metadata review, References/Citations previews,
-  Collection status/actions, relation filtering, current-library import, conversion,
-  artifact registration, and annotation injection.
-- **Windows and settings.** Closing one window leaves another working. Settings persist;
-  runtime port changes reach a manually started service. Automatic start/stop is silent;
-  failed startup appears in Jobs with a working retry.
-- **Conversion.** Personal/group libraries, same-title papers, repeated runs, and renamed
-  generated attachments without affecting user attachments. Real MinerU output includes
-  Markdown, tables, links, annotations, and References JSON, including empty references
-  and replacement of stale output.
 - **Literature cache.** Preserve distinct provider states across reopen, including empty
   OpenAlex/Crossref results and restricted Semantic Scholar. Switching A → B → A reuses
   cache quietly; misses show progress. Empty Citations persist across restart without

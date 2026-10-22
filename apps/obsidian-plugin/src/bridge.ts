@@ -35,6 +35,10 @@ export interface BridgePaperLinks {
   raw?: string;
   /** Absolute path of the Raw Markdown; absent without Raw or without its file. */
   rawPath?: string;
+  /** Selects the paper's Raw Backup (the latest conversion); absent without one. */
+  rawBackup?: string;
+  /** Absolute path of the Raw Backup; absent without it or without its file. */
+  rawBackupPath?: string;
   /** Selects the paper's Canvas attachment in Zotero; absent when it has none. */
   canvas?: string;
   /** Absolute path of the `.canvas`; absent without Canvas or without its file. */
@@ -139,6 +143,8 @@ export interface BridgeCollectionItem {
   hasRaw: boolean;
   /** Absent from add-ons that predate Canvas attachments. */
   hasCanvas?: boolean;
+  /** Absent from add-ons that predate Raw management. */
+  hasRawBackup?: boolean;
   dateAdded?: string;
 }
 
@@ -286,6 +292,23 @@ export class UnizeroBridge {
     });
   }
 
+  /** Move the paper's Raw or Canvas to Zotero's trash, where it can be restored. */
+  trash(ref: PaperRef, kind: "raw" | "canvas"): Promise<BridgeTrashed> {
+    return this.request<BridgeTrashed>("POST", "trash", {
+      libraryID: String(ref.libraryID),
+      itemKey: ref.itemKey,
+      kind,
+    });
+  }
+
+  /** Replace the paper's Raw with a copy of its Raw Backup; the old Raw is trashed. */
+  restoreRaw(ref: PaperRef): Promise<BridgeRestoredRaw> {
+    return this.request<BridgeRestoredRaw>("POST", "restore-raw", {
+      libraryID: String(ref.libraryID),
+      itemKey: ref.itemKey,
+    });
+  }
+
   /**
    * Conversion templates of the paper runtime. Zotero never starts the runtime
    * for this; a stopped one answers `available: false`.
@@ -317,6 +340,23 @@ export interface BridgeCanvas {
   canvas: string;
   /** Absent when the attachment's file is not on this machine (not yet synced). */
   canvasPath?: string;
+}
+
+export interface BridgeTrashed {
+  libraryID: number;
+  itemKey: string;
+  kind: "raw" | "canvas";
+  trashed: boolean;
+  attachmentKey?: string;
+}
+
+export interface BridgeRestoredRaw {
+  libraryID: number;
+  itemKey: string;
+  /** Selects the new Raw attachment in Zotero. */
+  raw: string;
+  /** Absolute path of the new Raw Markdown. */
+  rawPath?: string;
 }
 
 export interface BridgeConvertAccepted {

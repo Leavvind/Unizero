@@ -20,6 +20,7 @@ import {
   markdownAttachment,
   pdfAttachment,
   rawAttachment,
+  rawBackupAttachment,
 } from "../zotero/literatureCollectionAdapter";
 import { canvasAttachment } from "../zotero/canvasAdapter";
 import { libraryScope } from "../zotero/libraryScope";
@@ -47,6 +48,10 @@ export interface BridgePaperLinks {
    * Markdown, which the consumer opens with the system's Markdown application.
    */
   rawPath?: string;
+  /** Present when the paper has a Raw Backup (the latest conversion): selects it. */
+  rawBackup?: string;
+  /** With `rawBackup`, when its file is on this machine: its absolute path. */
+  rawBackupPath?: string;
   /** Present when the paper has a Canvas attachment: selects it in Zotero. */
   canvas?: string;
   /**
@@ -160,6 +165,7 @@ export async function bridgePaperFromItem(
   const rawPath = raw
     ? await raw.getFilePathAsync().catch(() => undefined) || undefined
     : undefined;
+  const rawBackup = rawBackupAttachment(item);
   const canvas = canvasAttachment(item);
   const markdownLink = await readMarkdownLink(item).catch(() => undefined);
   const identifiers = readItemPaperIdentifiers(item);
@@ -192,6 +198,8 @@ export async function bridgePaperFromItem(
       hasMarkdownAttachment: Boolean(markdownAttachment(item)),
       raw: raw ? `zotero://select/${scope}/items/${raw.key}` : undefined,
       rawPath,
+      rawBackup: rawBackup ? attachmentSelectLink(rawBackup) : undefined,
+      rawBackupPath: rawBackup ? await attachmentFilePath(rawBackup) : undefined,
       canvas: canvas ? attachmentSelectLink(canvas) : undefined,
       canvasPath: canvas ? await attachmentFilePath(canvas) : undefined,
     },
@@ -324,6 +332,8 @@ export interface BridgeCollectionItem {
   hasMarkdown: boolean;
   /** The paper has a Raw attachment (see `BridgePaperLinks.raw`). */
   hasRaw: boolean;
+  /** The paper has a Raw Backup (see `BridgePaperLinks.rawBackup`). */
+  hasRawBackup: boolean;
   /** The paper has a Canvas attachment (see `BridgePaperLinks.canvas`). */
   hasCanvas: boolean;
   dateAdded?: string;
@@ -464,6 +474,7 @@ export async function bridgeCollectionItems(
         hasPDF: meta.hasPDF,
         hasMarkdown: meta.hasMarkdown,
         hasRaw: Boolean(rawAttachment(item)),
+        hasRawBackup: Boolean(rawBackupAttachment(item)),
         hasCanvas: Boolean(canvasAttachment(item)),
         dateAdded: meta.dateAdded,
       };

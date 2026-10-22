@@ -5,7 +5,7 @@
 ```mermaid
 flowchart LR
     Obsidian["Obsidian plugin"]
-    Bridge["Zotero HTTP bridge\nGET + POST /convert, /canvas"]
+    Bridge["Zotero HTTP bridge\nGET + artifact actions"]
 
     subgraph Addon["Zotero add-on · TypeScript"]
         Server["src/server"]
@@ -64,7 +64,7 @@ artifact publishing, and Markdown annotation injection require the local runtime
 | --- | --- | --- |
 | Lifecycle | `src/hooks.ts`, `src/core/` | Register and clean up features per window |
 | Features | `src/features/` | Commands and user-facing orchestration |
-| Bridge | `src/server/` | Mostly-read-only endpoints for Obsidian (GET + `POST /convert`, `POST /canvas`) |
+| Bridge | `src/server/` | Mostly-read-only endpoints for Obsidian (GET + artifact actions: convert, Canvas, trash, restore Raw) |
 | UI | `src/ui/`, `src/modules/views.ts` | Menus, panes, dialogs, progress |
 | Dialog content | `addon/chrome/content/` | Privileged XHTML: panel, **legacy** Home, graph renderer |
 | Zotero adapters | `src/zotero/` | Read and mutate Zotero items and attachments |
@@ -96,15 +96,23 @@ Zotero’s existing loopback HTTP server (`BRIDGE_API_VERSION` in
 
 Load-bearing properties:
 
-- **Mostly read-only.** GET endpoints never mutate Zotero or the Paper catalog. There are
-  two write-shaped exceptions. `POST /convert` starts the same conversion job as the
-  Zotero item menu, with the default template or the one an optional `template` names.
-  `POST /canvas` returns the paper's Canvas attachment (`unizero:canvas`), first adding
-  an empty `.canvas` when the paper has none; it accepts no file contents and never
-  writes into an existing Canvas. It is announced by the `canvas` ping capability, and
-  the new payload fields (`links.canvas`, `links.canvasPath`, `hasCanvas`) are
-  additions, so `BRIDGE_API_VERSION` stays 2. Bibliographic edits, Paper-catalog writes, and exploration import need a separate
-  write-back design.
+- **Mostly read-only.** GET endpoints never mutate Zotero or the Paper catalog. The
+  write-shaped exceptions all act on the user's own artifacts, and none erases anything:
+  - `POST /convert` starts the same conversion job as the Zotero item menu, with the
+    default template or the one an optional `template` names. A Raw whose file is gone
+    is moved to the trash by the conversion and replaced.
+  - `POST /canvas` returns the paper's Canvas attachment (`unizero:canvas`), first
+    adding an empty `.canvas` when the paper has none; it accepts no file contents and
+    never writes into an existing Canvas.
+  - `POST /trash` (`kind=raw|canvas`) moves the paper's Raw or Canvas to Zotero's trash.
+  - `POST /restore-raw` imports a copy of Raw Backup as the new Raw, then moves the old
+    Raw to the trash.
+
+  Each is announced by a ping capability (`canvas`, `trash`, `restore-raw`), and the
+  payload fields they rely on (`links.canvas`, `links.canvasPath`, `links.rawBackup`,
+  `links.rawBackupPath`, `hasCanvas`, `hasRawBackup`) are additions, so
+  `BRIDGE_API_VERSION` stays 2. Bibliographic edits, Paper-catalog writes, and
+  exploration import need a separate write-back design.
 - **Templates are listed, never started for.** `GET /templates` asks the paper runtime
   only when it is already running; a stopped runtime is `available: false`. The
   addition is optional for clients, announced by the `templates` ping capability, so

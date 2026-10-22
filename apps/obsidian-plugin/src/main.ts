@@ -21,8 +21,11 @@ import {
   type WorkspaceLeaf,
 } from "obsidian";
 import {
+  addManageItems,
+  artifactState,
   chooseTemplateAndConvert,
   convertToMarkdown,
+  type ActionContext,
   hasRaw,
   openCanvas,
   openRaw,
@@ -196,11 +199,29 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     }
   }
 
+  /** What Raw and Canvas actions need; built per use so settings stay current. */
+  actionContext(): ActionContext {
+    return {
+      app: this.app,
+      bridge: this.bridge,
+      defaultTemplate: this.settings.defaultTemplate,
+      changed: (ref) => this.paperChanged(ref),
+    };
+  }
+
+  /** Re-read a paper whose Raw or Canvas changed, everywhere it is shown. */
+  paperChanged(ref: PaperRef): void {
+    void this.store.reload(ref);
+    for (const leaf of this.app.workspace.getLeavesOfType(LIBRARY_VIEW_TYPE)) {
+      if (leaf.view instanceof UnizeroLibraryView) { void leaf.view.reloadItems(); }
+    }
+  }
+
   // --- PillHost -----------------------------------------------------------
 
   activate(action: CitationAction, ref: PaperRef, paper: BridgePaper, page?: number): void {
     if (action === "markdown") {
-      void openRaw(paper);
+      void openRaw(paper, this.actionContext());
       return;
     }
     if (action === "pdf") {
@@ -222,7 +243,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       menu.addItem((item) => item
         .setTitle("Open Raw")
         .setIcon("file-symlink")
-        .onClick(() => { void openRaw(paper); }));
+        .onClick(() => { void openRaw(paper, this.actionContext()); }));
     } else {
       menu.addItem((item) => item
         .setTitle("Convert to Markdown")
@@ -244,13 +265,15 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       .setTitle("Open Canvas")
       .setIcon("layout-dashboard")
       .onClick(() => {
-        void openCanvas(this.bridge, paper);
+        void openCanvas(this.actionContext(), paper);
       }));
 
     menu.addItem((item) => item
       .setTitle("Open PDF in Zotero")
       .setIcon("file-text")
       .onClick(() => { void openZoteroPdf(paper); }));
+
+    addManageItems(menu, this.actionContext(), paper, artifactState(paper), event);
 
     menu.addSeparator();
 

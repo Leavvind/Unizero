@@ -30,3 +30,23 @@ export function libraryScope(libraryID: number): ZoteroLibraryScope {
   }
   return "library";
 }
+
+interface LibraryPermissions {
+  editable?: boolean;
+  filesEditable?: boolean;
+}
+
+function libraryPermissions(libraryID: number): LibraryPermissions | undefined {
+  return (Zotero.Libraries as any).get?.(libraryID) || undefined;
+}
+
+/** Whether items in the library may be changed or trashed (group permissions). */
+export function libraryEditable(libraryID: number): boolean {
+  return Boolean(libraryPermissions(libraryID)?.editable);
+}
+
+/** Whether the library accepts new stored files (group permissions). */
+export function libraryAcceptsFiles(libraryID: number): boolean {
+  const library = libraryPermissions(libraryID);
+  return Boolean(library?.editable && library.filesEditable);
+}

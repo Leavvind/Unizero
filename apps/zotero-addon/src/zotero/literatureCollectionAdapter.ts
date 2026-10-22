@@ -152,10 +152,19 @@ export function pdfAttachment(item: Zotero.Item): Zotero.Item | undefined {
  * paper's own PDF wins.
  */
 export function rawAttachment(item: Zotero.Item): Zotero.Item | undefined {
-  const raws = attachments(item).filter((attachment) => hasKind(attachment, "raw"));
+  return mainArtifact(item, "raw");
+}
+
+/** The paper's Raw Backup, chosen like `rawAttachment`. */
+export function rawBackupAttachment(item: Zotero.Item): Zotero.Item | undefined {
+  return mainArtifact(item, "raw-backup");
+}
+
+function mainArtifact(item: Zotero.Item, kind: "raw" | "raw-backup"): Zotero.Item | undefined {
+  const owned = attachments(item).filter((attachment) => hasKind(attachment, kind));
   const pdf = pdfAttachment(item);
-  return raws.find((attachment) => pdf && artifactSource(attachment) === pdf.key)
-    ?? raws[0];
+  return owned.find((attachment) => pdf && artifactSource(attachment) === pdf.key)
+    ?? owned[0];
 }
 
 export function literaturePaperMetadata(

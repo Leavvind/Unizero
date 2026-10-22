@@ -13,7 +13,7 @@
  * that genuinely has no references.
  */
 
-import { ItemView, Notice, setIcon, type TFile, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Menu, Notice, setIcon, type TFile, type WorkspaceLeaf } from "obsidian";
 import {
   type BridgeRelatedPaper,
   type BridgeRelations,
@@ -23,6 +23,8 @@ import { enableCitationDrag, paperRefKey, type PaperRef } from "./citation";
 import type { PaperState } from "./paperStore";
 import type UnizeroPlugin from "./main";
 import {
+  addManageItems,
+  artifactState,
   chooseTemplateAndConvert,
   convertToMarkdown,
   hasRaw,
@@ -257,7 +259,8 @@ export class UnizeroDetailView extends ItemView {
     const actions = header.createDiv({ cls: "unizero-detail__actions" });
     this.actionButton(actions, "file-text", "PDF", () => openZoteroPdf(paper));
     if (hasRaw(paper)) {
-      this.actionButton(actions, "file-symlink", "Raw", () => openRaw(paper));
+      this.actionButton(actions, "file-symlink", "Raw", () =>
+        openRaw(paper, this.plugin.actionContext()));
     } else {
       const ref = { libraryID: paper.libraryID, itemKey: paper.itemKey };
       const convert = this.actionButton(actions, "file-down", "Convert", () =>
@@ -274,7 +277,17 @@ export class UnizeroDetailView extends ItemView {
     }
     // Hand-made note surface: the paper's Canvas attachment, created on first open.
     this.actionButton(actions, "layout-dashboard", "Canvas", () =>
-      openCanvas(this.plugin.bridge, paper));
+      openCanvas(this.plugin.actionContext(), paper));
+    const artifacts = artifactState(paper);
+    if (artifacts.hasRaw || artifacts.hasRawBackup || artifacts.hasCanvas) {
+      const more = this.actionButton(actions, "more-horizontal", "Manage", () => undefined);
+      more.setAttr("aria-label", "Re-convert, restore Raw, or move Raw or Canvas to the trash");
+      more.addEventListener("click", (event) => {
+        const menu = new Menu();
+        addManageItems(menu, this.plugin.actionContext(), paper, artifacts, event);
+        menu.showAtMouseEvent(event);
+      });
+    }
 
     if (paper.abstract) {
       const abstract = header.createEl("details", { cls: "unizero-detail__abstract" });

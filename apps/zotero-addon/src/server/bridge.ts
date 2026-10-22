@@ -10,11 +10,14 @@
  * Load-bearing properties:
  *
  * - **Mostly read-only.** GET endpoints never mutate Zotero or the Paper catalog.
- *   There are two write-shaped exceptions: `POST /convert`, which starts the same
- *   conversion job the Zotero item menu already runs, and `POST /canvas`, which
- *   adds an empty `unizero:canvas` attachment to a paper that has none. Neither
- *   accepts bibliographic edits, Paper-catalog writes, file contents, or
- *   exploration import from the editor — those need a separate write-back design.
+ *   The write-shaped exceptions all act on the user's own artifacts:
+ *   `POST /convert` starts the same conversion job the Zotero item menu already
+ *   runs; `POST /canvas` adds an empty `unizero:canvas` attachment to a paper that
+ *   has none; `POST /trash` moves the paper's Raw or Canvas to Zotero's trash; and
+ *   `POST /restore-raw` replaces Raw with a copy of Raw Backup, trashing the old
+ *   one. Nothing is erased, and none accepts bibliographic edits, Paper-catalog
+ *   writes, file contents, or exploration import from the editor — those need a
+ *   separate write-back design.
  * - **No unrequested provider traffic.** Relations answer from cache. A cache miss
  *   returns `loaded: false` so the consumer can prompt, exactly as Unizero Home
  *   does; only an explicit `fetch=1` is allowed to reach the network. Opening a
@@ -32,7 +35,16 @@
 
 import { config, version } from "../../package.json";
 import { convertItems } from "../features/conversion/commands";
-import { canAddCanvas, ensureCanvasAttachment } from "../zotero/canvasAdapter";
+import {
+  managedAttachment,
+  rawBackupFile,
+  restoreRawFromBackup,
+  trashManagedArtifact,
+  type ManagedArtifact,
+} from "../zotero/artifactActions";
+import { ensureCanvasAttachment } from "../zotero/canvasAdapter";
+import { libraryAcceptsFiles, libraryEditable, libraryScope } from "../zotero/libraryScope";
+import { rawBackupAttachment } from "../zotero/literatureCollectionAdapter";
 import { runtimeClient } from "../runtime-client/client";
 import { health } from "../runtime-client/process";
 import type Views from "../modules/views";
@@ -67,6 +79,8 @@ const COLLECTION_ITEMS = `${ROOT}/collection-items`;
 const CONVERT = `${ROOT}/convert`;
 const TEMPLATES = `${ROOT}/templates`;
 const CANVAS = `${ROOT}/canvas`;
+const TRASH = `${ROOT}/trash`;
+const RESTORE_RAW = `${ROOT}/restore-raw`;
 
 /** Same default template as the item menu: it creates the Raw that Obsidian opens. */
 const DEFAULT_CONVERT_TEMPLATE_ID = "paper-to-zotero-markdown";
@@ -272,6 +286,8 @@ async function handlePing(): Promise<BridgeResponse> {
       "convert",
       "templates",
       "canvas",
+      "trash",
+      "restore-raw",
     ],
     ready: Boolean(activeViews()),
   });
@@ -453,7 +469,7 @@ async function handleCanvas(query: RequestQuery): Promise<BridgeResponse> {
 
   const result = await ensureCanvasAttachment(found.item)
     .catch((error: unknown) => {
-      if (!canAddCanvas(found.item)) { return undefined; }
+      if (!libraryAcceptsFiles(found.item.libraryID)) { return undefined; }
       throw error;
     });
   if (!result) {
@@ -462,6 +478,56 @@ async function handleCanvas(query: RequestQuery): Promise<BridgeResponse> {
   return json(result.created ? 201 : 200, await bridgeCanvas(
     found.item, result.attachment, result.created,
   ));
+}
+
+function managedKind(value: string | undefined): ManagedArtifact | undefined {
+  return value === "raw" || value === "canvas" ? value : undefined;
+}
+
+/** Move the paper's Raw or Canvas (`kind`) to Zotero's trash. */
+async function handleTrash(query: RequestQuery): Promise<BridgeResponse> {
+  const kind = managedKind(query.kind);
+  if (!kind) { return failure(400, "kind must be raw or canvas"); }
+  const found = await lookup(query);
+  if (!found.found) { return found.response; }
+  if (!managedAttachment(found.item, kind)) {
+    return failure(404, `this paper has no ${kind === "raw" ? "Raw" : "Canvas"}`);
+  }
+  if (!libraryEditable(found.item.libraryID)) {
+    return failure(403, "this Zotero library is read-only");
+  }
+
+  const trashed = await trashManagedArtifact(found.item, kind);
+  return json(200, {
+    libraryID: found.item.libraryID,
+    itemKey: String(found.item.key),
+    kind,
+    trashed: Boolean(trashed),
+    attachmentKey: trashed ? String(trashed.key) : undefined,
+  });
+}
+
+/** Replace the paper's Raw with a copy of its Raw Backup; the old Raw is trashed. */
+async function handleRestoreRaw(query: RequestQuery): Promise<BridgeResponse> {
+  const found = await lookup(query);
+  if (!found.found) { return found.response; }
+  if (!libraryAcceptsFiles(found.item.libraryID)) {
+    return failure(403, "this Zotero library does not allow new attachment files");
+  }
+
+  const backup = rawBackupAttachment(found.item);
+  if (!backup) { return failure(404, "this paper has no Raw Backup"); }
+  if (!(await rawBackupFile(backup))) {
+    return failure(409, "the Raw Backup file is not on this machine");
+  }
+
+  const raw = await restoreRawFromBackup(found.item);
+  return json(200, {
+    libraryID: found.item.libraryID,
+    itemKey: String(found.item.key),
+    raw: `zotero://select/${libraryScope(raw.libraryID)}/items/${raw.key}`,
+    rawPath: await raw.getFilePathAsync().catch(() => undefined) || undefined,
+  });
 }
 
 /** Prefer the frontmost main window; fall back to any open one. */
@@ -524,6 +590,8 @@ const endpoints: Record<string, () => void> = {
   [CONVERT]: endpointFor("convert", handleConvert, ["POST"]),
   [TEMPLATES]: endpointFor("templates", handleTemplates),
   [CANVAS]: endpointFor("canvas", handleCanvas, ["POST"]),
+  [TRASH]: endpointFor("trash", handleTrash, ["POST"]),
+  [RESTORE_RAW]: endpointFor("restore-raw", handleRestoreRaw, ["POST"]),
 };
 
 let registered = false;

@@ -31,9 +31,10 @@ Right-click a citation for Raw, Canvas, PDF, or conversion. Raw is the converted
 paper, stored as a Markdown attachment of the Zotero item (tagged `unizero:raw`)
 and edited in place. The plugin opens its file with the system's Markdown
 application, as Zotero does — Obsidian, when it is the default for `.md` files.
-When the file is not on this machine, the attachment is selected in Zotero
-instead. Conversion is offered only when the paper has no Raw, and its progress
-appears in Zotero's UniZero panel. Convert runs the **Default conversion template**
+When the file is not on this machine, you can show the attachment in Zotero (to
+let sync finish), restore Raw from Raw Backup, or convert again. Convert is the
+main action while the paper has no Raw, and its progress appears in Zotero's
+UniZero panel. Convert runs the **Default conversion template**
 setting (Zotero's default, `paper-to-zotero-markdown`, unless you pick another);
 right-click the paper pane's Convert button, or choose **Convert with template…** in
 a menu, to pick a template for one paper. The list comes from the paper runtime and
@@ -49,14 +50,32 @@ A paper's Canvas is stored like Raw: a `.canvas` file attached to the Zotero ite
 the paper pane, the library pane, or a citation menu asks Zotero to create an empty
 `<paper title>.canvas` attachment; every click then opens that file with the
 system's handler for `.canvas` — the same as opening it from Zotero. When the file
-is not on this machine, the attachment is selected in Zotero instead. The library
-pane marks papers that have one with a Canvas badge.
+is not on this machine, you can show the attachment in Zotero (to let sync
+finish) or start a new empty Canvas. The library pane marks papers that have one
+with a Canvas badge.
 
 The file lives in Zotero's storage, not in the vault, so citations inside it are not
 part of the vault index and other vault files cannot be embedded in it by vault path.
 
 Canvas files linked by earlier versions stay where they were; their paths remain in
 this plugin's `data.json` (`canvasLinks`) for migration, but are no longer opened.
+
+## Managing Raw and Canvas
+
+The paper pane's **Manage** button, a citation's menu, and the library pane's menu
+offer, as far as the paper has a Raw, a Raw Backup, or a Canvas:
+
+| Action | Effect |
+| --- | --- |
+| Re-convert (keeps Raw, updates Raw Backup) | Runs conversion again, with the default template or one you pick. Raw is not touched. |
+| Restore Raw from Raw Backup | Replaces Raw with a copy of Raw Backup, the latest conversion, then opens it. The old Raw goes to Zotero's trash. |
+| Move Raw to Zotero trash | The next conversion creates a new Raw. |
+| Move Canvas to Zotero trash | The next Canvas click creates a new empty Canvas. |
+
+Everything that replaces or removes a file asks first, and nothing is erased: restore
+a trashed Raw or Canvas from Zotero's trash. In Zotero itself, renaming the attachment
+or its file (with Zotero's Rename File) changes nothing for UniZero; renaming or
+deleting the file in the storage folder directly does, so use the actions above.
 
 ## Development
 
@@ -73,5 +92,5 @@ npm run build
 `styles.css` into `<vault>/.obsidian/plugins/unizero/`, then reload the plugin.
 
 Tests cover host-independent logic and mocked asynchronous workflows. Rendering,
-search suggestions, panes, bridge calls, and Canvas creation and opening still
-require manual checks in a real vault against Zotero.
+search suggestions, panes, dialogs, bridge calls, and Canvas and Raw management
+still require manual checks in a real vault against Zotero.

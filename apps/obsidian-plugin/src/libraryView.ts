@@ -17,6 +17,8 @@ import type {
 } from "./bridge";
 import { enableCitationDrag, type PaperRef } from "./citation";
 import {
+  addManageItems,
+  artifactState,
   chooseTemplateAndConvert,
   convertToMarkdown,
   hasRaw,
@@ -117,6 +119,11 @@ export class UnizeroLibraryView extends ItemView {
         this.render();
       }
     }
+  }
+
+  /** Re-read the current scope's rows, after a paper's Raw or Canvas changed. */
+  reloadItems(): Promise<void> {
+    return this.loadItemsOnly();
   }
 
   private async loadItemsOnly(): Promise<void> {
@@ -586,7 +593,7 @@ export class UnizeroLibraryView extends ItemView {
         .onClick(async () => {
           try {
             const paper = await this.plugin.bridge.paper(ref);
-            await openRaw(paper);
+            await openRaw(paper, this.plugin.actionContext());
           } catch (error) {
             new Notice(`UniZero: ${(error as Error).message}`);
           }
@@ -618,7 +625,9 @@ export class UnizeroLibraryView extends ItemView {
     menu.addItem((entry) => entry
       .setTitle("Open Canvas")
       .setIcon("layout-dashboard")
-      .onClick(() => { void openCanvas(this.plugin.bridge, item); }));
+      .onClick(() => { void openCanvas(this.plugin.actionContext(), item); }));
+
+    addManageItems(menu, this.plugin.actionContext(), item, artifactState(item), event);
 
     menu.showAtMouseEvent(event);
   }
