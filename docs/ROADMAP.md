@@ -11,7 +11,8 @@ Manual checks are historical open records, not evidence of a known defect.
 
 - **Import from Obsidian.** Let an explicit user action add or update papers in Zotero
   from exploration results. Not implemented; needs a separate write contract.
-  The existing bridge only permits conversion through `POST /convert`.
+  The existing bridge only permits conversion through `POST /convert` and creating an
+  empty Canvas attachment through `POST /canvas`.
 - **Literature exploration.** Discover papers, sort results, and follow related papers
   from notes. The next concrete feature still needs to be chosen.
 
@@ -27,6 +28,11 @@ Current behavior: [add-on README](../apps/zotero-addon/README.md).
   beside both files and survive Zotero file sync (WebDAV and Zotero storage).
 - **Annotations into Raw.** Annotation injection writes to vault Markdown only; Raw is
   now a Markdown file too, but injecting into it would edit the user's working copy.
+- **Canvas attachments — manual check.** In a real Zotero and vault, check that the
+  first Canvas click creates one `unizero:canvas` attachment named after the paper
+  (also for rapid repeated clicks), that later clicks reopen it, that it opens in
+  Obsidian from both Zotero and Obsidian, that a group library without file
+  permission reports the refusal, and that the file survives Zotero file sync.
 
 ## Zotero reader
 
