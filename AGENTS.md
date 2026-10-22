@@ -40,12 +40,14 @@ unless the task is explicitly about that surface.
 
 ## Start here
 
-UniZero has three executable components:
+UniZero has four executable components:
 
 - `apps/zotero-addon`: Zotero add-on (library backend; includes legacy Home UI);
 - `services/paper-runtime`: optional Python service for document processing;
 - `apps/obsidian-plugin`: Obsidian plugin — free-text `@` search, `@libraryID/itemKey`
-  citations, detail pane against the bridge.
+  citations, detail pane against the bridge;
+- `apps/mcp-server`: MCP server giving agents papers, Raw text, tables, and references
+  through the same bridge; it reads only files `GET /artifacts` names.
 
 The add-on and the runtime integrate through the versioned localhost HTTP API; the
 canonical v1 schema is `packages/contracts/http/v1.schema.json`. The add-on and the
@@ -108,6 +110,7 @@ The process boundary is described in `docs/ARCHITECTURE.md`.
 | `apps/zotero-addon/src/modules` | Established relations, metadata, cache, and item-pane code |
 | `apps/zotero-addon/src/server` | Obsidian bridge endpoints and citekey resolution |
 | `apps/obsidian-plugin/src` | Obsidian rendering, suggester, detail pane, and bridge client (active front end) |
+| `apps/mcp-server/src` | MCP tools, bridge client, and readers for Raw, the tables digest, and References |
 | `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, **legacy** Unizero Home, graph renderer |
 | `services/paper-runtime/src/unizero_runtime/api` | FastAPI transport |
 | `services/paper-runtime/src/unizero_runtime/application` | Jobs, configuration, and use cases |
@@ -196,6 +199,19 @@ npm run build
 management menus and trash call, the vault index, and the paper store, mocking
 Obsidian where needed. Rendering, the suggester, the panes, and every bridge call need
 a manual check in a real vault against a running Zotero.
+
+From `apps/mcp-server`:
+
+```text
+npm run check
+npm test
+npm run build
+```
+
+`npm test` covers the Raw, tables-digest, and References readers and every tool
+against a fake bridge. A change to the digest HTML in the runtime's
+`providers/tables.py` needs the fixture in `apps/mcp-server/tests/fixtures/`
+regenerated. Calls against a real library need a running Zotero.
 
 From `services/paper-runtime`:
 

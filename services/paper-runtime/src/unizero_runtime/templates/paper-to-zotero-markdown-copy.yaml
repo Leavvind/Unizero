@@ -1,0 +1,51 @@
+schema_version: 1
+id: paper-to-zotero-markdown-copy
+name: Book Standard
+version: 2
+description: Convert a book with MinerU's VLM-assisted parser, in 50-page chunks above 200 pages, and store the Markdown under the Zotero item as Raw. Raw is your working copy and is never overwritten; Raw Backup is replaced on every conversion. Add "Publish · Markdown directory" to publish to an Obsidian vault as well.
+modules:
+  - id: extract
+    module: extract.mineru
+    enabled: true
+    settings:
+      execution: local
+      backend: standard
+      ocr_mode: auto
+      language: auto
+      chunking:
+        enabled: true
+        threshold_pages: 200
+        chunk_size: 50
+
+  - id: page-links
+    module: transform.zotero-page-links
+    enabled: true
+    settings: {}
+
+  - id: content
+    module: transform.content
+    enabled: true
+    settings:
+      formulas: keep
+      figures: pointer
+      tables:
+        markdown: pointer
+        refine_complex: false
+        digest: false
+        digest_figures: false
+      references:
+        extract: false
+        remove_from_body: false
+      remove_repeated_lines: false
+
+  - id: frontmatter
+    module: transform.frontmatter
+    enabled: true
+    settings:
+      properties: []
+
+  - id: publish-zotero-markdown
+    module: publish.zotero-markdown
+    enabled: true
+    settings:
+      filename: "{{ title }}.md"

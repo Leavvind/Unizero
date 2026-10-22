@@ -12,6 +12,7 @@
 
 import { config } from "../../package.json";
 import { convertSelected } from "../features/conversion/commands";
+import { defaultTemplateId } from "../features/conversion/settings";
 import { annotateSelected } from "../features/annotations/commands";
 import { health } from "../runtime-client/process";
 import { runtimeClient } from "../runtime-client/client";
@@ -33,12 +34,6 @@ const LITERATURE_ICON =
 /** The add-on's item-menu commands, in the order they appear at the bottom. */
 const ITEM_MENU_COMMANDS = [MENU_LITERATURE, MENU_CONVERT, MENU_ANNOTATE];
 
-/**
- * Fallback template used when the service is unavailable or the template list
- * cannot be fetched. The runtime always ships it.
- */
-const FALLBACK_TEMPLATE_ID = "paper-to-zotero-markdown";
-const FALLBACK_TEMPLATE_NAME = "Generate Raw Markdown";
 
 type OpenPanel = (mainWindow: Window) => void;
 type OpenLiteratureCollection = (mainWindow: Window) => void;
@@ -143,13 +138,15 @@ function fillTemplatePopup(
   templates: MenuTemplate[],
 ): void {
   templatePopup.textContent = "";
+  const defaultId = defaultTemplateId();
   if (!templates.length) {
     // Converting must stay possible without the template list: offer the default
-    // template rather than an empty menu.
+    // template (by id; its name is unknown until the service answers) rather than
+    // an empty menu.
     const fallback = (document as any).createXULElement("menuitem");
-    fallback.setAttribute("label", `${FALLBACK_TEMPLATE_NAME} (default template)`);
+    fallback.setAttribute("label", `${defaultId} (default template)`);
     fallback.addEventListener("command", () => {
-      convertSelected(mainWindow, FALLBACK_TEMPLATE_ID, FALLBACK_TEMPLATE_NAME)
+      convertSelected(mainWindow, defaultId, defaultId)
         .catch((convertError) => noteConversionFailure(String(convertError)));
     });
     templatePopup.appendChild(fallback);
@@ -157,7 +154,8 @@ function fillTemplatePopup(
   }
   for (const template of templates) {
     const entry = (document as any).createXULElement("menuitem");
-    entry.setAttribute("label", template.name || template.id);
+    const label = template.name || template.id;
+    entry.setAttribute("label", template.id === defaultId ? `${label} (default)` : label);
     entry.setAttribute("tooltiptext", template.description || template.id);
     entry.addEventListener("command", () => {
       convertSelected(mainWindow, template.id, template.name || template.id)

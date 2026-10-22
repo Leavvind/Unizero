@@ -32,6 +32,12 @@ The **library backend** and scholarly data plane inside Zotero:
 
 It also hosts the localhost bridge the Obsidian plugin talks to.
 
+### MCP server (`apps/mcp-server`)
+
+Gives agents (Claude Code and other MCP clients) the library's papers through the
+bridge: search, the Raw Markdown with PDF pages, table crops, extracted references,
+and cached relations. Read-only apart from starting a conversion.
+
 ### Paper runtime (`services/paper-runtime`)
 
 Optional local Python service for PDF → Markdown conversion and related document jobs.
@@ -45,6 +51,7 @@ surface. Current priorities are listed in [AGENTS.md](AGENTS.md).
 ```text
 apps/obsidian-plugin/    Obsidian plugin: citations and panes against the bridge
 apps/zotero-addon/       Zotero add-on: data plane, bridge, conversion, (legacy) Home UI
+apps/mcp-server/         MCP server: papers, Raw text, tables, references for agents
 services/paper-runtime/  Python service for PDF and Markdown processing
 packages/contracts/      Shared HTTP schemas and example payloads
 docs/                    Architecture, code map, design notes, and roadmap
@@ -53,7 +60,7 @@ docs/                    Architecture, code map, design notes, and roadmap
 Two process boundaries — do not merge them:
 
 1. Add-on ↔ runtime: versioned `/api/v1` (`packages/contracts/http/v1.schema.json`).
-2. Add-on ↔ Obsidian: mostly-read-only bridge on Zotero’s HTTP server
+2. Add-on ↔ Obsidian and the MCP server: mostly-read-only bridge on Zotero’s HTTP server
    (`BRIDGE_API_VERSION` in `apps/zotero-addon/src/server/bridgePayloads.ts`).
 
 Start with:
@@ -71,6 +78,7 @@ There is no root build command. Each component builds and tests from its own dir
 setup, build, and test commands are in its README:
 [Obsidian plugin](apps/obsidian-plugin/README.md#development),
 [Zotero add-on](apps/zotero-addon/README.md#build),
+[MCP server](apps/mcp-server/README.md#development),
 [paper runtime](services/paper-runtime/README.md#install).
 Host UI (Zotero or Obsidian) always needs a manual check on top of automated tests.
 

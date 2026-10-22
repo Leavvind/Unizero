@@ -19,8 +19,8 @@ Manual checks are historical open records, not evidence of a known defect.
 
 Current behavior: [add-on README](../apps/zotero-addon/README.md).
 
-- **Raw attachments — manual check.** In a real Zotero, convert with
-  `paper-to-zotero-markdown` and check that Raw and Raw Backup appear, that opening Raw
+- **Raw attachments — manual check.** In a real Zotero, convert with a built-in
+  template and check that Raw and Raw Backup appear, that opening Raw
   from Zotero and from Obsidian's Raw action opens Obsidian, that a second conversion
   replaces only Raw Backup, that deleting Raw lets the next conversion recreate it, and
   that a supplement gets its own pair. With `images_mode: all`, check that images show
@@ -33,6 +33,8 @@ Current behavior: [add-on README](../apps/zotero-addon/README.md).
   read-only group library reports the refusal.
 - **Annotations into Raw.** Annotation injection writes to vault Markdown only; Raw is
   now a Markdown file too, but injecting into it would edit the user's working copy.
+- **MCP server — manual check.** Run the read tools on a group-library paper and on a
+  Raw whose file has not synced to this computer.
 
 ## Zotero reader
 

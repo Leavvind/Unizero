@@ -21,6 +21,7 @@ Component behaviour and commands are documented next to the code:
 
 - [apps/obsidian-plugin/README.md](../apps/obsidian-plugin/README.md) — **default entry for note-side work**;
 - [apps/zotero-addon/README.md](../apps/zotero-addon/README.md) — library backend and bridge host;
+- [apps/mcp-server/README.md](../apps/mcp-server/README.md) — agent access to papers over the bridge;
 - [services/paper-runtime/README.md](../services/paper-runtime/README.md);
 - [packages/contracts/README.md](../packages/contracts/README.md).
 

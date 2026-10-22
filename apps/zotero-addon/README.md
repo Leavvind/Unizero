@@ -2,16 +2,17 @@
 
 The Zotero application component: **library backend** for UniZero. It owns Zotero
 lifecycle, preferences, scholarly-provider access, item and attachment mutations, the
-derived relation index, the bridge used by the Obsidian plugin, and the client for the
-local paper runtime. It also still ships the legacy Unizero Home UI.
+derived relation index, the bridge used by the Obsidian plugin and the MCP server, and
+the client for the local paper runtime. It also still ships the legacy Unizero Home UI.
 
 ## Capabilities
 
-**Bridge (Obsidian)**
+**Bridge (Obsidian, MCP server)**
 
 - Localhost endpoints on Zotero’s HTTP server (`src/server/`).
-- GET: libraries, collections, paper resolve, relations from cache, citekey lookup,
-  and the conversion templates of an already-running runtime.
+- GET: libraries, collections, paper resolve, a paper's PDFs and generated attachments
+  with their paths, relations from cache, citekey lookup, and the conversion templates
+  of an already-running runtime.
 - POST actions on a paper's own Raw and Canvas: convert, create an empty Canvas
   attachment (`unizero:canvas`), move Raw or Canvas to the trash, restore Raw from
   Raw Backup. Nothing is erased.
@@ -35,7 +36,9 @@ local paper runtime. It also still ships the legacy Unizero Home UI.
 **Conversion, annotations, and reader**
 
 - PDF conversion commands and generated-artifact registration, including a versioned
-  structured References JSON attachment produced from the PDF bibliography.
+  structured References JSON attachment produced from the PDF bibliography. A
+  **Default template** preference (`conversion.defaultTemplate`, shipped as Journal
+  Papers) is used whenever a conversion names none.
 - Raw: the converted Markdown stored under the item as two imported attachments,
   written by the runtime's `publish.zotero-markdown` module. **Raw**
   (`unizero:raw`) is the working copy, opened from Zotero with the system's Markdown
@@ -71,7 +74,7 @@ hints remain for existing users. Maintenance traps and document shapes:
 | `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
 | `src/modules/uniConnection.ts` | Derived reverse-reference index, coupling, graph topology |
 | `src/modules/uniConnectionSync.ts` | Notifier-driven index maintenance and reference backfill |
-| `src/server/` | Obsidian bridge endpoints and citekey resolution |
+| `src/server/` | Bridge endpoints (Obsidian, MCP server) and citekey resolution |
 | `src/projects/` | Versioned Project/Board/Paper shapes and local Project repository |
 | `src/runtime-client/` | HTTP contracts, client, launch resolution, process state |
 | `src/zotero/` | Zotero adapters, library scope, artifact identity, reader shortcuts |

@@ -22,8 +22,8 @@ Markdown (with frontmatter) to a directory or Obsidian vault; `publish.zotero-ma
 leaves the same document, with its referenced images under `attachments/`, in a hand-off
 directory of the runtime store for the add-on to attach to the Zotero item as Raw and
 Raw Backup. The runtime never touches Zotero itself; the hand-off paths come back in the
-job result as `zotero_md_path` and, when there are images, `zotero_md_images_dir`. The
-built-in `paper-to-zotero-markdown` template uses it. A stored template that still names
+job result as `zotero_md_path` and, when there are images, `zotero_md_images_dir`. Every
+built-in template uses it. A stored template that still names
 the removed `publish.zotero-note` is migrated to `publish.zotero-markdown` on load.
 
 A module can declare `requires_any`, the modules it serves. When none of them is enabled
@@ -85,6 +85,12 @@ Mutable state is kept outside the package. Resolution order:
 
 Built-in templates live in `src/unizero_runtime/templates/` and are replaced with the
 package. User template overrides live in the runtime home.
+
+| Id | Name | For |
+| --- | --- | --- |
+| `paper-to-markdown` | Journal Papers | Papers: VLM-assisted parsing, table digest, extracted References; the add-on's default |
+| `paper-to-zotero-markdown` | Books Basic | Long documents: basic parser, 50-page chunks above 200 pages |
+| `paper-to-zotero-markdown-copy` | Book Standard | Long documents with VLM-assisted parsing |
 
 ## Source map
 

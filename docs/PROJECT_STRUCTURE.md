@@ -9,6 +9,10 @@ UniZero/
 │   │   ├── manifest.json        Obsidian plugin manifest
 │   │   ├── styles.css           Pill and detail-pane styling
 │   │   └── package.json
+│   ├── mcp-server/
+│   │   ├── src/                 Bridge client, paper resolution, Raw/tables/references readers, MCP tools
+│   │   ├── tests/               Vitest over the readers and every tool against a fake bridge
+│   │   └── package.json
 │   └── zotero-addon/
 │       ├── addon/
 │       │   ├── chrome/content/  Privileged dialogs: panel, explorer (legacy Home), graph, vendor, icons
@@ -21,7 +25,7 @@ UniZero/
 │       │   ├── modules/         Relations, metadata, providers, cache, derived index, item pane
 │       │   ├── projects/        Project/Board/Paper schemas and Project persistence
 │       │   ├── runtime-client/  Runtime HTTP client and process management
-│       │   ├── server/          Obsidian bridge and citekey resolution
+│       │   ├── server/          Bridge (Obsidian, MCP server) and citekey resolution
 │       │   ├── ui/              Menus, panel and explorer bridges, progress, service notices
 │       │   ├── utils/           Shared add-on utilities
 │       │   └── zotero/          Zotero adapters and artifact identity

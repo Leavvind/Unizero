@@ -7,7 +7,11 @@ Everything comes from content_list: caption / footnote / cropped image
 exported; when a file is missing the crop is rendered straight from the source
 PDF using the bbox — content_list bboxes are normalised to 0–1000 against page
 width/height, so store/<citekey>.content_list.json plus a local PDF is enough to
-backfill previously converted papers:
+backfill previously converted papers.
+
+The HTML is also read back: `apps/mcp-server/src/artifacts.ts` parses each
+`<section>` (`<h2>` caption, base64 `<img>`, `p.footnote`, `?page=N` link). Keep
+that shape, or change the reader and its fixture with it:
 
     python tables_export.py <citekey> --pdf <source PDF> [--attachment-key KEY]
 """

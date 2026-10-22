@@ -82,3 +82,5 @@ conversion-obsidianVault = Cassaforte Obsidian
 conversion-obsidianVault-input =
   .placeholder = Nome della cassaforte
 conversion-obsidianVault-note = «Apri in Obsidian» salta allora tramite l'uid della nota, che sopravvive a rinomina o spostamento nella cassaforte. Richiede il plugin Advanced URI. Se vuoto, le note si aprono per percorso.
+conversion-defaultTemplate = Modello predefinito
+conversion-defaultTemplate-note = Usato quando una conversione non indica un modello: Obsidian impostato sul predefinito di Zotero, il server MCP e il menu dell'elemento a runtime fermo. L'elenco mostra i modelli del runtime in esecuzione.

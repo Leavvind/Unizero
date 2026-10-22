@@ -51,22 +51,21 @@ def test_every_builtin_module_id_is_registered(isolated_home: Path) -> None:
             )
 
 
-def test_default_conversion_template_publishes_the_note_uid(
-    isolated_home: Path,
-) -> None:
-    store = _store(isolated_home)
-    template = store.get("paper-to-markdown")
-    assert template is not None
-    frontmatter = next(
-        item for item in template.modules
-        if item.module == "transform.frontmatter"
-    )
-    rows = {item["key"]: item for item in frontmatter.settings["properties"]}
-    assert rows["uid"] == {
-        "key": "uid",
-        "value": "{{ uid }}",
-        "type": "text",
-    }
+def test_builtin_vault_templates_publish_the_note_uid(isolated_home: Path) -> None:
+    """A built-in that writes notes into a vault gives them the uid Obsidian links by."""
+    for listed in _store(isolated_home).list():
+        modules = listed["modules"]
+        if not any(item["module"] == "publish.markdown-directory" for item in modules):
+            continue
+        frontmatter = next(
+            item for item in modules if item["module"] == "transform.frontmatter"
+        )
+        rows = {item["key"]: item for item in frontmatter["settings"]["properties"]}
+        assert rows["uid"] == {
+            "key": "uid",
+            "value": "{{ uid }}",
+            "type": "text",
+        }, listed["id"]
 
 
 def test_unknown_module_is_rejected(isolated_home: Path) -> None:
@@ -199,12 +198,13 @@ def test_legacy_frontmatter_settings_become_a_property_table(isolated_home: Path
     assert rows["title"]["value"] == "{{ title }}"
 
 
-def _builtin_document() -> dict:
-    return yaml.safe_load(
-        (paths.builtin_templates_dir() / "paper-to-markdown.yaml").read_text(
-            encoding="utf-8",
-        ),
-    )
+# A vault-publishing `paper-to-markdown` as earlier releases shipped it: the shape
+# the migrations below upgrade. The shipped built-in now publishes Raw to Zotero.
+_VAULT_TEMPLATE = Path(__file__).parent / "fixtures" / "vault-paper-template.yaml"
+
+
+def _vault_document() -> dict:
+    return yaml.safe_load(_VAULT_TEMPLATE.read_text(encoding="utf-8"))
 
 
 def _with_legacy_content_modules(document: dict, *, references: bool) -> dict:
@@ -238,7 +238,7 @@ def _content(template) -> dict:
 def test_version_two_template_gains_reference_extraction_once(
     isolated_home: Path,
 ) -> None:
-    document = _with_legacy_content_modules(_builtin_document(), references=False)
+    document = _with_legacy_content_modules(_vault_document(), references=False)
     document["version"] = 2
     _write_user_template(isolated_home, document)
 
@@ -253,7 +253,7 @@ def test_version_two_template_gains_reference_extraction_once(
 
 
 def test_folded_modules_keep_their_settings(isolated_home: Path) -> None:
-    document = _with_legacy_content_modules(_builtin_document(), references=True)
+    document = _with_legacy_content_modules(_vault_document(), references=True)
     extract = document["modules"][0]
     extract["settings"].update({"enable_formula": False, "enable_table": True})
     _write_user_template(isolated_home, document)
@@ -305,11 +305,7 @@ def test_disabled_folded_modules_keep_their_effect() -> None:
 
 
 def test_version_one_property_table_gains_uid_once(isolated_home: Path) -> None:
-    document = yaml.safe_load(
-        (paths.builtin_templates_dir() / "paper-to-markdown.yaml").read_text(
-            encoding="utf-8",
-        ),
-    )
+    document = _vault_document()
     document["version"] = 1
     frontmatter = next(
         item for item in document["modules"]
@@ -335,11 +331,7 @@ def test_version_one_property_table_gains_uid_once(isolated_home: Path) -> None:
 
 
 def test_version_two_template_may_deliberately_omit_uid(isolated_home: Path) -> None:
-    document = yaml.safe_load(
-        (paths.builtin_templates_dir() / "paper-to-markdown.yaml").read_text(
-            encoding="utf-8",
-        ),
-    )
+    document = _vault_document()
     document["version"] = 2
     frontmatter = next(
         item for item in document["modules"]

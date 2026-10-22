@@ -41,8 +41,8 @@ Raw is the converted paper: a Markdown attachment of the Zotero item (tagged
 application, as Zotero does — Obsidian, when it is the default for `.md` files.
 
 **Convert** is the main action while a paper has no Raw; its progress appears in
-Zotero's UniZero panel. It runs the **Default conversion template** setting
-(`paper-to-zotero-markdown` unless you pick another). To pick a template for one
+Zotero's UniZero panel. It runs the **Default conversion template** setting, which
+unless set follows the add-on's **Default template** (Journal Papers). To pick a template for one
 paper, right-click the paper pane's Convert button or choose **Convert with
 template…** in a menu; the list appears once the paper runtime is running. Only a
 template that publishes to Zotero creates a Raw. Converting again never overwrites

@@ -21,12 +21,28 @@ export interface ConversionSettings {
    * opening by absolute path, which does not survive a rename inside the vault.
    */
   obsidianVault: string;
+  /**
+   * Template a conversion uses when none is named: the bridge's `POST /convert`
+   * (Obsidian's "Zotero default", the MCP server's `convert_paper`) and the item
+   * menu's offline entry. Shipped as Journal Papers, which publishes Raw.
+   */
+  defaultTemplate: string;
 }
 
 export const CONVERSION_PREF_DEFAULTS: ConversionSettings = {
   mdSnapshot: true,
   obsidianVault: "",
+  defaultTemplate: "paper-to-markdown",
 };
+
+/** The runtime's own template-id rule (`_SAFE_ID` in pipeline/templates.py). */
+export const TEMPLATE_ID = /^[a-z0-9][a-z0-9._-]{1,79}$/;
+
+/** The default template id, falling back to the shipped one when the pref is not an id. */
+export function defaultTemplateId(): string {
+  const saved = String(getConversionPref("defaultTemplate") || "").trim();
+  return TEMPLATE_ID.test(saved) ? saved : CONVERSION_PREF_DEFAULTS.defaultTemplate;
+}
 
 export function getConversionPref<K extends keyof ConversionSettings>(
   name: K,

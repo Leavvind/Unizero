@@ -90,8 +90,8 @@ environment. The derived index (and legacy Home) belong to `literature.relations
 
 ## Bridge contract
 
-The Obsidian plugin never holds a second bibliographic store. It calls endpoints on
-Zotero’s existing loopback HTTP server (`BRIDGE_API_VERSION` in
+Neither the Obsidian plugin nor the MCP server holds a second bibliographic store. Both
+call endpoints on Zotero’s existing loopback HTTP server (`BRIDGE_API_VERSION` in
 `apps/zotero-addon/src/server/bridgePayloads.ts`).
 
 Load-bearing properties:
@@ -99,7 +99,8 @@ Load-bearing properties:
 - **Mostly read-only.** GET endpoints never mutate Zotero or the Paper catalog. The
   write-shaped exceptions all act on the user's own artifacts, and none erases anything:
   - `POST /convert` starts the same conversion job as the Zotero item menu, with the
-    default template or the one an optional `template` names. A Raw whose file is gone
+    add-on's default-template preference (`conversion.defaultTemplate`, reported by
+    `GET /templates`) or the one an optional `template` names. A Raw whose file is gone
     is moved to the trash by the conversion and replaced.
   - `POST /canvas` returns the paper's Canvas attachment (`unizero:canvas`), first
     adding an empty `.canvas` when the paper has none; it accepts no file contents and
@@ -112,8 +113,12 @@ Load-bearing properties:
   write-back design.
 - **Additions are announced, not versioned.** A new endpoint, parameter, or payload
   field is announced by a ping capability (`templates`, `canvas`, `trash`,
-  `restore-raw`, `subcollections`) and keeps `BRIDGE_API_VERSION` at 2. A client
-  checks the capability; an older add-on ignores an unknown parameter.
+  `restore-raw`, `subcollections`, `artifacts`) and keeps `BRIDGE_API_VERSION` at 2. A
+  client checks the capability; an older add-on ignores an unknown parameter.
+- **Generated files are named by the add-on.** `GET /artifacts` lists a paper's PDFs
+  and its `unizero:<kind>` attachments with their source PDF and local path. The MCP
+  server (`apps/mcp-server`) reads Raw, the tables digest, and References only through
+  it, so tags and attachment-note records stay add-on internals.
 - **Templates are listed, never started for.** `GET /templates` asks the paper runtime
   only when it is already running; a stopped runtime is `available: false`.
 - **Subcollections are opt-in.** `GET /collection-items` lists a collection's own

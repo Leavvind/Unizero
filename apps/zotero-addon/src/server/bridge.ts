@@ -10,6 +10,9 @@
  * Load-bearing properties:
  *
  * - **Mostly read-only.** GET endpoints never mutate Zotero or the Paper catalog.
+ *   `GET /artifacts` lists a paper's PDFs and generated attachments with their
+ *   paths, so an agent reader (the UniZero MCP server) reads files the add-on names
+ *   rather than re-deriving tags and records itself.
  *   The write-shaped exceptions all act on the user's own artifacts:
  *   `POST /convert` starts the same conversion job the Zotero item menu already
  *   runs; `POST /canvas` adds an empty `unizero:canvas` attachment to a paper that
@@ -35,6 +38,7 @@
 
 import { config, version } from "../../package.json";
 import { convertItems } from "../features/conversion/commands";
+import { defaultTemplateId, TEMPLATE_ID } from "../features/conversion/settings";
 import {
   managedAttachment,
   rawBackupFile,
@@ -51,6 +55,7 @@ import type Views from "../modules/views";
 import type { LiteratureRelationKind } from "../modules/literatureRelations";
 import {
   BRIDGE_API_VERSION,
+  bridgeArtifacts,
   bridgeCanvas,
   bridgeCollectionItems,
   bridgeCollections,
@@ -72,6 +77,7 @@ import {
 const ROOT = "/unizero/v1";
 const PING = `${ROOT}/ping`;
 const PAPER = `${ROOT}/paper`;
+const ARTIFACTS = `${ROOT}/artifacts`;
 const RELATIONS = `${ROOT}/relations`;
 const SUGGEST = `${ROOT}/suggest`;
 const COLLECTIONS = `${ROOT}/collections`;
@@ -82,12 +88,6 @@ const CANVAS = `${ROOT}/canvas`;
 const TRASH = `${ROOT}/trash`;
 const RESTORE_RAW = `${ROOT}/restore-raw`;
 
-/** Same default template as the item menu: it creates the Raw that Obsidian opens. */
-const DEFAULT_CONVERT_TEMPLATE_ID = "paper-to-zotero-markdown";
-const DEFAULT_CONVERT_TEMPLATE_NAME = "Generate Raw Markdown";
-
-/** The runtime's own template-id rule (`_SAFE_ID` in pipeline/templates.py). */
-const TEMPLATE_ID = /^[a-z0-9][a-z0-9._-]{1,79}$/;
 
 interface BridgeTemplate {
   id: string;
@@ -289,6 +289,7 @@ async function handlePing(): Promise<BridgeResponse> {
       "trash",
       "restore-raw",
       "subcollections",
+      "artifacts",
     ],
     ready: Boolean(activeViews()),
   });
@@ -303,6 +304,12 @@ async function handlePaper(query: RequestQuery): Promise<BridgeResponse> {
     ambiguous: found.ambiguous,
   });
   return json(200, paper);
+}
+
+async function handleArtifacts(query: RequestQuery): Promise<BridgeResponse> {
+  const found = await lookup(query);
+  if (!found.found) { return found.response; }
+  return json(200, await bridgeArtifacts(found.item));
 }
 
 async function handleRelations(query: RequestQuery): Promise<BridgeResponse> {
@@ -405,7 +412,7 @@ async function handleTemplates(): Promise<BridgeResponse> {
   const templates = await runningTemplates();
   return json(200, {
     available: templates !== null,
-    defaultTemplate: DEFAULT_CONVERT_TEMPLATE_ID,
+    defaultTemplate: defaultTemplateId(),
     templates: templates || [],
   });
 }
@@ -414,14 +421,12 @@ async function handleConvert(query: RequestQuery): Promise<BridgeResponse> {
   const found = await lookup(query);
   if (!found.found) { return found.response; }
 
-  // `template` is optional; without it the item menu's default runs.
-  const templateId = (query.template || "").trim() || DEFAULT_CONVERT_TEMPLATE_ID;
+  // `template` is optional; without it the user's default template runs.
+  const templateId = (query.template || "").trim() || defaultTemplateId();
   if (!TEMPLATE_ID.test(templateId)) {
     return failure(400, `invalid template id "${templateId}"`);
   }
-  let templateName = templateId === DEFAULT_CONVERT_TEMPLATE_ID
-    ? DEFAULT_CONVERT_TEMPLATE_NAME
-    : templateId;
+  let templateName = templateId;
   // A running runtime can confirm the template now; a stopped one is started by
   // the conversion command, which reports an unknown template in the panel.
   const templates = await runningTemplates().catch(() => null);
@@ -586,6 +591,7 @@ function endpointFor(
 const endpoints: Record<string, () => void> = {
   [PING]: endpointFor("ping", handlePing),
   [PAPER]: endpointFor("paper", handlePaper),
+  [ARTIFACTS]: endpointFor("artifacts", handleArtifacts),
   [RELATIONS]: endpointFor("relations", handleRelations),
   [SUGGEST]: endpointFor("suggest", handleSuggest),
   [COLLECTIONS]: endpointFor("collections", handleCollections),

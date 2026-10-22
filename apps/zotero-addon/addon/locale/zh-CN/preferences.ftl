@@ -86,3 +86,5 @@ conversion-obsidianVault = Obsidian 仓库
 conversion-obsidianVault-input =
   .placeholder = 仓库名
 conversion-obsidianVault-note = 填写后「在 Obsidian 中打开」按笔记的 uid 跳转，在仓库内改名或移动都不会失效。需要 Advanced URI 插件。留空则按文件路径打开。
+conversion-defaultTemplate = 默认模板
+conversion-defaultTemplate-note = 转换未指定模板时使用：Obsidian 设为「Zotero 默认」时、MCP 服务、以及论文运行时未启动时的条目菜单。列表显示正在运行的运行时中的模板。

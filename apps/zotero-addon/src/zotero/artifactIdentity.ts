@@ -38,9 +38,11 @@
  * `canvas` is the paper's Obsidian Canvas note, created empty on request and then
  * the user's alone, like `raw`.
  */
-export type ArtifactKind =
-  | "markdown" | "markdown-copy" | "tables" | "references" | "raw" | "raw-backup"
-  | "canvas";
+export const ARTIFACT_KINDS = [
+  "markdown", "markdown-copy", "tables", "references", "raw", "raw-backup", "canvas",
+] as const;
+
+export type ArtifactKind = typeof ARTIFACT_KINDS[number];
 
 const TAG_PREFIX = "unizero:";
 
@@ -71,6 +73,11 @@ export function isArtifact(attachment: Zotero.Item): boolean {
 export function hasKind(attachment: Zotero.Item, kind: ArtifactKind): boolean {
   const wanted = kindTag(kind);
   return attachment.getTags().some((tag) => tag.tag === wanted);
+}
+
+/** Which artifact this attachment is, by its ownership tag; undefined for the user's own. */
+export function artifactKind(attachment: Zotero.Item): ArtifactKind | undefined {
+  return ARTIFACT_KINDS.find((kind) => hasKind(attachment, kind));
 }
 
 function readRecord(attachment: Zotero.Item): ArtifactRecord | null {

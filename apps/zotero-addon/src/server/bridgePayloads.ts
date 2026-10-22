@@ -22,6 +22,7 @@ import {
   rawAttachment,
   rawBackupAttachment,
 } from "../zotero/literatureCollectionAdapter";
+import { artifactKind, artifactSource, type ArtifactKind } from "../zotero/artifactIdentity";
 import { canvasAttachment } from "../zotero/canvasAdapter";
 import { libraryScope } from "../zotero/libraryScope";
 import { readMarkdownLink } from "../zotero/markdownLinkRegistry";
@@ -70,6 +71,40 @@ export interface BridgeCanvas {
   canvas: string;
   /** Absent when the attachment's file is not on this machine. */
   canvasPath?: string;
+}
+
+/** One PDF attachment of a paper, the source a conversion reads. */
+export interface BridgePdf {
+  key: string;
+  title: string;
+  /** The PDF `links.zoteroPdf` opens; the others are supplements. */
+  main: boolean;
+  /** Absent when the file is not on this machine. */
+  path?: string;
+}
+
+/** One UniZero-generated attachment, told apart by its `unizero:<kind>` tag. */
+export interface BridgeArtifact {
+  kind: ArtifactKind;
+  key: string;
+  title: string;
+  contentType: string;
+  /** Key of the PDF it was generated from; absent when its record is unreadable. */
+  source?: string;
+  /** Absent when the file is not on this machine. */
+  path?: string;
+}
+
+/**
+ * Answer to `GET /artifacts`: every PDF and every generated attachment of a paper,
+ * so a reader can choose the Raw, tables digest, or References of one PDF without
+ * knowing how UniZero tags or records them.
+ */
+export interface BridgeArtifacts {
+  libraryID: number;
+  itemKey: string;
+  pdfs: BridgePdf[];
+  artifacts: BridgeArtifact[];
 }
 
 export interface BridgePaper {
@@ -212,6 +247,37 @@ function attachmentSelectLink(attachment: Zotero.Item): string {
 
 async function attachmentFilePath(attachment: Zotero.Item): Promise<string | undefined> {
   return await attachment.getFilePathAsync().catch(() => undefined) || undefined;
+}
+
+export async function bridgeArtifacts(item: Zotero.Item): Promise<BridgeArtifacts> {
+  const main = pdfAttachment(item);
+  const pdfs: BridgePdf[] = [];
+  const artifacts: BridgeArtifact[] = [];
+  for (const id of item.getAttachments()) {
+    const attachment = Zotero.Items.get(id) as Zotero.Item | false;
+    if (!attachment || attachment.deleted) { continue; }
+    const title = stringField(attachment, "title");
+    if (attachment.attachmentContentType === "application/pdf") {
+      pdfs.push({
+        key: String(attachment.key),
+        title,
+        main: attachment.key === main?.key,
+        path: await attachmentFilePath(attachment),
+      });
+      continue;
+    }
+    const kind = artifactKind(attachment);
+    if (!kind) { continue; }
+    artifacts.push({
+      kind,
+      key: String(attachment.key),
+      title,
+      contentType: attachment.attachmentContentType || "",
+      source: artifactSource(attachment),
+      path: await attachmentFilePath(attachment),
+    });
+  }
+  return { libraryID: item.libraryID, itemKey: String(item.key), pdfs, artifacts };
 }
 
 export async function bridgeCanvas(

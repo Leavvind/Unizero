@@ -18,6 +18,7 @@
 
 import { config } from "../../package.json";
 import { runtimeClient } from "../runtime-client/client";
+import { health } from "../runtime-client/process";
 import {
   getRuntimePref,
   servicePort,
@@ -25,8 +26,10 @@ import {
   type RuntimeSettings,
 } from "../runtime-client/settings";
 import {
+  defaultTemplateId,
   getConversionPref,
   setConversionPref,
+  TEMPLATE_ID,
   type ConversionSettings,
 } from "../features/conversion/settings";
 
@@ -142,6 +145,50 @@ async function bindRuntimeSettings(doc: Document): Promise<void> {
       setConversionPref(name, String(input.value).trim());
     });
   }
+
+  await bindDefaultTemplate(doc);
+}
+
+/**
+ * The default-template dropdown. Templates live in the runtime, so the list comes
+ * from a service that is already running; opening the settings never starts it
+ * (the same rule as the item menu). The saved choice is always listed, so the
+ * pane shows and keeps it while the service is stopped.
+ *
+ * A XUL menulist, not `html:select`: this pane lives in a chrome window, where an
+ * HTML select's popup does not open.
+ */
+async function bindDefaultTemplate(doc: Document): Promise<void> {
+  const menulist = element(doc, "conversion-default-template");
+  const popup = menulist?.querySelector("menupopup");
+  if (!menulist || !popup) { return; }
+  const saved = defaultTemplateId();
+
+  let listed: Array<{ id: string; name?: string }> = [];
+  try {
+    if (await health()) { listed = (await runtimeClient.templates()).templates || []; }
+  } catch (error) {
+    ztoolkit.log(`default-template list unavailable: ${error}`);
+  }
+  if (!listed.some((template) => template.id === saved)) {
+    listed = [{ id: saved }, ...listed];
+  }
+
+  popup.textContent = "";
+  for (const template of listed) {
+    const item = (doc as any).createXULElement("menuitem");
+    item.setAttribute("value", template.id);
+    item.setAttribute(
+      "label",
+      template.name ? `${template.name} (${template.id})` : template.id,
+    );
+    popup.appendChild(item);
+  }
+  menulist.value = saved;
+  menulist.addEventListener("command", () => {
+    const value = String(menulist.value || "");
+    if (TEMPLATE_ID.test(value)) { setConversionPref("defaultTemplate", value); }
+  });
 }
 
 export async function registerPrefsScripts(_window: Window): Promise<void> {
