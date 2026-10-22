@@ -17,6 +17,7 @@ import type {
 } from "./bridge";
 import { enableCitationDrag, type PaperRef } from "./citation";
 import {
+  chooseTemplateAndConvert,
   convertToMarkdown,
   hasRaw,
   openCanvas,
@@ -516,6 +517,9 @@ export class UnizeroLibraryView extends ItemView {
     if (item.hasRaw) {
       badges.createSpan({ cls: "unizero-badge", text: "Raw" });
     }
+    if (item.hasCanvas) {
+      badges.createSpan({ cls: "unizero-badge", text: "Canvas" });
+    }
     const vaultCount = this.plugin.vaultIndex.getCount(ref);
     if (vaultCount > 0) {
       const countBadge = badges.createSpan({
@@ -594,24 +598,27 @@ export class UnizeroLibraryView extends ItemView {
         .onClick(async () => {
           try {
             const paper = await this.plugin.bridge.paper(ref);
-            await convertToMarkdown(this.plugin.bridge, ref, paper);
+            await convertToMarkdown(
+              this.plugin.bridge, ref, paper, this.plugin.settings.defaultTemplate,
+            );
           } catch (error) {
             new Notice(`UniZero: ${(error as Error).message}`);
           }
+        }));
+      menu.addItem((entry) => entry
+        .setTitle("Convert with template…")
+        .setIcon("list")
+        .onClick(() => {
+          void chooseTemplateAndConvert(
+            this.plugin.bridge, ref, event, this.plugin.settings.defaultTemplate,
+          );
         }));
     }
 
     menu.addItem((entry) => entry
       .setTitle("Open Canvas")
       .setIcon("layout-dashboard")
-      .onClick(async () => {
-        try {
-          const paper = await this.plugin.bridge.paper(ref);
-          await openCanvas(this.app, paper, this.plugin.canvasLinkStore());
-        } catch (error) {
-          new Notice(`UniZero: ${(error as Error).message}`);
-        }
-      }));
+      .onClick(() => { void openCanvas(this.plugin.bridge, item); }));
 
     menu.showAtMouseEvent(event);
   }

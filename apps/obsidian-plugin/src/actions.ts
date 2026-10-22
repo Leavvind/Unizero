@@ -3,58 +3,39 @@
  *
  * `@libraryID/itemKey` stays inside Obsidian; `.md` opens the paper's Raw Markdown;
  * `.pdf` / `.pdf:{page}` hand off to Zotero (optional physical page via `?page=`).
- * Conversion is the one side-effect this plugin may request: it posts to the
- * bridge's convert action, which runs the same Zotero menu command — it does
- * not edit bibliographic fields from Obsidian.
+ * The plugin may request two side-effects: conversion posts to the bridge's
+ * convert action, which runs the same Zotero menu command, and the first Canvas
+ * open asks Zotero to add an empty Canvas attachment. Neither edits bibliographic
+ * fields from Obsidian.
  *
  * "Raw" is the converted paper, stored by conversion as a Markdown attachment of
  * the Zotero item (tagged `unizero:raw`) and opened with the system's Markdown
  * application. It is for reading and light format edits, not the hand-written note
  * surface.
  *
- * "Canvas" is the user's real note for a paper — a vault `.canvas` they create
- * on first open (automatically created and linked; a missing path asks again).
+ * "Canvas" is the user's real note for a paper — a `.canvas` stored, like Raw, as
+ * an attachment of the Zotero item (tagged `unizero:canvas`). Zotero creates it
+ * empty on the first open; it opens with the system's handler for `.canvas`.
  */
 
-import {
-  FuzzySuggestModal,
-  Notice,
-  TFile,
-  normalizePath,
-  type App,
-} from "obsidian";
+import { Menu, Notice } from "obsidian";
 import { shell } from "electron";
-import type { BridgePaper, UnizeroBridge } from "./bridge";
+import type { BridgeCanvas, BridgePaper, UnizeroBridge } from "./bridge";
 import { withPdfPage, type PaperRef } from "./citation";
-import { createCanvasForPaper } from "./canvasCreation";
-import type { UnizeroSettings } from "./settings";
+import { templateMenuEntries } from "./templates";
 
 /** A full paper payload, or a library-pane row, as far as Open Raw vs Convert goes. */
 export type RawAvailability =
   | { links: { raw?: string } }
   | { hasRaw: boolean };
 
-/** Paper identity used by Canvas links and labels. */
+/** Paper identity used by Canvas opens and labels. */
 export type PaperIdentity = {
   libraryID: number;
   itemKey: string;
   title?: string;
   citekey?: string;
 };
-
-/**
- * Live Canvas path store. Prefer reading through `get` on every open so a
- * caller never holds a stale `settings.canvasLinks` snapshot.
- */
-export interface CanvasLinkStore {
-  get(key: string): string | undefined;
-  set(key: string, path: string): Promise<void>;
-}
-
-/** Settings key for a paper's Canvas path: `libraryID/itemKey`. */
-export function canvasLinkKey(paper: Pick<PaperIdentity, "libraryID" | "itemKey">): string {
-  return `${Number(paper.libraryID)}/${String(paper.itemKey)}`;
-}
 
 /**
  * Open Raw vs Convert is exclusive in Obsidian menus.
@@ -68,174 +49,36 @@ export function hasRaw(paper: RawAvailability): boolean {
     : Boolean(paper.links.raw);
 }
 
-export function resolveCanvasFile(
-  app: App,
-  path: string | undefined,
-): TFile | undefined {
-  if (!path) { return undefined; }
-  const normalized = normalizePath(path.trim());
-  if (!normalized) { return undefined; }
-  const file = app.vault.getAbstractFileByPath(normalized);
-  return file instanceof TFile && file.extension === "canvas" ? file : undefined;
-}
-
-export function findCanvasForPaper(
-  app: App,
-  paper: Pick<PaperIdentity, "libraryID" | "itemKey">,
-  links: Pick<CanvasLinkStore, "get"> | UnizeroSettings,
-): TFile | undefined {
-  const key = canvasLinkKey(paper);
-  const path = "get" in links
-    ? links.get(key)
-    : links.canvasLinks?.[key];
-  return resolveCanvasFile(app, path);
-}
-
 /**
  * Open the paper's Canvas note — the hand-made note surface for this paper.
  *
- * Links live in plugin settings (`canvasLinks`), not in the `.canvas` file
- * (Canvas JSON has no frontmatter). First open creates a title-named Canvas;
- * a broken path prompts for an existing file. Vault rename events keep the
- * stored path up to date.
+ * Zotero answers with the paper's Canvas attachment, creating an empty one on the
+ * first open, so a stale cached paper never offers a second Canvas. The file opens
+ * with the system's handler for `.canvas`, as it does from Zotero; without the file
+ * on this machine (not yet synced down, say), the attachment is selected in Zotero.
  */
 export async function openCanvas(
-  app: App,
+  bridge: UnizeroBridge,
   paper: PaperIdentity,
-  links: CanvasLinkStore,
 ): Promise<void> {
-  const key = canvasLinkKey(paper);
-  const existingPath = links.get(key);
-  const file = resolveCanvasFile(app, existingPath);
-  if (file) {
-    await app.workspace.getLeaf(false).openFile(file);
+  let canvas: BridgeCanvas;
+  try {
+    canvas = await bridge.canvas(paper);
+  } catch (error) {
+    new Notice(`UniZero: could not open the Canvas — ${(error as Error).message}`);
     return;
   }
-
-  const label = paperLabel(paper);
-  if (!existingPath) {
-    try {
-      const created = await createCanvasForPaper(app, paper, links);
-      await app.workspace.getLeaf(false).openFile(created);
-    } catch (error) {
-      console.error("UniZero: could not create or open Canvas", error);
-      new Notice(`Could not create or open Canvas — ${(error as Error).message}`);
-    }
-    return;
+  if (canvas.created) {
+    new Notice(`Created a Canvas for “${paperLabel(paper)}” in Zotero.`);
   }
-  if (existingPath) {
-    new Notice(
-      `Canvas for ${label} was “${existingPath}”, but that file is missing. Pick a Canvas.`,
-    );
+  const path = canvas.canvasPath;
+  if (path && /\.canvas$/i.test(path)) {
+    // openPath reports failure as a message rather than by rejecting.
+    const failure = await shell.openPath(path);
+    if (!failure) { return; }
+    new Notice(`Could not open ${path}: ${failure}`);
   }
-
-  const picked = await pickVaultFile(app, {
-    title: `Canvas for ${label}`,
-    placeholder: "Search Canvas files in the vault…",
-    instructions:
-      "Pick the Obsidian Canvas that is this paper’s real note. "
-      + "The link follows file and folder renames or moves while UniZero is enabled.",
-    choosePurpose: "link Canvas",
-    getItems: () => app.vault.getFiles()
-      .filter((entry) => entry.extension === "canvas")
-      .sort((a, b) => a.path.localeCompare(b.path)),
-  });
-  if (!picked) { return; }
-
-  const path = normalizePath(picked.path);
-  await links.set(key, path);
-  new Notice(`Linked Canvas: ${path}`);
-  await app.workspace.getLeaf(false).openFile(picked);
-}
-
-/**
- * Vault file picker. Resolves once.
- *
- * Obsidian may call `onClose` in the same turn as `onChooseItem` (or, on some
- * builds, slightly before). A synchronous cancel-in-onClose races the choice
- * and drops the file — which is exactly “I picked a Canvas, but next click
- * asks again”. Cancel is deferred so choose always wins when both fire.
- */
-function pickVaultFile(
-  app: App,
-  options: {
-    title: string;
-    placeholder: string;
-    instructions: string;
-    choosePurpose: string;
-    getItems: () => TFile[];
-  },
-): Promise<TFile | undefined> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (file: TFile | undefined): void => {
-      if (settled) { return; }
-      settled = true;
-      resolve(file);
-    };
-
-    const modal = new VaultFileSuggestModal(app, {
-      ...options,
-      onChoose: (file) => finish(file),
-      onCancel: () => finish(undefined),
-    });
-    modal.open();
-  });
-}
-
-class VaultFileSuggestModal extends FuzzySuggestModal<TFile> {
-  private chosen = false;
-
-  constructor(
-    app: App,
-    private readonly options: {
-      title: string;
-      placeholder: string;
-      instructions: string;
-      choosePurpose: string;
-      getItems: () => TFile[];
-      onChoose: (file: TFile) => void;
-      onCancel: () => void;
-    },
-  ) {
-    super(app);
-    this.setPlaceholder(options.placeholder);
-    this.setInstructions([
-      { command: "↑↓", purpose: "navigate" },
-      { command: "↵", purpose: options.choosePurpose },
-      { command: "esc", purpose: "cancel" },
-    ]);
-  }
-
-  onOpen(): void {
-    super.onOpen();
-    this.emptyStateText = this.options.instructions;
-    const withTitle = this as unknown as { setTitle?: (t: string) => void };
-    withTitle.setTitle?.(this.options.title);
-  }
-
-  getItems(): TFile[] {
-    return this.options.getItems();
-  }
-
-  getItemText(file: TFile): string {
-    return file.path;
-  }
-
-  onChooseItem(file: TFile): void {
-    this.chosen = true;
-    this.options.onChoose(file);
-  }
-
-  onClose(): void {
-    super.onClose();
-    // Defer cancel: onChooseItem and onClose can interleave; choose must win.
-    window.setTimeout(() => {
-      if (!this.chosen) {
-        this.options.onCancel();
-      }
-    }, 0);
-  }
+  await openExternal(canvas.canvas);
 }
 
 function paperLabel(
@@ -282,6 +125,7 @@ export async function convertToMarkdown(
   bridge: UnizeroBridge,
   ref: PaperRef,
   paper?: BridgePaper,
+  template?: string,
 ): Promise<void> {
   const label = paper?.title || `${ref.libraryID}/${ref.itemKey}`;
   const current = await bridge.paper(ref).catch(() => undefined);
@@ -290,7 +134,7 @@ export async function convertToMarkdown(
     return;
   }
   try {
-    const result = await bridge.convert(ref);
+    const result = await bridge.convert(ref, template);
     new Notice(
       result.message
       || `Conversion started for “${label}”. Watch the UniZero panel in Zotero, then open Raw.`,
@@ -298,6 +142,38 @@ export async function convertToMarkdown(
   } catch (error) {
     new Notice(`UniZero: could not start conversion — ${(error as Error).message}`);
   }
+}
+
+/** Offer the runtime's templates in a menu at `event`, then convert with the pick. */
+export async function chooseTemplateAndConvert(
+  bridge: UnizeroBridge,
+  ref: PaperRef,
+  event: MouseEvent,
+  defaultTemplate: string,
+  paper?: BridgePaper,
+): Promise<void> {
+  const position = { x: event.clientX, y: event.clientY };
+  let listed;
+  try {
+    listed = await bridge.templates();
+  } catch (error) {
+    new Notice(`UniZero: could not list templates — ${(error as Error).message}`);
+    return;
+  }
+  const menu = new Menu();
+  for (const entry of templateMenuEntries(listed, defaultTemplate)) {
+    menu.addItem((item) => {
+      item.setTitle(entry.title).setIcon(entry.disabled ? "info" : "file-down");
+      if (entry.disabled) {
+        item.setDisabled(true);
+        return;
+      }
+      item.setChecked(entry.checked).onClick(() => {
+        void convertToMarkdown(bridge, ref, paper, entry.template);
+      });
+    });
+  }
+  menu.showAtPosition(position);
 }
 
 /**

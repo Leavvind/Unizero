@@ -21,6 +21,7 @@ import {
   type WorkspaceLeaf,
 } from "obsidian";
 import {
+  chooseTemplateAndConvert,
   convertToMarkdown,
   hasRaw,
   openCanvas,
@@ -40,7 +41,6 @@ import type { PillHost } from "./pill";
 import { citationLivePreview, citationPostProcessor } from "./render";
 import { CitationSuggest } from "./suggest";
 import { VaultIndex } from "./vaultIndex";
-import { renameCanvasLinks } from "./canvasLinks";
 import {
   DEFAULT_SETTINGS,
   UnizeroSettingTab,
@@ -89,17 +89,6 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       }
     }));
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
-      if (renameCanvasLinks(
-        this.settings.canvasLinks, oldPath, file.path, file instanceof TFolder,
-      )) {
-        void this.saveSettings("none").catch((error: unknown) => {
-          console.error("UniZero: could not save renamed Canvas links", error);
-          new Notice(
-            "UniZero: could not save the updated Canvas links. "
-            + "They may be lost after restarting Obsidian.",
-          );
-        });
-      }
       if (file instanceof TFile) {
         void this.vaultIndex.renameFile(oldPath, file);
       } else if (file instanceof TFolder) {
@@ -169,7 +158,8 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
 
   async loadSettings(): Promise<void> {
     const loaded = (await this.loadData()) as Partial<UnizeroSettings> | null;
-    // Always own a fresh canvasLinks object — never share DEFAULT_SETTINGS' {}.
+    // Vault Canvas paths from before Canvas became a Zotero attachment. Kept
+    // unread so the user can migrate those notes; never share DEFAULT_SETTINGS' {}.
     const links = loaded?.canvasLinks
       && typeof loaded.canvasLinks === "object"
       && !Array.isArray(loaded.canvasLinks)
@@ -206,31 +196,6 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     }
   }
 
-  /** Live store passed into `openCanvas` so every open re-reads the map. */
-  canvasLinkStore(): {
-    get: (key: string) => string | undefined;
-    set: (key: string, path: string) => Promise<void>;
-  } {
-    return {
-      get: (key) => this.settings.canvasLinks[key],
-      set: (key, path) => this.setCanvasLink(key, path),
-    };
-  }
-
-  /** Remember a hand-picked Canvas path for `libraryID/itemKey`. */
-  async setCanvasLink(key: string, path: string): Promise<void> {
-    if (
-      !this.settings.canvasLinks
-      || typeof this.settings.canvasLinks !== "object"
-      || Array.isArray(this.settings.canvasLinks)
-    ) {
-      this.settings.canvasLinks = {};
-    }
-    // In-place mutate the owned map so any live reader sees the path immediately.
-    this.settings.canvasLinks[key] = path;
-    await this.saveSettings("none");
-  }
-
   // --- PillHost -----------------------------------------------------------
 
   activate(action: CitationAction, ref: PaperRef, paper: BridgePaper, page?: number): void {
@@ -262,14 +227,24 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       menu.addItem((item) => item
         .setTitle("Convert to Markdown")
         .setIcon("file-down")
-        .onClick(() => { void convertToMarkdown(this.bridge, ref, paper); }));
+        .onClick(() => {
+          void convertToMarkdown(this.bridge, ref, paper, this.settings.defaultTemplate);
+        }));
+      menu.addItem((item) => item
+        .setTitle("Convert with template…")
+        .setIcon("list")
+        .onClick(() => {
+          void chooseTemplateAndConvert(
+            this.bridge, ref, event, this.settings.defaultTemplate, paper,
+          );
+        }));
     }
 
     menu.addItem((item) => item
       .setTitle("Open Canvas")
       .setIcon("layout-dashboard")
       .onClick(() => {
-        void openCanvas(this.app, paper, this.canvasLinkStore());
+        void openCanvas(this.bridge, paper);
       }));
 
     menu.addItem((item) => item
