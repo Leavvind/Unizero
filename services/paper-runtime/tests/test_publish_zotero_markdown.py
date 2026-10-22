@@ -31,7 +31,7 @@ def _template(*modules: tuple[str, str, bool]) -> WorkflowTemplate:
 EXTRACT = ("extract.mineru", "extract", True)
 VAULT = ("publish.markdown-directory", "publish", True)
 ZOTERO = ("publish.zotero-markdown", "publish", True)
-CLEANUP = ("transform.markdown-cleanup", "process", True)
+CLEANUP = ("transform.content", "process", True)
 FRONTMATTER = ("transform.frontmatter", "process", True)
 
 

@@ -1,7 +1,7 @@
 schema_version: 1
 id: paper-to-zotero-markdown
 name: Generate Raw Markdown
-version: 1
+version: 2
 description: Convert a Zotero PDF with MinerU and store the Markdown under the Zotero item. Raw is your working copy and is never overwritten; Raw Backup is replaced on every conversion. Add "Publish · Markdown directory" to publish to an Obsidian vault as well.
 modules:
   - id: extract
@@ -12,8 +12,6 @@ modules:
       backend: basic
       ocr_mode: auto
       language: auto
-      enable_formula: true
-      enable_table: true
       chunking:
         enabled: true
         threshold_pages: 200
@@ -24,27 +22,21 @@ modules:
     enabled: true
     settings: {}
 
-  - id: references
-    module: transform.references
+  - id: content
+    module: transform.content
     enabled: true
     settings:
-      warn_if_empty: true
-
-  - id: markdown-cleanup
-    module: transform.markdown-cleanup
-    enabled: true
-    settings:
-      images_mode: none
-      table_mode: none
-      strip_repeated_lines: false
-      strip_references: true
-      table_vlm: false
-
-  - id: tables-export
-    module: export.zotero-tables
-    enabled: true
-    settings:
-      include_figures: false
+      formulas: keep
+      figures: pointer
+      tables:
+        markdown: pointer
+        refine_complex: false
+        digest: true
+        digest_figures: false
+      references:
+        extract: true
+        remove_from_body: true
+      remove_repeated_lines: false
 
   - id: frontmatter
     module: transform.frontmatter

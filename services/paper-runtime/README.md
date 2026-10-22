@@ -8,10 +8,14 @@ for metadata or literature-relations features. Requests addressed to a non-loopb
 `Host`, or sent by a cross-site browser page (`Sec-Fetch-Site` or a web `Origin`), are
 refused with `403 forbidden_origin`, so a web page cannot stop or reconfigure it.
 
-The built-in conversion template extracts the PDF bibliography before Markdown cleanup
-and returns ordered structured records with raw citation text, source page, and any
-DOI/arXiv identifier printed in the paper. It does not query scholarly providers or
-guess bibliographic metadata.
+Extraction always keeps every block MinerU finds. The `transform.content` module then
+decides what the Markdown keeps of display formulas, figures, tables, and the References
+section, replacing whatever it leaves out with a link to its PDF page. From the full
+content list it also produces the structured References (ordered records with raw
+citation text, source page, and any DOI/arXiv identifier printed in the paper, without
+querying scholarly providers) and the table digest, one HTML file of table page crops.
+Stored templates that still use the separate References, Markdown post-processing, and
+Table digest modules, or Extract's formula and table switches, are migrated on load.
 
 A template ends with one or more Publish modules. `publish.markdown-directory` writes the
 Markdown (with frontmatter) to a directory or Obsidian vault; `publish.zotero-markdown`

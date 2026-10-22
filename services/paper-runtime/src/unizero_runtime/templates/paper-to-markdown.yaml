@@ -1,7 +1,7 @@
 schema_version: 1
 id: paper-to-markdown
 name: Generate paper Markdown
-version: 4
+version: 5
 description: Convert, clean up, and publish a Zotero PDF as Markdown using MinerU.
 modules:
   - id: extract
@@ -12,8 +12,6 @@ modules:
       backend: basic
       ocr_mode: auto
       language: auto
-      enable_formula: true
-      enable_table: true
       chunking:
         enabled: true
         threshold_pages: 200
@@ -24,27 +22,21 @@ modules:
     enabled: true
     settings: {}
 
-  - id: references
-    module: transform.references
+  - id: content
+    module: transform.content
     enabled: true
     settings:
-      warn_if_empty: true
-
-  - id: markdown-cleanup
-    module: transform.markdown-cleanup
-    enabled: true
-    settings:
-      images_mode: none
-      table_mode: none
-      strip_repeated_lines: false
-      strip_references: true
-      table_vlm: false
-
-  - id: tables-export
-    module: export.zotero-tables
-    enabled: true
-    settings:
-      include_figures: false
+      formulas: keep
+      figures: pointer
+      tables:
+        markdown: pointer
+        refine_complex: false
+        digest: true
+        digest_figures: false
+      references:
+        extract: true
+        remove_from_body: true
+      remove_repeated_lines: false
 
   - id: frontmatter
     module: transform.frontmatter

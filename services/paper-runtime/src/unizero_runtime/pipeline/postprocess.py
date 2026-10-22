@@ -27,7 +27,8 @@ class PostCtx:
     zotero_pdf_uri: str = ""          # zotero://open-pdf/library/items/KEY
     title: str = ""                   # article title (from Zotero metadata)
     images_mode: str = "none"         # none | all
-    table_mode: str = "md"            # md | html
+    table_mode: str = "md"            # none | md | html
+    strip_formulas: bool = False      # drop display formula blocks
     strip_repeated_lines: bool = False
     strip_references: bool = True     # drop the References section body
     log: LogFn = lambda s: None
@@ -368,7 +369,7 @@ def _tbl_skip_line(page: Optional[int], link: str = "") -> str:
 
 def pass_tables(md: str, ctx: PostCtx) -> str:
     """
-    Convert simple HTML tables to MD pipe tables; keep VLM-refined complex
+    Render simple tables as MD pipe tables (md) or keep their HTML (html); keep VLM-refined complex
     tables as HTML; DROP unrefined complex tables entirely, leaving a
     page pointer so readers (human via zotero link, agent via frontmatter
     pdf-path + page number) go to the PDF instead of garbled HTML.
@@ -428,11 +429,12 @@ def pass_tables(md: str, ctx: PostCtx) -> str:
             continue
 
         replacement = None
-        if ctx.table_mode == "md":
-            as_md = _html_table_to_md(m.group(0))
-            if as_md is not None:
-                stats["md"] += 1
-                replacement = as_md + ("\n\n⇱ " + link if link else "")
+        as_md = _html_table_to_md(m.group(0))
+        if as_md is not None:
+            # a simple table parses reliably in either rendition
+            stats["md"] += 1
+            kept = as_md if ctx.table_mode == "md" else m.group(0)
+            replacement = kept + ("\n\n⇱ " + link if link else "")
         if replacement is None:
             if vlm_refined:
                 # VLM-checked table: trusted, keep HTML + page link below
@@ -451,10 +453,53 @@ def pass_tables(md: str, ctx: PostCtx) -> str:
 
     out.append(md[last:])
     if any(stats.values()):
-        ctx.log(f"[tables] {stats['md']} -> markdown, {stats['vlm']} vlm-refined, "
+        ctx.log(f"[tables] {stats['md']} simple -> {ctx.table_mode}, "
+                f"{stats['vlm']} vlm-refined, "
                 f"{stats['omitted']} omitted, {stats['skipped']} already annotated "
                 f"(of {len(matches)})")
     return "".join(out)
+
+
+# =========================================================================== #
+# Pass 4b — display formulas: drop them when the template asks to
+# =========================================================================== #
+# Paragraphs are compared against the content list's equation LaTeX rather than
+# a delimiter pattern alone, because MinerU's LaTeX delimiters are configurable.
+
+_DELIMITERS_ONLY = re.compile(r"^[\s$\\\[\]()]*$")
+_DOLLAR_BLOCK = re.compile(r"^\$\$.*\$\$$", re.S)
+
+
+def pass_formulas(md: str, ctx: PostCtx) -> str:
+    if not ctx.strip_formulas:
+        return md
+    latex = [
+        str(e.get("text") or "").strip()
+        for e in ctx.content_list
+        if e.get("type") == "equation" and str(e.get("text") or "").strip()
+    ]
+    out: list[str] = []
+    dropped = 0
+    for paragraph in md.split("\n\n"):
+        lines = paragraph.split("\n")
+        links = [l for l in lines if _ZLINK_LINE.match(l.strip())]
+        rest = "\n".join(l for l in lines if not _ZLINK_LINE.match(l.strip())).strip()
+        is_formula = bool(rest) and (
+            bool(_DOLLAR_BLOCK.match(rest))
+            or any(
+                tex in rest and _DELIMITERS_ONLY.match(rest.replace(tex, "", 1))
+                for tex in latex
+            )
+        )
+        if not is_formula:
+            out.append(paragraph)
+            continue
+        dropped += 1
+        if links:  # page-link lines are never removed
+            out.append("\n".join(links))
+    if dropped:
+        ctx.log(f"[formulas] removed {dropped} display formula(s)")
+    return "\n\n".join(out)
 
 
 # =========================================================================== #
@@ -611,6 +656,7 @@ PASSES = [
     pass_hyphenation,
     pass_ligatures,
     pass_tables,
+    pass_formulas,
     pass_figures,
     pass_repeated_lines,
 ]

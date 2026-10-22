@@ -183,8 +183,8 @@ The add-on sends typed requests to `/api/v1`; the runtime returns typed response
 capabilities. The shared field contract is
 `packages/contracts/http/v1.schema.json`, mirrored by TypeScript and Pydantic models.
 
-During conversion, `transform.references` reads MinerU’s untouched content list before
-Markdown cleanup removes the bibliography. The runtime returns ordered local extraction
+During conversion, the `transform.content` module reads MinerU’s untouched content list
+before it removes the bibliography from the Markdown. The runtime returns ordered local extraction
 records only; the add-on persists them in the owned, versioned `ZoMiner References` JSON
 attachment. Provider matching and library resolution remain add-on responsibilities.
 
