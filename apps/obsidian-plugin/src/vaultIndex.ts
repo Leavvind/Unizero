@@ -122,6 +122,18 @@ export function scanCanvasCitations(
   return occurrences;
 }
 
+/**
+ * Whether a file is a Markdown or Canvas note inside the vault.
+ *
+ * Obsidian can also open a file from elsewhere on disk, such as a Canvas stored as
+ * a Zotero attachment, and reports it with a machine-local path like
+ * `file:C:/Users/...`. Vault paths never contain `:`, so such files are left out:
+ * they are not notes in this vault, and their path means nothing on another machine.
+ */
+export function isIndexedNote(file: Pick<TFile, "path" | "extension">): boolean {
+  return (file.extension === "md" || file.extension === "canvas") && !file.path.includes(":");
+}
+
 /** What a subscriber renders from a file's occurrences, in order. */
 function signature(occurrences: VaultCitationOccurrence[]): string {
   return occurrences
@@ -153,9 +165,7 @@ export class VaultIndex {
     if (this.disposed) { return; }
     this.clear();
     const generation = this.generation;
-    const files = this.app.vault.getFiles().filter(
-      (file) => file.extension === "md" || file.extension === "canvas",
-    );
+    const files = this.app.vault.getFiles().filter(isIndexedNote);
     await Promise.all(
       files.map((file) => this.indexFile(file, false)),
     );
@@ -182,7 +192,7 @@ export class VaultIndex {
   /** Update index for a renamed file. */
   async renameFile(oldPath: string, file: TFile): Promise<void> {
     this.removeFile(oldPath, false);
-    if (file.extension === "md" || file.extension === "canvas") {
+    if (isIndexedNote(file)) {
       await this.indexFile(file, false);
     }
     this.notify();
@@ -192,8 +202,7 @@ export class VaultIndex {
   async renameFolder(oldPath: string, newPath: string): Promise<void> {
     this.removeFolder(oldPath, false);
     const files = this.app.vault.getFiles().filter((file) =>
-      file.path.startsWith(`${newPath}/`)
-      && (file.extension === "md" || file.extension === "canvas"));
+      file.path.startsWith(`${newPath}/`) && isIndexedNote(file));
     await Promise.all(files.map((file) => this.indexFile(file, false)));
     this.notify();
   }

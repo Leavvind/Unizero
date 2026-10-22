@@ -11,7 +11,7 @@ server must be enabled (`extensions.zotero.httpServer.enabled`).
 
 ## Use
 
-- **Library pane** (left): browse libraries and collections; right-click a paper
+- **Library pane** (opens in a tab): browse libraries and collections; right-click a paper
   to insert a citation or open its files. The last collection is remembered.
 - **Paper pane** (right): metadata, vault citation locations, References, Citations,
   and Relation. Uncached relations require an explicit **Fetch from providers**.
@@ -53,6 +53,9 @@ system's handler for `.canvas` — the same as opening it from Zotero. When the 
 is not on this machine, you can show the attachment in Zotero (to let sync
 finish) or start a new empty Canvas. The library pane marks papers that have one
 with a Canvas badge.
+
+Because these Canvases live outside the vault, citations inside them are not listed
+in the paper pane's Vault tab.
 
 The file lives in Zotero's storage, not in the vault, so citations inside it are not
 part of the vault index and other vault files cannot be embedded in it by vault path.

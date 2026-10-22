@@ -43,7 +43,7 @@ import { PaperStore } from "./paperStore";
 import type { PillHost } from "./pill";
 import { citationLivePreview, citationPostProcessor } from "./render";
 import { CitationSuggest } from "./suggest";
-import { VaultIndex } from "./vaultIndex";
+import { isIndexedNote, VaultIndex } from "./vaultIndex";
 import {
   DEFAULT_SETTINGS,
   UnizeroSettingTab,
@@ -73,14 +73,14 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     this.app.workspace.onLayoutReady(() => {
       void this.vaultIndex.initialize();
       this.registerEvent(this.app.vault.on("create", (file) => {
-        if (file instanceof TFile && (file.extension === "md" || file.extension === "canvas")) {
+        if (file instanceof TFile && isIndexedNote(file)) {
           void this.vaultIndex.indexFile(file);
         }
       }));
     });
 
     this.registerEvent(this.app.vault.on("modify", (file) => {
-      if (file instanceof TFile && (file.extension === "md" || file.extension === "canvas")) {
+      if (file instanceof TFile && isIndexedNote(file)) {
         void this.vaultIndex.indexFile(file);
       }
     }));
@@ -309,14 +309,13 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
 
   // --- Library pane -------------------------------------------------------
 
-  /** Open the collection browser on the left sidebar. */
+  /**
+   * Open the collection browser in a new tab, or reveal it wherever it already is
+   * (a pane the user dragged into a sidebar stays there).
+   */
   private async revealLibraryView(): Promise<UnizeroLibraryView | undefined> {
     const existing = this.app.workspace.getLeavesOfType(LIBRARY_VIEW_TYPE)[0];
-    const leaf: WorkspaceLeaf | null = existing ?? this.app.workspace.getLeftLeaf(false);
-    if (!leaf) {
-      new Notice("UniZero could not open a sidebar pane.");
-      return;
-    }
+    const leaf: WorkspaceLeaf = existing ?? this.app.workspace.getLeaf("tab");
     if (!existing) {
       await leaf.setViewState({ type: LIBRARY_VIEW_TYPE, active: true });
     }

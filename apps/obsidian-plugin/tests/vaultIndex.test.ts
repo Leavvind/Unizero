@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scanCanvasCitations, scanTextCitations } from "../src/vaultIndex";
+import { isIndexedNote, scanCanvasCitations, scanTextCitations } from "../src/vaultIndex";
 
 describe("scanTextCitations", () => {
   it("extracts citations from multi-line text with line numbers and character offsets", () => {
@@ -158,3 +158,20 @@ describe("scanCanvasCitations", () => {
 });
 
 
+
+describe("isIndexedNote", () => {
+  it("indexes vault Markdown and Canvas notes only", () => {
+    expect(isIndexedNote({ path: "Academic/Notes.canvas", extension: "canvas" })).toBe(true);
+    expect(isIndexedNote({ path: "Notes/test.md", extension: "md" })).toBe(true);
+    expect(isIndexedNote({ path: "Papers/a.pdf", extension: "pdf" })).toBe(false);
+  });
+
+  it("leaves out files Obsidian opened from outside the vault", () => {
+    expect(isIndexedNote({
+      path: "file:C:/Users/me/Zotero/storage/LL8AZJIF/Paper.canvas", extension: "canvas",
+    })).toBe(false);
+    expect(isIndexedNote({
+      path: "file:/Users/me/Zotero/storage/LL8AZJIF/Paper.canvas", extension: "canvas",
+    })).toBe(false);
+  });
+});
