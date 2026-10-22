@@ -16,7 +16,7 @@ Obsidian is the active note-taking front end.
 | Priority | Surface | Guidance |
 | --- | --- | --- |
 | **Active** | `apps/obsidian-plugin` | Default place for new product work: citations, detail pane, search, jumps |
-| **Required backend** | `apps/zotero-addon` data plane + `src/server` bridge | Providers, reference cache, relations, Paper catalog, conversion client, mostly-read-only bridge (artifact actions only: convert, Canvas, trash, restore Raw) |
+| **Required backend** | `apps/zotero-addon` data plane + `src/server` bridge | Providers, reference cache, relations, Paper catalog, conversion client, the Obsidian bridge |
 | **Legacy UI** | Unizero Home (Project View / Board) under `addon/chrome/content` and related Project/Board paths | Still in the tree; **do not extend, redesign, or “improve”** unless the user task names Home/Board explicitly |
 | **Background** | Item-pane literature UI, per-paper graph | Maintain when a task touches them; not the main roadmap |
 
@@ -84,13 +84,11 @@ and which are design notes; do not treat a design note as a work order.
     plain object on `window.arguments[0]`; they never import bundle modules.
 11. **The Obsidian bridge is mostly read-only and never fetches unbidden.** GET
     endpoints under `src/server` do not mutate Zotero or the Paper catalog. The only
-    write-shaped actions concern the user's own artifacts: `POST /convert` (same
-    conversion command as the Zotero menu), `POST /canvas` (adds an empty
-    `unizero:canvas` attachment to a paper that has none), `POST /trash` (moves the
-    paper's Raw or Canvas to Zotero's trash), and `POST /restore-raw` (replaces Raw
-    with a copy of Raw Backup, trashing the old one). None erases anything or writes
-    into an existing file. Relations answer from cache; a miss is `loaded: false` so
-    the caller can prompt. Only an explicit `fetch=1` may reach the providers.
+    POST actions concern a paper's own Raw and Canvas attachments (convert, create
+    Canvas, trash, restore Raw; listed in
+    [Bridge contract](docs/ARCHITECTURE.md#bridge-contract)); none erases anything or
+    writes into an existing file. Relations answer from cache; a miss is
+    `loaded: false`, and only an explicit `fetch=1` may reach the providers.
     Rendering a note must never cause network work or start conversion.
 12. **A citekey is an alias, not an identity.** Persisted state uses `libraryID` plus
     `itemKey`; a citekey is derived from mutable metadata and can collide. Ambiguity is
@@ -108,7 +106,7 @@ The process boundary is described in `docs/ARCHITECTURE.md`.
 | `apps/zotero-addon/src/zotero` | Zotero item, attachment, annotation, and identity adapters |
 | `apps/zotero-addon/src/ui` | Menus, panel bridge, progress, and service notices |
 | `apps/zotero-addon/src/modules` | Established relations, metadata, cache, and item-pane code |
-| `apps/zotero-addon/src/server` | Localhost bridge (GET + convert action) and citekey resolution |
+| `apps/zotero-addon/src/server` | Obsidian bridge endpoints and citekey resolution |
 | `apps/obsidian-plugin/src` | Obsidian rendering, suggester, detail pane, and bridge client (active front end) |
 | `apps/zotero-addon/addon/chrome/content` | Untyped privileged dialogs: panel, **legacy** Unizero Home, graph renderer |
 | `services/paper-runtime/src/unizero_runtime/api` | FastAPI transport |
@@ -195,9 +193,9 @@ npm run build
 ```
 
 `npm test` covers the citation syntax, template choice, the Raw and Canvas
-management menu and trash call, the vault index, and the paper store's request
-ownership and reload, mocking Obsidian where needed. Rendering, the suggester, the panes, and every
-bridge call need a manual check in a real vault against a running Zotero.
+management menus and trash call, the vault index, and the paper store, mocking
+Obsidian where needed. Rendering, the suggester, the panes, and every bridge call need
+a manual check in a real vault against a running Zotero.
 
 From `services/paper-runtime`:
 

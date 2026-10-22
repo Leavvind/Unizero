@@ -10,9 +10,8 @@ Manual checks are historical open records, not evidence of a known defect.
 ## Obsidian plugin
 
 - **Import from Obsidian.** Let an explicit user action add or update papers in Zotero
-  from exploration results. Not implemented; needs a separate write contract.
-  The existing bridge only acts on the user's own artifacts (convert, create Canvas,
-  trash Raw or Canvas, restore Raw).
+  from exploration results. Not implemented; needs a separate write contract, since
+  the bridge only acts on a paper's own Raw and Canvas.
 - **Literature exploration.** Discover papers, sort results, and follow related papers
   from notes. The next concrete feature still needs to be chosen.
 
@@ -45,11 +44,7 @@ Current behavior: [add-on README](../apps/zotero-addon/README.md).
 
 ## Verification
 
-These remaining records have not been reconfirmed during documentation cleanup.
-Run relevant checks when changing the affected area; host behavior is not covered by
-TypeScript or Vitest. Obsidian basic behavior and Canvas/file bindings were confirmed
-complete by the user on 2026-10-14, and Canvas attachments, basic operation, windows
-and settings, and conversion on 2026-10-22; those were removed from the open list.
+Not yet reconfirmed in a real host; run the relevant check when changing that area.
 
 - **Literature cache.** Preserve distinct provider states across reopen, including empty
   OpenAlex/Crossref results and restricted Semantic Scholar. Switching A → B → A reuses

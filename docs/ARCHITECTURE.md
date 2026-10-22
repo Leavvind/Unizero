@@ -64,7 +64,7 @@ artifact publishing, and Markdown annotation injection require the local runtime
 | --- | --- | --- |
 | Lifecycle | `src/hooks.ts`, `src/core/` | Register and clean up features per window |
 | Features | `src/features/` | Commands and user-facing orchestration |
-| Bridge | `src/server/` | Mostly-read-only endpoints for Obsidian (GET + artifact actions: convert, Canvas, trash, restore Raw) |
+| Bridge | `src/server/` | Endpoints for Obsidian; see [Bridge contract](#bridge-contract) |
 | UI | `src/ui/`, `src/modules/views.ts` | Menus, panes, dialogs, progress |
 | Dialog content | `addon/chrome/content/` | Privileged XHTML: panel, **legacy** Home, graph renderer |
 | Zotero adapters | `src/zotero/` | Read and mutate Zotero items and attachments |
@@ -108,15 +108,17 @@ Load-bearing properties:
   - `POST /restore-raw` imports a copy of Raw Backup as the new Raw, then moves the old
     Raw to the trash.
 
-  Each is announced by a ping capability (`canvas`, `trash`, `restore-raw`), and the
-  payload fields they rely on (`links.canvas`, `links.canvasPath`, `links.rawBackup`,
-  `links.rawBackupPath`, `hasCanvas`, `hasRawBackup`) are additions, so
-  `BRIDGE_API_VERSION` stays 2. Bibliographic edits, Paper-catalog writes, and
-  exploration import need a separate write-back design.
+  Bibliographic edits, Paper-catalog writes, and exploration import need a separate
+  write-back design.
+- **Additions are announced, not versioned.** A new endpoint, parameter, or payload
+  field is announced by a ping capability (`templates`, `canvas`, `trash`,
+  `restore-raw`, `subcollections`) and keeps `BRIDGE_API_VERSION` at 2. A client
+  checks the capability; an older add-on ignores an unknown parameter.
 - **Templates are listed, never started for.** `GET /templates` asks the paper runtime
-  only when it is already running; a stopped runtime is `available: false`. The
-  addition is optional for clients, announced by the `templates` ping capability, so
-  `BRIDGE_API_VERSION` stays 2.
+  only when it is already running; a stopped runtime is `available: false`.
+- **Subcollections are opt-in.** `GET /collection-items` lists a collection's own
+  papers; `subcollections=1` adds those of every subcollection, like Zotero's "Show
+  Items from Subcollections".
 - **No unrequested provider traffic.** Relations answer from cache. A miss is
   `loaded: false` so the caller can prompt; only explicit `fetch=1` may hit the network.
   Rendering a note must never start conversion or provider work.

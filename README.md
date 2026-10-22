@@ -12,9 +12,10 @@ The **active product surface** for day-to-day reading and writing:
 
 - free-text `@` search against the Zotero library;
 - durable citations written as `@libraryID/itemKey`, displayed as Author (year) / title;
-- drag or insert citations into notes; jumps to the paper pane, converted Markdown, or PDF;
-- a detail view of metadata, References, Citations, and relations from the add-on;
-- **Convert to Markdown** via the bridge (same job as Zotero’s item menu).
+- a library pane for browsing collections, and drag or insert citations into notes;
+- a paper pane with metadata, References, Citations, and relations from the add-on;
+- jumps to the converted Markdown (Raw), a per-paper Canvas, or the PDF;
+- conversion and Raw/Canvas management, run by the add-on in Zotero.
 
 Importing explored papers or other bibliographic write-back from Obsidian is planned,
 not present — it needs a separate design beyond today’s bridge.

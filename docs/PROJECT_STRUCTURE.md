@@ -4,8 +4,8 @@
 UniZero/
 ├── apps/
 │   ├── obsidian-plugin/
-│   │   ├── src/                 Citation syntax, renderers, suggester, library/detail panes, bridge client
-│   │   ├── tests/               Vitest over citation, file identity, and asynchronous state logic
+│   │   ├── src/                 Citation syntax, renderers, suggester, panes, Raw/Canvas actions, bridge client
+│   │   ├── tests/               Vitest over citations, actions, the vault index, and the paper store
 │   │   ├── manifest.json        Obsidian plugin manifest
 │   │   ├── styles.css           Pill and detail-pane styling
 │   │   └── package.json
@@ -21,7 +21,7 @@ UniZero/
 │       │   ├── modules/         Relations, metadata, providers, cache, derived index, item pane
 │       │   ├── projects/        Project/Board/Paper schemas and Project persistence
 │       │   ├── runtime-client/  Runtime HTTP client and process management
-│       │   ├── server/          Bridge (GET + convert) and citekey resolution
+│       │   ├── server/          Obsidian bridge and citekey resolution
 │       │   ├── ui/              Menus, panel and explorer bridges, progress, service notices
 │       │   ├── utils/           Shared add-on utilities
 │       │   └── zotero/          Zotero adapters and artifact identity
@@ -68,6 +68,8 @@ data are not part of this structure.
 | Library pane | `apps/obsidian-plugin/src/libraryView.ts` |
 | Paper (detail) pane | `apps/obsidian-plugin/src/detailView.ts` |
 | In-memory paper store / cache | `apps/obsidian-plugin/src/paperStore.ts` |
+| Raw, Canvas, and conversion actions and menus | `apps/obsidian-plugin/src/actions.ts` |
+| Vault citation index (paper pane's Vault tab) | `apps/obsidian-plugin/src/vaultIndex.ts` |
 | Plugin settings | `apps/obsidian-plugin/src/settings.ts` |
 | Pill rendering | `apps/obsidian-plugin/src/pill.ts`, `render.ts` |
 | Pill and pane styling | `apps/obsidian-plugin/styles.css` |

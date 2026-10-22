@@ -12,15 +12,10 @@ local paper runtime. It also still ships the legacy Unizero Home UI.
 - Localhost endpoints on Zotero’s HTTP server (`src/server/`).
 - GET: libraries, collections, paper resolve, relations from cache, citekey lookup,
   and the conversion templates of an already-running runtime.
-- Actions on the user's own artifacts. `POST /convert` starts the same job as the Zotero
-  item menu, with `paper-to-zotero-markdown` or the template an optional `template`
-  parameter names. `POST /canvas` returns the paper's Canvas: a `.canvas` stored as an
-  attachment of the item (tagged `unizero:canvas`), created empty when the paper has
-  none and never written to afterwards. `POST /trash` moves the paper's Raw or Canvas
-  to Zotero's trash, and `POST /restore-raw` replaces Raw with a copy of Raw Backup,
-  moving the old Raw to the trash. Nothing is erased.
-- Rules (read-only GETs, no unbidden provider fetches):
-  [Bridge contract](../../docs/ARCHITECTURE.md#bridge-contract).
+- POST actions on a paper's own Raw and Canvas: convert, create an empty Canvas
+  attachment (`unizero:canvas`), move Raw or Canvas to the trash, restore Raw from
+  Raw Backup. Nothing is erased.
+- Endpoints and rules: [Bridge contract](../../docs/ARCHITECTURE.md#bridge-contract).
 
 **Literature data**
 
@@ -76,7 +71,7 @@ hints remain for existing users. Maintenance traps and document shapes:
 | `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
 | `src/modules/uniConnection.ts` | Derived reverse-reference index, coupling, graph topology |
 | `src/modules/uniConnectionSync.ts` | Notifier-driven index maintenance and reference backfill |
-| `src/server/` | Bridge endpoints (GET + convert) and citekey resolution |
+| `src/server/` | Obsidian bridge endpoints and citekey resolution |
 | `src/projects/` | Versioned Project/Board/Paper shapes and local Project repository |
 | `src/runtime-client/` | HTTP contracts, client, launch resolution, process state |
 | `src/zotero/` | Zotero adapters, library scope, artifact identity, reader shortcuts |
