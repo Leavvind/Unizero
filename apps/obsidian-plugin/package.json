@@ -1,6 +1,6 @@
 {
   "name": "unizero-obsidian",
-  "version": "0.1.0",
+  "version": "0.10.0",
   "description": "UniZero for Obsidian: Zotero papers in notes, backed by the add-on bridge",
   "private": true,
   "type": "module",

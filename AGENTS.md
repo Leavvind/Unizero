@@ -169,6 +169,12 @@ support older user state; they are listed in `docs/LEGACY_SUPPORT.md`. Remove on
 when its retirement condition is established, and keep that removal separate from
 unrelated work.
 
+**Versions.** The repository has one version, in `apps/zotero-addon/package.json`;
+one `v*` tag releases the add-on and the Obsidian plugin together. Never edit a
+version by hand: `npm run release -- patch|minor|major` in `apps/zotero-addon`
+bumps it and copies it into the plugin. Check `git tag` before stating what the
+current version is.
+
 ## Verification
 
 There is no root build or test command.

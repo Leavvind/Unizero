@@ -1,9 +1,9 @@
 {
   "id": "unizero",
   "name": "UniZero",
-  "version": "0.1.0",
+  "version": "0.10.0",
   "minAppVersion": "1.5.0",
-  "description": "Live Zotero papers in notes: free-text @ search, Author (year) pills, a references pane, and jumps to the Markdown note or the Zotero PDF.",
+  "description": "Live Zotero papers in notes: free-text @ search, Author (year) pills, a references pane, jumps to the Markdown note or the Zotero PDF, and Zotero excerpts captured into Canvas cards.",
   "author": "Leavvind",
   "authorUrl": "https://github.com/Leavvind/Unizero",
   "isDesktopOnly": true

@@ -142,6 +142,11 @@ npm run release -- patch
 Use `minor` or `major` when appropriate. Do not create a release tag manually unless
 `update.json` has already been regenerated for that version.
 
+The tag also releases the Obsidian plugin. Its version is never chosen separately:
+the release copies this package's version into the plugin's `manifest.json`,
+`package.json`, and `package-lock.json` (`scripts/sync-obsidian-version.mjs`), and the
+plugin's tests fail when they differ.
+
 ## Run in Zotero
 
 Copy `scripts/zotero-cmd-default.json` to the gitignored `scripts/zotero-cmd.json`, then

@@ -68,12 +68,10 @@ jobs:
         run: |
           npm ci
           npm run check
+          # One tag releases both plugins. The release commit already carries the
+          # version in the plugin's manifest (scripts/sync-obsidian-version.mjs);
+          # tests/version.test.ts fails the release if it does not.
           npm test
-          # One tag releases both plugins; stamp the tag version into the manifest
-          # so Obsidian (and BRAT) see the same version as the XPI.
-          package_version="$(node --print "require('../zotero-addon/package.json').version")"
-          node --input-type=module --eval \
-            "import fs from 'fs'; const m = JSON.parse(fs.readFileSync('manifest.json','utf8')); m.version = '${package_version}'; fs.writeFileSync('manifest.json', JSON.stringify(m, null, 2) + '\n');"
           npm run build
           test -s main.js
 
