@@ -43,6 +43,7 @@ import { LIBRARY_VIEW_TYPE, UnizeroLibraryView } from "./libraryView";
 import { PaperStore } from "./paperStore";
 import type { PillHost } from "./pill";
 import { citationLivePreview, citationPostProcessor } from "./render";
+import { LibrarySearchModal } from "./searchModal";
 import { CitationSuggest } from "./suggest";
 import { isIndexedNote, VaultIndex } from "./vaultIndex";
 import {
@@ -140,6 +141,12 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       id: "open-library-pane",
       name: "Open the library pane",
       callback: () => { void this.revealLibraryView(); },
+    });
+
+    this.addCommand({
+      id: "search-library",
+      name: "Search the Zotero library",
+      callback: () => { new LibrarySearchModal(this.app, this).open(); },
     });
 
     this.addCommand({

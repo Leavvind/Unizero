@@ -28,13 +28,72 @@ const SUGGEST_LIMIT = 20;
  */
 const SUGGEST_DEBOUNCE_MS = 150;
 
-export class CitationSuggest extends EditorSuggest<BridgeSuggestion> {
+/**
+ * Free-text library search, debounced: a call superseded within the quiet period
+ * resolves with the newer query's results rather than sending its own request.
+ */
+export class LibrarySearch {
   /** Calls waiting for the current quiet period; all get the latest query's result. */
   private waiting: ((suggestions: BridgeSuggestion[]) => void)[] = [];
   private timer?: number;
 
-  constructor(app: App, private readonly plugin: UnizeroPlugin) {
+  constructor(private readonly plugin: UnizeroPlugin) {}
+
+  search(query: string): Promise<BridgeSuggestion[]> {
+    return new Promise((resolve) => {
+      this.waiting.push(resolve);
+      window.clearTimeout(this.timer);
+      this.timer = window.setTimeout(() => {
+        const batch = this.waiting;
+        this.waiting = [];
+        this.timer = undefined;
+        void this.request(query).then((suggestions) => {
+          for (const done of batch) { done(suggestions); }
+        });
+      }, SUGGEST_DEBOUNCE_MS);
+    });
+  }
+
+  private async request(query: string): Promise<BridgeSuggestion[]> {
+    try {
+      return await this.plugin.bridge.suggest(query, SUGGEST_LIMIT);
+    } catch {
+      // A closed popup is the right answer when Zotero is not running. The pill
+      // for whatever the user types anyway will report the failure with room to
+      // explain it; a suggester cannot.
+      return [];
+    }
+  }
+}
+
+/** Title, authors and year, then the `@libraryID/itemKey` that identifies the paper. */
+export function renderSuggestion(suggestion: BridgeSuggestion, element: HTMLElement): void {
+  element.addClass("unizero-suggestion");
+  element.createDiv({ cls: "unizero-suggestion__title", text: suggestion.title });
+
+  const meta = [
+    suggestion.authors.slice(0, 3).join(", ") +
+      (suggestion.authors.length > 3 ? " et al." : ""),
+    suggestion.year,
+  ].filter(Boolean).join(" · ");
+  if (meta) {
+    element.createDiv({ cls: "unizero-suggestion__meta", text: meta });
+  }
+
+  // Secondary line: what will be written, plus the citekey when useful.
+  const handle = [
+    `@${suggestion.libraryID}/${suggestion.itemKey}`,
+    suggestion.citekey ? suggestion.citekey : undefined,
+  ].filter(Boolean).join(" · ");
+  element.createDiv({ cls: "unizero-suggestion__key", text: handle });
+}
+
+export class CitationSuggest extends EditorSuggest<BridgeSuggestion> {
+  private readonly library: LibrarySearch;
+
+  constructor(app: App, plugin: UnizeroPlugin) {
     super(app);
+    this.library = new LibrarySearch(plugin);
   }
 
   onTrigger(
@@ -53,55 +112,12 @@ export class CitationSuggest extends EditorSuggest<BridgeSuggestion> {
     };
   }
 
-  /**
-   * Debounced: a call superseded within the quiet period resolves with the newer
-   * query's results rather than sending its own request.
-   */
   getSuggestions(context: EditorSuggestContext): Promise<BridgeSuggestion[]> {
-    return new Promise((resolve) => {
-      this.waiting.push(resolve);
-      window.clearTimeout(this.timer);
-      this.timer = window.setTimeout(() => {
-        const batch = this.waiting;
-        this.waiting = [];
-        this.timer = undefined;
-        void this.search(context.query).then((suggestions) => {
-          for (const done of batch) { done(suggestions); }
-        });
-      }, SUGGEST_DEBOUNCE_MS);
-    });
-  }
-
-  private async search(query: string): Promise<BridgeSuggestion[]> {
-    try {
-      return await this.plugin.bridge.suggest(query, SUGGEST_LIMIT);
-    } catch {
-      // A closed popup is the right answer when Zotero is not running. The pill
-      // for whatever the user types anyway will report the failure with room to
-      // explain it; a suggester cannot.
-      return [];
-    }
+    return this.library.search(context.query);
   }
 
   renderSuggestion(suggestion: BridgeSuggestion, element: HTMLElement): void {
-    element.addClass("unizero-suggestion");
-    element.createDiv({ cls: "unizero-suggestion__title", text: suggestion.title });
-
-    const meta = [
-      suggestion.authors.slice(0, 3).join(", ") +
-        (suggestion.authors.length > 3 ? " et al." : ""),
-      suggestion.year,
-    ].filter(Boolean).join(" · ");
-    if (meta) {
-      element.createDiv({ cls: "unizero-suggestion__meta", text: meta });
-    }
-
-    // Secondary line: what will be written, plus the citekey when useful.
-    const handle = [
-      `@${suggestion.libraryID}/${suggestion.itemKey}`,
-      suggestion.citekey ? suggestion.citekey : undefined,
-    ].filter(Boolean).join(" · ");
-    element.createDiv({ cls: "unizero-suggestion__key", text: handle });
+    renderSuggestion(suggestion, element);
   }
 
   selectSuggestion(suggestion: BridgeSuggestion): void {

@@ -649,3 +649,27 @@
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }
+
+/* Library search modal ---------------------------------------------------- */
+
+.unizero-search {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.unizero-search__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.unizero-search__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--size-2-1);
+}
+
+.unizero-search__action {
+  font-size: var(--font-ui-smaller);
+  padding: var(--size-2-1) var(--size-4-2);
+}

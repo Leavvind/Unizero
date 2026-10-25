@@ -23,6 +23,10 @@ bridge API 2. Zotero's HTTP server must be enabled
   write `@libraryID/itemKey`; citation labels and appearance are configurable.
   Sidebar insertion uses the active editor or the last open Markdown note. Dragging
   inserts plain citation text; native Canvas drag integration is not implemented.
+- **Search the Zotero library** (command; give it a hotkey): the same search in a
+  modal, from anywhere. `↵` opens the paper pane, `Mod+↵` the PDF in Zotero,
+  `Shift+↵` Raw, and `Alt+↵` Canvas; each result also has **PDF**, **Raw**, and
+  **Canvas** buttons. Choosing Raw for a paper without one offers to convert it.
 
 | Citation | Click action |
 | --- | --- |

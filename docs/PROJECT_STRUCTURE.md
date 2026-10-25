@@ -69,6 +69,7 @@ data are not part of this structure.
 | Citation syntax, pill parsing, drag payload | `apps/obsidian-plugin/src/citation.ts` |
 | Bridge client (HTTP to Zotero) | `apps/obsidian-plugin/src/bridge.ts` |
 | `@` suggester / free-text search | `apps/obsidian-plugin/src/suggest.ts` |
+| Library search command (modal with PDF / Raw / Canvas jumps) | `apps/obsidian-plugin/src/searchModal.ts` |
 | Library pane | `apps/obsidian-plugin/src/libraryView.ts` |
 | Paper (detail) pane | `apps/obsidian-plugin/src/detailView.ts` |
 | In-memory paper store / cache | `apps/obsidian-plugin/src/paperStore.ts` |
