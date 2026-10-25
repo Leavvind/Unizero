@@ -11,6 +11,6 @@
   },
   "hooks": {
     "after:bump": "node scripts/sync-obsidian-version.mjs && npm run build",
-    "after:release": "echo Pushed ${name} v${version}; GitHub Actions will publish the XPI."
+    "after:release": "echo 'Pushed ${name} v${version}; GitHub Actions will publish the XPI.'"
   }
 }
