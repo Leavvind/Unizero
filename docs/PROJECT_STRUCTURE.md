@@ -74,7 +74,7 @@ data are not part of this structure.
 | In-memory paper store / cache | `apps/obsidian-plugin/src/paperStore.ts` |
 | Raw, Canvas, and conversion actions and menus | `apps/obsidian-plugin/src/actions.ts` |
 | Vault citation index (paper pane's Vault tab) | `apps/obsidian-plugin/src/vaultIndex.ts` |
-| Canvas capture (Zotero excerpts into Canvas Cards) | `apps/obsidian-plugin/src/capture/` |
+| Canvas capture (Zotero excerpts into Canvas Cards and notes) | `apps/obsidian-plugin/src/capture/` |
 | Plugin settings | `apps/obsidian-plugin/src/settings.ts` |
 | Pill rendering | `apps/obsidian-plugin/src/pill.ts`, `render.ts` |
 | Pill and pane styling | `apps/obsidian-plugin/styles.css` |

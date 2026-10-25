@@ -65,7 +65,7 @@ this plugin's `data.json` (`canvasLinks`) for migration but are no longer opened
 
 ## Canvas capture
 
-MarginNote-style excerpting into Canvas text Cards. A Zotero annotation
+MarginNote-style excerpting into Canvas text Cards and Markdown notes. A Zotero annotation
 
 ```text
 “Quoted text” ([Smith et al., 2024, p. 17](zotero://open-pdf/...))
@@ -81,12 +81,13 @@ The `open-pdf` link is preferred when present; an annotation comment follows on 
 
 | Mode | Behaviour |
 | --- | --- |
-| Editing Card auto capture | A Zotero annotation copied in Zotero is inserted at the cursor of the Card being edited. |
+| Auto capture into the edited Card or note | A Zotero annotation copied in Zotero is inserted at the cursor of the Canvas Card or Markdown note being edited. |
 | Selected Card paste and drop | `Cmd/Ctrl+V` or a text drop appends to the one selected text Card. |
 | Off (default) | Nothing is captured. |
 
-Switch modes in Settings, from the `Capture:` status bar item, or with the
-**Canvas capture:** commands.
+Click the `Capture:` status bar item to pick a mode from a menu. **Canvas capture:
+Toggle auto capture** switches auto capture on and off and can take a hotkey; the
+other **Canvas capture:** commands and Settings also switch modes.
 
 ## Managing Raw and Canvas
 

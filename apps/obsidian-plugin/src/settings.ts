@@ -138,10 +138,11 @@ export class UnizeroSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Canvas capture")
       .setDesc(
-        "Send Zotero annotations into Canvas text Cards as “excerpt [Author, Year]"
-        + "(zotero://…)”. The link records where the excerpt came from and is not "
-        + "a citation, so it is not counted in the Vault tab. Also switchable from "
-        + "the status bar and the command palette.",
+        "Send Zotero annotations into Canvas text Cards or Markdown notes as "
+        + "“excerpt [Author, Year](zotero://…)”. The link records where the excerpt "
+        + "came from and is not a citation, so it is not counted in the Vault tab. "
+        + "Quicker: click the “Capture:” status bar item, or bind a hotkey to "
+        + "“Canvas capture: Toggle auto capture”.",
       )
       .addDropdown((dropdown) => {
         for (const mode of CAPTURE_MODES) {

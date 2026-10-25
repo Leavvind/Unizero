@@ -1,11 +1,11 @@
 /**
- * Canvas capture: MarginNote-style excerpting into Canvas text Cards. Everything
- * is registered through the plugin, so unloading it releases all of it.
+ * Canvas capture: MarginNote-style excerpting into Canvas text Cards and Markdown
+ * notes. Everything is registered through the plugin, so unloading it releases all of it.
  */
 
-import { EditorView, type ViewUpdate } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 import { clipboard } from "electron";
-import { ItemView, Notice, editorInfoField } from "obsidian";
+import { ItemView, Menu, Notice, editorInfoField } from "obsidian";
 import type UnizeroPlugin from "../main";
 import {
   appendToTextCard,
@@ -24,13 +24,13 @@ export type CaptureMode = "editor" | "selected" | "off";
 export const CAPTURE_MODES: readonly CaptureMode[] = ["editor", "selected", "off"];
 
 export const CAPTURE_MODE_LABELS: Record<CaptureMode, string> = {
-  editor: "Editing Card auto capture",
+  editor: "Auto capture into the edited Card or note",
   selected: "Selected Card paste and drop",
   off: "Off",
 };
 
 const STATUS_LABELS: Record<CaptureMode, string> = {
-  editor: "Capture: Editing Card",
+  editor: "Capture: Auto",
   selected: "Capture: Selected Card",
   off: "Capture: Off",
 };
@@ -43,7 +43,6 @@ export function isCaptureMode(value: unknown): value is CaptureMode {
 
 export class CanvasCapture {
   private lastClipboardText = "";
-  private activeCardEditor: EditorView | null = null;
   private pollTimer: number | null = null;
   private statusBarItem: HTMLElement | null = null;
 
@@ -56,9 +55,6 @@ export class CanvasCapture {
   register(): void {
     const { plugin } = this;
 
-    plugin.registerEditorExtension(EditorView.updateListener.of((update) => {
-      this.rememberCardEditor(update);
-    }));
     plugin.registerDomEvent(document, "paste", (event) => this.handlePaste(event), true);
     plugin.registerDomEvent(document, "drop", (event) => this.handleDrop(event), true);
     plugin.registerDomEvent(document, "copy", () => this.ignoreOwnCopy());
@@ -67,9 +63,9 @@ export class CanvasCapture {
     this.syncPolling();
 
     this.statusBarItem = plugin.addStatusBarItem();
-    this.statusBarItem.setAttribute("aria-label", "UniZero Canvas capture: click to switch mode");
+    this.statusBarItem.setAttribute("aria-label", "UniZero Canvas capture: click to choose a mode");
     this.statusBarItem.addClass("mod-clickable");
-    plugin.registerDomEvent(this.statusBarItem, "click", () => { void this.cycleMode(); });
+    plugin.registerDomEvent(this.statusBarItem, "click", (event) => this.showModeMenu(event));
     this.updateStatusBar();
 
     for (const mode of CAPTURE_MODES) {
@@ -80,6 +76,11 @@ export class CanvasCapture {
       });
     }
     plugin.addCommand({
+      id: "capture-toggle-auto",
+      name: "Canvas capture: Toggle auto capture",
+      callback: () => { void this.setMode(this.mode === "editor" ? "off" : "editor"); },
+    });
+    plugin.addCommand({
       id: "capture-cycle-mode",
       name: "Canvas capture: Cycle mode",
       callback: () => { void this.cycleMode(); },
@@ -88,9 +89,8 @@ export class CanvasCapture {
       id: "capture-show-status",
       name: "Canvas capture: Show status",
       callback: () => {
-        const editor = this.usableCardEditor()
-          ? "an edited Card is remembered"
-          : "no edited Card remembered yet";
+        const target = focusedEditor();
+        const editor = target ? `editing ${targetName(target)}` : "no Card or note is being edited";
         new Notice(`UniZero Canvas capture: ${CAPTURE_MODE_LABELS[this.mode]}; ${editor}.`, 6000);
       },
     });
@@ -109,11 +109,22 @@ export class CanvasCapture {
     await this.setMode(next);
   }
 
+  private showModeMenu(event: MouseEvent): void {
+    const menu = new Menu();
+    for (const mode of CAPTURE_MODES) {
+      menu.addItem((item) => item
+        .setTitle(CAPTURE_MODE_LABELS[mode])
+        .setChecked(mode === this.mode)
+        .onClick(() => { void this.setMode(mode); }));
+    }
+    menu.showAtMouseEvent(event);
+  }
+
   private updateStatusBar(): void {
     this.statusBarItem?.setText(STATUS_LABELS[this.mode]);
   }
 
-  // --- Editing Card auto capture -----------------------------------------
+  // --- Auto capture into the edited Card or note --------------------------
 
   private syncPolling(): void {
     if (this.mode !== "editor") {
@@ -138,31 +149,6 @@ export class CanvasCapture {
     window.setTimeout(() => { this.lastClipboardText = clipboard.readText(); }, 0);
   }
 
-  private rememberCardEditor(update: ViewUpdate): void {
-    let info: CanvasEditorInfo;
-    try {
-      info = update.state.field(editorInfoField) as unknown as CanvasEditorInfo;
-    } catch {
-      return;
-    }
-    if (info?.node && update.view.hasFocus) {
-      this.activeCardEditor = update.view;
-    }
-  }
-
-  // `activeElement`, unlike `hasFocus`, survives the window losing focus to Zotero.
-  private usableCardEditor(): EditorView | null {
-    const editor = this.activeCardEditor;
-    if (!editor) { return null; }
-    if (!editor.dom.isConnected) {
-      this.activeCardEditor = null;
-      return null;
-    }
-    const canvas = this.activeCanvasView();
-    if (!canvas || !canvas.containerEl.contains(editor.dom)) { return null; }
-    return editor.dom.ownerDocument.activeElement === editor.contentDOM ? editor : null;
-  }
-
   private pollClipboard(): void {
     try {
       const text = clipboard.readText();
@@ -172,9 +158,9 @@ export class CanvasCapture {
       const excerpt = parseZoteroExcerpt(text);
       if (!excerpt) { return; }
 
-      const editor = this.usableCardEditor();
+      const editor = focusedEditor();
       if (!editor) {
-        new Notice("UniZero: Zotero annotation copied, but no Canvas Card is being edited.");
+        new Notice("UniZero: Zotero annotation copied, but no Canvas Card or note is being edited.");
         return;
       }
 
@@ -185,10 +171,10 @@ export class CanvasCapture {
         selection: { anchor: from + insert.length },
         scrollIntoView: true,
       });
-      new Notice("UniZero: excerpt inserted into the edited Canvas Card.");
+      new Notice(`UniZero: excerpt inserted into ${targetName(editor)}.`);
     } catch (error) {
       console.error("UniZero: Canvas capture", error);
-      new Notice("UniZero: could not insert into the Canvas Card; see the developer console.");
+      new Notice("UniZero: could not insert the excerpt; see the developer console.");
     }
   }
 
@@ -253,6 +239,27 @@ export class CanvasCapture {
 
     return { canvas: view.canvas, card, data, document: view.containerEl.ownerDocument };
   }
+}
+
+/**
+ * The Obsidian editor holding keyboard focus. Canvas renders each Card's editor
+ * inside an iframe, so focus is followed down through frames. `activeElement`,
+ * unlike `hasFocus`, survives the window losing focus to Zotero.
+ */
+function focusedEditor(): EditorView | null {
+  let element = activeDocument.activeElement;
+  while (element?.tagName === "IFRAME") {
+    element = (element as HTMLIFrameElement).contentDocument?.activeElement ?? null;
+  }
+  if (!element?.classList.contains("cm-content")) { return null; }
+  const editor = EditorView.findFromDOM(element as HTMLElement);
+  // Only Obsidian's own note and Card editors carry editor info.
+  return editor?.state.field(editorInfoField, false) ? editor : null;
+}
+
+function targetName(editor: EditorView): string {
+  const info = editor.state.field(editorInfoField, false) as unknown as CanvasEditorInfo | undefined;
+  return info?.node ? "the edited Canvas Card" : "the edited note";
 }
 
 function reportAppend(status: AppendStatus, action: "Pasted" | "Dropped"): void {
