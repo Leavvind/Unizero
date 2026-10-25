@@ -1,59 +1,68 @@
 /**
- * Zotero annotation excerpts, as Zotero copies them to the clipboard.
- *
- * `“Quoted text” ([Smith et al., 2024, p. 17](zotero://open-pdf/...))` becomes
- * `Quoted text [Smith et al., 2024](zotero://open-pdf/...)`.
- *
- * The `zotero://` link is the excerpt's provenance — where it was read — and is
- * deliberately not turned into `@libraryID/itemKey`: a citation is something the
- * user writes on purpose, and the vault index counts every one of them.
+ * Zotero annotation excerpts as Zotero copies them to the clipboard. The
+ * `zotero://` link is provenance, deliberately never turned into a citation.
  */
 
 export interface ZoteroExcerpt {
   content: string;
   link: string;
   label: string;
+  comment?: string;
 }
 
-/** The excerpt form of a Zotero annotation, or the text unchanged. */
+const MARKDOWN_LINK = /\[([^\]]*)\]\(\s*(zotero:\/\/[^\s)]+)\s*\)/gi;
+const BARE_LINK = /zotero:\/\/[^\s)\]}>"']+/i;
+// Not a page number or part of a longer number.
+const YEAR = /(?<!(?:\bpp?\.|第)\s*)(?<![\p{L}\p{N}])(?:19|20)\d{2}[a-z]?(?![\p{L}\p{N}])/iu;
+
 export function formatIncomingText(text: string): string {
   const parsed = parseZoteroExcerpt(text);
   return parsed ? formatExcerpt(parsed) : text;
 }
 
 export function formatExcerpt(excerpt: ZoteroExcerpt): string {
-  return `${excerpt.content} [${excerpt.label}](${excerpt.link})`;
+  const quote = `${excerpt.content} [${excerpt.label}](${excerpt.link})`;
+  return excerpt.comment ? `${quote}\n${excerpt.comment}` : quote;
 }
 
+/** `“text” ([label](zotero://select/…)) ([pdf](zotero://open-pdf/…)) comment`; open-pdf carries the page. */
 export function parseZoteroExcerpt(text: string): ZoteroExcerpt | null {
-  const linkMatch = text.match(/zotero:\/\/[^\s)\]}>"']+/i);
-  if (!linkMatch || linkMatch.index === undefined) { return null; }
+  const links = Array.from(text.matchAll(MARKDOWN_LINK));
+  if (links.length === 0) { return parseBareLink(text); }
 
-  const link = linkMatch[0];
-  const beforeLink = text.slice(0, linkMatch.index);
-  const labelMatch = beforeLink.match(/\[([^\]]+)\]\(\s*$/);
-  const label = normalizeExcerptLabel(labelMatch?.[1] ?? "Zotero");
-  const quoted = beforeLink.match(/^[\s]*["“]([\s\S]+)["”]\s*\(\s*\[[\s\S]*$/);
-
-  let content: string;
-  if (quoted?.[1]) {
-    content = quoted[1];
-  } else {
-    const citationStart = beforeLink.lastIndexOf("([");
-    content = (citationStart > 0 ? beforeLink.slice(0, citationStart) : beforeLink)
-      .trim()
-      .replace(/^["“]/, "")
-      .replace(/["”]\s*$/, "");
-  }
-
+  const first = links[0];
+  const last = links[links.length - 1];
+  const chosen = links.find((match) => /^zotero:\/\/open-pdf\//i.test(match[2])) ?? first;
+  const content = stripQuotes(text.slice(0, first.index).trim().replace(/\($/, ""));
   if (!content) { return null; }
-  return { content, link, label };
+
+  const link = chosen[2];
+  const label = labelFor(first[1], link);
+  const comment = text.slice((last.index ?? 0) + last[0].length).replace(/^[\s)]+/, "").trim();
+  return comment ? { content, link, label, comment } : { content, link, label };
 }
 
-/** `Smith, 2024, p. 17` → `Smith, 2024`: the page already lives in the link. */
+function parseBareLink(text: string): ZoteroExcerpt | null {
+  const match = text.match(BARE_LINK);
+  if (!match || match.index === undefined) { return null; }
+  const content = stripQuotes(text.slice(0, match.index).trim().replace(/\($/, ""));
+  return content ? { content, link: match[0], label: "Zotero" } : null;
+}
+
+function stripQuotes(text: string): string {
+  return text.trim().replace(/^["“]/, "").replace(/["”]$/, "").trim();
+}
+
+/** Drop the locator only when the link carries the page. */
+function labelFor(label: string, link: string): string {
+  if (/[?&]page=/i.test(link)) { return normalizeExcerptLabel(label); }
+  return label.trim().replace(/\s+/g, " ") || "Zotero";
+}
+
+/** `Smith, 2024, p. 17` → `Smith, 2024`. */
 export function normalizeExcerptLabel(label: string): string {
   const cleaned = label.trim().replace(/\s+/g, " ");
-  const yearMatch = cleaned.match(/(?:19|20)\d{2}[a-z]?/i);
+  const yearMatch = cleaned.match(YEAR);
   if (!yearMatch || yearMatch.index === undefined) { return cleaned || "Zotero"; }
 
   const author = cleaned

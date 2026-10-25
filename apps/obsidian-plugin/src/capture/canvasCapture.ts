@@ -1,22 +1,11 @@
 /**
- * Canvas capture: MarginNote-style excerpting into Obsidian Canvas text Cards.
- *
- * - `editor`: while a Card is being edited, a Zotero annotation copied anywhere
- *   (the clipboard is polled) is inserted at that Card's cursor.
- * - `selected`: with exactly one text Card selected but not being edited, paste
- *   or drop appends plain text to its end. Native paste inside an editor is kept.
- * - `off`: no polling and no interception.
- *
- * Excerpts keep their `zotero://` link as provenance; see `excerpt.ts` for why
- * capture never writes `@libraryID/itemKey`.
- *
- * Everything is registered through the plugin, so unloading it releases the
- * editor extension, DOM listeners, interval, status bar item, and commands.
+ * Canvas capture: MarginNote-style excerpting into Canvas text Cards. Everything
+ * is registered through the plugin, so unloading it releases all of it.
  */
 
 import { EditorView, type ViewUpdate } from "@codemirror/view";
 import { clipboard } from "electron";
-import { Notice, editorInfoField } from "obsidian";
+import { ItemView, Notice, editorInfoField } from "obsidian";
 import type UnizeroPlugin from "../main";
 import {
   appendToTextCard,
@@ -55,8 +44,7 @@ export function isCaptureMode(value: unknown): value is CaptureMode {
 export class CanvasCapture {
   private lastClipboardText = "";
   private activeCardEditor: EditorView | null = null;
-  private activeCard: CanvasTextCard | null = null;
-  private polling = false;
+  private pollTimer: number | null = null;
   private statusBarItem: HTMLElement | null = null;
 
   constructor(private readonly plugin: UnizeroPlugin) {}
@@ -67,16 +55,16 @@ export class CanvasCapture {
 
   register(): void {
     const { plugin } = this;
-    this.lastClipboardText = clipboard.readText();
 
     plugin.registerEditorExtension(EditorView.updateListener.of((update) => {
       this.rememberCardEditor(update);
     }));
     plugin.registerDomEvent(document, "paste", (event) => this.handlePaste(event), true);
     plugin.registerDomEvent(document, "drop", (event) => this.handleDrop(event), true);
-    plugin.registerInterval(window.setInterval(() => {
-      void this.pollClipboard();
-    }, POLL_INTERVAL));
+    plugin.registerDomEvent(document, "copy", () => this.ignoreOwnCopy());
+    plugin.registerDomEvent(document, "cut", () => this.ignoreOwnCopy());
+    plugin.register(() => this.stopPolling());
+    this.syncPolling();
 
     this.statusBarItem = plugin.addStatusBarItem();
     this.statusBarItem.setAttribute("aria-label", "UniZero Canvas capture: click to switch mode");
@@ -110,8 +98,7 @@ export class CanvasCapture {
 
   async setMode(mode: CaptureMode): Promise<void> {
     this.plugin.settings.captureMode = mode;
-    // Whatever is on the clipboard now was copied before the switch; don't paste it.
-    this.lastClipboardText = clipboard.readText();
+    this.syncPolling();
     await this.plugin.saveSettings("none");
     this.updateStatusBar();
     new Notice(`UniZero Canvas capture: ${CAPTURE_MODE_LABELS[mode]}.`);
@@ -128,6 +115,29 @@ export class CanvasCapture {
 
   // --- Editing Card auto capture -----------------------------------------
 
+  private syncPolling(): void {
+    if (this.mode !== "editor") {
+      this.stopPolling();
+      return;
+    }
+    if (this.pollTimer !== null) { return; }
+    // Don't paste what was copied before the switch.
+    this.lastClipboardText = clipboard.readText();
+    this.pollTimer = window.setInterval(() => this.pollClipboard(), POLL_INTERVAL);
+  }
+
+  private stopPolling(): void {
+    if (this.pollTimer === null) { return; }
+    window.clearInterval(this.pollTimer);
+    this.pollTimer = null;
+  }
+
+  private ignoreOwnCopy(): void {
+    if (this.pollTimer === null) { return; }
+    // The clipboard is written after the event's handlers have run.
+    window.setTimeout(() => { this.lastClipboardText = clipboard.readText(); }, 0);
+  }
+
   private rememberCardEditor(update: ViewUpdate): void {
     let info: CanvasEditorInfo;
     try {
@@ -137,24 +147,23 @@ export class CanvasCapture {
     }
     if (info?.node && update.view.hasFocus) {
       this.activeCardEditor = update.view;
-      this.activeCard = info.node;
     }
   }
 
+  // `activeElement`, unlike `hasFocus`, survives the window losing focus to Zotero.
   private usableCardEditor(): EditorView | null {
     const editor = this.activeCardEditor;
-    if (!editor || !this.activeCard) { return null; }
+    if (!editor) { return null; }
     if (!editor.dom.isConnected) {
       this.activeCardEditor = null;
-      this.activeCard = null;
       return null;
     }
-    return this.plugin.app.workspace.activeLeaf?.view.getViewType() === "canvas" ? editor : null;
+    const canvas = this.activeCanvasView();
+    if (!canvas || !canvas.containerEl.contains(editor.dom)) { return null; }
+    return editor.dom.ownerDocument.activeElement === editor.contentDOM ? editor : null;
   }
 
-  private async pollClipboard(): Promise<void> {
-    if (this.mode !== "editor" || this.polling) { return; }
-    this.polling = true;
+  private pollClipboard(): void {
     try {
       const text = clipboard.readText();
       if (!text || text === this.lastClipboardText) { return; }
@@ -180,8 +189,6 @@ export class CanvasCapture {
     } catch (error) {
       console.error("UniZero: Canvas capture", error);
       new Notice("UniZero: could not insert into the Canvas Card; see the developer console.");
-    } finally {
-      this.polling = false;
     }
   }
 
@@ -189,13 +196,16 @@ export class CanvasCapture {
 
   private handlePaste(event: ClipboardEvent): void {
     if (this.mode !== "selected") { return; }
-    // A Card already in its editor keeps Obsidian's own paste.
-    if (asElement(event.target)?.closest(".cm-editor")) { return; }
+    const target = asElement(event.target);
+    if (isEditable(target)) { return; }
 
     const text = event.clipboardData?.getData("text/plain");
     if (!text) { return; }
     const context = this.singleSelectedTextCard();
     if (!context) { return; }
+    // Only a paste aimed at the Canvas or at nothing in particular.
+    const container = this.activeCanvasView()?.containerEl;
+    if (target && target !== context.document.body && !container?.contains(target)) { return; }
 
     const status = appendToTextCard(context, text);
     if (status === "ignored") { return; }
@@ -225,9 +235,14 @@ export class CanvasCapture {
     reportAppend(status, "Dropped");
   }
 
+  private activeCanvasView(): CanvasView | null {
+    const view = this.plugin.app.workspace.getActiveViewOfType(ItemView);
+    return view?.getViewType() === "canvas" ? view as CanvasView : null;
+  }
+
   private singleSelectedTextCard(): SelectedCardContext | null {
-    const view = this.plugin.app.workspace.activeLeaf?.view as CanvasView | undefined;
-    if (view?.getViewType() !== "canvas" || !view.canvas) { return null; }
+    const view = this.activeCanvasView();
+    if (!view?.canvas) { return null; }
 
     const selection = Array.from(view.canvas.selection ?? []);
     if (selection.length !== 1) { return null; }
@@ -248,6 +263,12 @@ function reportAppend(status: AppendStatus, action: "Pasted" | "Dropped"): void 
   } else if (status === "error") {
     new Notice(`UniZero: ${action.toLowerCase()} text could not be added; see the developer console.`);
   }
+}
+
+function isEditable(element: Element | null): boolean {
+  if (!element) { return false; }
+  if ((element as HTMLElement).isContentEditable) { return true; }
+  return element.closest(".cm-editor, input, textarea, select, [contenteditable]:not([contenteditable='false']), .modal-container") !== null;
 }
 
 function asElement(target: EventTarget | null): Element | null {

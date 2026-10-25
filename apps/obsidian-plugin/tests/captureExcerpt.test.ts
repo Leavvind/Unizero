@@ -33,4 +33,35 @@ describe("Zotero excerpt parsing", () => {
     const input = "“Quote” ([Author, 2026](zotero://open-pdf/library/items/ABC))";
     expect(formatIncomingText(input)).not.toMatch(/@\d+\//);
   });
+
+  it("keeps the open-pdf link and the comment of Zotero's Markdown copy", () => {
+    const input =
+      "“text” ([Smith, 2024, p. 17](zotero://select/library/items/K)) " +
+      "([pdf](zotero://open-pdf/library/items/A?page=17&annotation=X)) My comment here";
+    expect(parseZoteroExcerpt(input)).toEqual({
+      content: "text",
+      label: "Smith, 2024",
+      link: "zotero://open-pdf/library/items/A?page=17&annotation=X",
+      comment: "My comment here",
+    });
+    expect(formatIncomingText(input)).toBe(
+      "text [Smith, 2024](zotero://open-pdf/library/items/A?page=17&annotation=X)\nMy comment here",
+    );
+  });
+
+  it("keeps the locator when the link carries no page", () => {
+    const input = "“text” ([Smith, 2024, p. 3](zotero://select/library/items/K)) A comment";
+    expect(parseZoteroExcerpt(input)).toEqual({
+      content: "text",
+      label: "Smith, 2024, p. 3",
+      link: "zotero://select/library/items/K",
+      comment: "A comment",
+    });
+  });
+
+  it("does not take a page number or part of a longer number for the year", () => {
+    expect(normalizeExcerptLabel("Smith, n.d., p. 2019")).toBe("Smith, n.d., p. 2019");
+    expect(normalizeExcerptLabel("Org, 20235")).toBe("Org, 20235");
+    expect(normalizeExcerptLabel("Smith, 2024a, p. 2019")).toBe("Smith, 2024a");
+  });
 });

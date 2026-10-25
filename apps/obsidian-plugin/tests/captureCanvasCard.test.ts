@@ -24,10 +24,10 @@ describe("selected Card append", () => {
 
     expect(appendToTextCard(
       context,
-      "“Quote” ([Author, 2026, p. 2](zotero://open-pdf/item/1))",
+      "“Quote” ([Author, 2026, p. 2](zotero://open-pdf/item/1?page=2))",
     )).toBe("inserted");
     expect(setData).toHaveBeenCalledWith(
-      { type: "text", text: "existing\nQuote [Author, 2026](zotero://open-pdf/item/1)" },
+      { type: "text", text: "existing\nQuote [Author, 2026](zotero://open-pdf/item/1?page=2)" },
       true,
     );
     expect(requestSave).toHaveBeenCalledOnce();
