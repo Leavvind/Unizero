@@ -1,4 +1,10 @@
 import { PluginSettingTab, Setting, type App } from "obsidian";
+import {
+  CAPTURE_MODE_LABELS,
+  CAPTURE_MODES,
+  isCaptureMode,
+  type CaptureMode,
+} from "./capture/canvasCapture";
 import type UnizeroPlugin from "./main";
 
 /** How a resolved pill labels itself. The written address is always in the tooltip. */
@@ -38,6 +44,8 @@ export interface UnizeroSettings {
    * Zotero's "Show Items from Subcollections".
    */
   showSubcollectionItems: boolean;
+  /** How Zotero excerpts reach Canvas text Cards; off unless the user picks one. */
+  captureMode: CaptureMode;
 }
 
 export const DEFAULT_SETTINGS: UnizeroSettings = {
@@ -49,6 +57,7 @@ export const DEFAULT_SETTINGS: UnizeroSettings = {
   lastLibraryID: null,
   lastCollectionKey: "",
   showSubcollectionItems: true,
+  captureMode: "off",
 };
 
 export class UnizeroSettingTab extends PluginSettingTab {
@@ -125,6 +134,25 @@ export class UnizeroSettingTab extends PluginSettingTab {
             + "UniZero no longer opens them."
           : ""),
     });
+
+    new Setting(containerEl)
+      .setName("Canvas capture")
+      .setDesc(
+        "Send Zotero annotations into Canvas text Cards as “excerpt [Author, Year]"
+        + "(zotero://…)”. The link records where the excerpt came from and is not "
+        + "a citation, so it is not counted in the Vault tab. Also switchable from "
+        + "the status bar and the command palette.",
+      )
+      .addDropdown((dropdown) => {
+        for (const mode of CAPTURE_MODES) {
+          dropdown.addOption(mode, CAPTURE_MODE_LABELS[mode]);
+        }
+        dropdown
+          .setValue(this.plugin.settings.captureMode)
+          .onChange(async (value) => {
+            if (isCaptureMode(value)) { await this.plugin.capture.setMode(value); }
+          });
+      });
   }
 
   /**

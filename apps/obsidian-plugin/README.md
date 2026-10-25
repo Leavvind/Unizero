@@ -63,6 +63,35 @@ vault path.
 Canvas files linked by earlier versions stay where they were. Their paths remain in
 this plugin's `data.json` (`canvasLinks`) for migration but are no longer opened.
 
+## Canvas capture
+
+A MarginNote-style way to excerpt into any Canvas, formerly the separate
+MarginCanvas plugin. A Zotero annotation such as
+
+```text
+“Quoted text” ([Smith et al., 2024, p. 17](zotero://open-pdf/...))
+```
+
+is written into a text Card as
+
+```text
+Quoted text [Smith et al., 2024](zotero://open-pdf/...)
+```
+
+The `zotero://` link records where the excerpt was read. It is not a citation: it
+does not become `@libraryID/itemKey`, renders as an ordinary link, and is not
+counted in the Vault tab. Write a citation yourself where you mean one.
+
+| Mode | Behaviour |
+| --- | --- |
+| Editing Card auto capture | While a Card is being edited, a Zotero annotation copied in Zotero is inserted at that Card's cursor (the clipboard is polled). |
+| Selected Card paste and drop | With exactly one text Card selected but not being edited, `Cmd/Ctrl+V` or dropping text onto it appends plain text to its end. Images, files, file or link Cards, groups, and multi-selection are left to Canvas. |
+| Off (default) | No clipboard polling and no interception. |
+
+Switch modes in Settings → **Canvas capture**, by clicking the `Capture:` status bar
+item, or with the **Canvas capture:** commands. Capture does not need Zotero's
+bridge.
+
 ## Managing Raw and Canvas
 
 In the paper pane, click **Raw** or **Canvas** to open it and right-click it for its

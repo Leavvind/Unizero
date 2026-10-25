@@ -32,6 +32,7 @@ import {
   openZoteroPdf,
 } from "./actions";
 import { UnizeroBridge, BRIDGE_API, type BridgePaper } from "./bridge";
+import { CanvasCapture, isCaptureMode } from "./capture/canvasCapture";
 import {
   citationText,
   type CitationAction,
@@ -55,6 +56,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
   bridge!: UnizeroBridge;
   store!: PaperStore;
   vaultIndex!: VaultIndex;
+  capture!: CanvasCapture;
   /**
    * Last Markdown leaf the user focused. Sidebars steal `activeEditor`, so
    * Insert citation falls back to this rather than failing with "no editor".
@@ -106,6 +108,9 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     this.registerEditorExtension(citationLivePreview(this));
     this.registerEditorSuggest(new CitationSuggest(this.app, this));
     this.addSettingTab(new UnizeroSettingTab(this.app, this));
+
+    this.capture = new CanvasCapture(this);
+    this.capture.register();
 
     // Remember the note the user was editing so sidebar Insert still has a target.
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
@@ -186,6 +191,9 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     }
     if (typeof this.settings.showSubcollectionItems !== "boolean") {
       this.settings.showSubcollectionItems = DEFAULT_SETTINGS.showSubcollectionItems;
+    }
+    if (!isCaptureMode(this.settings.captureMode)) {
+      this.settings.captureMode = DEFAULT_SETTINGS.captureMode;
     }
   }
 
