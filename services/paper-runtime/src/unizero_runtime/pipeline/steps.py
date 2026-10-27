@@ -40,6 +40,12 @@ _IMG_REF_RE = re.compile(r"""(!\[[^\]]*\]\()(?P<path>[^)\s]+)([^)]*\))""", re.VE
 _NORM_WS = re.compile(r"\s+")
 _MIN_ANCHOR_LEN = 6
 _MAX_LINE_JUMP = 300
+#: Content-list blocks whose text MinerU writes into the Markdown body. Running
+#: headers, footers, page numbers, margin text, and page footnotes stay in the
+#: content list but are dropped or moved in the Markdown, so they cannot anchor
+#: a page link. Older content lists without a type count as text.
+_ANCHOR_TYPES = frozenset({"text", "list"})
+_ANCHORS_PER_PAGE = 5
 
 
 # --------------------------------------------------------------------------- #
@@ -219,24 +225,25 @@ def inject_zotero_page_links(
 ) -> tuple[int, int]:
     """
     Inject `[pN](zotero://open-pdf/...)` links into a MinerU-generated Markdown
-    file, one per page, anchored at the first sufficiently long text block of
-    that page (per _content_list.json). Modifies md_path in place.
-    Returns (pages_found, pages_injected).
+    file, one per page, anchored at the first body text block of that page (per
+    _content_list.json) that can be found in the Markdown. Modifies md_path in
+    place. Returns (pages_found, pages_injected).
     """
     data = json.loads(content_list_path.read_text(encoding="utf-8"))
 
-    best: dict[int, str] = {}
+    anchors: dict[int, list[str]] = {}
     for item in data:
         p = item.get("page_idx")
-        if p is None:
+        if p is None or item.get("type", "text") not in _ANCHOR_TYPES:
             continue
-        text = item.get("text", "").strip()
-        if not text:
+        text = str(item.get("text") or "").strip()
+        if len(text) < _MIN_ANCHOR_LEN:
             continue
-        if p not in best and len(text) >= _MIN_ANCHOR_LEN:
-            best[p] = text
+        page_anchors = anchors.setdefault(p, [])
+        if len(page_anchors) < _ANCHORS_PER_PAGE:
+            page_anchors.append(text)
 
-    page_texts = sorted(best.items())
+    page_texts = sorted(anchors.items())
     if not page_texts:
         return 0, 0
 
@@ -246,26 +253,29 @@ def inject_zotero_page_links(
 
     insertions: list[tuple[int, str]] = []
     search_from = 0
+    last_page: Optional[int] = None
 
-    for page_idx, first_text in page_texts:
-        line_idx = _find_line_index(md_lines, first_text, search_from)
+    for page_idx, candidates in page_texts:
+        # A match far beyond the last linked page is more likely repeated text
+        # than this page; the window grows with the pages skipped since then.
+        # A rejected match leaves search_from alone, so it cannot cost later
+        # pages their anchors.
+        max_line = None
+        if last_page is not None:
+            max_line = search_from + _MAX_LINE_JUMP * (page_idx - last_page)
+        line_idx = None
+        for text in candidates:
+            line_idx = _find_line_index(md_lines, text, search_from, max_line)
+            if line_idx is not None:
+                break
         if line_idx is None:
             continue
-        if insertions and (line_idx - insertions[-1][0]) > _MAX_LINE_JUMP:
-            retry = _find_line_index(
-                md_lines, first_text, search_from,
-                max_line=search_from + _MAX_LINE_JUMP,
-            )
-            if retry is not None:
-                line_idx = retry
-            else:
-                search_from = line_idx + 1
-                continue
 
         pdf_page = page_idx + 1 + page_offset
         link = f"[p{pdf_page}]({base_uri}?page={pdf_page})"
         insertions.append((line_idx, link))
         search_from = line_idx + 1
+        last_page = page_idx
 
     for line_idx, link in reversed(insertions):
         prefix = ""
@@ -286,7 +296,7 @@ def _find_line_index(
     anchor = _NORM_WS.sub(" ", anchor_text).strip()[:50]
     if not anchor:
         return None
-    end = max_line if max_line is not None else len(md_lines)
+    end = len(md_lines) if max_line is None else min(max_line, len(md_lines))
     for i in range(start_from, end):
         line_norm = _NORM_WS.sub(" ", md_lines[i]).strip()
         line_clean = re.sub(r"^#+\s*", "", line_norm)
