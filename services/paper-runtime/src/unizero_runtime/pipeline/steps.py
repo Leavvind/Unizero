@@ -256,13 +256,12 @@ def inject_zotero_page_links(
     last_page: Optional[int] = None
 
     for page_idx, candidates in page_texts:
-        # A match far beyond the last linked page is more likely repeated text
-        # than this page; the window grows with the pages skipped since then.
-        # A rejected match leaves search_from alone, so it cannot cost later
-        # pages their anchors.
-        max_line = None
-        if last_page is not None:
-            max_line = search_from + _MAX_LINE_JUMP * (page_idx - last_page)
+        # A match far beyond the last linked page (or, before any link, the
+        # start of the document) is more likely repeated text than this page;
+        # the window grows with the pages skipped since then. A rejected match
+        # leaves search_from alone, so it cannot cost later pages their anchors.
+        pages_since = page_idx + 1 if last_page is None else page_idx - last_page
+        max_line = search_from + _MAX_LINE_JUMP * pages_since
         line_idx = None
         for text in candidates:
             line_idx = _find_line_index(md_lines, text, search_from, max_line)

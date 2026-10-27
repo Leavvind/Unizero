@@ -70,6 +70,36 @@ def test_rejected_far_match_does_not_skip_later_pages(tmp_path):
     assert set(pages) == {1, 3, 4}
 
 
+def test_first_page_far_match_does_not_skip_later_pages(tmp_path):
+    # Page 1's only anchor is missing from the top of the Markdown but recurs
+    # far down; matching it there would leave every later page out of reach.
+    filler = ["filler"] * 700
+    body = [_paragraph(2), *filler[:5], _paragraph(3), *filler,
+            "Repeated phrase that page one starts with.", ""]
+    content = [
+        {"type": "text", "text": "Repeated phrase that page one starts with.", "page_idx": 0},
+        {"type": "text", "text": _paragraph(2), "page_idx": 1},
+        {"type": "text", "text": _paragraph(3), "page_idx": 2},
+    ]
+    result, pages = _inject(tmp_path, "\n".join(body), content)
+    assert result == (3, 2)
+    assert set(pages) == {2, 3}
+
+
+def test_window_grows_with_skipped_pages(tmp_path):
+    # Page 2 cannot be found, so page 3 may lie up to two pages' worth of
+    # lines past page 1.
+    body = [_paragraph(1), *(["filler"] * 450), _paragraph(3), ""]
+    content = [
+        {"type": "text", "text": _paragraph(1), "page_idx": 0},
+        {"type": "text", "text": "Absent anchor text for page two", "page_idx": 1},
+        {"type": "text", "text": _paragraph(3), "page_idx": 2},
+    ]
+    result, pages = _inject(tmp_path, "\n".join(body), content)
+    assert result == (3, 2)
+    assert set(pages) == {1, 3}
+
+
 def test_window_past_end_of_file_does_not_raise(tmp_path):
     content = [
         {"type": "text", "text": _paragraph(1), "page_idx": 0},
