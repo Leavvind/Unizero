@@ -31,6 +31,10 @@ Current behavior: [add-on README](../apps/zotero-addon/README.md).
   ask first and land in Zotero's trash; that a Raw or Canvas whose file was deleted
   offers its repair choices and that converting again replaces such a Raw; and that a
   read-only group library reports the refusal.
+- **EPUB conversion — manual check.** In a real Zotero, convert an EPUB book with the
+  Books EPUB template and check that Raw and Raw Backup appear with the book's images,
+  that headings follow the book's chapters, and that converting the EPUB attachment
+  itself and its parent item both work.
 - **Annotations into Raw.** Annotation injection writes to vault Markdown only; Raw is
   now a Markdown file too, but injecting into it would edit the user's working copy.
 - **MCP server — manual check.** Run the read tools on a group-library paper and on a

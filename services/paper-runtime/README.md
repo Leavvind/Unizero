@@ -91,6 +91,11 @@ package. User template overrides live in the runtime home.
 | `paper-to-markdown` | Journal Papers | Papers: VLM-assisted parsing, table digest, extracted References; the add-on's default |
 | `paper-to-zotero-markdown` | Books Basic | Long documents: basic parser, 50-page chunks above 200 pages |
 | `paper-to-zotero-markdown-copy` | Book Standard | Long documents with VLM-assisted parsing |
+| `book-epub-to-zotero-markdown` | Books EPUB | EPUB books: read without OCR, images kept, no page links |
+
+An EPUB is never counted or split into pages, whatever the template's chunking says.
+It has no fixed pages, so page links, table pointers, and `p.N` locations do not
+apply to its Raw.
 
 ## Source map
 

@@ -1,0 +1,46 @@
+schema_version: 1
+id: book-epub-to-zotero-markdown
+name: Books EPUB
+version: 1
+description: Convert an EPUB book with MinerU, which reads the book's own text and structure without OCR, and store the Markdown with its images under the Zotero item as Raw. An EPUB has no fixed pages, so the Markdown carries no page links. Raw is your working copy and is never overwritten; Raw Backup is replaced on every conversion.
+modules:
+  - id: extract
+    module: extract.mineru
+    enabled: true
+    settings:
+      execution: local
+      backend: basic
+      ocr_mode: auto
+      language: auto
+      chunking:
+        enabled: false
+        threshold_pages: 200
+        chunk_size: 50
+
+  - id: content
+    module: transform.content
+    enabled: true
+    settings:
+      formulas: keep
+      figures: save
+      tables:
+        markdown: html
+        refine_complex: false
+        digest: false
+        digest_figures: false
+      references:
+        extract: false
+        remove_from_body: false
+      remove_repeated_lines: false
+
+  - id: frontmatter
+    module: transform.frontmatter
+    enabled: true
+    settings:
+      properties: []
+
+  - id: publish-zotero-markdown
+    module: publish.zotero-markdown
+    enabled: true
+    settings:
+      filename: "{{ title }}.md"

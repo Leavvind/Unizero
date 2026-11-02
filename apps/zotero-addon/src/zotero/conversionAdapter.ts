@@ -40,41 +40,51 @@ const RAW_ATTACHMENT_TITLE = "Raw";
 const RAW_BACKUP_ATTACHMENT_TITLE = "Raw Backup";
 
 export interface ConversionTarget {
-  /** A standalone PDF attachment has no parent item. */
+  /** A standalone PDF or EPUB attachment has no parent item. */
   parent: Zotero.Item | null;
   attachment: Zotero.Item;
   /** Absolute local path of the attachment; the runtime reads the file from it. */
   path: string;
-  /** Not the main PDF (supplementary material). Affects the artifact title suffix. */
+  /** Not the main source (supplementary material). Affects the artifact title suffix. */
   isSupplement: boolean;
 }
 
-function pdfAttachments(item: Zotero.Item): Zotero.Item[] {
-  const pdfs: Zotero.Item[] = [];
-  for (const id of item.getAttachments()) {
-    const attachment = Zotero.Items.get(id);
-    if (attachment && attachment.attachmentContentType === "application/pdf") {
-      pdfs.push(attachment);
-    }
-  }
-  return pdfs;
+/**
+ * Content types MinerU can convert. PDFs are papers or books; EPUBs are books,
+ * which an item has instead of a PDF, so a mixed item never has to choose.
+ */
+const CONVERTIBLE_CONTENT_TYPES = new Set(["application/pdf", "application/epub+zip"]);
+
+function isConvertible(attachment: Zotero.Item): boolean {
+  return CONVERTIBLE_CONTENT_TYPES.has(attachment.attachmentContentType);
 }
 
-/** Main PDF = Zotero's best attachment; falls back to the first PDF if that is not one. */
-async function mainPdfId(
+function convertibleAttachments(item: Zotero.Item): Zotero.Item[] {
+  const sources: Zotero.Item[] = [];
+  for (const id of item.getAttachments()) {
+    const attachment = Zotero.Items.get(id);
+    if (attachment && isConvertible(attachment)) {
+      sources.push(attachment);
+    }
+  }
+  return sources;
+}
+
+/** Main source = Zotero's best attachment; falls back to the first source if that is not one. */
+async function mainSourceId(
   item: Zotero.Item,
-  pdfs: Zotero.Item[],
+  sources: Zotero.Item[],
 ): Promise<number | null> {
-  if (!pdfs.length) { return null; }
+  if (!sources.length) { return null; }
   const best = await item.getBestAttachment();
-  if (best && best.attachmentContentType === "application/pdf") { return best.id; }
-  return pdfs[0].id;
+  if (best && isConvertible(best)) { return best.id; }
+  return sources[0].id;
 }
 
 /**
- * Flatten the user's selection into the list of PDFs to convert.
+ * Flatten the user's selection into the list of PDFs and EPUBs to convert.
  *
- * Selecting a parent item includes every PDF under it (supplements included);
+ * Selecting a parent item includes every source under it (supplements included);
  * selecting an attachment includes only that one. Deduplicated by attachment.id,
  * because selecting both a parent and its attachment is very common.
  */
@@ -86,9 +96,9 @@ export async function conversionTargets(
 
   for (const item of items) {
     if (item.isRegularItem()) {
-      const pdfs = pdfAttachments(item);
-      const mainId = await mainPdfId(item, pdfs);
-      for (const attachment of pdfs) {
+      const sources = convertibleAttachments(item);
+      const mainId = await mainSourceId(item, sources);
+      for (const attachment of sources) {
         if (seen.has(attachment.id)) { continue; }
         seen.add(attachment.id);
         const path = await attachment.getFilePathAsync();
@@ -106,7 +116,7 @@ export async function conversionTargets(
         });
       }
     } else if (item.isAttachment()) {
-      if (seen.has(item.id) || item.attachmentContentType !== "application/pdf") {
+      if (seen.has(item.id) || !isConvertible(item)) {
         continue;
       }
       seen.add(item.id);
@@ -118,7 +128,7 @@ export async function conversionTargets(
       }
       let supplement = false;
       if (parent) {
-        supplement = item.id !== await mainPdfId(parent, pdfAttachments(parent));
+        supplement = item.id !== await mainSourceId(parent, convertibleAttachments(parent));
       }
       targets.push({ parent, attachment: item, path, isSupplement: supplement });
     }

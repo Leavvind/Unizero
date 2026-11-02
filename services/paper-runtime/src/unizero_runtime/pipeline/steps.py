@@ -688,10 +688,16 @@ def _stage_extract(ctx: ConversionContext, settings: dict[str, Any]) -> None:
         ctx.opts.split_threshold = 2**31 - 1
 
     ctx.work_dir.mkdir(parents=True, exist_ok=True)
-    ctx.pages = count_pdf_pages(ctx.pdf_path)
-    ctx.log(f"[info] {ctx.pdf_path.name}: {ctx.pages} pages")
+    # An EPUB has no fixed pages: MinerU reads its spine directly, so it is
+    # never counted or split.
+    is_pdf = ctx.pdf_path.suffix.lower() == ".pdf"
+    if is_pdf:
+        ctx.pages = count_pdf_pages(ctx.pdf_path)
+        ctx.log(f"[info] {ctx.pdf_path.name}: {ctx.pages} pages")
+    else:
+        ctx.log(f"[info] {ctx.pdf_path.name}: not a PDF, converting without page splitting")
 
-    if ctx.pages > ctx.opts.split_threshold:
+    if is_pdf and ctx.pages > ctx.opts.split_threshold:
         ctx.log(
             f"[split] {ctx.pages} pages > {ctx.opts.split_threshold}, "
             f"chunking by {ctx.opts.chunk_size}",

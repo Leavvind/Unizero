@@ -35,8 +35,10 @@ the client for the local paper runtime. It also still ships the legacy Unizero H
 
 **Conversion, annotations, and reader**
 
-- PDF conversion commands and generated-artifact registration, including a versioned
-  structured References JSON attachment produced from the PDF bibliography. A
+- PDF and EPUB conversion commands and generated-artifact registration, including a
+  versioned structured References JSON attachment produced from the PDF bibliography.
+  An EPUB is a book an item has instead of a PDF; convert it with the Books EPUB
+  template, since its Raw has no pages to link. A
   **Default template** preference (`conversion.defaultTemplate`, shipped as Journal
   Papers) is used whenever a conversion names none.
 - Raw: the converted Markdown stored under the item as two imported attachments,
