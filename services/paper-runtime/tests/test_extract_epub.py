@@ -52,3 +52,26 @@ def test_epub_is_extracted_whole_without_page_counting(
 
     assert sources == [str(book)]
     assert ctx.out_md is not None and ctx.out_md.name == "book.md"
+
+
+@pytest.mark.parametrize(("name", "expected"), [("paper.pdf", "all"), ("book.epub", "")])
+def test_page_range_is_sent_only_for_a_pdf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, expected: str,
+) -> None:
+    # MinerU rejects any page range for an EPUB, even "all".
+    import mineru.parser
+    from unizero_runtime.providers import mineru as adapter
+
+    class Parsed(Exception):
+        pass
+
+    ranges: list[str] = []
+
+    def fake_parse(_source, *, page_range: str, **_kwargs):
+        ranges.append(page_range)
+        raise Parsed
+
+    monkeypatch.setattr(mineru.parser, "parse", fake_parse)
+    with pytest.raises(Parsed):
+        adapter.extract(tmp_path / name, tmp_path / "out", "basic", "auto")
+    assert ranges == [expected]

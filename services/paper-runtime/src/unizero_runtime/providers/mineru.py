@@ -42,7 +42,10 @@ def extract(
     from mineru.parser.writer import FileBasedDataWriter
     from mineru.render import render_content_list
 
-    result = parse(source, tier=parsing_tier(tier), ocr_mode=ocr_mode, page_range="all")
+    # MinerU rejects a page range for anything but a PDF; an EPUB is always
+    # parsed whole.
+    page_range = "all" if source.suffix.lower() == ".pdf" else ""
+    result = parse(source, tier=parsing_tier(tier), ocr_mode=ocr_mode, page_range=page_range)
     excluded = set()
     if not enable_formula:
         excluded.add("equation")
