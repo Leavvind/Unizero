@@ -18,27 +18,13 @@ Manual checks are historical open records, not evidence of a known defect.
 ## Raw Markdown
 
 Current behavior: [add-on README](../apps/zotero-addon/README.md).
-
-- **Raw attachments — manual check.** In a real Zotero, convert with a built-in
-  template and check that Raw and Raw Backup appear, that opening Raw
-  from Zotero and from Obsidian's Raw action opens Obsidian, that a second conversion
-  replaces only Raw Backup, that deleting Raw lets the next conversion recreate it, and
-  that a supplement gets its own pair. With `images_mode: all`, check that images show
-  beside both files and survive Zotero file sync (WebDAV and Zotero storage).
-- **Raw and Canvas management — manual check.** In a real Zotero and vault, check
-  that Re-convert with a Raw replaces only Raw Backup; that Restore Raw from Raw Backup
-  trashes the old Raw, keeps images, and opens the new one; that both trash actions
-  ask first and land in Zotero's trash; that a Raw or Canvas whose file was deleted
-  offers its repair choices and that converting again replaces such a Raw; and that a
-  read-only group library reports the refusal.
 - **EPUB conversion — manual check.** In a real Zotero, convert an EPUB book with the
   Books EPUB template and check that Raw and Raw Backup appear with the book's images,
   that headings follow the book's chapters, and that converting the EPUB attachment
   itself and its parent item both work.
 - **Annotations into Raw.** Annotation injection writes to vault Markdown only; Raw is
   now a Markdown file too, but injecting into it would edit the user's working copy.
-- **MCP server — manual check.** Run the read tools on a group-library paper and on a
-  Raw whose file has not synced to this computer.
+
 
 ## Zotero reader
 
