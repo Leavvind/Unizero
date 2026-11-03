@@ -10,7 +10,9 @@
  *
  * Once a paper is resolved, its identifiers are written back, its Semantic
  * Scholar citation count is refreshed, and any bibliographic field the item is
- * *missing* is filled in. Fields the user already has are never overwritten:
+ * *missing* is filled in — first from the record Zotero's own identifier
+ * translators produce for the resolved DOI or arXiv ID, then from the
+ * candidate itself. Fields the user already has are never overwritten:
  * Zotero is the record of truth, and a lookup is only ever evidence about it.
  */
 
@@ -34,6 +36,10 @@ import {
   S2_ID_ALIASES,
   S2_ID_FIELD,
 } from "./itemIdentifiers";
+import {
+  fillMissingFromTranslated,
+  lookupByIdentifier,
+} from "../zotero/identifierTranslation";
 
 const AUTO_SCORE = 0.92;
 const REVIEW_SCORE = 0.78;
@@ -70,6 +76,8 @@ interface PaperCandidate {
   references?: number;
   doi?: string;
   paperId?: string;
+  /** Only a translator lookup key; never written to the item. */
+  arxiv?: string;
   score: number;
   sources: Set<string>;
 }
@@ -210,6 +218,7 @@ function fromSemanticScholar(paper?: SemanticScholarPaper): PaperCandidate | und
     references: countOrUndefined(paper.referenceCount),
     doi: doi ? bareDOI(doi) : undefined,
     paperId: typeof paper.paperId === "string" ? paper.paperId.trim() : undefined,
+    arxiv: externalID(paper, "ArXiv"),
     score: 0,
     sources: new Set(["Semantic Scholar"]),
   };
@@ -291,6 +300,7 @@ function mergeInto(candidates: PaperCandidate[], incoming?: PaperCandidate): voi
   }
   existing.paperId ||= incoming.paperId;
   existing.doi ||= incoming.doi;
+  existing.arxiv ||= incoming.arxiv;
   existing.year ||= incoming.year;
   existing.venue ||= incoming.venue;
   existing.abstract ||= incoming.abstract;
@@ -402,6 +412,24 @@ function fillableFields(item: ItemMetadata, candidate: PaperCandidate): string[]
 }
 
 /**
+ * Fill missing fields from the record "Add Item by Identifier" would create.
+ *
+ * Translators look up an identifier, not a title, so this runs only after the
+ * paper is resolved. A failed lookup leaves the candidate's own fields to do
+ * the filling.
+ */
+async function fillFromTranslator(item: Zotero.Item, candidate: PaperCandidate): Promise<boolean> {
+  const identifiers = candidate.doi ? { DOI: candidate.doi } : { arXiv: candidate.arxiv };
+  try {
+    const translated = await lookupByIdentifier(identifiers);
+    return !!translated && fillMissingFromTranslated(item, translated).length > 0;
+  } catch (error) {
+    ztoolkit.log(`[metadata-enrichment] translator lookup failed: ${error}`);
+    return false;
+  }
+}
+
+/**
  * Write the resolved paper back onto the item.
  *
  * Identifiers replace what is there (that is the decision the user just made in
@@ -444,7 +472,12 @@ async function applyCandidate(
     changed = true;
   }
 
-  for (const field of fillableFields(current, candidate)) {
+  // Zotero's own translator record fills first; it splits names and carries
+  // volume, issue, and pages. The candidate then covers what it lacked, most
+  // often the abstract.
+  if (await fillFromTranslator(item, candidate)) { changed = true; }
+
+  for (const field of fillableFields(readItemMetadata(item), candidate)) {
     try {
       if (field === "title") { item.setField("title", candidate.title); }
       else if (field === "authors") {

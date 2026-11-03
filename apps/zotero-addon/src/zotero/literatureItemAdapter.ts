@@ -7,11 +7,10 @@
  * selected library.
  */
 
+import { type PaperIdentifiers, saveByIdentifier } from "./identifierTranslation";
+
 export interface DiscoveredPaper {
-  identifiers: {
-    DOI?: string;
-    arXiv?: string;
-  };
+  identifiers: PaperIdentifiers;
   title: string;
   authors: string[];
   year?: string;
@@ -61,27 +60,6 @@ export function paperDestinationFromScope(
   };
 }
 
-async function translateByIdentifier(
-  destination: PaperDestination,
-  paper: DiscoveredPaper,
-): Promise<Zotero.Item | undefined> {
-  const identifiers: DiscoveredPaper["identifiers"] = {};
-  if (paper.identifiers.DOI) { identifiers.DOI = paper.identifiers.DOI; }
-  if (paper.identifiers.arXiv) { identifiers.arXiv = paper.identifiers.arXiv; }
-  if (!Object.keys(identifiers).length) { return; }
-
-  const translate = new Zotero.Translate.Search();
-  translate.setIdentifier(identifiers);
-  const translators = await translate.getTranslators();
-  if (!translators?.length) { return; }
-  translate.setTranslator(translators);
-  return (await translate.translate({
-    libraryID: destination.libraryID,
-    collections: destination.collectionIDs,
-    saveAttachments: true,
-  }))[0];
-}
-
 function creators(authors: string[]) {
   return authors.map((name) => {
     const parts = String(name).trim().split(/\s+/);
@@ -98,7 +76,10 @@ export async function createDiscoveredPaper(
   paper: DiscoveredPaper,
 ): Promise<Zotero.Item> {
   try {
-    const translated = await translateByIdentifier(destination, paper);
+    const translated = await saveByIdentifier(paper.identifiers, {
+      libraryID: destination.libraryID,
+      collections: destination.collectionIDs,
+    });
     if (translated) { return translated; }
   } catch (error) {
     ztoolkit.log("identifier import failed; falling back to provider metadata", error);
