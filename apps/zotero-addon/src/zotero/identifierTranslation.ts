@@ -100,6 +100,25 @@ function readField(item: Zotero.Item, field: string): string {
   try { return String(item.getField(field as any) || "").trim(); } catch { return ""; }
 }
 
+/** The bibliographic core a translator record supplies, named as on a journal article. */
+const CORE_FIELDS = ["title", "date", "publicationTitle", "volume", "issue", "pages"];
+
+/**
+ * Whether a lookup could fill anything that matters. A field the item's type does
+ * not have is not missing, so a complete conference paper (which has no `issue`)
+ * does not cost a lookup on every run.
+ */
+export function lacksCoreFields(item: Zotero.Item): boolean {
+  if (!item.getCreators().length) { return true; }
+  const journal = Zotero.ItemTypes.getID("journalArticle" as any);
+  return CORE_FIELDS.some((field) => {
+    try {
+      const target = targetField(item, journal, field);
+      return !!target && !readField(item, target);
+    } catch { return false; }
+  });
+}
+
 function toCreator(item: Zotero.Item, creator: TranslatedCreator) {
   const creatorTypes = Zotero.CreatorTypes;
   let typeID = creator.creatorType ? creatorTypes.getID(creator.creatorType as any) : false;
@@ -132,23 +151,30 @@ export function fillMissingFromTranslated(item: Zotero.Item, translated: Transla
 
   for (const [field, value] of Object.entries(translated)) {
     if (NEVER_FILLED.has(field) || typeof value !== "string" || !value.trim()) { continue; }
-    const target = targetField(item, sourceType, field);
-    if (!target || readField(item, target)) { continue; }
+    // Every step stays inside the guard: translators emit fields their own type
+    // lacks, and the base-field mapping throws on those. One bad field must not
+    // abandon fields already set, which the caller would then never save.
     try {
+      const target = targetField(item, sourceType, field);
+      if (!target || readField(item, target)) { continue; }
       item.setField(target as any, value.trim());
       filled.push(target);
     } catch (error) {
-      ztoolkit.log(`[identifier-translation] could not fill ${target}: ${error}`);
+      ztoolkit.log(`[identifier-translation] could not fill ${field}: ${error}`);
     }
   }
 
   if (!item.getCreators().length && Array.isArray(translated.creators)) {
-    const creators = translated.creators
-      .map((creator) => toCreator(item, creator))
-      .filter(Boolean);
-    if (creators.length) {
-      item.setCreators(creators as any);
-      filled.push("creators");
+    try {
+      const creators = translated.creators
+        .map((creator) => toCreator(item, creator))
+        .filter(Boolean);
+      if (creators.length) {
+        item.setCreators(creators as any);
+        filled.push("creators");
+      }
+    } catch (error) {
+      ztoolkit.log(`[identifier-translation] could not fill creators: ${error}`);
     }
   }
   return filled;

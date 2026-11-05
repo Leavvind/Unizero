@@ -38,6 +38,7 @@ import {
 } from "./itemIdentifiers";
 import {
   fillMissingFromTranslated,
+  lacksCoreFields,
   lookupByIdentifier,
 } from "../zotero/identifierTranslation";
 
@@ -418,8 +419,14 @@ function fillableFields(item: ItemMetadata, candidate: PaperCandidate): string[]
  * paper is resolved. A failed lookup leaves the candidate's own fields to do
  * the filling.
  */
-async function fillFromTranslator(item: Zotero.Item, candidate: PaperCandidate): Promise<boolean> {
-  const identifiers = candidate.doi ? { DOI: candidate.doi } : { arXiv: candidate.arxiv };
+async function fillFromTranslator(
+  item: Zotero.Item,
+  candidate: PaperCandidate,
+  doi: string | undefined,
+): Promise<boolean> {
+  // `doi` is the one the item ends up with; a candidate's own DOI that was not
+  // written may belong to another work and must not supply its fields.
+  const identifiers = doi ? { DOI: doi } : { arXiv: candidate.arxiv };
   try {
     const translated = await lookupByIdentifier(identifiers);
     return !!translated && fillMissingFromTranslated(item, translated).length > 0;
@@ -475,7 +482,10 @@ async function applyCandidate(
   // Zotero's own translator record fills first; it splits names and carries
   // volume, issue, and pages. The candidate then covers what it lacked, most
   // often the abstract.
-  if (await fillFromTranslator(item, candidate)) { changed = true; }
+  const writesDOI = !!candidate.doi && (!missingIdentifiersOnly || !current.doi);
+  const itemDOI = writesDOI ? candidate.doi : current.doi;
+  // A lookup is a network round-trip; an item with its core already filled skips it.
+  if (lacksCoreFields(item) && await fillFromTranslator(item, candidate, itemDOI)) { changed = true; }
 
   for (const field of fillableFields(readItemMetadata(item), candidate)) {
     try {
