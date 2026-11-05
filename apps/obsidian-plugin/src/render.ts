@@ -12,7 +12,7 @@
 
 import { MarkdownRenderChild, type MarkdownPostProcessorContext } from "obsidian";
 import { syntaxTree } from "@codemirror/language";
-import { type Extension, type Range, RangeSetBuilder } from "@codemirror/state";
+import { type Extension, type Range, RangeSetBuilder, StateEffect, type Text as DocText } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -23,7 +23,13 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import { scanCitations, type CitationToken } from "./citation";
+import { editorEventOpensLink } from "./linkClick";
 import { createPill, type PillHost } from "./pill";
+import { legacyLinksInLines, mapDocumentLinks, scanDocumentLinks, type DocumentLink } from "./documentLinks";
+
+/** Pause after the last edit before a document with citations is parsed again. */
+const RESCAN_DELAY_MS = 400;
+const legacyRescanned = StateEffect.define<null>();
 
 /** Ancestors whose text is never a citation. */
 const INERT_TAGS = new Set(["CODE", "PRE", "A", "KBD", "SAMP"]);
@@ -73,10 +79,16 @@ export function citationPostProcessor(host: PillHost) {
       targets.push(current as Text);
       current = walker.nextNode();
     }
+    if (!targets.length) { return; }
+
+    // `section.text` is the whole document; this runs once per rendered block.
+    const section = context.getSectionInfo(element);
+    const allowed = section ? legacyLinksInLines(section.text, section.lineStart, section.lineEnd) : undefined;
 
     for (const node of targets) {
       const text = node.nodeValue || "";
-      const tokens = scanCitations(text);
+      const permitted = allowed || scanDocumentLinks(text).filter((link) => link.legacy);
+      const tokens = scanCitations(text).filter((token) => permitted.some((link) => link.raw === token.raw));
       if (!tokens.length) { continue; }
 
       const fragment = document.createDocumentFragment();
@@ -174,8 +186,10 @@ function isInertRange(view: EditorView, from: number, to: number): boolean {
  *
  * Two rules make the result editable rather than merely pretty:
  *
- * - Only the visible ranges are scanned, so a long note costs the same as a short
- *   one.
+ * - A full parse costs hundreds of milliseconds on a long Raw, so typing never waits
+ *   for one. A document without legacy citations is never parsed here; otherwise
+ *   known pills follow the edit and the parse runs after a pause. New-style links
+ *   render natively and are parsed only when a click needs one.
  * - A citation the cursor or selection touches is left as raw text. Replacing the
  *   span the caret sits in is what makes a widget impossible to edit out.
  */
@@ -201,15 +215,53 @@ export function citationLivePreview(host: PillHost): Extension {
   const plugin = ViewPlugin.fromClass(
     class implements PluginValue {
       decorations: DecorationSet;
+      private legacy: DocumentLink[];
+      private parsed?: { doc: DocText; links: DocumentLink[] };
+      private timer?: number;
 
-      constructor(view: EditorView) {
+      constructor(private readonly view: EditorView) {
+        this.legacy = this.scanLegacy();
         this.decorations = this.build(view);
       }
 
       update(update: ViewUpdate): void {
-        if (update.docChanged || update.viewportChanged || update.selectionSet) {
+        if (update.docChanged) {
+          this.legacy = mapDocumentLinks(this.legacy, update.changes);
+          window.clearTimeout(this.timer);
+          this.timer = window.setTimeout(() => this.rescan(), RESCAN_DELAY_MS);
+        }
+        const rescanned = update.transactions.some((tr) => tr.effects.some((effect) => effect.is(legacyRescanned)));
+        if (update.docChanged || update.viewportChanged || update.selectionSet || rescanned) {
           this.decorations = this.build(update.view);
         }
+      }
+
+      destroy(): void {
+        window.clearTimeout(this.timer);
+      }
+
+      private rescan(): void {
+        const hadLegacy = this.legacy.length > 0;
+        this.legacy = this.scanLegacy();
+        if (hadLegacy || this.legacy.length) { this.view.dispatch({ effects: legacyRescanned.of(null) }); }
+      }
+
+      private linksOf(doc: DocText, text: string): DocumentLink[] {
+        if (this.parsed?.doc !== doc) { this.parsed = { doc, links: scanDocumentLinks(text) }; }
+        return this.parsed.links;
+      }
+
+      private scanLegacy(): DocumentLink[] {
+        const doc = this.view.state.doc, text = doc.toString();
+        if (!scanCitations(text).length) { return []; }
+        return this.linksOf(doc, text).filter((link) => link.legacy && link.target.kind === "paper");
+      }
+
+      /** The UniZero Markdown link at a position, for the event in hand. */
+      linkAt(position: number): DocumentLink | undefined {
+        const doc = this.view.state.doc, text = doc.toString();
+        if (!text.includes("unizero://")) { return undefined; }
+        return this.linksOf(doc, text).find((l) => !l.legacy && position >= l.from && position <= l.to);
       }
 
       private build(view: EditorView): DecorationSet {
@@ -217,10 +269,11 @@ export function citationLivePreview(host: PillHost): Extension {
         const selection = view.state.selection;
 
         for (const { from, to } of view.visibleRanges) {
-          const text = view.state.doc.sliceString(from, to);
-          for (const token of scanCitations(text)) {
-            const start = from + token.from;
-            const end = from + token.to;
+          for (const link of this.legacy.filter((link) => link.from >= from && link.to <= to)) {
+            if (link.target.kind !== "paper") { continue; }
+            const token: CitationToken = { ...link.target, raw: link.raw, from: link.from, to: link.to };
+            const start = link.from;
+            const end = link.to;
 
             if (selectionOverlapsCitation(selection.ranges, start, end)) { continue; }
             if (isInertRange(view, start, end)) { continue; }
@@ -250,5 +303,25 @@ export function citationLivePreview(host: PillHost): Extension {
       }),
     },
   );
-  return plugin;
+  // Native Markdown links retain their DOM and label rendering. Only dispatch changes.
+  const handle = (event: MouseEvent, view: EditorView): boolean => {
+    const target = event.target as Element;
+    if (event.type !== "contextmenu") {
+      if (!editorEventOpensLink(event, target, view.contentDOM)) { return false; }
+      // Finishing a drag selection over a link is not a click on it.
+      const selection = view.dom.ownerDocument.getSelection();
+      if (event.type === "click" && target.closest(".is-live-preview") && selection && !selection.isCollapsed
+        && (target.contains(selection.anchorNode) || target.contains(selection.focusNode))) { return false; }
+    }
+    const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+    if (position === null) { return false; }
+    const link = view.plugin(plugin)?.linkAt(position);
+    if (!link) { return false; }
+    event.preventDefault();
+    // Obsidian listens on an ancestor of this editor and would open the URI as well.
+    event.stopPropagation();
+    if (event.type === "contextmenu") { host.linkMenu(event, link.target); } else { host.openLink(link.target); }
+    return true;
+  };
+  return [plugin, EditorView.domEventHandlers({ click: handle, mousedown: handle, contextmenu: handle })];
 }

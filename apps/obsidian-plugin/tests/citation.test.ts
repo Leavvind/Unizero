@@ -1,3 +1,4 @@
+import { scanDocumentLinks } from "../src/documentLinks";
 import { describe, expect, it } from "vitest";
 import {
   citationPrefixAt,
@@ -157,7 +158,8 @@ describe("citationText", () => {
   it("round-trips through the scanner", () => {
     for (const action of ["detail", "markdown", "pdf"] as const) {
       const text = citationText(REF, action);
-      const [token] = scanCitations(text);
+      const [{ target: token }] = scanDocumentLinks(text);
+      if (token.kind !== "paper") { throw new Error("Expected paper"); }
       expect(token.libraryID).toBe(REF.libraryID);
       expect(token.itemKey).toBe(REF.itemKey);
       expect(token.action).toBe(action);
@@ -166,8 +168,9 @@ describe("citationText", () => {
 
   it("round-trips a PDF page", () => {
     const text = citationText(REF, "pdf", 15);
-    expect(text).toBe("@1/HLP48L8X.pdf:15");
-    const [token] = scanCitations(text);
+    expect(text).toBe("[1/HLP48L8X, p. 15](unizero://paper/1/HLP48L8X.pdf?page=15)");
+    const [{ target: token }] = scanDocumentLinks(text);
+    if (token.kind !== "paper") { throw new Error("Expected paper"); }
     expect(token.action).toBe("pdf");
     expect(token.page).toBe(15);
   });

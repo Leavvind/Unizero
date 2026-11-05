@@ -113,6 +113,20 @@ export interface BridgePing {
   ready: boolean;
 }
 
+export interface BridgeLinkSource {
+  libraryID: number; itemKey: string; attachmentKey: string;
+  title: string; itemTitle: string; format: "md" | "canvas";
+  purpose: "raw" | "canvas" | "user"; path?: string; available: boolean; version: string;
+}
+export interface BridgeSourcePage {
+  scan: string; scope: number[]; items: BridgeLinkSource[]; complete: boolean; nextOffset?: number; total: number;
+}
+export interface BridgeArtifacts {
+  libraryID: number; itemKey: string;
+  pdfs: { key: string; title: string; main: boolean; path?: string }[];
+  artifacts: { key: string; title: string; kind: string; path?: string; source?: string }[];
+}
+
 export interface BridgeLibrary {
   libraryID: number;
   name: string;
@@ -210,6 +224,17 @@ export class UnizeroBridge {
 
   ping(): Promise<BridgePing> {
     return this.get<BridgePing>("ping", {});
+  }
+
+  linkSources(options: { libraries?: number[]; scan?: string; offset?: number } = {}): Promise<BridgeSourcePage> {
+    return this.get("link-sources", { libraries: options.libraries?.join(","), scan: options.scan,
+      offset: options.offset === undefined ? undefined : String(options.offset), limit: "100" });
+  }
+  artifacts(ref: PaperRef): Promise<BridgeArtifacts> {
+    return this.get("artifacts", { libraryID: String(ref.libraryID), itemKey: ref.itemKey });
+  }
+  linkTarget(ref: PaperRef, action: "markdown" | "pdf", attachment?: string): Promise<{ source?: BridgeLinkSource; url?: string; attachmentKey?: string }> {
+    return this.get("link-target", { libraryID: String(ref.libraryID), itemKey: ref.itemKey, action, attachment });
   }
 
   paper(ref: PaperRef): Promise<BridgePaper> {

@@ -49,6 +49,9 @@ import {
 import { ensureCanvasAttachment } from "../zotero/canvasAdapter";
 import { libraryAcceptsFiles, libraryEditable, libraryScope } from "../zotero/libraryScope";
 import { rawBackupAttachment } from "../zotero/literatureCollectionAdapter";
+import { pdfAttachment } from "../zotero/literatureCollectionAdapter";
+import { listLinkSources, linkSourceLibraries, paperDocument, pdfDocumentURL } from "../zotero/linkSources";
+import { LinkSourceDirectory, SourceDirectoryError } from "./linkSourceDirectory";
 import { runtimeClient } from "../runtime-client/client";
 import { health } from "../runtime-client/process";
 import type Views from "../modules/views";
@@ -290,6 +293,8 @@ async function handlePing(): Promise<BridgeResponse> {
       "restore-raw",
       "subcollections",
       "artifacts",
+      "link-sources",
+      "link-targets",
     ],
     ready: Boolean(activeViews()),
   });
@@ -310,6 +315,32 @@ async function handleArtifacts(query: RequestQuery): Promise<BridgeResponse> {
   const found = await lookup(query);
   if (!found.found) { return found.response; }
   return json(200, await bridgeArtifacts(found.item));
+}
+
+const sourceDirectory = new LinkSourceDirectory(linkSourceLibraries, listLinkSources);
+async function handleLinkSources(query: RequestQuery): Promise<BridgeResponse> {
+  try { return json(200, await sourceDirectory.page(query)); }
+  catch (error) {
+    if (error instanceof SourceDirectoryError) { return failure(error.status, error.message); }
+    throw error;
+  }
+}
+
+async function handleLinkTarget(query: RequestQuery): Promise<BridgeResponse> {
+  const found = await lookup(query);
+  if (!found.found) { return found.response; }
+  const key = query.attachment;
+  if (key !== undefined && !/^[A-Za-z0-9]+$/.test(key)) { return failure(400, "Invalid attachment key"); }
+  if (query.action === "markdown") {
+    const source = await paperDocument(found.item, key);
+    return source ? json(200, { source }) : failure(404, "The requested Markdown attachment is unavailable");
+  }
+  if (query.action !== "pdf") { return failure(400, "action must be markdown or pdf"); }
+  const attachment = key ? found.item.getAttachments().map((id) => Zotero.Items.get(id))
+    .find((item) => item && !item.deleted && item.libraryID === found.item.libraryID && item.key === key
+      && item.attachmentContentType === "application/pdf") : pdfAttachment(found.item);
+  if (!attachment) { return failure(404, "The requested PDF attachment is unavailable"); }
+  return json(200, { url: pdfDocumentURL(attachment), attachmentKey: String(attachment.key) });
 }
 
 async function handleRelations(query: RequestQuery): Promise<BridgeResponse> {
@@ -592,6 +623,8 @@ const endpoints: Record<string, () => void> = {
   [PING]: endpointFor("ping", handlePing),
   [PAPER]: endpointFor("paper", handlePaper),
   [ARTIFACTS]: endpointFor("artifacts", handleArtifacts),
+  [`${ROOT}/link-sources`]: endpointFor("link-sources", handleLinkSources),
+  [`${ROOT}/link-target`]: endpointFor("link-target", handleLinkTarget),
   [RELATIONS]: endpointFor("relations", handleRelations),
   [SUGGEST]: endpointFor("suggest", handleSuggest),
   [COLLECTIONS]: endpointFor("collections", handleCollections),
@@ -627,6 +660,7 @@ export function registerBridgeEndpoints(): void {
 }
 
 export function unregisterBridgeEndpoints(): void {
+  sourceDirectory.clear();
   if (!registered) { return; }
   const table = (Zotero as any).Server?.Endpoints as Record<string, unknown> | undefined;
   if (table) {

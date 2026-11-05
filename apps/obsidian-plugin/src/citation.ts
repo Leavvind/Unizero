@@ -8,18 +8,12 @@
  *   @libraryID/itemKey.pdf       the PDF, opened in Zotero
  *   @libraryID/itemKey.pdf:15    the PDF at physical page 15 (Zotero `?page=`)
  *
- * What the user *types* at the `@` prompt is free text (author, title, year).
- * What gets *written* into the note is always `libraryID/itemKey`, because the
- * pill already shows Author (year) / title and the source token only has to be
- * stable. A citekey is still returned by the bridge as metadata; it is not the
- * link.
- *
- * The module is deliberately free of Obsidian imports. Both renderers — the
- * reading-mode post-processor and the live-preview CodeMirror extension — have to
- * agree on exactly which spans are citations, and the only way to guarantee that
- * is for both to call the same scanner.
+ * Bare forms are read for compatibility. New insertions and drag payloads use
+ * standard Markdown links serialized by linkTarget.ts. Structural document
+ * scanning lives in documentLinks.ts; this scanner only recognizes old tokens.
  */
 
+import { markdownLink, paperLabel } from "./linkTarget";
 export type CitationAction = "detail" | "markdown" | "pdf";
 
 /** Durable pointer to one Zotero item. */
@@ -121,8 +115,8 @@ export function scanCitations(text: string): CitationToken[] {
 /**
  * The free-text query being typed immediately before `cursor`, for `@` completion.
  *
- * Spaces are allowed (`@richardson accounting`). Selecting a hit always inserts
- * `@libraryID/itemKey` (or with `.md` / `.pdf`).
+ * Spaces are allowed (`@richardson accounting`). Selecting a hit inserts
+ * a standard Markdown UniZero link.
  *
  * Returns undefined once the prefix stops looking like a search, so the
  * suggester closes instead of following the caret across unrelated text.
@@ -150,16 +144,14 @@ export function citationPrefixAt(
 
 /** The text a completion inserts. Optional `page` applies only to the PDF action. */
 export function citationText(
-  ref: PaperRef,
+  ref: PaperRef & { authors?: string[]; title?: string; year?: string },
   action: CitationAction = "detail",
   page?: number,
 ): string {
-  if (action === "markdown") { return `@${paperRefKey(ref)}.md`; }
-  if (action === "pdf") {
-    const pageSuffix = page && page > 0 ? `:${page}` : "";
-    return `@${paperRefKey(ref)}.pdf${pageSuffix}`;
-  }
-  return `@${paperRefKey(ref)}`;
+  return markdownLink(paperLabel(ref, action === "pdf" ? page : undefined), {
+    kind: "paper", libraryID: ref.libraryID, itemKey: ref.itemKey, action,
+    ...(action === "pdf" && page ? { page } : {}),
+  });
 }
 
 /** Append `?page=N` (or `&page=N`) for a positive physical PDF page. */
@@ -178,7 +170,7 @@ export const CITATION_DRAG_MIME = "application/x-unizero-citation";
  */
 export function setCitationDragData(
   dataTransfer: DataTransfer,
-  ref: PaperRef,
+  ref: PaperRef & { authors?: string[]; title?: string; year?: string },
   action: CitationAction = "detail",
 ): void {
   const text = citationText(ref, action);
@@ -188,12 +180,12 @@ export function setCitationDragData(
 }
 
 /**
- * Wire an element so it can be dragged into a note as `@libraryID/itemKey`.
+ * Wire an element so it can be dragged into a note as a Markdown UniZero link.
  * Uses plain DOM APIs so this module stays free of Obsidian imports.
  */
 export function enableCitationDrag(
   element: HTMLElement,
-  ref: PaperRef,
+  ref: PaperRef & { authors?: string[]; title?: string; year?: string },
   action: CitationAction = "detail",
 ): void {
   element.draggable = true;

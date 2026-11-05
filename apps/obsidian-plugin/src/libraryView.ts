@@ -558,7 +558,7 @@ export class UnizeroLibraryView extends ItemView {
       );
     }
 
-    enableCitationDrag(row, ref);
+    enableCitationDrag(row, item);
 
     row.addEventListener("click", () => this.openItem(item));
     row.addEventListener("keydown", (event) => {

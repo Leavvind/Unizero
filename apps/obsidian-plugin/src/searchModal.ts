@@ -19,9 +19,10 @@ import type { PaperRef } from "./citation";
 import type UnizeroPlugin from "./main";
 import { LibrarySearch, renderSuggestion } from "./suggest";
 
-type SearchAction = "pane" | "pdf" | "raw" | "canvas";
+type SearchAction = "pane" | "pdf" | "raw" | "canvas" | "insert";
 
 const ACTION_BUTTONS: { action: SearchAction; label: string; title: string }[] = [
+  { action: "insert", label: "Insert", title: "Insert a standard Markdown link" },
   { action: "pdf", label: "PDF", title: "Open the PDF in Zotero" },
   { action: "raw", label: "Raw", title: "Open Raw" },
   { action: "canvas", label: "Canvas", title: "Open Canvas" },
@@ -99,6 +100,7 @@ async function runSearchAction(
   suggestion: BridgeSuggestion,
 ): Promise<void> {
   const ref: PaperRef = { libraryID: suggestion.libraryID, itemKey: suggestion.itemKey };
+  if (action === "insert") { plugin.insertCitation(ref); return; }
   if (action === "pane") {
     await plugin.showInDetailView(ref);
     return;

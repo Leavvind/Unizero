@@ -12,7 +12,9 @@ the client for the local paper runtime. It also still ships the legacy Unizero H
 - Localhost endpoints on Zotero’s HTTP server (`src/server/`).
 - GET: libraries, collections, paper resolve, a paper's PDFs and generated attachments
   with their paths, relations from cache, citekey lookup, and the conversion templates
-  of an already-running runtime.
+  of an already-running runtime. The `link-sources` and `link-targets` capabilities
+  add a paginated local Markdown/Canvas source directory and parent-scoped file
+  resolution for document links; discovery never adopts or modifies attachments.
 - POST actions on a paper's own Raw and Canvas: convert, create an empty Canvas
   attachment (`unizero:canvas`), move Raw or Canvas to the trash, restore Raw from
   Raw Backup. Nothing is erased.

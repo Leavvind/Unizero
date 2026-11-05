@@ -16,6 +16,7 @@ Two kinds of document live here, and they are read differently.
 | [ROADMAP.md](ROADMAP.md) | Plan | You are looking for unfinished work |
 | [LEGACY_HOME.md](LEGACY_HOME.md) | Maintenance (legacy surface) | Only if a task explicitly touches Home / Board / Project View |
 | [UNICONNECTION.md](UNICONNECTION.md) | Design and handoff | A task touches the derived reverse-reference index or the Graph tab |
+| [UNIZERO_LINKS_DESIGN.md](UNIZERO_LINKS_DESIGN.md) | Design and handoff (Chinese) | Implementing Markdown UniZero links, stable vault UIDs, links from Zotero files, backlinks, or the legacy citation transition |
 
 Component behaviour and commands are documented next to the code:
 

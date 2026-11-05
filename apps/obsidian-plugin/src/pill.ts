@@ -1,16 +1,4 @@
-/**
- * The inline citation element.
- *
- * One implementation serves both renderers. Reading mode wraps it in a
- * `MarkdownRenderChild`; live preview wraps it in a CodeMirror widget. Neither
- * owns how a pill looks, because a citation that renders differently depending on
- * which mode the pane happens to be in is worse than one that renders plainly in
- * both.
- *
- * A pill is created in its unresolved state and updated in place. It never blocks
- * on the bridge: an editor that stalls while Zotero starts up would be far more
- * disruptive than a label that fills in a moment later.
- */
+/** Legacy bare citations rendered as ordinary links; new Markdown labels are untouched. */
 
 import {
   paperRefKey,
@@ -20,104 +8,37 @@ import {
 } from "./citation";
 import type { BridgePaper } from "./bridge";
 import type { PaperState, PaperStore } from "./paperStore";
-import type { PillLabel, UnizeroSettings } from "./settings";
+import type { UnizeroSettings } from "./settings";
+import { paperLabel, serializeLinkTarget, type LinkTarget } from "./linkTarget";
 
 export interface PillHost {
   readonly store: PaperStore;
   readonly settings: UnizeroSettings;
+  openLink(target: LinkTarget): void;
+  linkMenu(event: MouseEvent, target: LinkTarget): void;
   /** Left click: run the action the syntax names (`page` from `.pdf:{page}`). */
   activate(action: CitationAction, ref: PaperRef, paper: BridgePaper, page?: number): void;
   /** Right click: offer every action, whichever form was written. */
   showMenu(event: MouseEvent, ref: PaperRef, paper: BridgePaper): void;
 }
 
-const ACTION_MARK: Record<CitationAction, string> = {
-  detail: "",
-  markdown: "MD",
-  pdf: "PDF",
-};
-
-function actionMark(token: CitationToken): string {
-  if (token.action === "pdf" && token.page) { return `p${token.page}`; }
-  return ACTION_MARK[token.action];
-}
-
-function surname(author: string): string {
-  const parts = String(author || "").trim().split(/\s+/);
-  return parts[parts.length - 1] || author;
-}
-
-function shortLabel(paper: BridgePaper, style: PillLabel): string {
-  if (style === "itemKey") {
-    return `@${paper.libraryID}/${paper.itemKey}`;
-  }
-  if (style === "title") {
-    return paper.title || `@${paper.libraryID}/${paper.itemKey}`;
-  }
-
-  const authors = paper.authors.filter(Boolean);
-  const lead = authors.length ? surname(authors[0]) : "";
-  const credit = !lead
-    ? ""
-    : authors.length === 1
-      ? lead
-      : authors.length === 2
-        ? `${lead} & ${surname(authors[1])}`
-        : `${lead} et al.`;
-
-  if (credit && paper.year) { return `${credit} (${paper.year})`; }
-  if (credit) { return credit; }
-  return paper.title || `@${paper.libraryID}/${paper.itemKey}`;
-}
-
-function tooltip(paper: BridgePaper, action: CitationAction, page?: number): string {
-  const lines = [paper.title].filter(Boolean) as string[];
-  const credit = [paper.authors.join(", "), paper.year].filter(Boolean).join(" · ");
-  if (credit) { lines.push(credit); }
-  if (paper.venue) { lines.push(paper.venue); }
-  lines.push(`@${paper.libraryID}/${paper.itemKey}`);
-  if (paper.citekey) { lines.push(`citekey ${paper.citekey}`); }
-  if (paper.ambiguous) {
-    lines.push("More than one item derives this citekey — pin it in Zotero's Extra field.");
-  }
-  lines.push(action === "markdown"
-    ? "Click to open the Raw Markdown"
-    : action === "pdf"
-      ? (page
-        ? `Click to open the PDF in Zotero at page ${page}`
-        : "Click to open the PDF in Zotero")
-      : "Click for references and metadata");
-  return lines.join("\n");
-}
-
-/**
- * Build a pill and keep it in step with the store.
- *
- * Returns the element and the teardown its host must call. Subscribing is what
- * starts the load, so a pill that is never attached costs nothing.
- */
 export function createPill(
   host: PillHost,
   token: CitationToken,
-): { element: HTMLSpanElement; destroy: () => void } {
+): { element: HTMLAnchorElement; destroy: () => void } {
   const ref: PaperRef = { libraryID: token.libraryID, itemKey: token.itemKey };
-  const element = document.createElement("span");
-  element.addClass("unizero-pill");
+  const element = document.createElement("a");
+  element.addClass("external-link", "unizero-pill", "unizero-legacy-link");
+  element.href = serializeLinkTarget({ kind: "paper", ...ref, action: token.action, ...(token.page ? { page: token.page } : {}) });
   element.dataset.ref = paperRefKey(ref);
   element.dataset.action = token.action;
 
   const label = element.createSpan({ cls: "unizero-pill__label" });
-  const mark = actionMark(token);
-  if (mark) {
-    element.createSpan({ cls: "unizero-pill__mark", text: mark });
-  }
-
   let paper: BridgePaper | undefined;
 
   const render = (state: PaperState) => {
     // Settings can repaint a live pill from cached state without recreating the
     // reading-mode child or CodeMirror widget.
-    element.dataset.style = host.settings.pillStyle;
     element.removeClass(
       "unizero-pill--loading",
       "unizero-pill--ready",
@@ -130,8 +51,8 @@ export function createPill(
       paper = state.paper;
       element.addClass("unizero-pill--ready");
       element.toggleClass("unizero-pill--ambiguous", state.paper.ambiguous);
-      label.setText(shortLabel(state.paper, host.settings.pillLabel));
-      element.setAttr("aria-label", tooltip(state.paper, token.action, token.page));
+      label.setText(paperLabel(state.paper, token.page));
+      element.setAttr("aria-label", `${state.paper.title}\n${token.raw}`);
       return;
     }
 

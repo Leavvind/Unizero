@@ -16,6 +16,12 @@ export type PillStyle = "framed" | "highlight" | "solid";
 export interface UnizeroSettings {
   /** Zotero's built-in HTTP server. Changing the port here matches Zotero's own. */
   endpoint: string;
+  vaultID: string;
+  uidProperty: string;
+  uidSource: "property" | "filename";
+  uidFilenamePattern: string;
+  indexZoteroSources: boolean;
+  sourceLibraryIDs: number[];
   pillLabel: PillLabel;
   pillStyle: PillStyle;
   /**
@@ -50,6 +56,12 @@ export interface UnizeroSettings {
 
 export const DEFAULT_SETTINGS: UnizeroSettings = {
   endpoint: "http://127.0.0.1:23119",
+  vaultID: "",
+  uidProperty: "uid",
+  uidSource: "property",
+  uidFilenamePattern: "",
+  indexZoteroSources: false,
+  sourceLibraryIDs: [],
   pillLabel: "authorYear",
   pillStyle: "framed",
   defaultTemplate: "",
@@ -90,31 +102,32 @@ export class UnizeroSettingTab extends PluginSettingTab {
         .setButtonText("Test")
         .onClick(() => void this.plugin.testConnection()));
 
-    new Setting(containerEl)
-      .setName("Citation label")
-      .setDesc("What a resolved citation shows inline. Notes store libraryID/itemKey.")
-      .addDropdown((dropdown) => dropdown
-        .addOption("authorYear", "Author (year)")
-        .addOption("title", "Title")
-        .addOption("itemKey", "libraryID/itemKey")
-        .setValue(this.plugin.settings.pillLabel)
-        .onChange(async (value) => {
-          this.plugin.settings.pillLabel = value as PillLabel;
-          await this.plugin.saveSettings("rerender");
+    new Setting(containerEl).setName("Document identity").setHeading();
+    new Setting(containerEl).setName("Vault identity").setDesc(`Logical ID: ${this.plugin.settings.vaultID}. Sync this plugin's settings between devices.`)
+      .addButton((button) => button.setButtonText("Treat as a new Vault…").onClick(() => { void this.plugin.newVaultIdentity(); }));
+    new Setting(containerEl).setName("UID source").setDesc("Use your existing identity convention. Rendering never assigns UIDs.")
+      .addDropdown((dropdown) => dropdown.addOption("property", "Frontmatter property").addOption("filename", "Filename capture group")
+        .setValue(this.plugin.settings.uidSource).onChange(async (value) => {
+          this.plugin.settings.uidSource = value as "property" | "filename"; await this.plugin.saveSettings("none"); await this.plugin.vaultIndex.initialize();
         }));
-
-    new Setting(containerEl)
-      .setName("Citation style")
-      .setDesc("Visual treatment for inline citations in both light and dark themes.")
-      .addDropdown((dropdown) => dropdown
-        .addOption("framed", "Accent frame")
-        .addOption("highlight", "Soft highlight")
-        .addOption("solid", "Solid accent")
-        .setValue(this.plugin.settings.pillStyle)
-        .onChange(async (value) => {
-          this.plugin.settings.pillStyle = value as PillStyle;
-          await this.plugin.saveSettings("rerender");
-        }));
+    new Setting(containerEl).setName("UID property").addText((text) => text.setValue(this.plugin.settings.uidProperty).onChange(async (value) => {
+      this.plugin.settings.uidProperty = value.trim() || "uid"; await this.plugin.saveSettings("none"); await this.plugin.vaultIndex.initialize();
+    }));
+    new Setting(containerEl).setName("Filename UID pattern").setDesc("Only used with Filename source. Supply an explicit regular expression with one capture group.")
+      .addText((text) => text.setValue(this.plugin.settings.uidFilenamePattern).onChange(async (value) => {
+        this.plugin.settings.uidFilenamePattern = value; await this.plugin.saveSettings("none"); await this.plugin.vaultIndex.initialize();
+      }));
+    new Setting(containerEl).setName("Index Zotero documents").setDesc("Read local Markdown and Canvas attachments, including unopened files. Refreshes every minute; never converts or downloads.")
+      .addToggle((toggle) => toggle.setValue(this.plugin.settings.indexZoteroSources).onChange(async (value) => {
+        this.plugin.settings.indexZoteroSources = value; await this.plugin.saveSettings("none"); await this.plugin.configureExternalIndex();
+      }));
+    new Setting(containerEl).setName("Source libraries").setDesc("Comma-separated library IDs; empty includes all non-feed libraries.")
+      .addText((text) => text.setValue(this.plugin.settings.sourceLibraryIDs.join(",")).onChange(async (value) => {
+        const ids = value.trim() ? value.split(",").map((part) => Number(part.trim())) : [];
+        if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) { return; }
+        this.plugin.settings.sourceLibraryIDs = [...new Set(ids)]; await this.plugin.saveSettings("none"); await this.plugin.configureExternalIndex();
+      }));
+    new Setting(containerEl).setName("Refresh document links").addButton((button) => button.setButtonText("Rebuild").onClick(() => { void this.plugin.refreshLinks(true); }));
 
     this.addTemplateSetting(containerEl);
 
@@ -140,7 +153,7 @@ export class UnizeroSettingTab extends PluginSettingTab {
       .setDesc(
         "Send Zotero annotations into Canvas text Cards or Markdown notes as "
         + "“excerpt [Author, Year](zotero://…)”. The link records where the excerpt "
-        + "came from and is not a citation, so it is not counted in the Vault tab. "
+        + "came from and is not a citation, so it is not counted in the Links tab. "
         + "Quicker: click the “Capture:” status bar item, or bind a hotkey to "
         + "“Canvas capture: Toggle auto capture”.",
       )

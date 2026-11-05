@@ -7,7 +7,7 @@ UniZero/
 │   │   ├── src/                 Citation syntax, renderers, suggester, panes, Raw/Canvas actions, bridge client
 │   │   ├── tests/               Vitest over citations, actions, the vault index, and the paper store
 │   │   ├── manifest.json        Obsidian plugin manifest
-│   │   ├── styles.css           Pill and detail-pane styling
+│   │   ├── styles.css           Link, editor and pane styling
 │   │   └── package.json
 │   ├── mcp-server/
 │   │   ├── src/                 Bridge client, paper resolution, Raw/tables/references readers, MCP tools
@@ -66,28 +66,39 @@ data are not part of this structure.
 
 | Change | Start here |
 | --- | --- |
-| Citation syntax, pill parsing, drag payload | `apps/obsidian-plugin/src/citation.ts` |
+| URI grammar, encoding, labels | `apps/obsidian-plugin/src/linkTarget.ts` |
+| Legacy citation syntax and shared drag/insert output | `apps/obsidian-plugin/src/citation.ts` |
+| Structural Markdown/Canvas scanning and text anchors | `apps/obsidian-plugin/src/documentLinks.ts` |
+| Vault UID mapping and conflicts | `apps/obsidian-plugin/src/vaultIdentity.ts` |
+| Shared document links and source coverage | `apps/obsidian-plugin/src/linkIndex.ts`, `externalIndex.ts` |
+| Target dispatch and source navigation | `apps/obsidian-plugin/src/linkOpening.ts`, `linkPicker.ts` |
+| Completion inside a link destination | `apps/obsidian-plugin/src/linkCompletion.ts`, `targetSuggest.ts` |
+| Safe local replacement of attachment files | `apps/obsidian-plugin/src/localDocuments.ts` |
+| Explicit migration, preview and recovery | `apps/obsidian-plugin/src/transition.ts`, `transitionPlan.ts` |
+| Document Backlinks and shared source lists | `apps/obsidian-plugin/src/backlinksView.ts` |
 | Bridge client (HTTP to Zotero) | `apps/obsidian-plugin/src/bridge.ts` |
 | `@` suggester / free-text search | `apps/obsidian-plugin/src/suggest.ts` |
 | Library search command (modal with PDF / Raw / Canvas jumps) | `apps/obsidian-plugin/src/searchModal.ts` |
 | Library pane | `apps/obsidian-plugin/src/libraryView.ts` |
-| Paper (detail) pane | `apps/obsidian-plugin/src/detailView.ts` |
+| Item (detail) pane | `apps/obsidian-plugin/src/detailView.ts` |
 | In-memory paper store / cache | `apps/obsidian-plugin/src/paperStore.ts` |
 | Raw, Canvas, and conversion actions and menus | `apps/obsidian-plugin/src/actions.ts` |
-| Vault citation index (paper pane's Vault tab) | `apps/obsidian-plugin/src/vaultIndex.ts` |
+| Vault source events and compatibility citation counts | `apps/obsidian-plugin/src/vaultIndex.ts` |
 | Canvas capture (Zotero excerpts into Canvas Cards and notes) | `apps/obsidian-plugin/src/capture/` |
 | Plugin settings | `apps/obsidian-plugin/src/settings.ts` |
-| Pill rendering | `apps/obsidian-plugin/src/pill.ts`, `render.ts` |
-| Pill and pane styling | `apps/obsidian-plugin/styles.css` |
+| Legacy link rendering and native-link dispatch | `apps/obsidian-plugin/src/pill.ts`, `render.ts` |
+| Link, editor and pane styling | `apps/obsidian-plugin/styles.css` |
 
 ### Zotero data plane and bridge
 
 | Change | Start here |
 | --- | --- |
 | Bridge endpoints or payloads | `apps/zotero-addon/src/server/` |
+| Bounded document source snapshots | `apps/zotero-addon/src/server/linkSourceDirectory.ts` |
 | Add or remove a feature lifecycle hook | `apps/zotero-addon/src/core/` |
 | Add a conversion or annotation command | `apps/zotero-addon/src/features/` |
 | Change a menu or panel integration | `apps/zotero-addon/src/ui/` |
+| Read-only Markdown/Canvas source discovery | `apps/zotero-addon/src/zotero/linkSources.ts` |
 | Read or mutate Zotero items/attachments | `apps/zotero-addon/src/zotero/` |
 | Change the reader's highlight shortcuts | `apps/zotero-addon/src/zotero/readerShortcuts.ts` (keys: `readerShortcutKeys.ts`) |
 | Change References, Citations, or metadata UI | `apps/zotero-addon/src/modules/` |

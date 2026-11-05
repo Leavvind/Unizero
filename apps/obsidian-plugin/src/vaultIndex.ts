@@ -8,7 +8,10 @@
  */
 
 import type { App, MarkdownView, TFile } from "obsidian";
-import { paperRefKey, scanCitations, type CitationToken, type PaperRef } from "./citation";
+import { paperRefKey, type CitationToken, type PaperRef } from "./citation";
+import { scanDocumentLinks, scanCanvasLinks, type DocumentLink } from "./documentLinks";
+import { LinkIndex, timeSlicer } from "./linkIndex";
+import type { VaultIdentity } from "./vaultIdentity";
 
 export interface VaultCitationOccurrence {
   file: TFile;
@@ -26,100 +29,20 @@ export interface VaultCitationOccurrence {
 
 export type VaultIndexListener = () => void;
 
-/** A fence opener/closer: up to three spaces, then three or more ` or ~. */
-const FENCE = /^ {0,3}(`{3,}|~{3,})/;
-
-/**
- * Blank out inline code spans, keeping every other offset where it was.
- *
- * Both renderers leave `@1/KEY` inside code as text, so the index must not count
- * it either — otherwise the Vault tab lists, and jumps to, code samples.
- */
-function maskInlineCode(line: string): string {
-  return line.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (span) => " ".repeat(span.length));
+/** Compatibility projection for the Library badges and existing consumers. */
+function paperOccurrences(links: DocumentLink[], meta: { file?: TFile; filePath: string }): VaultCitationOccurrence[] {
+  return links.flatMap((link) => link.target.kind !== "paper" ? [] : [{
+    file: meta.file as TFile, filePath: meta.filePath, line: link.line, ch: link.ch, lineText: link.lineText,
+    token: { libraryID: link.target.libraryID, itemKey: link.target.itemKey, action: link.target.action,
+      ...(link.target.page ? { page: link.target.page } : {}), raw: link.raw, from: link.ch, to: link.ch + link.raw.length },
+    ...(link.nodeId ? { nodeId: link.nodeId } : {}),
+  }]);
 }
-
-/**
- * Helper to extract citations from plain text / markdown.
- *
- * Fenced code blocks and inline code are skipped, matching what renders as a pill.
- */
-export function scanTextCitations(
-  text: string,
-  fileMeta: { file?: TFile; filePath: string },
-): VaultCitationOccurrence[] {
-  const occurrences: VaultCitationOccurrence[] = [];
-  const lines = text.split(/\r?\n/);
-  let fence: string | undefined;
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const lineText = lines[lineIndex];
-    const marker = FENCE.exec(lineText)?.[1];
-    if (fence) {
-      // A fence closes only on the same character, at least as long.
-      if (marker && marker[0] === fence[0] && marker.length >= fence.length
-        && !lineText.slice(lineText.indexOf(marker) + marker.length).trim()) {
-        fence = undefined;
-      }
-      continue;
-    }
-    if (marker) {
-      fence = marker;
-      continue;
-    }
-    if (!lineText.includes("@")) { continue; }
-    const tokens = scanCitations(maskInlineCode(lineText));
-    for (const token of tokens) {
-      occurrences.push({
-        file: fileMeta.file as TFile,
-        filePath: fileMeta.filePath,
-        line: lineIndex,
-        ch: token.from,
-        lineText,
-        token,
-      });
-    }
-  }
-  return occurrences;
+export function scanTextCitations(text: string, meta: { file?: TFile; filePath: string }): VaultCitationOccurrence[] {
+  return paperOccurrences(scanDocumentLinks(text), meta);
 }
-
-/**
- * Helper to extract citations from Obsidian Canvas JSON files.
- */
-export function scanCanvasCitations(
-  jsonContent: string,
-  fileMeta: { file?: TFile; filePath: string },
-): VaultCitationOccurrence[] {
-  const occurrences: VaultCitationOccurrence[] = [];
-  try {
-    const data = JSON.parse(jsonContent);
-    if (data && Array.isArray(data.nodes)) {
-      for (const node of data.nodes) {
-        if (!node) { continue; }
-        const nodeId = typeof node.id === "string" ? node.id : undefined;
-        if (node.type === "text" && typeof node.text === "string") {
-          const textOccurrences = scanTextCitations(node.text, fileMeta);
-          for (const occ of textOccurrences) {
-            occurrences.push({
-              ...occ,
-              nodeId,
-            });
-          }
-        } else if (node.type === "group" && typeof node.label === "string") {
-          const labelOccurrences = scanTextCitations(node.label, fileMeta);
-          for (const occ of labelOccurrences) {
-            occurrences.push({
-              ...occ,
-              nodeId,
-            });
-          }
-        }
-      }
-    }
-  } catch (error) {
-    // If JSON parse fails, fall back to scanning raw text
-    return scanTextCitations(jsonContent, fileMeta);
-  }
-  return occurrences;
+export function scanCanvasCitations(text: string, meta: { file?: TFile; filePath: string }): VaultCitationOccurrence[] {
+  return paperOccurrences(scanCanvasLinks(text), meta);
 }
 
 /**
@@ -131,7 +54,11 @@ export function scanCanvasCitations(
  * they are not notes in this vault, and their path means nothing on another machine.
  */
 export function isIndexedNote(file: Pick<TFile, "path" | "extension">): boolean {
-  return (file.extension === "md" || file.extension === "canvas") && !file.path.includes(":");
+  return (file.extension === "md" || file.extension === "canvas") && !file.path.includes(":") && !/^[\\/]/.test(file.path);
+}
+
+function stampOf(file: TFile): string | undefined {
+  return file.stat ? `${file.stat.mtime}:${file.stat.size}` : undefined;
 }
 
 /** What a subscriber renders from a file's occurrences, in order. */
@@ -157,19 +84,33 @@ export class VaultIndex {
   private readonly revisions = new Map<string, number>();
   private nextRevision = 0;
   private disposed = false;
+  private readonly failedPaths = new Set<string>();
+  /** The file state each path was last indexed at. */
+  private readonly stamps = new Map<string, string>();
 
-  constructor(private readonly app: App) {}
+  readonly links = new LinkIndex();
 
-  /** Scan all Markdown and Canvas files in the vault. */
-  async initialize(): Promise<void> {
+  constructor(private readonly app: App, readonly identity?: VaultIdentity) {}
+
+  /** Scan the vault's Markdown and Canvas files; `changedOnly` skips what is already current. */
+  async initialize(options: { changedOnly?: boolean } = {}): Promise<void> {
     if (this.disposed) { return; }
-    this.clear();
+    this.generation += 1;
+    this.links.vaultState = "updating";
+    this.links.notify();
+    const known = new Set(this.app.vault.getFiles().filter(isIndexedNote).map((f) => f.path));
+    for (const path of this.revisions.keys()) { if (!known.has(path)) { this.removeFile(path, false); } }
     const generation = this.generation;
     const files = this.app.vault.getFiles().filter(isIndexedNote);
-    await Promise.all(
-      files.map((file) => this.indexFile(file, false)),
-    );
-    if (generation === this.generation) { this.notify(); }
+    const slice = timeSlicer();
+    for (const file of files) {
+      const stamp = stampOf(file);
+      if (options.changedOnly && stamp && this.stamps.get(file.path) === stamp) { continue; }
+      await this.indexFile(file, false);
+      await slice();
+      if (generation !== this.generation || this.disposed) { return; }
+    }
+    if (generation === this.generation && !this.disposed) { this.links.vaultState = this.failedPaths.size ? "partial" : "complete"; this.links.notify(); this.notify(); }
   }
 
   /** Re-index a single modified/created file. */
@@ -184,7 +125,17 @@ export class VaultIndex {
       if (generation !== this.generation || revision !== this.revisions.get(path)
         || file.path !== path) { return; }
       this.indexFileContent(file, content, notify);
+      this.failedPaths.delete(path);
+      const stamp = stampOf(file);
+      if (stamp) { this.stamps.set(path, stamp); }
     } catch (error) {
+      if (generation === this.generation && revision === this.revisions.get(path) && !this.disposed) {
+        this.failedPaths.add(path);
+        this.stamps.delete(path);
+        const record = this.links.records.get(`vault:${path}`);
+        if (record) { this.links.stale(record.source, (error as Error).message, notify); }
+        this.links.vaultState = "partial";
+      }
       console.error(`UniZero: failed to index ${file.path}`, error);
     }
   }
@@ -195,6 +146,7 @@ export class VaultIndex {
     if (isIndexedNote(file)) {
       await this.indexFile(file, false);
     }
+    this.links.notify();
     this.notify();
   }
 
@@ -204,6 +156,7 @@ export class VaultIndex {
     const files = this.app.vault.getFiles().filter((file) =>
       file.path.startsWith(`${newPath}/`) && isIndexedNote(file));
     await Promise.all(files.map((file) => this.indexFile(file, false)));
+    this.links.notify();
     this.notify();
   }
 
@@ -217,6 +170,10 @@ export class VaultIndex {
 
   /** Remove a deleted file from the index. */
   removeFile(path: string, notify = true): void {
+    this.failedPaths.delete(path);
+    this.stamps.delete(path);
+    this.identity?.remove(path);
+    this.links.remove(`vault:${path}`);
     this.revisions.delete(path);
     const changed = this.replaceFile(path, []);
     if (changed && notify) { this.notify(); }
@@ -224,9 +181,12 @@ export class VaultIndex {
 
   /** Index parsed content for a file and optionally notify subscribers. */
   indexFileContent(file: TFile, content: string, notify = true): void {
-    const occurrences = file.extension === "canvas"
-      ? scanCanvasCitations(content, { file, filePath: file.path })
-      : scanTextCitations(content, { file, filePath: file.path });
+    if (this.disposed || !isIndexedNote(file)) { return; }
+    if (file.extension === "md") { this.identity?.update(file.path, content); }
+    const links = this.links.replace({ kind: "vault", path: file.path, title: file.basename || file.path,
+      vaultID: this.identity?.settings().vaultID || "", uid: this.identity?.get(file.path)?.uid,
+      format: file.extension as "md" | "canvas" }, content, undefined, notify);
+    const occurrences = paperOccurrences(links, { file, filePath: file.path });
     const changed = this.replaceFile(file.path, occurrences);
     if (changed && notify) { this.notify(); }
   }
@@ -309,14 +269,19 @@ export class VaultIndex {
   clear(): void {
     this.generation += 1;
     this.revisions.clear();
+    this.failedPaths.clear();
+    this.stamps.clear();
     this.fileOccurrences.clear();
     this.paperOccurrences.clear();
+    this.identity?.clear();
+    for (const [key, record] of this.links.records) { if (record.source.kind === "vault") { this.links.records.delete(key); } }
   }
 
   dispose(): void {
     this.disposed = true;
     this.clear();
     this.listeners.clear();
+    this.links.dispose();
   }
 
   /**

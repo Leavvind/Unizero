@@ -22,6 +22,7 @@ import {
 import { enableCitationDrag, paperRefKey, type PaperRef } from "./citation";
 import type { PaperState } from "./paperStore";
 import type UnizeroPlugin from "./main";
+import { renderCoverage, renderOccurrences } from "./backlinksView";
 import {
   addCanvasItems,
   addRawItems,
@@ -39,7 +40,7 @@ export const DETAIL_VIEW_TYPE = "unizero-detail";
 export type DetailTabKind = "vault" | RelationKind;
 
 const TABS: { kind: DetailTabKind; label: string }[] = [
-  { kind: "vault", label: "Vault" },
+  { kind: "vault", label: "Links" },
   { kind: "references", label: "References" },
   { kind: "citations", label: "Citations" },
   { kind: "relation", label: "Relation" },
@@ -88,7 +89,7 @@ export class UnizeroDetailView extends ItemView {
   async onOpen(): Promise<void> {
     this.contentEl.addClass("unizero-detail");
     this.render();
-    this.unsubscribeVaultIndex = this.plugin.vaultIndex.subscribe(() => {
+    this.unsubscribeVaultIndex = this.plugin.vaultIndex.links.subscribe(() => {
       if (this.kind === "vault") {
         this.render();
       }
@@ -217,7 +218,7 @@ export class UnizeroDetailView extends ItemView {
       itemKey: paper.itemKey,
     };
     // Drag the open paper into a note (same affordance as library rows).
-    enableCitationDrag(header, selfRef);
+    enableCitationDrag(header, paper);
     header.setAttr(
       "title",
       `Drag into a note to insert @${paper.libraryID}/${paper.itemKey}`,
@@ -363,75 +364,11 @@ export class UnizeroDetailView extends ItemView {
   }
 
   private renderVault(container: HTMLElement): void {
-    const body = container.createDiv({ cls: "unizero-detail__list unizero-vault-occurrences" });
+    const body = container.createDiv({ cls: "unizero-detail__list" });
     if (!this.ref) { return; }
-
-    const occurrences = this.plugin.vaultIndex.getOccurrences(this.ref);
-    if (!occurrences.length) {
-      const empty = body.createDiv({ cls: "unizero-detail__empty" });
-      empty.createEl("p", {
-        text: `No citations found in this vault for @${paperRefKey(this.ref)}.`,
-      });
-      empty.createEl("button", { text: "Insert citation" }).addEventListener("click", () => {
-        if (this.ref) {
-          this.plugin.insertCitation(this.ref);
-        }
-      });
-      return;
-    }
-
-    const byFile = new Map<string, { file: TFile; items: typeof occurrences }>();
-    for (const occ of occurrences) {
-      let group = byFile.get(occ.filePath);
-      if (!group) {
-        group = { file: occ.file, items: [] };
-        byFile.set(occ.filePath, group);
-      }
-      group.items.push(occ);
-    }
-
-    const countText = `${occurrences.length} citation${occurrences.length === 1 ? "" : "s"} across ${byFile.size} note${byFile.size === 1 ? "" : "s"}`;
-    body.createDiv({ cls: "unizero-detail__summary", text: countText });
-
-    for (const [filePath, group] of byFile) {
-      const isCanvas = filePath.endsWith(".canvas");
-      const fileGroup = body.createDiv({ cls: "unizero-vault-file-group" });
-      const header = fileGroup.createDiv({ cls: "unizero-vault-file-header" });
-      const iconSpan = header.createSpan({ cls: "unizero-vault-file-icon" });
-      setIcon(iconSpan, isCanvas ? "layout-dashboard" : "file-text");
-      header.createSpan({ cls: "unizero-vault-file-path", text: filePath });
-      header.createSpan({
-        cls: "unizero-badge unizero-vault-file-badge",
-        text: String(group.items.length),
-      });
-
-      header.addEventListener("click", () => {
-        void this.app.workspace.getLeaf(false).openFile(group.file);
-      });
-
-      for (const occ of group.items) {
-        const itemRow = fileGroup.createDiv({ cls: "unizero-vault-item" });
-        itemRow.setAttr("title", isCanvas ? "Click to open in Canvas" : `Click to jump to line ${occ.line + 1}`);
-        itemRow.createSpan({
-          cls: "unizero-vault-line-num",
-          text: isCanvas ? (occ.line > 0 ? `L${occ.line + 1}` : "Card") : `L${occ.line + 1}`,
-        });
-
-        const snippet = itemRow.createSpan({ cls: "unizero-vault-snippet" });
-        snippet.setText(occ.lineText.trim() || occ.token.raw);
-
-        if (occ.token.action !== "detail") {
-          const actionText = occ.token.action === "pdf"
-            ? `PDF${occ.token.page ? `:${occ.token.page}` : ""}`
-            : "MD";
-          itemRow.createSpan({ cls: "unizero-badge", text: actionText });
-        }
-
-        itemRow.addEventListener("click", () => {
-          void this.plugin.vaultIndex.openOccurrence(occ);
-        });
-      }
-    }
+    renderCoverage(body, this.plugin);
+    renderOccurrences(body, this.plugin, this.plugin.vaultIndex.links.query({ kind: "paper", ...this.ref, action: "detail" }));
+    body.createEl("button", { text: "Insert citation" }).onclick = () => { if (this.ref) { this.plugin.insertCitation(this.ref); } };
   }
 
   private renderRelations(container: HTMLElement): void {
@@ -510,7 +447,7 @@ export class UnizeroDetailView extends ItemView {
         libraryID: related.libraryID,
         itemKey: related.itemKey,
       };
-      enableCitationDrag(row, ref);
+      enableCitationDrag(row, { ...ref, authors: related.authors, year: related.year, title: related.title });
       row.setAttr(
         "title",
         `Drag into a note to insert @${ref.libraryID}/${ref.itemKey}`,

@@ -44,8 +44,8 @@ UniZero has four executable components:
 
 - `apps/zotero-addon`: Zotero add-on (library backend; includes legacy Home UI);
 - `services/paper-runtime`: optional Python service for document processing;
-- `apps/obsidian-plugin`: Obsidian plugin — free-text `@` search, `@libraryID/itemKey`
-  citations, detail pane against the bridge;
+- `apps/obsidian-plugin`: Obsidian plugin — free-text `@` search, Markdown UniZero
+  links, stable Vault UID targets, and detail/backlink panes against the bridge;
 - `apps/mcp-server`: MCP server giving agents papers, Raw text, tables, and references
   through the same bridge; it reads only files `GET /artifacts` names.
 

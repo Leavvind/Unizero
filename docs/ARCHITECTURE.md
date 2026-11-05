@@ -113,12 +113,24 @@ Load-bearing properties:
   write-back design.
 - **Additions are announced, not versioned.** A new endpoint, parameter, or payload
   field is announced by a ping capability (`templates`, `canvas`, `trash`,
-  `restore-raw`, `subcollections`, `artifacts`) and keeps `BRIDGE_API_VERSION` at 2. A
+  `restore-raw`, `subcollections`, `artifacts`, `link-sources`, `link-targets`) and keeps `BRIDGE_API_VERSION` at 2. A
   client checks the capability; an older add-on ignores an unknown parameter.
 - **Generated files are named by the add-on.** `GET /artifacts` lists a paper's PDFs
   and its `unizero:<kind>` attachments with their source PDF and local path. The MCP
   server (`apps/mcp-server`) reads Raw, the tables digest, and References only through
   it, so tags and attachment-note records stay add-on internals.
+- **Document sources are declared by Zotero.** `GET /link-sources` accepts optional
+  comma-separated `libraries`, then pages an expiring snapshot using `scan`,
+  `offset`, and `limit` (1–200). Responses contain `scan`, `scope`, `items`, `total`,
+  `complete`, and optional `nextOffset`. Each source names `libraryID`, `itemKey`,
+  `attachmentKey`, `title`, `itemTitle`, `format`, `purpose`, `available`, optional
+  local `path`, and `version`. Raw Backup and derived exports are excluded.
+  Incomplete pages never authorize pruning. At most four snapshots live for five
+  minutes; expired continuations return 409 and require a new scan.
+- **Document targets are parent-scoped.** `GET /link-target` takes `libraryID`,
+  `itemKey`, `action=markdown|pdf`, and optional `attachment`. Markdown returns a
+  declared `source`; PDF returns `url` and `attachmentKey`. A missing explicit key
+  returns 404. Default selection delegates to existing Zotero adapters.
 - **Templates are listed, never started for.** `GET /templates` asks the paper runtime
   only when it is already running; a stopped runtime is `available: false`.
 - **Subcollections are opt-in.** `GET /collection-items` lists a collection's own
@@ -129,6 +141,13 @@ Load-bearing properties:
   Rendering a note must never start conversion or provider work.
 - **Identity.** Persisted citations use `libraryID` + `itemKey`. A citekey is a derived
   alias and may collide; ambiguity is reported, never resolved silently.
+
+The Obsidian application layer owns a separate, rebuildable document-link index.
+Vault source events and the opt-in Zotero source refresher feed that shared index;
+views only subscribe and query. Vault targets use a synchronized logical `vaultID`
+and the user's UID; local paths are derived mappings. Local attachment editing and
+explicit Transition migration remain Obsidian-side operations and add no bridge
+write endpoint. They never write into the bibliographic relation cache or catalog.
 
 This boundary is unrelated to the add-on ↔ runtime `/api/v1` contract. Do not merge them.
 

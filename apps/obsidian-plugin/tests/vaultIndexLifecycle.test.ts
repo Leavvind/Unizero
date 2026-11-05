@@ -12,6 +12,32 @@ function deferred() {
 }
 
 describe("vault index lifecycle", () => {
+  it("retains stale links and partial coverage when a rebuild cannot read a source", async () => {
+    const note = file("Note.md");
+    const index = new VaultIndex({ vault: { getFiles: () => [note], cachedRead: async () => { throw new Error("offline file"); } } } as unknown as App);
+    index.indexFileContent(note, "@1/ABCD1234");
+    await index.initialize();
+    expect(index.getCount(ref)).toBe(1);
+    expect(index.links.vaultState).toBe("partial");
+    expect(index.links.query({ kind: "paper", ...ref, action: "detail" })[0].stale).toBe(true);
+  });
+  it("refreshes only changed files and notifies once for a whole pass", async () => {
+    const stamped = (path: string) => ({ ...file(path), stat: { mtime: 1, size: 1 } } as TFile);
+    const a = stamped("a.md"), b = stamped("b.md");
+    let reads = 0;
+    const index = new VaultIndex({ vault: { getFiles: () => [a, b], cachedRead: async () => { reads += 1; return "@1/ABCD1234"; } } } as unknown as App);
+    let notified = 0; index.links.subscribe(() => { notified += 1; });
+    await index.initialize();
+    expect(reads).toBe(2); expect(notified).toBe(2); // Updating, then complete.
+    await index.initialize({ changedOnly: true });
+    expect(reads).toBe(2);
+    a.stat.mtime = 2;
+    await index.initialize({ changedOnly: true });
+    expect(reads).toBe(3);
+    await index.initialize();
+    expect(reads).toBe(5);
+    expect(index.links.vaultState).toBe("complete");
+  });
   it("does not restore citations after deletion during a read", async () => {
     const request = deferred();
     const index = new VaultIndex({ vault: { cachedRead: () => request.promise } } as unknown as App);
