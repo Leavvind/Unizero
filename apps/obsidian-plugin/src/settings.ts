@@ -7,12 +7,6 @@ import {
 } from "./capture/canvasCapture";
 import type UnizeroPlugin from "./main";
 
-/** How a resolved pill labels itself. The written address is always in the tooltip. */
-export type PillLabel = "authorYear" | "title" | "itemKey";
-
-/** Visual treatment for inline citations; all variants follow the Obsidian theme. */
-export type PillStyle = "framed" | "highlight" | "solid";
-
 export interface UnizeroSettings {
   /** Zotero's built-in HTTP server. Changing the port here matches Zotero's own. */
   endpoint: string;
@@ -22,8 +16,6 @@ export interface UnizeroSettings {
   uidFilenamePattern: string;
   indexZoteroSources: boolean;
   sourceLibraryIDs: number[];
-  pillLabel: PillLabel;
-  pillStyle: PillStyle;
   /**
    * Conversion template a left click on Convert runs, by runtime template id.
    * Empty means Zotero's own default, so it follows the add-on if that changes.
@@ -62,8 +54,6 @@ export const DEFAULT_SETTINGS: UnizeroSettings = {
   uidFilenamePattern: "",
   indexZoteroSources: false,
   sourceLibraryIDs: [],
-  pillLabel: "authorYear",
-  pillStyle: "framed",
   defaultTemplate: "",
   canvasLinks: {},
   lastLibraryID: null,
@@ -103,9 +93,9 @@ export class UnizeroSettingTab extends PluginSettingTab {
         .onClick(() => void this.plugin.testConnection()));
 
     new Setting(containerEl).setName("Document identity").setHeading();
-    new Setting(containerEl).setName("Vault identity").setDesc(`Logical ID: ${this.plugin.settings.vaultID}. Sync this plugin's settings between devices.`)
+    new Setting(containerEl).setName("Vault identity").setDesc(`ID: ${this.plugin.settings.vaultID}. Sync this plugin's settings between devices.`)
       .addButton((button) => button.setButtonText("Treat as a new Vault…").onClick(() => { void this.plugin.newVaultIdentity(); }));
-    new Setting(containerEl).setName("UID source").setDesc("Use your existing identity convention. Rendering never assigns UIDs.")
+    new Setting(containerEl).setName("UID source").setDesc("Where each note's UID comes from. The plugin never assigns one.")
       .addDropdown((dropdown) => dropdown.addOption("property", "Frontmatter property").addOption("filename", "Filename capture group")
         .setValue(this.plugin.settings.uidSource).onChange(async (value) => {
           this.plugin.settings.uidSource = value as "property" | "filename"; await this.plugin.saveSettings("none"); await this.plugin.vaultIndex.initialize();
@@ -113,15 +103,15 @@ export class UnizeroSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("UID property").addText((text) => text.setValue(this.plugin.settings.uidProperty).onChange(async (value) => {
       this.plugin.settings.uidProperty = value.trim() || "uid"; await this.plugin.saveSettings("none"); await this.plugin.vaultIndex.initialize();
     }));
-    new Setting(containerEl).setName("Filename UID pattern").setDesc("Only used with Filename source. Supply an explicit regular expression with one capture group.")
+    new Setting(containerEl).setName("Filename UID pattern").setDesc("Filename source only: a regular expression with one capture group.")
       .addText((text) => text.setValue(this.plugin.settings.uidFilenamePattern).onChange(async (value) => {
         this.plugin.settings.uidFilenamePattern = value; await this.plugin.saveSettings("none"); await this.plugin.vaultIndex.initialize();
       }));
-    new Setting(containerEl).setName("Index Zotero documents").setDesc("Read local Markdown and Canvas attachments, including unopened files. Refreshes every minute; never converts or downloads.")
+    new Setting(containerEl).setName("Index Zotero documents").setDesc("Also index links in local Markdown and Canvas attachments. Refreshes every minute.")
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.indexZoteroSources).onChange(async (value) => {
         this.plugin.settings.indexZoteroSources = value; await this.plugin.saveSettings("none"); await this.plugin.configureExternalIndex();
       }));
-    new Setting(containerEl).setName("Source libraries").setDesc("Comma-separated library IDs; empty includes all non-feed libraries.")
+    new Setting(containerEl).setName("Source libraries").setDesc("Comma-separated library IDs; empty means all.")
       .addText((text) => text.setValue(this.plugin.settings.sourceLibraryIDs.join(",")).onChange(async (value) => {
         const ids = value.trim() ? value.split(",").map((part) => Number(part.trim())) : [];
         if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) { return; }

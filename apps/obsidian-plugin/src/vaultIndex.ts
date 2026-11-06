@@ -1,7 +1,7 @@
 /**
  * Vault citation index.
  *
- * Tracks every paper citation (`@libraryID/itemKey`, `.md`, `.pdf`, `.pdf:{page}`)
+ * Tracks every UniZero paper link (item, Raw `.md`, `.pdf` with optional page)
  * across Markdown and Canvas files in the Obsidian vault. Provides fast lookups for
  * citation counts (used by LibraryView badges) and occurrence locations
  * with line/column coordinates and text context (used by DetailView Vault tab).

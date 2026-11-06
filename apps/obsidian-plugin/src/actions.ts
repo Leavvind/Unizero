@@ -1,8 +1,8 @@
 /**
- * What each citation form does when clicked.
+ * What each paper link does when opened.
  *
- * `@libraryID/itemKey` stays inside Obsidian; `.md` opens the paper's Raw Markdown;
- * `.pdf` / `.pdf:{page}` hand off to Zotero (optional physical page via `?page=`).
+ * `unizero://paper/<libraryID>/<itemKey>` stays inside Obsidian; `.md` opens the
+ * paper's Raw Markdown; `.pdf` hands off to Zotero (optional physical `?page=`).
  * Side-effects the plugin may request all concern the user's own artifacts:
  * conversion (the same Zotero menu command), creating the empty Canvas on first
  * open, moving Raw or Canvas to Zotero's trash, and restoring Raw from Raw Backup.

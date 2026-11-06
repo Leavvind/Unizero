@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseLinkTarget, serializeLinkTarget, markdownLink, paperLabel, type LinkTarget } from "../src/linkTarget";
-import { EditorState } from "@codemirror/state";
-import { scanDocumentLinks, scanCanvasLinks, resolveTextLocation, textAnchors, occurrenceSnippet, retargetInlineLink, mapDocumentLinks, legacyLinksInLines } from "../src/documentLinks";
+import { scanDocumentLinks, scanCanvasLinks, resolveTextLocation, textAnchors, occurrenceSnippet, retargetInlineLink } from "../src/documentLinks";
 import { readDocumentUID, VaultIdentity } from "../src/vaultIdentity";
-import { planTransition } from "../src/transitionPlan";
 
 const ref = { libraryID: 2, itemKey: "ABCD1234" };
+const L = "[a](unizero://paper/2/ABCD1234)";
 
 describe("occurrenceSnippet", () => {
   it("shows the label without the destination or block markup", () => {
@@ -54,27 +53,25 @@ describe("structural source parsing", () => {
     expect(retargetInlineLink('[**edited** `]`](unizero://paper/2/ABCD1234)', target)).toBe('[**edited** `]`](unizero://note/a/123)');
   });
   it.each([
-    ["a line starting with a wikilink", `[[Note]] see ${"@2/ABCD1234"}`],
-    ["a short wikilink", "[[a]] @2/ABCD1234"],
-    ["a list item starting with a wikilink", "- [[Note]] @2/ABCD1234"],
-    ["a line starting with a comment", "%%todo%% @2/ABCD1234"],
-    ["a list item starting with a comment", "- %%todo%% @2/ABCD1234"],
-    ["two comments", "%%a%% %%b%% @2/ABCD1234"],
-    ["the last line of a multi-line comment", "%%a\nb%% @2/ABCD1234"],
-  ])("keeps links after %s", (_name, text) => {
+    ["a line starting with a wikilink", "[[Note]] see "],
+    ["a short wikilink", "[[a]] "],
+    ["a list item starting with a wikilink", "- [[Note]] "],
+    ["a line starting with a comment", "%%todo%% "],
+    ["a list item starting with a comment", "- %%todo%% "],
+    ["two comments", "%%a%% %%b%% "],
+    ["the last line of a multi-line comment", "%%a\nb%% "],
+  ])("keeps links after %s", (_name, prefix) => {
+    const text = prefix + L;
     const links = scanDocumentLinks(text);
     expect(links).toHaveLength(1);
-    expect(text.slice(links[0].from, links[0].to)).toBe("@2/ABCD1234");
-    const inline = text.replace("@2/ABCD1234", "[a](unizero://paper/2/ABCD1234)");
-    expect(scanDocumentLinks(inline)).toHaveLength(1);
+    expect(text.slice(links[0].from, links[0].to)).toBe(L);
   });
   it("keeps Obsidian syntax out of the scan and out of the block structure", () => {
-    expect(scanDocumentLinks("before %% @2/ABCD1234 %% after")).toHaveLength(0);
-    expect(scanDocumentLinks("%%\n@2/ABCD1234\n%%")).toHaveLength(0);
-    expect(scanDocumentLinks("[[@2/ABCD1234]] [[Note|@2/ABCD1234]]")).toHaveLength(0);
-    expect(scanDocumentLinks("    [[Note]] @2/ABCD1234")).toHaveLength(0);
-    expect(scanDocumentLinks("`[[Note]]` @2/ABCD1234")).toHaveLength(1);
-    expect(scanDocumentLinks("%%comment%%\n\n    @2/ABCD1234")).toHaveLength(0);
+    expect(scanDocumentLinks(`before %% ${L} %% after`)).toHaveLength(0);
+    expect(scanDocumentLinks(`%%\n${L}\n%%`)).toHaveLength(0);
+    expect(scanDocumentLinks(`    [[Note]] ${L}`)).toHaveLength(0);
+    expect(scanDocumentLinks(`\`[[Note]]\` ${L}`)).toHaveLength(1);
+    expect(scanDocumentLinks(`%%comment%%\n\n    ${L}`)).toHaveLength(0);
   });
   it("finds anchors on lines with wikilinks and comments", () => {
     expect(resolveTextLocation("[[Note]] text ^abc\n", { kind: "block", value: "abc" }).status).toBe("found");
@@ -87,50 +84,29 @@ describe("structural source parsing", () => {
     expect(textAnchors("# %%c%% intro\n")[0].location.value).toBe("intro");
     expect(textAnchors("[[Note]]\n---\n")[0].location.value).toBe("[[Note]]");
   });
-  it("migrates legacy citations on a wikilink-first line", async () => {
-    const plan = await planTransition("x", "md", "[[Note]] see @2/ABCD1234\n", async () => ({ authors: ["A"], year: "2020", title: "T" }));
-    expect(plan.count).toBe(1);
-    expect(plan.after).toBe("[[Note]] see [A, 2020](unizero://paper/2/ABCD1234)\n");
-  });
   it("reports correct positions in documents with many lines", () => {
-    const text = ["first", "", "second @2/ABCD1234 here", "", "third [a](unizero://paper/2/ABCD1234)", "last line"].join("\r\n");
+    const text = ["first", "", `second ${L} here`, "", "third [b](unizero://paper/2/ABCD1234.md)", "last line"].join("\r\n");
     expect(scanDocumentLinks(text).map((l) => [l.line, l.ch, l.lineText])).toEqual([
-      [2, 7, "second @2/ABCD1234 here"], [4, 6, "third [a](unizero://paper/2/ABCD1234)"],
+      [2, 7, `second ${L} here`], [4, 6, "third [b](unizero://paper/2/ABCD1234.md)"],
     ]);
   });
-  it("carries links through an edit and drops the ones it touches", () => {
-    const text = "x @2/ABCD1234 y @2/ABCD5678";
-    const [first, second] = scanDocumentLinks(text);
-    const before = EditorState.create({ doc: text }).changes({ from: 0, insert: "new " });
-    expect(mapDocumentLinks([first, second], before).map((l) => l.from)).toEqual([first.from + 4, second.from + 4]);
-    const inside = EditorState.create({ doc: text }).changes({ from: first.from + 3, insert: "Z" });
-    expect(mapDocumentLinks([first, second], inside).map((l) => l.raw)).toEqual([second.raw]);
-  });
-  it("classifies one rendered block on its own lines", () => {
-    const text = ["# Title", "", "text @2/ABCD1234", "more @2/ABCD5678", "", "```", "@2/ABCDFFFF", "```"].join("\n");
-    expect(legacyLinksInLines(text, 2, 3).map((l) => l.raw)).toEqual(["@2/ABCD1234", "@2/ABCD5678"]);
-    expect(legacyLinksInLines(text, 5, 7)).toEqual([]);
-  });
   it("does not let comment delimiters inside code hide later links", () => {
-    expect(scanDocumentLinks("`%%`\n\n@2/ABCD1234")).toHaveLength(1);
-    expect(scanDocumentLinks("```\n%%\n```\n\n@2/ABCD1234")).toHaveLength(1);
-    expect(scanDocumentLinks("[[**@2/ABCD1234**]]")).toHaveLength(0);
-    expect(scanDocumentLinks("@0/KEY @9007199254740993/KEY @2/ABCD1234.pdf:0 @2/ABCD1234.pdf:")).toHaveLength(0);
+    expect(scanDocumentLinks(`\`%%\`\n\n${L}`)).toHaveLength(1);
+    expect(scanDocumentLinks(`\`\`\`\n%%\n\`\`\`\n\n${L}`)).toHaveLength(1);
   });
-  it("counts inline, reference and legacy links once, excluding inert regions", () => {
+  it("counts inline and reference links once, excluding inert regions and bare tokens", () => {
     const text = ["---", "uid: '@2/ABCD1234'", "---", "[my @2/ABCD1234](unizero://paper/2/ABCD1234)",
       "[ref][paper] @2/ABCD1234.pdf:15", "", "[paper]: unizero://paper/2/ABCD1234.md#Methods", "",
-      "`@2/ABCD1234`", "", "    @2/ABCD1234", "<!-- @2/ABCD1234 -->", "%% @2/ABCD1234 %%", "\\@2/ABCD1234",
-      "[ordinary @2/ABCD1234](https://example.com)", "[[@2/ABCD1234]]", "```md", "@2/ABCD1234", "```"].join("\n");
+      `\`${L}\``, "", `    ${L}`, `<!-- ${L} -->`, `%% ${L} %%`,
+      "[ordinary @2/ABCD1234](https://example.com)", "```md", L, "```"].join("\n");
     const links = scanDocumentLinks(text);
-    expect(links).toHaveLength(3);
-    expect(links.map((l) => l.legacy)).toEqual([false, false, true]);
+    expect(links).toHaveLength(2);
     for (const link of links) { expect(text.slice(link.from, link.to)).toBe(link.raw); }
   });
   it("ignores arbitrary Canvas properties and file embeds, keeps text, group and edge labels", () => {
-    const json = JSON.stringify({ nodes: [{ id: "t", type: "text", text: "@2/ABCD1234" },
-      { id: "f", type: "file", file: "@2/ABCD1234.md" }, { id: "g", type: "group", label: "@2/ABCD1234" }],
-      edges: [{ id: "e", label: "[note](unizero://note/a/123)" }], other: "@2/ABCD1234" });
+    const json = JSON.stringify({ nodes: [{ id: "t", type: "text", text: L },
+      { id: "f", type: "file", file: "@2/ABCD1234.md" }, { id: "g", type: "group", label: L }],
+      edges: [{ id: "e", label: "[note](unizero://note/a/123)" }], other: L });
     expect(scanCanvasLinks(json).map((l) => l.nodeId)).toEqual(["t", "g", "e"]);
     expect(() => scanCanvasLinks("{broken")).toThrow();
   });
@@ -164,25 +140,5 @@ describe("Vault UID mapping", () => {
   it("reads filename UIDs only with an explicit configured capture", () => {
     expect(readDocumentUID("", "20260728102240 title.md", settings).uid).toBeUndefined();
     expect(readDocumentUID("", "20260728102240 title.md", { ...settings, uidSource: "filename", uidFilenamePattern: "^(\\d{14}) " }).uid).toBe("20260728102240");
-  });
-});
-
-describe("Transition plans", () => {
-  const metadata = async () => ({ authors: ["A Smith"], year: "2024", title: "Test" });
-  it("migrates only complete legacy occurrences and is idempotent", async () => {
-    const before = "---\r\nuid: abc\r\n---\r\n@2/ABCD1234.pdf:15 ![](attachments/a.png)\r\n`@2/ABCD1234` \\@2/ABCD1234 [manual @2/ABCD1234](unizero://paper/2/ABCD1234)";
-    const plan = await planTransition("vault:a.md", "md", before, metadata);
-    expect(plan.count).toBe(1); expect(plan.after).toContain("[Smith, 2024, p. 15](unizero://paper/2/ABCD1234.pdf?page=15)");
-    expect(plan.after).toContain("![](attachments/a.png)\r\n");
-    expect((await planTransition(plan.id, "md", plan.after, metadata)).count).toBe(0);
-  });
-  it("preserves Canvas formatting and every unrelated JSON field", async () => {
-    const before = '{ "nodes": [{ "id": "a", "type": "text", "text": "@2/ABCD1234" }], "unknown": 42 }';
-    const plan = await planTransition("zotero:a", "canvas", before, metadata);
-    expect(plan.after.replace('"[Smith, 2024](unizero://paper/2/ABCD1234)"', '"@2/ABCD1234"')).toBe(before);
-  });
-  it("keeps unresolved metadata unchanged with a skip reason", async () => {
-    const plan = await planTransition("vault:a.md", "md", "@2/ABCD1234", async () => undefined);
-    expect(plan.after).toBe(plan.before); expect(plan.skipped).toHaveLength(1);
   });
 });

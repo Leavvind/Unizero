@@ -19,7 +19,7 @@
 2. 链接文字是保存在文档里的普通 Markdown 内容，用户可以自由更改。以后修改 Zotero 作者、年份、标题，不自动覆盖已有链接文字。
 3. 使用普通 Markdown 链接外观，移除设置界面的 Citation label 和 Citation style。保留 UniZero 的目标解析、点击、右键菜单，以及后续定位能力。
 4. 不引入 `[[@...]]`，不占用 Obsidian 原生 `[[...]]` 的解析和文件身份。
-5. 已有裸 `@libraryID/itemKey` 系列继续可读，并提供显式的 Transition 迁移；不在打开文档时自动改写。
+5. 已有裸 `@libraryID/itemKey` 系列通过显式的 Transition 迁移，不在打开文档时自动改写（0.11.0 之后不再可读，见第 9 节）。
 6. Zotero Item 身份继续使用 `libraryID + itemKey`。Vault 文档使用 `vaultID + UID`，复用用户已有的 UID，例如 `20260728102240`。
 7. 文档改名、同一 Vault 内移动时 UID 不变，已有链接不需要修改。文件路径只参与本机解析，不是持久身份。
 8. 标题或内容修改后，先尝试原定位。只要文件身份仍能解析，定位失效就打开文件并轻提示；不把整条链接判为失效，不猜相似标题或段落。
@@ -277,30 +277,15 @@ LinkOccurrence
 
 ## 9. 旧引用的 Transition
 
-提供显式命令，先扫描并生成可审阅的转换计划，再应用选定范围。普通打开、渲染、建索引不改写正文。
+0.11.0 提供显式的 Transition 命令：预览当前文档、Vault 或选定 Zotero 文档，确认后把旧引用改写为 Markdown 链接，并保存原文日志以便恢复。元数据无法解析的引用保持原文。
 
 ```text
-@1/2BJFPCUL
-→ [Smith, 2024](unizero://paper/1/2BJFPCUL)
-
-@1/2BJFPCUL.md
-→ [Smith, 2024](unizero://paper/1/2BJFPCUL.md)
-
-@1/2BJFPCUL.pdf:15
-→ [Smith, 2024, p. 15](unizero://paper/1/2BJFPCUL.pdf?page=15)
+@1/2BJFPCUL          → [Smith, 2024](unizero://paper/1/2BJFPCUL)
+@1/2BJFPCUL.md       → [Smith, 2024](unizero://paper/1/2BJFPCUL.md)
+@1/2BJFPCUL.pdf:15   → [Smith, 2024, p. 15](unizero://paper/1/2BJFPCUL.pdf?page=15)
 ```
 
-- 迁移范围可选当前文档、Vault，以及明确选择的 Zotero Markdown、Canvas 来源。
-- 展示文件数、引用数、示例前后对照和跳过原因。元数据无法解析的引用保留原文，不猜作者或年份。
-- 跳过代码、转义文本、已有链接和不完整引用；Canvas 使用 JSON 解析，仅更新支持的文本字段，保留其他结构。
-- 不替换现有 `zotero://` 摘录链接、原生双链和普通 Markdown 链接，不改变已有 UniZero 链接文字。
-- 应用前复核文件修订或内容摘要，文件在预览后变化则跳过并重新生成计划，不能覆盖用户新编辑。
-- 对打开的编辑器使用支持撤销的编辑事务；对批量持久改写保存可恢复的原始内容和操作清单。中断可恢复，重复执行幂等。
-- 编辑 Zotero 附件是用户显式选择的本地文档编辑，通过 Obsidian 侧适配完成；不增加允许任意文件写入的桥接端点，不使用转换覆盖 Raw。
-- 默认不迁移 Raw Backup。附件中的相对图片路径、frontmatter、换行和其他无关内容保持不变。
-- 迁移后重建相关来源索引。同一引用不得同时登记迁移前后的两条记录。
-- 未迁移的旧 `@` 保持点击和索引兼容，用普通链接样式呈现；不再保留一套可配置外观。过渡兼容不是继续插入旧语法的理由。
-- 旧 `pillLabel`、`pillStyle` 不再出现在设置界面；存量配置可以兼容读取或保留，但不影响新链接。移除持久兼容分支前记录明确退役条件，不顺带清理其他旧状态。
+0.11.0 之后，裸 `@libraryID/itemKey` 的读取、Transition 命令和 `pillLabel`、`pillStyle` 兼容分支均已移除；旧引用只作为普通文本。
 
 ## 10. 模块与边界建议
 
@@ -354,7 +339,7 @@ LinkOccurrence
 6. PDF 页码、主文件与补充文件、多个 Raw 的选择正确；显式附件缺失不会打开另一个文件。
 7. 分组、出现次数、来源 Item 和附件、跳回位置正确；同一外部附件没有重复计算。
 8. 两个右侧面板可独立使用；切换文档后 Backlinks 跟随，点击侧栏不丢目标；多窗口和卸载后无残留监听。
-9. 真实小范围 Transition 可预览、应用、恢复；迁移不改图片相对路径，也不覆盖用户预览后新增内容。
+9. （Transition 已移除，不再验收。）
 10. 渲染、索引、打开面板不会启动提供商请求、转换、创建附件或给文件自动添加 UID。
 
 无法完成的宿主验证必须逐项记录为未验证，不用单元测试通过代替真实宿主结果。
@@ -416,8 +401,6 @@ Obsidian 1.15.0，真实 Vault 内使用临时测试文档；实际 Zotero 仍�
 - Refresh links 只处理有变化的文件并分片让出主线程，整轮只通知一次；“Rebuild document links”仍全量解析。重启后未变化的 Zotero 文件不再重新解析。Item Pane 与 Backlinks 在未启用 Zotero 文档索引时明确提示并可直接启用。
 - 实时预览中点击 UniZero 链接不再被 Obsidian 交给操作系统（Windows 曾提示为 `unizero` 链接寻找应用）；判断规则对齐 Obsidian 1.15 的 `onEditorClick`，并阻止事件到达其外层监听器。格式不合法的 `unizero://` 地址仍由 Obsidian 按外部链接处理。
 - 阅读模式只解析含 `@` 的渲染块本身；编辑时不再随按键解析全文，含旧引用的文档在停顿 400 ms 后重扫；索引每个文件只解析一次。
-
-已知剩余：Obsidian 自身编辑器打开 CRLF 文档时的 Transition 行为未核实，新键入的旧引用要等重扫后才显示为链接。
 
 ### 保留的边界与后续验收
 

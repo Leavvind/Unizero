@@ -15,7 +15,7 @@ describe("vault index lifecycle", () => {
   it("retains stale links and partial coverage when a rebuild cannot read a source", async () => {
     const note = file("Note.md");
     const index = new VaultIndex({ vault: { getFiles: () => [note], cachedRead: async () => { throw new Error("offline file"); } } } as unknown as App);
-    index.indexFileContent(note, "@1/ABCD1234");
+    index.indexFileContent(note, "[a](unizero://paper/1/ABCD1234)");
     await index.initialize();
     expect(index.getCount(ref)).toBe(1);
     expect(index.links.vaultState).toBe("partial");
@@ -25,7 +25,7 @@ describe("vault index lifecycle", () => {
     const stamped = (path: string) => ({ ...file(path), stat: { mtime: 1, size: 1 } } as TFile);
     const a = stamped("a.md"), b = stamped("b.md");
     let reads = 0;
-    const index = new VaultIndex({ vault: { getFiles: () => [a, b], cachedRead: async () => { reads += 1; return "@1/ABCD1234"; } } } as unknown as App);
+    const index = new VaultIndex({ vault: { getFiles: () => [a, b], cachedRead: async () => { reads += 1; return "[a](unizero://paper/1/ABCD1234)"; } } } as unknown as App);
     let notified = 0; index.links.subscribe(() => { notified += 1; });
     await index.initialize();
     expect(reads).toBe(2); expect(notified).toBe(2); // Updating, then complete.
@@ -44,7 +44,7 @@ describe("vault index lifecycle", () => {
     const note = file("Note.md");
     const reading = index.indexFile(note);
     index.removeFile(note.path);
-    request.resolve("@1/ABCD1234");
+    request.resolve("[a](unizero://paper/1/ABCD1234)");
     await reading;
     expect(index.getCount(ref)).toBe(0);
   });
@@ -61,7 +61,7 @@ describe("vault index lifecycle", () => {
     const second = index.indexFile(note);
     fresh.resolve("No citations now");
     await second;
-    old.resolve("@1/ABCD1234");
+    old.resolve("[a](unizero://paper/1/ABCD1234)");
     await first;
     expect(index.getCount(ref)).toBe(0);
   });
@@ -71,7 +71,7 @@ describe("vault index lifecycle", () => {
     const index = new VaultIndex({ vault: { cachedRead: () => request.promise } } as unknown as App);
     const reading = index.indexFile(file("Note.md"));
     index.dispose();
-    request.resolve("@1/ABCD1234");
+    request.resolve("[a](unizero://paper/1/ABCD1234)");
     await reading;
     await index.initialize();
     expect(index.getCount(ref)).toBe(0);
@@ -81,7 +81,7 @@ describe("vault index lifecycle", () => {
     const note = file("Notes/Sub/Note.md");
     const other = file("Notes Extra/Other.md");
     const index = new VaultIndex({ vault: {
-      getFiles: () => [note, other], cachedRead: async () => "@1/ABCD1234",
+      getFiles: () => [note, other], cachedRead: async () => "[a](unizero://paper/1/ABCD1234)",
     } } as unknown as App);
     await index.initialize();
     note.path = "Archive/Sub/Note.md";
@@ -95,7 +95,7 @@ describe("vault index lifecycle", () => {
 
   it("drops citations when a file no longer has a supported extension", async () => {
     const note = file("Note.md");
-    const index = new VaultIndex({ vault: { cachedRead: async () => "@1/ABCD1234" } } as unknown as App);
+    const index = new VaultIndex({ vault: { cachedRead: async () => "[a](unizero://paper/1/ABCD1234)" } } as unknown as App);
     await index.indexFile(note);
     note.path = "Note.txt";
     note.extension = "txt";
@@ -114,10 +114,10 @@ describe("vault index notifications", () => {
 
   it("stays quiet when an edit leaves the citations unchanged", () => {
     const { vault, notified } = index();
-    vault.indexFileContent(file("a.md"), "x @1/ABCD1234\nplain");
+    vault.indexFileContent(file("a.md"), "x [a](unizero://paper/1/ABCD1234)\nplain");
     expect(notified()).toBe(1);
 
-    vault.indexFileContent(file("a.md"), "x @1/ABCD1234\nplain, edited");
+    vault.indexFileContent(file("a.md"), "x [a](unizero://paper/1/ABCD1234)\nplain, edited");
     vault.indexFileContent(file("b.md"), "no citations here");
     vault.removeFile("c.md");
     expect(notified()).toBe(1);
@@ -126,13 +126,13 @@ describe("vault index notifications", () => {
 
   it("updates one file's share without touching the others", () => {
     const { vault, notified } = index();
-    vault.indexFileContent(file("a.md"), "@1/ABCD1234 @1/ABCD1234");
+    vault.indexFileContent(file("a.md"), "[a](unizero://paper/1/ABCD1234) [a](unizero://paper/1/ABCD1234)");
     vault.indexFileContent(file("b.canvas"), JSON.stringify({
-      nodes: [{ id: "n", type: "text", text: "@1/ABCD1234" }],
+      nodes: [{ id: "n", type: "text", text: "[a](unizero://paper/1/ABCD1234)" }],
     }));
     expect(vault.getCount(ref)).toBe(3);
 
-    vault.indexFileContent(file("a.md"), "@1/ABCD1234");
+    vault.indexFileContent(file("a.md"), "[a](unizero://paper/1/ABCD1234)");
     expect(vault.getCount(ref)).toBe(2);
     expect(vault.getOccurrences(ref).map((o) => o.filePath).sort()).toEqual(["a.md", "b.canvas"]);
 

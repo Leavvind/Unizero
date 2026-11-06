@@ -18,8 +18,6 @@ They are compatibility boundaries, not the organizing model for new code.
 | `services/paper-runtime/src/unizero_runtime/pipeline/migrations.py` (`REPLACED_MODULES`) | Stored templates that still name the removed `publish.zotero-note`, loaded as `publish.zotero-markdown` | No stored user template names the old module any more |
 | `services/paper-runtime/src/unizero_runtime/pipeline/migrations.py` (`_fold_content_modules`) | Stored templates that still name `transform.references`, `transform.markdown-cleanup`, or `export.zotero-tables`, or set Extract's `enable_formula` / `enable_table`, loaded as one `transform.content` with equivalent settings | No stored user template names the old modules any more |
 | `apps/obsidian-plugin/src/main.ts` (`loadSettings`) | `canvasLinks`: vault Canvas paths from before a paper's Canvas became a Zotero attachment, kept unread in `data.json` | The user has migrated those Canvas notes |
-| `apps/obsidian-plugin/src/citation.ts`, `documentLinks.ts`, `render.ts` | Bare `@libraryID/itemKey`, `.md`, `.pdf`, `.pdf:15`, read and indexed alongside standard UniZero Markdown links | Relevant documents have completed explicit Transition migration or their owners intentionally retire legacy readability |
-| `apps/obsidian-plugin/src/main.ts` (`loadSettings`) | Persisted `pillLabel` and `pillStyle`, retained but ignored; no appearance controls | Users no longer need older-plugin settings preserved and a separate retirement change establishes that condition |
 | `UNIZERO_RUNTIME_HOME` | An existing compatible runtime-state directory | Supported indefinitely as an explicit runtime-home choice |
 
 Rules:

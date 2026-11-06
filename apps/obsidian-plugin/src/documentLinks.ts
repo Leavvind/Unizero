@@ -1,14 +1,11 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import type { RootContent, Root } from "mdast";
 import { parseTree, findNodeAtLocation, type Node as JsonNode } from "jsonc-parser";
-import type { ChangeDesc } from "@codemirror/state";
-import { scanCitations } from "./citation";
 import { parseLinkTarget, serializeLinkTarget, type LinkTarget, type TextLocation } from "./linkTarget";
 
 export interface DocumentLink {
   target: LinkTarget;
   raw: string;
-  legacy: boolean;
   from: number;
   to: number;
   line: number;
@@ -91,10 +88,10 @@ export function scanDocumentLinks(text: string): DocumentLink[] {
   }
   collect(tree);
   const result: DocumentLink[] = [];
-  function add(target: LinkTarget, from: number, to: number, legacy: boolean): void {
+  function add(target: LinkTarget, from: number, to: number): void {
     const line = lineAt(lineStarts, from), lineStart = lineStarts[line];
     const lineEnd = text.indexOf("\n", from);
-    result.push({ target, from, to, raw: text.slice(from, to), legacy,
+    result.push({ target, from, to, raw: text.slice(from, to),
       line, ch: from - lineStart,
       lineText: text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd).replace(/\r$/, "") });
   }
@@ -103,41 +100,15 @@ export function scanDocumentLinks(text: string): DocumentLink[] {
     if (from === undefined || to === undefined) { return; }
     if (node.type === "link" || node.type === "linkReference") {
       const target = parseLinkTarget(node.type === "link" ? node.url : definitions.get(node.identifier) || "");
-      if (target) { add(target, from, to, false); }
-      return; // Never match legacy tokens inside labels or destinations.
-    }
-    if (["code", "inlineCode", "html", "image", "imageReference", "definition"].includes(node.type)) { return; }
-    if (node.type === "text") {
-      // Use masked source, not mdast's decoded text (escapes change offsets).
-      const source = masked.slice(from, to);
-      for (const token of scanCitations(source)) {
-        if (!Number.isSafeInteger(token.libraryID) || token.libraryID < 1 || (token.page && !Number.isSafeInteger(token.page))) { continue; }
-        const absolute = from + token.from;
-        // Native wikilinks remain owned by Obsidian.
-        const prefix = source.slice(0, token.from);
-        if (prefix.lastIndexOf("[[") > prefix.lastIndexOf("]]")) { continue; }
-        const tail = source.slice(token.to);
-        if (/^(?:\.(?:md|pdf|\d)|:[0-9]|[A-Za-z0-9_/])/.test(tail) || (token.action === "pdf" && tail.startsWith(":"))) { continue; }
-        add({ kind: "paper", libraryID: token.libraryID, itemKey: token.itemKey, action: token.action,
-          ...(token.page ? { page: token.page } : {}) }, absolute, from + token.to, true);
-      }
+      if (target) { add(target, from, to); }
       return;
     }
+    if (["code", "inlineCode", "html", "image", "imageReference", "definition"].includes(node.type)) { return; }
     if ("children" in node) { node.children.forEach(visit); }
   }
   visit(tree);
   return result.sort((a, b) => a.from - b.from);
 }
-/** Links carried through an editor change. Any link the change touches waits for the next scan. */
-export function mapDocumentLinks<T extends DocumentLink>(links: T[], changes: ChangeDesc): T[] {
-  return links.filter((link) => !changes.touchesRange(link.from, link.to))
-    .map((link) => ({ ...link, from: changes.mapPos(link.from), to: changes.mapPos(link.to) }));
-}
-/** Legacy citations of one rendered block, without parsing the rest of its document. */
-export function legacyLinksInLines(text: string, lineStart: number, lineEnd: number): DocumentLink[] {
-  return scanDocumentLinks(text.split("\n").slice(lineStart, lineEnd + 1).join("\n")).filter((link) => link.legacy);
-}
-
 export interface CanvasTextField { nodeId?: string; text: string; from: number; to: number }
 export function canvasTextFields(json: string): CanvasTextField[] {
   JSON.parse(json); // Invalid JSON is a failed read, never an empty source.

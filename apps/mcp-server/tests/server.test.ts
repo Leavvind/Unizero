@@ -157,6 +157,11 @@ describe("MCP server", () => {
     expect(text).toContain("\"Appendix.pdf\" (PDFAPPX1): raw");
   });
 
+  it("accepts a UniZero link destination copied from a note", async () => {
+    const { text } = await call("get_paper", { paper: "unizero://paper/1/AAAA1111.pdf?page=3" });
+    expect(text).toContain("PAPER @1/AAAA1111 [bernard1989]");
+  });
+
   it("resolves free text through suggest and reads a section with pages", async () => {
     const { text } = await call("read_paper", { paper: "post earnings drift", section: "Results" });
     expect(text).toContain("LINES 4-5 of 5");

@@ -23,8 +23,8 @@ artifact tag, attachment-note record, or Zotero API.
 | `get_relations` | `GET /relations` | Provider cache only, unless `fetch=true` |
 | `convert_paper` | `POST /convert` | Starts a conversion with the add-on's default template unless one is named; the only writing tool |
 
-A paper is addressed as `@libraryID/ITEMKEY` (as in notes), an item key in the user
-library, a citekey, or title words. Ambiguous text returns the candidates rather than
+A paper is addressed as `@libraryID/ITEMKEY`, a `unizero://paper/…` link destination
+from a note, an item key in the user library, a citekey, or title words. Ambiguous text returns the candidates rather than
 guessing. `pdf` selects the attachments of one PDF for papers with supplements.
 
 Raw is the user's own edited copy, so it is read, never written. Reading normalises it

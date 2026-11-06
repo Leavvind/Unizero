@@ -1,15 +1,12 @@
 /**
  * Shared, deduplicated cache of resolved papers.
  *
- * A page can hold dozens of citation pills and every one of them needs the same
- * few fields. Without a store in between, each pill would issue its own request,
- * each re-render would issue them again, and a board full of cards would put
- * hundreds of round trips through Zotero's single-threaded server. So:
+ * Panes, menus and link actions need the same few fields; without a store each
+ * would put its own round trip through Zotero's single-threaded server. So:
  *
- * - one entry per `libraryID/itemKey`, shared by every pill that names it;
+ * - one entry per `libraryID/itemKey`, shared by every view that names it;
  * - one in-flight request per ref, awaited by every later caller;
- * - a synchronous `peek` so a pill can render its final shape immediately when the
- *   paper is already known, and only fall back to a placeholder when it is not.
+ * - a synchronous `peek` so a view can render immediately when the paper is known.
  *
  * Entries are kept until something invalidates them. Zotero metadata does not
  * change often, and a stale title is a far smaller problem than a request storm.
@@ -67,7 +64,7 @@ export class PaperStore {
       try {
         listener(state);
       } catch (error) {
-        // One detached pill must not stop the others from updating.
+        // One detached view must not stop the others from updating.
         console.error("UniZero: paper listener failed", error);
       }
     }
@@ -120,8 +117,8 @@ export class PaperStore {
   /**
    * Watch one paper.
    *
-   * Subscribing starts the load, so a pill's only job is to render whatever state
-   * it is handed. The returned function must be called when the pill goes away.
+   * Subscribing starts the load, so a view's only job is to render whatever state
+   * it is handed. The returned function must be called when the view goes away.
    */
   subscribe(ref: PaperRef, listener: Listener): () => void {
     const key = paperRefKey(ref);
@@ -138,7 +135,7 @@ export class PaperStore {
 
   /**
    * Re-read one paper, after something this plugin asked Zotero to do changed it.
-   * Live pills and panes see `loading` and then the fresh paper.
+   * Live views and panes see `loading` and then the fresh paper.
    */
   reload(ref: PaperRef): Promise<PaperState> {
     const entry = this.entries.get(paperRefKey(ref));
@@ -149,21 +146,8 @@ export class PaperStore {
     return this.load(entry.ref);
   }
 
-  /** Repaint every live pill from cached state without touching the bridge. */
-  refresh(): void {
-    for (const entry of this.entries.values()) {
-      for (const listener of [...entry.listeners]) {
-        try {
-          listener(entry.state);
-        } catch (error) {
-          console.error("UniZero: paper listener failed", error);
-        }
-      }
-    }
-  }
-
   /**
-   * Drop cached papers and tell every live pill to re-resolve.
+   * Drop cached papers and tell every live view to re-resolve.
    *
    * Used when the endpoint setting changes or the user asks for a refresh. Errors
    * and misses are cleared along with successes: both can be caused by a Zotero

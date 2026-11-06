@@ -26,8 +26,8 @@ bridge API 2. Zotero's HTTP server must be enabled
   that source directly. `↵` finishes the link. `Tab` or `Shift+↵` continue to Raw or PDF,
   and `#` or `^` go straight to the paper's Raw headings or blocks; the forms a Chinese
   IME writes for those keys (`＃`, `……`) work the same way.
-  Sidebar insertion uses the active editor or the last open Markdown note. Dragging
-  inserts plain citation text; native Canvas drag integration is not implemented.
+  Sidebar insertion uses the active editor or the last open Markdown note; dragging
+  a paper inserts the same link.
 - **Search the Zotero library** (command; give it a hotkey): the same search in a
   modal, from anywhere. `↵` opens the paper pane, `Mod+↵` the PDF in Zotero,
   `Shift+↵` Raw, and `Alt+↵` Canvas; each result also has **Insert**, **PDF**, **Raw**, and
@@ -41,78 +41,56 @@ bridge API 2. Zotero's HTTP server must be enabled
 | `unizero://paper/1/HLP48L8X.md#%5Eresult-01` | Open Raw at an existing block ID |
 | `unizero://note/<vaultID>/<UID>#Methods` | Resolve a Vault document by UID, then locate a heading |
 
-File links can include `attachment=<key>` to select an exact attachment of that
-paper; missing explicit attachments never fall back to another file. Missing or
-ambiguous text locations open the same file with a notice. There is no fuzzy
-heading matching. Typing inside a destination completes it the way `[[` does: the
-attachment after the item key, headings (marked H1 to H6, indented by level) and existing
-block IDs after `.md` or `#` (`#^` for blocks only), and a page number after `.pdf`. Right-click for actions; **Choose location for the UniZero link
-at the cursor** replaces only its destination and preserves the authored label.
-Reading mode and live preview keep normal Markdown link rendering. Source text
-remains editable; Ctrl/Cmd-click follows a source link.
+`attachment=<key>` selects one attachment of the paper and never falls back to
+another file. A missing or ambiguous heading or block opens the file with a notice;
+headings match exactly. Typing inside a destination completes it the way `[[` does:
+the attachment after the item key, headings and block IDs after `.md` or `#` (`#^`
+for blocks only), and a page number after `.pdf`. Right-click for actions; **Choose
+location for the UniZero link at the cursor** replaces the destination and keeps the
+label. In source mode, Ctrl/Cmd-click follows a link.
 
-`unizero://` is handled within Obsidian windows running this plugin. This does not
-register an operating-system protocol. The optional application transport is
+`unizero://` works only inside Obsidian with this plugin; it is not an
+operating-system protocol. From outside, use
 `obsidian://unizero?target=<encoded-unizero-uri>`.
 
 ## Vault identity and Backlinks
 
-**UID source** defaults to the `uid` frontmatter property. Existing quoted strings
-and lossless integer values are read without changing them. Filename identities
-require an explicitly configured capture pattern. **Set current document UID** is
-an explicit action for entering an existing UID; rendering never assigns one.
-Duplicate UIDs report all candidates and stop navigation.
+**UID source** defaults to the `uid` frontmatter property, read as written; a
+filename UID needs an explicit capture pattern. The plugin never assigns a UID
+itself: use **Set current document UID**. Duplicate UIDs list every candidate and
+stop navigation.
 
-The logical **Vault identity** is stored in plugin settings. Sync those settings
-between devices. **Treat as a new Vault…** is an explicit identity change for an
-independent copy. Rename, move and index rebuild update only the UID-to-path mapping.
-Other Vaults require opening the matching Vault; the plugin does not search disk.
+The **Vault identity** lives in plugin settings, so sync them between devices;
+**Treat as a new Vault…** gives an independent copy its own. Renaming or moving a
+note keeps its links. Links into another Vault open only in that Vault.
 
-**UniZero Backlinks** follows the last active Vault Markdown document, including
-when a sidebar takes focus. It reports missing UIDs and conflicts instead of a
-zero count. The Item pane's **Links** tab groups incoming links by Vault or Zotero
-source, with context, location and per-file occurrence counts. Native wikilinks
-and provider Citations remain separate.
+**UniZero Backlinks** follows the last active Vault note and reports a missing UID
+or a conflict rather than zero. The Item pane's **Links** tab groups incoming links
+by Vault or Zotero source, with context and per-file counts. Native wikilinks and
+provider Citations are not included.
 
 ## Document source coverage
 
-Vault Markdown and supported Canvas text, group labels and edge labels are indexed
-structurally; code, comments, image embeds, ordinary links and native wikilinks
-are excluded. Legacy bare citations and UniZero links share target identities.
-Library badges retain their Vault-only citation counts.
+Links are indexed in Vault Markdown and in Canvas text cards, group labels and edge
+labels; links inside code and comments are ignored. Library badges count Vault links
+only.
 
-Enable **Index Zotero documents** to scan the bridge's declared local Raw, Canvas
-and user Markdown/Canvas attachments, including unopened documents. **Source
-libraries** restricts scope; empty means all non-feed libraries. This requires the
-`link-sources` capability. The source directory and file states refresh every minute
-with a single shared task. **Refresh links** reads what changed; **Rebuild document
-links** reads and parses every document again.
-Raw Backup and generated summaries are excluded. File reads and refreshes never
-start conversion, sync downloads or provider queries.
+**Index Zotero documents** also reads local Raw, Canvas and other Markdown/Canvas
+attachments, opened or not (Raw Backup and generated summaries excluded). **Source
+libraries** limits it; empty means all non-feed libraries. It refreshes every
+minute; **Rebuild document links** re-reads everything. Indexing never converts,
+downloads or queries providers.
 
-Coverage, any unavailable sources and the time of the last successful Zotero scan
-appear above the lists; hovering shows the scope and full date. Failed reads and interrupted scans retain stale records. A successful
-empty read clears that source; only a complete directory scan removes deleted
-sources. The versioned `link-index-v1.json` cache in the plugin directory is derived
-and can be deleted. External Canvas opens its original file; when card navigation
-is unavailable, a notice identifies the original card.
+The lists show coverage, unavailable sources and the last successful Zotero scan.
+A file that cannot be read keeps its previous links, marked stale. The
+`link-index-v1.json` cache in the plugin folder can be deleted at any time. A link
+into a Zotero Canvas opens that file; when the card cannot be focused, a notice
+names it.
 
-## Transition
+## Older citation forms
 
-**Transition legacy citations…** previews the current document, Vault, or explicitly
-selected Zotero sources. Select files after reviewing counts, examples and skip
-reasons. Unresolved metadata, code, existing links and incomplete citations remain
-unchanged. No migration happens during rendering or indexing.
-
-Apply rechecks current editor and file content. Changed files are skipped. Active
-Markdown editors use undoable transactions. Originals and a journal are saved under the plugin's `transitions/` directory before edits. **Restore a
-citation Transition…** restores matching files without replacing later edits.
-Attachment replacements use a temporary sibling file and a final revision check;
-missing files are never recreated. Canvas changes preserve unrelated JSON bytes.
-
-Old `@libraryID/itemKey`, `.md`, `.pdf` and `.pdf:15` forms remain clickable and
-indexed, with normal link styling. Stored `pillLabel` and `pillStyle` values are
-preserved for compatibility but have no effect and no settings controls.
+Bare `@libraryID/itemKey` tokens (with `.md`, `.pdf` or `.pdf:15`) are plain text
+after 0.11.0. Convert them first with 0.11.0's **Transition legacy citations…**.
 
 ## Raw and conversion
 

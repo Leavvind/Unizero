@@ -5,10 +5,10 @@ describe("scanTextCitations", () => {
   it("extracts citations from multi-line text with line numbers and character offsets", () => {
     const text = `# Title
 
-In this section we reference @1/ITEM123 and also @1/ITEM456.md.
+In this section we reference [a](unizero://paper/1/ITEM123) and also [a](unizero://paper/1/ITEM456.md).
 
 Some other line with no citations.
-A line with PDF citation: @2/PDF999.pdf:42 at page 42.
+A line with PDF citation: [a](unizero://paper/2/PDF999.pdf?page=42) at page 42.
 `;
 
     const occurrences = scanTextCitations(text, { filePath: "Notes/test.md" });
@@ -20,14 +20,14 @@ A line with PDF citation: @2/PDF999.pdf:42 at page 42.
       filePath: "Notes/test.md",
       line: 2,
       ch: 29,
-      lineText: "In this section we reference @1/ITEM123 and also @1/ITEM456.md.",
+      lineText: "In this section we reference [a](unizero://paper/1/ITEM123) and also [a](unizero://paper/1/ITEM456.md).",
       token: {
-        raw: "@1/ITEM123",
+        raw: "[a](unizero://paper/1/ITEM123)",
         libraryID: 1,
         itemKey: "ITEM123",
         action: "detail",
         from: 29,
-        to: 39,
+        to: 59,
       },
     });
 
@@ -35,15 +35,15 @@ A line with PDF citation: @2/PDF999.pdf:42 at page 42.
       file: undefined,
       filePath: "Notes/test.md",
       line: 2,
-      ch: 49,
-      lineText: "In this section we reference @1/ITEM123 and also @1/ITEM456.md.",
+      ch: 69,
+      lineText: "In this section we reference [a](unizero://paper/1/ITEM123) and also [a](unizero://paper/1/ITEM456.md).",
       token: {
-        raw: "@1/ITEM456.md",
+        raw: "[a](unizero://paper/1/ITEM456.md)",
         libraryID: 1,
         itemKey: "ITEM456",
         action: "markdown",
-        from: 49,
-        to: 62,
+        from: 69,
+        to: 102,
       },
     });
 
@@ -52,15 +52,15 @@ A line with PDF citation: @2/PDF999.pdf:42 at page 42.
       filePath: "Notes/test.md",
       line: 5,
       ch: 26,
-      lineText: "A line with PDF citation: @2/PDF999.pdf:42 at page 42.",
+      lineText: "A line with PDF citation: [a](unizero://paper/2/PDF999.pdf?page=42) at page 42.",
       token: {
-        raw: "@2/PDF999.pdf:42",
+        raw: "[a](unizero://paper/2/PDF999.pdf?page=42)",
         libraryID: 2,
         itemKey: "PDF999",
         action: "pdf",
         page: 42,
         from: 26,
-        to: 42,
+        to: 67,
       },
     });
   });
@@ -72,9 +72,9 @@ A line with PDF citation: @2/PDF999.pdf:42 at page 42.
   });
 
   it("handles multiple occurrences of the same paper on different lines", () => {
-    const text = `Line 1: @1/SAMEKEY1
+    const text = `Line 1: [a](unizero://paper/1/SAMEKEY1)
 Line 2: some notes
-Line 3: referring back to @1/SAMEKEY1 again.`;
+Line 3: referring back to [a](unizero://paper/1/SAMEKEY1) again.`;
     const occurrences = scanTextCitations(text, { filePath: "Notes/repeat.md" });
     expect(occurrences).toHaveLength(2);
     expect(occurrences[0].line).toBe(0);
@@ -87,15 +87,15 @@ Line 3: referring back to @1/SAMEKEY1 again.`;
 describe("scanTextCitations and code", () => {
   it("skips citations inside fenced code blocks", () => {
     const text = [
-      "@1/BEFORE",
+      "[a](unizero://paper/1/BEFORE)",
       "````md",
-      "@1/INSIDE.pdf:3",
+      "[a](unizero://paper/1/INSIDE.pdf?page=3)",
       "```",
-      "@1/STILLIN",
+      "[a](unizero://paper/1/STILLIN)",
       "````",
-      "@1/AFTER",
+      "[a](unizero://paper/1/AFTER)",
       "~~~",
-      "@1/TILDE",
+      "[a](unizero://paper/1/TILDE)",
       "~~~",
     ].join("\n");
     const keys = scanTextCitations(text, { filePath: "a.md" }).map((o) => o.token.itemKey);
@@ -103,11 +103,11 @@ describe("scanTextCitations and code", () => {
   });
 
   it("skips inline code but keeps offsets of citations beside it", () => {
-    const line = "see `@1/CODE` and ``@1/DOUBLE`` then @1/REAL";
+    const line = "see `[a](unizero://paper/1/CODE)` and ``[a](unizero://paper/1/DOUBLE)`` then [a](unizero://paper/1/REAL)";
     const [only, ...rest] = scanTextCitations(line, { filePath: "a.md" });
     expect(rest).toEqual([]);
     expect(only.token.itemKey).toBe("REAL");
-    expect(only.ch).toBe(line.indexOf("@1/REAL"));
+    expect(only.ch).toBe(line.indexOf("[a](unizero://paper/1/REAL)"));
     expect(only.lineText).toBe(line);
   });
 });
@@ -119,7 +119,7 @@ describe("scanCanvasCitations", () => {
         {
           id: "node-text-1",
           type: "text",
-          text: "“Underreaction (PEAD)—robustness...” (@1/H4KAG04R)\nSecond line citing @1/OTHER999.md",
+          text: "“Underreaction (PEAD)—robustness...” ([a](unizero://paper/1/H4KAG04R))\nSecond line citing [a](unizero://paper/1/OTHER999.md)",
         },
         {
           id: "node-file-1",
@@ -129,7 +129,7 @@ describe("scanCanvasCitations", () => {
         {
           id: "node-group-1",
           type: "group",
-          label: "Group referencing @1/H4KAG04R.pdf:15",
+          label: "Group referencing [a](unizero://paper/1/H4KAG04R.pdf?page=15)",
         },
       ],
       edges: [],

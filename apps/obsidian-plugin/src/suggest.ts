@@ -65,9 +65,8 @@ export class LibrarySearch {
     try {
       return await this.plugin.bridge.suggest(query, SUGGEST_LIMIT);
     } catch {
-      // A closed popup is the right answer when Zotero is not running. The pill
-      // for whatever the user types anyway will report the failure with room to
-      // explain it; a suggester cannot.
+      // A closed popup is the right answer when Zotero is not running; opening
+      // a link reports the failure with room to explain it, a suggester cannot.
       return [];
     }
   }

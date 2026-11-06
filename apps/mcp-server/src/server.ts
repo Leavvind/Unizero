@@ -30,14 +30,15 @@ pages) -> search_paper / read_paper for only the lines the question needs ->
 get_table for table numbers (the image is the source of truth; Raw text tables can be
 garbled). Every text line comes as "L<line> p.<page>  <text>"; the page is the last
 page marker at or above that line and is a lower bound, since markers can be a few
-pages apart. Cite a page as @libraryID/ITEMKEY.pdf:N.
+pages apart. Cite a page in a note as
+[Author, year, p. N](unizero://paper/libraryID/ITEMKEY.pdf?page=N).
 
 Identity is @libraryID/itemKey; a citekey is an alias and can be ambiguous. Raw is the
 user's own edited copy: only read it. convert_paper starts a minutes-long MinerU job
 in Zotero; ask the user before calling it.`;
 
 const paperParam = z.string().min(1).describe(
-  "The paper: @libraryID/ITEMKEY (preferred, as in notes), an item key, a citekey, or title/author words",
+  "The paper: @libraryID/ITEMKEY (preferred), a unizero://paper/ link from a note, an item key, a citekey, or title/author words",
 );
 const pdfParam = z.string().regex(/^[A-Za-z0-9]{8}$/).optional().describe(
   "Key of one PDF attachment, for papers with supplements; default is the Raw of the PDF Zotero opens, else any Raw",

@@ -73,8 +73,6 @@ data are not part of this structure.
 | Shared document links and source coverage | `apps/obsidian-plugin/src/linkIndex.ts`, `externalIndex.ts` |
 | Target dispatch and source navigation | `apps/obsidian-plugin/src/linkOpening.ts`, `linkPicker.ts` |
 | Completion inside a link destination | `apps/obsidian-plugin/src/linkCompletion.ts`, `targetSuggest.ts` |
-| Safe local replacement of attachment files | `apps/obsidian-plugin/src/localDocuments.ts` |
-| Explicit migration, preview and recovery | `apps/obsidian-plugin/src/transition.ts`, `transitionPlan.ts` |
 | Document Backlinks and shared source lists | `apps/obsidian-plugin/src/backlinksView.ts` |
 | Bridge client (HTTP to Zotero) | `apps/obsidian-plugin/src/bridge.ts` |
 | `@` suggester / free-text search | `apps/obsidian-plugin/src/suggest.ts` |
@@ -86,7 +84,7 @@ data are not part of this structure.
 | Vault source events and compatibility citation counts | `apps/obsidian-plugin/src/vaultIndex.ts` |
 | Canvas capture (Zotero excerpts into Canvas Cards and notes) | `apps/obsidian-plugin/src/capture/` |
 | Plugin settings | `apps/obsidian-plugin/src/settings.ts` |
-| Legacy link rendering and native-link dispatch | `apps/obsidian-plugin/src/pill.ts`, `render.ts` |
+| Live-preview link dispatch | `apps/obsidian-plugin/src/render.ts` |
 | Link, editor and pane styling | `apps/obsidian-plugin/styles.css` |
 
 ### Zotero data plane and bridge

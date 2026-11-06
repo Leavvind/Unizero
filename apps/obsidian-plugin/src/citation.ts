@@ -1,16 +1,9 @@
 /**
- * The inline citation syntax.
+ * Paper references and the `@` search trigger.
  *
- * Forms share one prefix — identity is Zotero's durable pair:
- *
- *   @libraryID/itemKey           the paper itself — opens the detail pane
- *   @libraryID/itemKey.md        the paper's Raw Markdown (a Zotero attachment)
- *   @libraryID/itemKey.pdf       the PDF, opened in Zotero
- *   @libraryID/itemKey.pdf:15    the PDF at physical page 15 (Zotero `?page=`)
- *
- * Bare forms are read for compatibility. New insertions and drag payloads use
- * standard Markdown links serialized by linkTarget.ts. Structural document
- * scanning lives in documentLinks.ts; this scanner only recognizes old tokens.
+ * Identity is Zotero's durable pair `libraryID/itemKey`. Notes store standard
+ * Markdown links serialized by linkTarget.ts; documentLinks.ts scans them. Typing
+ * `@` followed by free text opens the search that inserts such a link.
  */
 
 import { markdownLink, paperLabel } from "./linkTarget";
@@ -22,12 +15,13 @@ export interface PaperRef {
   itemKey: string;
 }
 
+/** One link occurrence to a paper, as the vault index records it. */
 export interface CitationToken extends PaperRef {
-  /** The matched text, including the `@` and any suffix. */
+  /** The link's source text. */
   raw: string;
   action: CitationAction;
   /**
-   * 1-based PDF physical page for `.pdf:{page}` only.
+   * 1-based PDF physical page for a PDF link only.
    * Passed to Zotero as `?page=N`; not a printed page label.
    */
   page?: number;
@@ -37,16 +31,9 @@ export interface CitationToken extends PaperRef {
 }
 
 /**
- * Zotero item keys are short alphanumeric tokens. Library IDs are integers.
- * Excluding `.` from the key keeps `.md` / `.pdf` unambiguous.
- * Page is only valid after `.pdf:` and must be a positive integer.
- */
-const TOKEN = /@(\d+)\/([A-Za-z0-9]+)(\.md|\.pdf(?::([1-9]\d*))?)?/g;
-
-/**
- * Characters that cancel a match when they immediately precede the `@`.
+ * Characters that cancel a search when they immediately precede the `@`.
  *
- * Word characters keep `user@example.com` from citing; a second `@` keeps
+ * Word characters keep `user@example.com` from searching; a second `@` keeps
  * `@@…` from matching its tail; `/` and `.` cover paths and hostnames; `\` is
  * the escape — `\@notacitation` renders as written.
  */
@@ -62,18 +49,6 @@ const CANCELLING_PREFIX = /[A-Za-z0-9_@/\\.]/;
  */
 const SEARCH_HARD_TERMINATOR = /[,;!?)\]]|[，；、！？）】]|\.\s/;
 
-function actionFor(suffix: string | undefined): CitationAction {
-  if (suffix === ".md") { return "markdown"; }
-  if (suffix?.startsWith(".pdf")) { return "pdf"; }
-  return "detail";
-}
-
-function pageFor(pageText: string | undefined): number | undefined {
-  if (!pageText) { return undefined; }
-  const page = Number(pageText);
-  return Number.isInteger(page) && page > 0 ? page : undefined;
-}
-
 /** Canonical map key / display fragment: `1/ABCD1234`. */
 export function paperRefKey(ref: PaperRef): string {
   return `${ref.libraryID}/${ref.itemKey}`;
@@ -86,30 +61,6 @@ export function isPaperRef(value: unknown): value is PaperRef {
     ref.libraryID > 0 &&
     typeof ref.itemKey === "string" &&
     /^[A-Za-z0-9]+$/.test(ref.itemKey);
-}
-
-/** Every citation in `text`, in order. */
-export function scanCitations(text: string): CitationToken[] {
-  const tokens: CitationToken[] = [];
-  TOKEN.lastIndex = 0;
-
-  let match: RegExpExecArray | null;
-  while ((match = TOKEN.exec(text)) !== null) {
-    const from = match.index;
-    if (from > 0 && CANCELLING_PREFIX.test(text.charAt(from - 1))) { continue; }
-    const action = actionFor(match[3]);
-    const page = action === "pdf" ? pageFor(match[4]) : undefined;
-    tokens.push({
-      raw: match[0],
-      libraryID: Number(match[1]),
-      itemKey: match[2],
-      action,
-      ...(page !== undefined ? { page } : {}),
-      from,
-      to: from + match[0].length,
-    });
-  }
-  return tokens;
 }
 
 /**
@@ -133,9 +84,6 @@ export function citationPrefixAt(
   if (start > 0 && CANCELLING_PREFIX.test(line.charAt(start - 1))) { return; }
 
   const raw = match[1];
-  // A completed written citation (with or without action suffix) is not a search.
-  if (/^\d+\/[A-Za-z0-9]+(\.md|\.pdf(?::[1-9]\d*)?)?$/i.test(raw)) { return; }
-  if (/\.(md|pdf)(?::[1-9]\d*)?$/i.test(raw)) { return; }
   if (SEARCH_HARD_TERMINATOR.test(raw)) { return; }
 
   const query = raw.replace(/\s+/g, " ").trim();

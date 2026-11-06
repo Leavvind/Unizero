@@ -1,6 +1,3 @@
-.unizero-legacy-link { cursor: pointer; color: var(--link-color); text-decoration: var(--link-decoration); }
-.unizero-legacy-link:hover { color: var(--link-color-hover); text-decoration: var(--link-decoration-hover); }
-.unizero-pill--missing, .unizero-pill--error { text-decoration-style: dotted; }
 
 /* Document links ---------------------------------------------------------- */
 

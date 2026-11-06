@@ -5,109 +5,10 @@ import {
   citationText,
   isPaperRef,
   paperRefKey,
-  scanCitations,
   withPdfPage,
 } from "../src/citation";
 
 const REF = { libraryID: 1, itemKey: "HLP48L8X" };
-
-describe("scanCitations", () => {
-  it("reads the citation forms including a PDF page", () => {
-    const tokens = scanCitations(
-      "See @1/HLP48L8X, the note @1/HLP48L8X.md, @1/HLP48L8X.pdf, and @1/HLP48L8X.pdf:15",
-    );
-    expect(tokens.map((token) => [
-      token.libraryID,
-      token.itemKey,
-      token.action,
-      token.page,
-    ])).toEqual([
-      [1, "HLP48L8X", "detail", undefined],
-      [1, "HLP48L8X", "markdown", undefined],
-      [1, "HLP48L8X", "pdf", undefined],
-      [1, "HLP48L8X", "pdf", 15],
-    ]);
-  });
-
-  it("reports offsets that cover the whole token including the suffix", () => {
-    const text = "x @1/HLP48L8X.pdf y";
-    const [token] = scanCitations(text);
-    expect(text.slice(token.from, token.to)).toBe("@1/HLP48L8X.pdf");
-    expect(token.raw).toBe("@1/HLP48L8X.pdf");
-  });
-
-  it("includes the page suffix in offsets for .pdf:{page}", () => {
-    const text = "see @1/HLP48L8X.pdf:15 here";
-    const [token] = scanCitations(text);
-    expect(text.slice(token.from, token.to)).toBe("@1/HLP48L8X.pdf:15");
-    expect(token.raw).toBe("@1/HLP48L8X.pdf:15");
-    expect(token.action).toBe("pdf");
-    expect(token.page).toBe(15);
-  });
-
-  it("does not treat a bare colon after the key as a page", () => {
-    const [token] = scanCitations("@1/HLP48L8X:extra");
-    expect(token.itemKey).toBe("HLP48L8X");
-    expect(token.action).toBe("detail");
-    expect(token.page).toBeUndefined();
-    expect(token.raw).toBe("@1/HLP48L8X");
-  });
-
-  it("ignores page 0 and non-numeric page tails", () => {
-    const zero = scanCitations("@1/HLP48L8X.pdf:0")[0];
-    expect(zero.action).toBe("pdf");
-    expect(zero.page).toBeUndefined();
-    expect(zero.raw).toBe("@1/HLP48L8X.pdf");
-
-    const [paged] = scanCitations("@1/HLP48L8X.pdf:15andmore");
-    expect(paged.raw).toBe("@1/HLP48L8X.pdf:15");
-    expect(paged.page).toBe(15);
-  });
-
-  it("matches after punctuation and at the start of the text", () => {
-    expect(scanCitations("@1/AAAA1111").map((t) => t.itemKey)).toEqual(["AAAA1111"]);
-    expect(scanCitations("(@1/AAAA1111)").map((t) => t.itemKey)).toEqual(["AAAA1111"]);
-    expect(scanCitations("[@1/AAAA1111]").map((t) => t.itemKey)).toEqual(["AAAA1111"]);
-    expect(scanCitations("see:@1/AAAA1111").map((t) => t.itemKey)).toEqual(["AAAA1111"]);
-  });
-
-  it("does not read an email address as a citation", () => {
-    expect(scanCitations("write to user@example.com please")).toEqual([]);
-    expect(scanCitations("j45rbnr8p4@privaterelay.appleid.com")).toEqual([]);
-  });
-
-  it("treats a backslash as an escape", () => {
-    expect(scanCitations("\\@1/AAAA1111")).toEqual([]);
-  });
-
-  it("does not match the tail of a doubled prefix", () => {
-    expect(scanCitations("@@1/AAAA1111")).toEqual([]);
-  });
-
-  it("does not treat a bare citekey as a citation", () => {
-    expect(scanCitations("@smith2019")).toEqual([]);
-    expect(scanCitations("@danielShortLongHorizonBehavioral2020")).toEqual([]);
-  });
-
-  it("stops the key at an unsupported character", () => {
-    const [token] = scanCitations("@1/HLP48L8X:extra");
-    expect(token.itemKey).toBe("HLP48L8X");
-    expect(token.action).toBe("detail");
-  });
-
-  it("treats an unknown suffix as ordinary text after the key", () => {
-    const [token] = scanCitations("@1/HLP48L8X.docx");
-    expect(token.itemKey).toBe("HLP48L8X");
-    expect(token.action).toBe("detail");
-    expect(token.raw).toBe("@1/HLP48L8X");
-  });
-
-  it("is reusable across calls despite the shared global regex", () => {
-    const text = "@1/AAAA1111 and @2/BBBB2222";
-    expect(scanCitations(text)).toHaveLength(2);
-    expect(scanCitations(text)).toHaveLength(2);
-  });
-});
 
 describe("citationPrefixAt", () => {
   it("reports the bare trigger", () => {
@@ -131,13 +32,6 @@ describe("citationPrefixAt", () => {
 
   it("reads the prefix at the cursor, not at the end of the line", () => {
     expect(citationPrefixAt("cite @dan and more", 9)).toEqual({ start: 5, query: "dan" });
-  });
-
-  it("closes once the written address is complete", () => {
-    expect(citationPrefixAt("@1/HLP48L8X", 11)).toBeUndefined();
-    expect(citationPrefixAt("@1/HLP48L8X.md", 14)).toBeUndefined();
-    expect(citationPrefixAt("@1/HLP48L8X.pdf", 15)).toBeUndefined();
-    expect(citationPrefixAt("@1/HLP48L8X.pdf:15", 18)).toBeUndefined();
   });
 
   it("closes once the user has typed a hard terminator after the query", () => {

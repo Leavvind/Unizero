@@ -13,8 +13,7 @@ Manual checks are historical open records, not evidence of a known defect.
   directory and target resolver against a real library: all four link directions,
   unopened attachments, external edits, offline cache, multiple PDFs/Raw files,
   deletion/restore, Canvas navigation, folder/offline moves, and multiple windows.
-  Vault rename, reading links, Backlinks and small Transition apply/restore were
-  checked in Obsidian. Detailed results:
+  Vault rename, reading links and Backlinks were checked in Obsidian. Detailed results:
   [design handoff](UNIZERO_LINKS_DESIGN.md#15-本次施工与宿主验收记录).
 - **Import from Obsidian.** Let an explicit user action add or update papers in Zotero
   from exploration results. Not implemented; needs a separate write contract, since

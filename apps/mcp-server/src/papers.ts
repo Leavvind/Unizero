@@ -14,8 +14,11 @@ import type {
 } from "./bridge.js";
 import { BridgeError } from "./bridge.js";
 
-/** `@1/ABCD1234`, also as written in notes with a PDF suffix: `@1/ABCD1234.pdf:12`. */
-const CITATION = /^@?(\d+)\/([A-Za-z0-9]{8})(?:\.\w+(?::\d+)?)?$/;
+/**
+ * `@1/ABCD1234` (an optional `.pdf:12`-style suffix is ignored), or a UniZero
+ * Markdown link destination as written in notes: `unizero://paper/1/ABCD1234.pdf?page=12`.
+ */
+const CITATION = /^(?:unizero:\/\/paper\/|@?)(\d+)\/([A-Za-z0-9]{8})(?:\.\w+(?::\d+)?|[.?#].*)?$/;
 const ITEM_KEY = /^[A-Z0-9]{8}$/;
 const CITEKEY = /^@?[\p{L}\p{N}_:.#$%&+?<>~/-]+$/u;
 

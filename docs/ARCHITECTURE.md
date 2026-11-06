@@ -145,9 +145,8 @@ Load-bearing properties:
 The Obsidian application layer owns a separate, rebuildable document-link index.
 Vault source events and the opt-in Zotero source refresher feed that shared index;
 views only subscribe and query. Vault targets use a synchronized logical `vaultID`
-and the user's UID; local paths are derived mappings. Local attachment editing and
-explicit Transition migration remain Obsidian-side operations and add no bridge
-write endpoint. They never write into the bibliographic relation cache or catalog.
+and the user's UID; local paths are derived mappings. Local attachment editing
+remains an Obsidian-side operation and adds no bridge write endpoint. They never write into the bibliographic relation cache or catalog.
 
 This boundary is unrelated to the add-on ↔ runtime `/api/v1` contract. Do not merge them.
 

@@ -4,6 +4,9 @@ import type { BridgeLinkSource, UnizeroBridge } from "./bridge";
 import { BRIDGE_API } from "./bridge";
 import { LinkIndex, sourceIdentity, timeSlicer, type SourceDocument, type SourceRecord } from "./linkIndex";
 
+/** Bump when a parser change makes cached link records wrong. */
+const CACHE_SCHEMA = 2;
+
 export const contentHash = (text: string): string => createHash("sha256").update(text).digest("hex");
 export const externalSource = (source: BridgeLinkSource): SourceDocument & { kind: "zotero" } => ({ ...source, kind: "zotero" });
 export const normalizeLocalPath = (path: string): string => path.replace(/^file:\/\//, "").replace(/^file:/, "").replace(/\\/g, "/").replace(/^\/([A-Za-z]:)/, "$1");
@@ -35,7 +38,8 @@ export class ExternalIndex {
       const text = await this.io.loadCache();
       if (!text || this.stopped || generation !== this.generation) { return; }
       const cache = JSON.parse(text);
-      if (cache.schema !== 1 || !Array.isArray(cache.records)) { return; }
+      // Schema 1 caches were parsed with bare `@libraryID/itemKey` support; drop them.
+      if (cache.schema !== CACHE_SCHEMA || !Array.isArray(cache.records)) { return; }
       for (const record of cache.records as SourceRecord[]) {
         if (record.source?.kind !== "zotero" || !Array.isArray(record.links)) { continue; }
         this.index.records.set(sourceIdentity(record.source), { ...record, stale: true,
@@ -136,7 +140,7 @@ export class ExternalIndex {
       if (force || unannounced || state !== stateBefore) { this.index.notify(); }
       if (!changed && hadSuccess) { return; }
       const records = [...this.index.records.values()].filter((r) => r.source.kind === "zotero");
-      await this.io.saveCache(JSON.stringify({ schema: 1, records, scope: this.index.coverage.scope, lastSuccess: this.index.coverage.lastSuccess }));
+      await this.io.saveCache(JSON.stringify({ schema: CACHE_SCHEMA, records, scope: this.index.coverage.scope, lastSuccess: this.index.coverage.lastSuccess }));
     } catch (error) {
       if (!alive()) { return; }
       for (const record of this.index.records.values()) {

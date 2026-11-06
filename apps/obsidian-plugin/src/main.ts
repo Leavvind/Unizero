@@ -40,20 +40,17 @@ import { openLinkTarget } from "./linkOpening";
 import { BACKLINKS_VIEW_TYPE, BacklinksView } from "./backlinksView";
 import { chooseLinkLocation, inputText } from "./linkPicker";
 import { scanDocumentLinks, retargetInlineLink, type DocumentLink } from "./documentLinks";
-import { startTransition, restoreTransition } from "./transition";
 import { confirm } from "./choiceModal";
 import { UnizeroBridge, BRIDGE_API, type BridgePaper } from "./bridge";
 import { CanvasCapture, isCaptureMode } from "./capture/canvasCapture";
 import {
   citationText,
-  type CitationAction,
   type PaperRef,
 } from "./citation";
 import { DETAIL_VIEW_TYPE, UnizeroDetailView } from "./detailView";
 import { LIBRARY_VIEW_TYPE, UnizeroLibraryView } from "./libraryView";
 import { PaperStore } from "./paperStore";
-import type { PillHost } from "./pill";
-import { citationLivePreview, citationPostProcessor } from "./render";
+import { linkLivePreview, type LinkHost } from "./render";
 import { LibrarySearchModal } from "./searchModal";
 import { CitationSuggest } from "./suggest";
 import { LinkTargetSuggest } from "./targetSuggest";
@@ -64,7 +61,7 @@ import {
   type UnizeroSettings,
 } from "./settings";
 
-export default class UnizeroPlugin extends Plugin implements PillHost {
+export default class UnizeroPlugin extends Plugin implements LinkHost {
   settings: UnizeroSettings = { ...DEFAULT_SETTINGS };
   bridge!: UnizeroBridge;
   store!: PaperStore;
@@ -130,8 +127,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     this.registerView(DETAIL_VIEW_TYPE, (leaf) => new UnizeroDetailView(leaf, this));
     this.registerView(LIBRARY_VIEW_TYPE, (leaf) => new UnizeroLibraryView(leaf, this));
 
-    this.registerMarkdownPostProcessor(citationPostProcessor(this));
-    this.registerEditorExtension(citationLivePreview(this));
+    this.registerEditorExtension(linkLivePreview(this));
     this.registerEditorSuggest(new CitationSuggest(this.app, this));
     this.registerEditorSuggest(new LinkTargetSuggest(this.app, this));
     this.addSettingTab(new UnizeroSettingTab(this.app, this));
@@ -179,10 +175,10 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
 
     this.addCommand({
       id: "refresh-papers",
-      name: "Re-read every citation from Zotero",
+      name: "Reload paper metadata from Zotero",
       callback: () => {
         this.store.invalidate();
-        new Notice("UniZero: re-reading citations from Zotero.");
+        new Notice("UniZero: reloading paper metadata from Zotero.");
       },
     });
 
@@ -202,8 +198,6 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     this.addCommand({ id: "open-backlinks", name: "Open UniZero Backlinks", callback: () => { void this.revealBacklinks(); } });
     this.addCommand({ id: "refresh-links", name: "Rebuild document links", callback: () => { void this.refreshLinks(true); } });
     this.addCommand({ id: "set-document-uid", name: "Set current document UID", callback: () => { void this.assignDocumentUID(); } });
-    this.addCommand({ id: "transition-citations", name: "Transition legacy citations…", callback: () => { void startTransition(this).catch((e) => this.reportError(e)); } });
-    this.addCommand({ id: "restore-transition", name: "Restore a citation Transition…", callback: () => { void restoreTransition(this).catch((e) => this.reportError(e)); } });
     this.addCommand({ id: "insert-document-link", name: "Insert a document link…", callback: () => { void this.insertDocumentLink(); } });
     this.addCommand({ id: "relocate-link", name: "Choose location for the UniZero link at the cursor…", callback: () => {
       const editor = this.resolveCitationEditor(); if (!editor) { return; }
@@ -247,16 +241,10 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
       this.settings.vaultID = randomUUID(); await this.saveData(this.settings);
     }
     if (!Array.isArray(this.settings.sourceLibraryIDs)) { this.settings.sourceLibraryIDs = []; }
-    // Raw no longer lives in a vault folder (it is a Zotero attachment); drop those settings.
-    for (const key of ["literatureFolder", "itemKeyProperty", "citekeyProperty"]) {
+    // Settings of removed features: the vault Raw folder (Raw is a Zotero attachment
+    // now) and the bare-citation pill appearance.
+    for (const key of ["literatureFolder", "itemKeyProperty", "citekeyProperty", "pillLabel", "pillStyle"]) {
       delete (this.settings as unknown as Record<string, unknown>)[key];
-    }
-    // Early builds used "citekey" as a pill label; map it onto the durable form.
-    if ((this.settings.pillLabel as string) === "citekey") {
-      this.settings.pillLabel = "itemKey";
-    }
-    if (!["framed", "highlight", "solid"].includes(this.settings.pillStyle)) {
-      this.settings.pillStyle = DEFAULT_SETTINGS.pillStyle;
     }
     if (typeof this.settings.showSubcollectionItems !== "boolean") {
       this.settings.showSubcollectionItems = DEFAULT_SETTINGS.showSubcollectionItems;
@@ -266,17 +254,10 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     }
   }
 
-  async saveSettings(
-    effect: "reconnect" | "rerender" | "none" = "reconnect",
-  ): Promise<void> {
+  async saveSettings(effect: "reconnect" | "none" = "reconnect"): Promise<void> {
     await this.saveData(this.settings);
-    if (effect === "reconnect") {
-      // The endpoint may have moved, so discard bridge-backed state.
-      this.store.invalidate();
-    } else if (effect === "rerender") {
-      // Appearance is local derived state and must never cause bridge traffic.
-      this.store.refresh();
-    }
+    // The endpoint may have moved, so discard bridge-backed state.
+    if (effect === "reconnect") { this.store.invalidate(); }
   }
 
   /** What Raw and Canvas actions need; built per use so settings stay current. */
@@ -297,20 +278,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     }
   }
 
-  // --- PillHost -----------------------------------------------------------
-
-  activate(action: CitationAction, ref: PaperRef, paper: BridgePaper, page?: number): void {
-    if (action === "markdown") {
-      void openRaw(paper, this.actionContext());
-      return;
-    }
-    if (action === "pdf") {
-      void openZoteroPdf(paper, page);
-      return;
-    }
-    void this.showInDetailView(ref);
-  }
-
+  /** Every action that applies to a paper, for link and library menus. */
   showMenu(event: MouseEvent, ref: PaperRef, paper: BridgePaper): void {
     const menu = new Menu();
 
@@ -472,7 +440,7 @@ export default class UnizeroPlugin extends Plugin implements PillHost {
     if (!text.includes("unizero://")) { return undefined; }
     if (this.cursorParse?.text !== text) { this.cursorParse = { text, links: scanDocumentLinks(text) }; }
     const offset = editor.posToOffset(editor.getCursor());
-    return this.cursorParse.links.find((l) => !l.legacy && offset >= l.from && offset <= l.to);
+    return this.cursorParse.links.find((l) => offset >= l.from && offset <= l.to);
   }
   reportError(error: unknown): void { new Notice(`UniZero: ${(error as Error).message || error}`, 8000); }
   openLink(target: LinkTarget): void { void openLinkTarget(this, target).catch((error) => this.reportError(error)); }
