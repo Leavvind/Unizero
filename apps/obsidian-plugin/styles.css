@@ -1,13 +1,109 @@
+/* Paper citations: native Markdown in reading view, Canvas and Live Preview. */
+body {
+  --unizero-paper-accent: #7560b5;
+}
+body.theme-dark {
+  --unizero-paper-accent: #baa5ef;
+}
+:is(.markdown-rendered a[href^="unizero://paper/"], .markdown-source-view.is-live-preview .unizero-paper-link) {
+  color: var(--unizero-paper-accent);
+  background-color: color-mix(in srgb, var(--unizero-paper-accent) 7%, transparent);
+  background-image: none;
+  border-radius: 4px;
+  padding: 0.08em 0.3em;
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, var(--unizero-paper-accent) 30%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-color 160ms ease, text-decoration-color 160ms ease;
+}
+.markdown-source-view.mod-cm6.is-live-preview .unizero-paper-link .cm-underline {
+  text-decoration: inherit;
+  background-image: none;
+}
+/* Themes often force the native .cm-link token color. Scope this override to
+   the paper label so ordinary web links keep the user's theme color. */
+.markdown-source-view.mod-cm6.is-live-preview .unizero-paper-link,
+.markdown-source-view.mod-cm6.is-live-preview .unizero-paper-link * {
+  color: var(--unizero-paper-accent) !important;
+}
+:is(.markdown-rendered a[href^="unizero://paper/"], .markdown-source-view.is-live-preview .unizero-paper-link)::before {
+  content: "\25a4";
+  display: inline-block;
+  margin-inline-end: 0.3em;
+  font-size: 0.85em;
+  opacity: 0.7;
+  text-decoration: none;
+}
+:is(.markdown-rendered a[href^="unizero://paper/"], .markdown-source-view.is-live-preview .unizero-paper-link):hover {
+  color: var(--unizero-paper-accent);
+  background-color: color-mix(in srgb, var(--unizero-paper-accent) 14%, transparent);
+  text-decoration-color: var(--unizero-paper-accent);
+}
+.markdown-rendered a[href^="unizero://paper/"]:focus-visible {
+  outline: 2px solid var(--unizero-paper-accent);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.markdown-rendered a[href^="unizero://paper/"], .markdown-source-view.is-live-preview .unizero-paper-link) {
+    transition: none;
+  }
+}
+/* Vault document links: quieter than paper chips, no background or badge. */
+body {
+  --unizero-note-accent: #2f8a83;
+}
+body.theme-dark {
+  --unizero-note-accent: #6cc7bd;
+}
+:is(.markdown-rendered a[href^="unizero://note/"], .markdown-source-view.is-live-preview .unizero-note-link) {
+  color: var(--unizero-note-accent);
+  background-image: none;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: color-mix(in srgb, var(--unizero-note-accent) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 160ms ease;
+}
+.markdown-source-view.mod-cm6.is-live-preview .unizero-note-link .cm-underline {
+  text-decoration: inherit;
+  background-image: none;
+}
+.markdown-source-view.mod-cm6.is-live-preview .unizero-note-link,
+.markdown-source-view.mod-cm6.is-live-preview .unizero-note-link * {
+  color: var(--unizero-note-accent) !important;
+}
+:is(.markdown-rendered a[href^="unizero://note/"], .markdown-source-view.is-live-preview .unizero-note-link):hover {
+  color: var(--unizero-note-accent);
+  text-decoration-style: solid;
+  text-decoration-color: var(--unizero-note-accent);
+}
+.markdown-rendered a[href^="unizero://note/"]:focus-visible {
+  outline: 2px solid var(--unizero-note-accent);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.markdown-rendered a[href^="unizero://note/"], .markdown-source-view.is-live-preview .unizero-note-link) {
+    transition: none;
+  }
+}
 
 /* Document links ---------------------------------------------------------- */
 
-.unizero-links__coverage {
+.unizero-links__paper {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--size-2-2);
-  color: var(--text-faint);
-  font-size: var(--font-ui-smaller);
+}
+
+.unizero-links__paper > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .unizero-links__notice {
@@ -90,9 +186,78 @@ a.unizero-links__name:hover {
   background-color: var(--background-modifier-hover);
 }
 
+.unizero-links__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-1);
+  cursor: pointer;
+}
+
+.unizero-links__chevron {
+  display: flex;
+}
+
+.unizero-links__chevron svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+.unizero-links__toggle .unizero-links__count {
+  margin-left: auto;
+}
+
+.unizero-mention-group .unizero-links__source {
+  cursor: pointer;
+}
+
+.unizero-mention-group .is-hidden {
+  display: none;
+}
+
+/* Link floats over the row's right edge on hover, so rows keep one compact layout. */
+.unizero-link-occurrence.unizero-mention {
+  position: relative;
+}
+
+.unizero-link-occurrence.unizero-mention .unizero-mention__link {
+  position: absolute;
+  top: 2px;
+  right: var(--size-2-2);
+  height: auto;
+  padding: 1px var(--size-2-3);
+  font-size: var(--font-ui-smaller);
+  box-shadow: var(--shadow-s);
+  display: none;
+}
+
+.unizero-link-occurrence.unizero-mention:hover .unizero-mention__link,
+.unizero-link-occurrence.unizero-mention:focus-within .unizero-mention__link {
+  display: inline-flex;
+}
+
+.unizero-mention__match {
+  padding: 0 1px;
+  border-radius: var(--radius-s);
+  background-color: var(--text-highlight-bg);
+  color: var(--text-normal);
+}
+
 .unizero-link-occurrence__line {
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
+}
+
+.unizero-link-occurrence__form {
+  margin-right: var(--size-2-1);
+  padding: 0 var(--size-2-1);
+  border-radius: var(--radius-s);
+  background-color: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+
+.unizero-link-occurrence__form.is-unizero {
+  background-color: rgba(var(--color-purple-rgb), 0.12);
+  color: var(--color-purple);
 }
 
 .unizero-link-occurrence__text {

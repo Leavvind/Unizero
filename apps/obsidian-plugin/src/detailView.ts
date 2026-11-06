@@ -22,7 +22,7 @@ import {
 import { enableCitationDrag, paperRefKey, type PaperRef } from "./citation";
 import type { PaperState } from "./paperStore";
 import type UnizeroPlugin from "./main";
-import { renderCoverage, renderOccurrences } from "./backlinksView";
+import { renderOccurrences } from "./backlinksView";
 import {
   addCanvasItems,
   addRawItems,
@@ -366,7 +366,6 @@ export class UnizeroDetailView extends ItemView {
   private renderVault(container: HTMLElement): void {
     const body = container.createDiv({ cls: "unizero-detail__list" });
     if (!this.ref) { return; }
-    renderCoverage(body, this.plugin);
     renderOccurrences(body, this.plugin, this.plugin.vaultIndex.links.query({ kind: "paper", ...this.ref, action: "detail" }));
     body.createEl("button", { text: "Insert citation" }).onclick = () => { if (this.ref) { this.plugin.insertCitation(this.ref); } };
   }

@@ -32,13 +32,13 @@ import {
   openZoteroPdf,
 } from "./actions";
 import { randomUUID } from "crypto";
-import { VaultIdentity } from "./vaultIdentity";
+import { uniqueTimestampUID, VaultIdentity } from "./vaultIdentity";
 import { ExternalIndex, localFileIO } from "./externalIndex";
 import type { SourceDocument } from "./linkIndex";
 import { parseLinkTarget, serializeLinkTarget, markdownLink, type LinkTarget, validIdentity } from "./linkTarget";
 import { openLinkTarget } from "./linkOpening";
 import { BACKLINKS_VIEW_TYPE, BacklinksView } from "./backlinksView";
-import { chooseLinkLocation, inputText } from "./linkPicker";
+import { chooseLinkLocation } from "./linkPicker";
 import { scanDocumentLinks, retargetInlineLink, type DocumentLink } from "./documentLinks";
 import { confirm } from "./choiceModal";
 import { UnizeroBridge, BRIDGE_API, type BridgePaper } from "./bridge";
@@ -53,7 +53,7 @@ import { PaperStore } from "./paperStore";
 import { linkLivePreview, type LinkHost } from "./render";
 import { LibrarySearchModal } from "./searchModal";
 import { CitationSuggest } from "./suggest";
-import { LinkTargetSuggest } from "./targetSuggest";
+import { LinkTargetSuggest, openSuggestions } from "./targetSuggest";
 import { isIndexedNote, VaultIndex } from "./vaultIndex";
 import {
   DEFAULT_SETTINGS,
@@ -198,6 +198,16 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     this.addCommand({ id: "open-backlinks", name: "Open UniZero Backlinks", callback: () => { void this.revealBacklinks(); } });
     this.addCommand({ id: "refresh-links", name: "Rebuild document links", callback: () => { void this.refreshLinks(true); } });
     this.addCommand({ id: "set-document-uid", name: "Set current document UID", callback: () => { void this.assignDocumentUID(); } });
+    this.addCommand({ id: "link-selection", name: "Link selection to a paper or document…", editorCallback: (editor) => {
+      // `[selection](@)` with the caret after `@`: the search writes only the URL.
+      // The selection keeps its own formatting; only line breaks and bare brackets,
+      // which would end the label early, are neutralised.
+      const label = editor.getSelection().replace(/\r?\n/g, " ").replace(/(?<!\\)[[\]]/g, "\\$&"), from = editor.getCursor("from");
+      editor.replaceSelection(`[${label}](@)`);
+      const offset = editor.posToOffset(from) + label.length + 4;
+      editor.setCursor(editor.offsetToPos(offset));
+      openSuggestions(this.app, editor, this.app.workspace.getActiveFile());
+    } });
     this.addCommand({ id: "insert-document-link", name: "Insert a document link…", callback: () => { void this.insertDocumentLink(); } });
     this.addCommand({ id: "relocate-link", name: "Choose location for the UniZero link at the cursor…", callback: () => {
       const editor = this.resolveCitationEditor(); if (!editor) { return; }
@@ -514,17 +524,35 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
   async assignDocumentUID(): Promise<void> {
     const file = this.currentDocument;
     if (!file) { new Notice("Open a Vault Markdown document first."); return; }
-    if (this.settings.uidSource !== "property") { new Notice("Set the UID using your configured filename convention."); return; }
-    const uid = await inputText(this.app, "Set document UID (reuse your existing identity convention)", this.identity.get(file.path)?.uid || "");
-    if (uid === undefined) { return; }
-    if (!validIdentity(uid)) { new Notice("Enter an exact, nonempty UID."); return; }
+    const existing = this.identity.get(file.path)?.uid;
+    if (existing) { new Notice(`This document already has UID ${existing}.`); return; }
+    const uid = await this.setDocumentUID(file);
+    if (uid) { new Notice(`Document UID set to ${uid}.`); }
+  }
+  /**
+   * The document's UID, generating one when it has none: a local timestamp,
+   * moved forward a second at a time past any UID the Vault already uses, written
+   * to the configured property without asking. Returns undefined when no UID
+   * can be written (filename UIDs, or an index still rebuilding).
+   */
+  async setDocumentUID(file: TFile): Promise<string | undefined> {
+    const current = this.identity.get(file.path)?.uid;
+    if (current) { return current; }
+    if (this.settings.uidSource !== "property") { new Notice(`"${file.basename}" has no UID. Name it using your configured filename convention.`); return undefined; }
     // Only what changed since the last pass needs reading to rule out a duplicate UID.
     await this.vaultIndex.initialize({ changedOnly: true });
-    if (this.vaultIndex.links.vaultState !== "complete") { new Notice("Finish rebuilding the Vault identity index before assigning a UID."); return; }
-    const matches = this.identity.resolve(this.settings.vaultID, uid).notes.filter((n) => n.path !== file.path);
-    if (matches.length) { new Notice(`UID already belongs to ${matches.map((n) => n.path).join(", ")}`); return; }
+    if (this.vaultIndex.links.vaultState !== "complete") { new Notice("Finish rebuilding the Vault identity index before assigning a UID."); return undefined; }
+    const used = this.identity.usedUIDs(file.path);
+    const uid = uniqueTimestampUID(new Date(), (candidate) => used.has(candidate));
     await this.app.fileManager.processFrontMatter(file, (fm) => { fm[this.settings.uidProperty] = uid; });
     await this.vaultIndex.indexFile(file);
+    return uid;
+  }
+  /** A UID for a linked note, generated and written when it has none. */
+  async uidForLinking(path: string): Promise<string | undefined> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) { new Notice(`Document not found: ${path}`); return undefined; }
+    return this.setDocumentUID(file);
   }
   async newVaultIdentity(): Promise<void> {
     if (!await confirm(this.app, { title: "Treat this copy as a new Vault?", message: "Existing UniZero links to the old Vault identity will no longer resolve in this copy. Document UIDs remain the same.", action: "Create new Vault identity" })) { return; }
@@ -541,8 +569,9 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     const { pick } = await import("./linkPicker");
     const note = await pick(this.app, "Search Vault documents by title, path or UID", this.identity.search("", Infinity).map((n) => ({ label: `${n.path} · ${n.uid || "no UID"}`, value: n })));
     if (!note) { return; }
-    if (!note.uid) { new Notice("Set this document's UID before linking to it."); return; }
-    const target: LinkTarget = { kind: "note", vaultID: this.settings.vaultID, uid: note.uid };
+    const uid = note.uid || await this.uidForLinking(note.path);
+    if (!uid) { return; }
+    const target: LinkTarget = { kind: "note", vaultID: this.settings.vaultID, uid };
     const chosen = await chooseLinkLocation(this, target);
     if (chosen) {
       this.resolveCitationEditor()?.replaceSelection(markdownLink(note.title, chosen));

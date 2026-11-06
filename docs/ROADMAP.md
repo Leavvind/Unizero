@@ -13,8 +13,18 @@ Manual checks are historical open records, not evidence of a known defect.
   directory and target resolver against a real library: all four link directions,
   unopened attachments, external edits, offline cache, multiple PDFs/Raw files,
   deletion/restore, Canvas navigation, folder/offline moves, and multiple windows.
-  Vault rename, reading links and Backlinks were checked in Obsidian. Detailed results:
+  Vault rename, reading links and Backlinks were checked in Obsidian. On 2026-11-06,
+  native paper badges were also checked in Live Preview and reading view under
+  Baseline, including opening the Item pane from a styled Live Preview link.
+  Formatted labels, light mode and multi-window styling still need host checks. Detailed results:
   [design handoff](UNIZERO_LINKS_DESIGN.md#15-本次施工与宿主验收记录).
+- **Merged Backlinks — host check.** In a real Vault, check that UniZero Backlinks
+  lists wikilinks, embeds, Markdown links and property links beside UniZero links,
+  refreshes after an edit or rename, shows native links for a note without a UID, and
+  how links from a Vault Canvas appear. Wikilinks inside Zotero documents are not read.
+  Also check Unlinked mentions: title and alias matches in Chinese and English notes,
+  that **Link** writes a UniZero link (assigning a UID if needed), and how long the
+  first expansion takes in a large Vault.
 - **Import from Obsidian.** Let an explicit user action add or update papers in Zotero
   from exploration results. Not implemented; needs a separate write contract, since
   the bridge only acts on a paper's own Raw and Canvas.

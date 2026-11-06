@@ -8,6 +8,7 @@ import { normalizeLocalPath } from "./externalIndex";
 import type { LinkTarget, TextLocation } from "./linkTarget";
 import { resolveTextLocation, scanCanvasLinks, scanDocumentLinks } from "./documentLinks";
 import type { LinkOccurrence } from "./linkIndex";
+import type { NativeBacklink } from "./nativeLinks";
 
 /** Open an attachment in Obsidian's own editor, which addresses outside files as `file:<path>`. */
 async function openExternalMarkdown(plugin: UnizeroPlugin, path: string, location?: TextLocation, line?: number): Promise<void> {
@@ -79,4 +80,11 @@ export async function openLinkOccurrence(plugin: UnizeroPlugin, occurrence: Link
   } else {
     await openExternalMarkdown(plugin, source.path!, undefined, same?.line);
   }
+}
+
+/** Opens the Vault note holding a native link or mention, at its line when one is known. */
+export async function openNativeBacklink(plugin: UnizeroPlugin, link: Pick<NativeBacklink, "sourcePath" | "line">): Promise<void> {
+  const file = plugin.app.vault.getAbstractFileByPath(link.sourcePath);
+  if (!(file instanceof TFile)) { throw new Error("The source document is missing."); }
+  await plugin.app.workspace.getLeaf(false).openFile(file, link.line === undefined ? undefined : { eState: { line: link.line } });
 }

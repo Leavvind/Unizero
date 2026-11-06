@@ -45,8 +45,38 @@ export class VaultIdentity {
     const notes = [...this.notes.values()].filter((n) => n.uid === uid);
     return { status: notes.length === 1 ? "found" : notes.length ? "conflict" : "missing", notes };
   }
+  /** The UIDs of every note except the one at `exceptPath`, for probing many candidates at once. */
+  usedUIDs(exceptPath?: string): Set<string> {
+    const used = new Set<string>();
+    for (const n of this.notes.values()) { if (n.uid && n.path !== exceptPath) { used.add(n.uid); } }
+    return used;
+  }
+  /** Stops at `limit`: the suggester calls this on every keystroke. */
   search(query: string, limit = 50): NoteIdentity[] {
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-    return [...this.notes.values()].filter((n) => terms.every((term) => `${n.path} ${n.uid || ""}`.toLowerCase().includes(term))).slice(0, limit);
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean), result: NoteIdentity[] = [];
+    if (limit <= 0) { return result; }
+    for (const n of this.notes.values()) {
+      if (terms.length) {
+        const haystack = `${n.path} ${n.uid || ""}`.toLowerCase();
+        if (!terms.every((term) => haystack.includes(term))) { continue; }
+      }
+      result.push(n);
+      if (result.length >= limit) { break; }
+    }
+    return result;
+  }
+}
+
+/** Local-time YYYYMMDDHHmmss, the common Zettelkasten UID form. */
+export function timestampUID(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+/** The first timestamp UID from `start`, a second at a time, that `taken` does not reject. */
+export function uniqueTimestampUID(start: Date, taken: (uid: string) => boolean): string {
+  for (let time = start.getTime(); ; time += 1000) {
+    const uid = timestampUID(new Date(time));
+    if (!taken(uid)) { return uid; }
   }
 }

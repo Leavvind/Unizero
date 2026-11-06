@@ -2,6 +2,7 @@ import { scanDocumentLinks } from "../src/documentLinks";
 import { describe, expect, it } from "vitest";
 import {
   citationPrefixAt,
+  linkDestinationAt,
   citationText,
   isPaperRef,
   paperRefKey,
@@ -98,5 +99,26 @@ describe("paperRefKey / isPaperRef", () => {
     expect(isPaperRef(REF)).toBe(true);
     expect(isPaperRef({ libraryID: 0, itemKey: "X" })).toBe(false);
     expect(isPaperRef({ libraryID: 1, itemKey: "bad/key" })).toBe(false);
+  });
+});
+
+describe("linkDestinationAt", () => {
+  it("recognises an @ query inside a link destination", () => {
+    const line = "see [my words](@smith 2019) here";
+    const start = line.indexOf("@"), end = line.indexOf(")");
+    expect(linkDestinationAt(line, start, end)).toEqual({});
+    expect(citationPrefixAt(line, end)).toEqual({ start, query: "smith 2019" });
+  });
+  it("reports an empty label so the completion can fill it", () => {
+    const line = "x [](@q)";
+    expect(linkDestinationAt(line, line.indexOf("@"), line.indexOf(")"))).toEqual({ emptyLabelAt: 2 });
+  });
+  it("replaces an empty image link whole, since a UniZero URI cannot be embedded", () => {
+    const line = "x ![](@q)";
+    expect(linkDestinationAt(line, line.indexOf("@"), line.indexOf(")"))).toEqual({ emptyLabelAt: 2 });
+  });
+  it("ignores an ordinary @ and an unclosed destination", () => {
+    expect(linkDestinationAt("cite @q", 5, 7)).toBeUndefined();
+    expect(linkDestinationAt("[a](@q", 4, 6)).toBeUndefined();
   });
 });

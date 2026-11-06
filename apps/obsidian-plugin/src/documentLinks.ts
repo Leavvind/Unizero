@@ -8,6 +8,9 @@ export interface DocumentLink {
   raw: string;
   from: number;
   to: number;
+  /** Source span of the label, excluding brackets and the destination. */
+  labelFrom?: number;
+  labelTo?: number;
   line: number;
   ch: number;
   lineText: string;
@@ -88,10 +91,11 @@ export function scanDocumentLinks(text: string): DocumentLink[] {
   }
   collect(tree);
   const result: DocumentLink[] = [];
-  function add(target: LinkTarget, from: number, to: number): void {
+  function add(target: LinkTarget, from: number, to: number, labelTo?: number): void {
     const line = lineAt(lineStarts, from), lineStart = lineStarts[line];
     const lineEnd = text.indexOf("\n", from);
     result.push({ target, from, to, raw: text.slice(from, to),
+      ...(labelTo !== undefined && labelTo > from + 1 ? { labelFrom: from + 1, labelTo } : {}),
       line, ch: from - lineStart,
       lineText: text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd).replace(/\r$/, "") });
   }
@@ -100,7 +104,7 @@ export function scanDocumentLinks(text: string): DocumentLink[] {
     if (from === undefined || to === undefined) { return; }
     if (node.type === "link" || node.type === "linkReference") {
       const target = parseLinkTarget(node.type === "link" ? node.url : definitions.get(node.identifier) || "");
-      if (target) { add(target, from, to); }
+      if (target) { add(target, from, to, node.children[node.children.length - 1]?.position?.end.offset); }
       return;
     }
     if (["code", "inlineCode", "html", "image", "imageReference", "definition"].includes(node.type)) { return; }

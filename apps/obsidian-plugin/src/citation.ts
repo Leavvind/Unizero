@@ -90,6 +90,18 @@ export function citationPrefixAt(
   return { start, query };
 }
 
+/**
+ * Where an `@` query from `start` to `end` sits in a Markdown link destination,
+ * as in `[label](@query)`: the completion then writes only the URL. `emptyLabelAt`
+ * is where an empty `[](` starts, so the completion can replace it with a whole
+ * link; an image's `!` is included, since a UniZero URI cannot be embedded.
+ */
+export function linkDestinationAt(line: string, start: number, end: number): { emptyLabelAt?: number } | undefined {
+  if (line.slice(start - 2, start) !== "](" || line.charAt(end) !== ")") { return undefined; }
+  if (line.slice(start - 3, start) !== "[](") { return {}; }
+  return { emptyLabelAt: line.charAt(start - 4) === "!" ? start - 4 : start - 3 };
+}
+
 /** The text a completion inserts. Optional `page` applies only to the PDF action. */
 export function citationText(
   ref: PaperRef & { authors?: string[]; title?: string; year?: string },

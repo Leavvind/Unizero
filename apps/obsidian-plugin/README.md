@@ -22,8 +22,17 @@ bridge API 2. Zotero's HTTP server must be enabled
 - **Search:** type `@` followed by author, title, or year. Insert and drag actions
   write `[Author, year](unizero://paper/libraryID/itemKey)`. Labels are ordinary
   Markdown: editing Zotero metadata never rewrites text already inserted in a note.
-  The source-switch row searches Vault documents instead; `@vault query` selects
-  that source directly. `↵` finishes the link. `Tab` or `Shift+↵` continue to Raw or PDF,
+  Paper links have a small document badge and a subtle violet background in reading
+  view, Canvas and Live Preview; Vault document links get a quieter teal label with
+  a dotted underline. Placing the cursor inside a link reveals native
+  Markdown for editing; Source mode stays plain. Styling never loads paper metadata.
+  A plain `@` query also lists up to five matching Vault documents after the
+  papers; `@vault query` or `@zotero query` restricts the search to one source, and
+  the source-switch row swaps between them. Inside a link destination,
+  `[your words](@query)` writes only the URL and keeps your label; `[](@query)`
+  fills the label too. So Obsidian's **Add external link** (`[selection]()`, caret
+  in the parentheses) followed by `@` links any text, and **Link selection to a
+  paper or document…** does both steps at once. `↵` finishes the link. `Tab` or `Shift+↵` continue to Raw or PDF,
   and `#` or `^` go straight to the paper's Raw headings or blocks; the forms a Chinese
   IME writes for those keys (`＃`, `……`) work the same way.
   Sidebar insertion uses the active editor or the last open Markdown note; dragging
@@ -56,18 +65,39 @@ operating-system protocol. From outside, use
 ## Vault identity and Backlinks
 
 **UID source** defaults to the `uid` frontmatter property, read as written; a
-filename UID needs an explicit capture pattern. The plugin never assigns a UID
-itself: use **Set current document UID**. Duplicate UIDs list every candidate and
-stop navigation.
+filename UID needs an explicit capture pattern. **Set current document UID**, or
+linking to a note that has none, writes a local `YYYYMMDDHHmmss` timestamp to the
+property without asking, a second later for each one the Vault already uses; a
+note that has a UID keeps it. Filename UIDs are never written. Duplicate UIDs
+list every candidate and stop navigation.
 
 The **Vault identity** lives in plugin settings, so sync them between devices;
 **Treat as a new Vault…** gives an independent copy its own. Renaming or moving a
 note keeps its links. Links into another Vault open only in that Vault.
 
-**UniZero Backlinks** follows the last active Vault note and reports a missing UID
-or a conflict rather than zero. The Item pane's **Links** tab groups incoming links
-by Vault or Zotero source, with context and per-file counts. Native wikilinks and
-provider Citations are not included.
+**UniZero Backlinks** follows the last active Vault note and lists every incoming
+link in one place: UniZero links and Obsidian's own links (wikilinks, embeds,
+Markdown links to the note, and links in properties), each row labelled with its
+form. Obsidian's links come from what Obsidian has already resolved, so they need no
+UID; a missing UID or a UID conflict is reported and hides only the UniZero links.
+A source whose links Obsidian counted without a position, such as a Canvas, is listed
+as a whole file. Wikilinks written in Zotero documents are not read. With a Zotero
+attachment such as Raw open, the pane lists the links into its paper instead, with a
+button to its Item pane.
+
+Below the links, a collapsed **Unlinked mentions** section lists plain-text
+occurrences of the note's title or frontmatter aliases in other Vault notes, ignoring
+case, existing links, code, comments and frontmatter. Words in space-separated
+scripts must match whole; Chinese or Japanese titles also match inside a sentence.
+Each source note starts collapsed to its name and count; expand it to see every
+mention in context with the match highlighted. Notes are read only while the section
+is open, and a note is read again only after it changes. **Link**, shown on hover,
+replaces one mention with a UniZero link to the note, assigning
+the note a UID first if it has none. Zotero documents are never scanned for mentions.
+Both panes refresh automatically and show nothing when
+there are no links; the index status and **Rebuild** are in Settings. The Item pane's
+**Links** tab groups incoming UniZero links by Vault or Zotero source, with context
+and per-file counts. Provider Citations are not included.
 
 ## Document source coverage
 
@@ -81,7 +111,7 @@ libraries** limits it; empty means all non-feed libraries. It refreshes every
 minute; **Rebuild document links** re-reads everything. Indexing never converts,
 downloads or queries providers.
 
-The lists show coverage, unavailable sources and the last successful Zotero scan.
+Settings shows coverage, unavailable sources and the last successful Zotero scan.
 A file that cannot be read keeps its previous links, marked stale. The
 `link-index-v1.json` cache in the plugin folder can be deleted at any time. A link
 into a Zotero Canvas opens that file; when the card cannot be focused, a notice

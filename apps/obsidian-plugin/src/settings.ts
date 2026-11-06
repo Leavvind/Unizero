@@ -6,6 +6,7 @@ import {
   type CaptureMode,
 } from "./capture/canvasCapture";
 import type UnizeroPlugin from "./main";
+import { coverageSummary } from "./backlinksView";
 
 export interface UnizeroSettings {
   /** Zotero's built-in HTTP server. Changing the port here matches Zotero's own. */
@@ -67,6 +68,13 @@ export class UnizeroSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
+  private unsubscribeCoverage?: () => void;
+
+  hide(): void {
+    this.unsubscribeCoverage?.();
+    this.unsubscribeCoverage = undefined;
+  }
+
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
@@ -95,7 +103,7 @@ export class UnizeroSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Document identity").setHeading();
     new Setting(containerEl).setName("Vault identity").setDesc(`ID: ${this.plugin.settings.vaultID}. Sync this plugin's settings between devices.`)
       .addButton((button) => button.setButtonText("Treat as a new Vault…").onClick(() => { void this.plugin.newVaultIdentity(); }));
-    new Setting(containerEl).setName("UID source").setDesc("Where each note's UID comes from. The plugin never assigns one.")
+    new Setting(containerEl).setName("UID source").setDesc("Where each note's UID comes from. A note without one gets a timestamp UID when you link to it or assign one.")
       .addDropdown((dropdown) => dropdown.addOption("property", "Frontmatter property").addOption("filename", "Filename capture group")
         .setValue(this.plugin.settings.uidSource).onChange(async (value) => {
           this.plugin.settings.uidSource = value as "property" | "filename"; await this.plugin.saveSettings("none"); await this.plugin.vaultIndex.initialize();
@@ -117,7 +125,12 @@ export class UnizeroSettingTab extends PluginSettingTab {
         if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) { return; }
         this.plugin.settings.sourceLibraryIDs = [...new Set(ids)]; await this.plugin.saveSettings("none"); await this.plugin.configureExternalIndex();
       }));
-    new Setting(containerEl).setName("Refresh document links").addButton((button) => button.setButtonText("Rebuild").onClick(() => { void this.plugin.refreshLinks(true); }));
+    const refresh = new Setting(containerEl).setName("Refresh document links").addButton((button) => button.setButtonText("Rebuild").onClick(() => { void this.plugin.refreshLinks(true); }));
+    // The status follows the index while this tab is open.
+    const describe = () => refresh.setDesc(`Links refresh automatically. Status: ${coverageSummary(this.plugin)}.`);
+    describe();
+    this.unsubscribeCoverage?.();
+    this.unsubscribeCoverage = this.plugin.vaultIndex.links.subscribe(describe);
 
     this.addTemplateSetting(containerEl);
 
