@@ -41,7 +41,7 @@ uv venv --python 3.12
 uv pip install -e ".[dev]"
 ```
 
-MinerU 4.0.10 converts all PDF pages and exports Markdown, images, and structured
+MinerU 4.1.7 converts all PDF pages and exports Markdown, images, and structured
 content. Parsing quality: `flash` for speed, `basic` (default) for OCR, formulas,
 and tables, and `standard` / `advanced` for VLM-assisted parsing.
 
