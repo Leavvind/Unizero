@@ -5,7 +5,7 @@ UniZero/
 ├── apps/
 │   ├── obsidian-plugin/
 │   │   ├── src/                 Citation syntax, renderers, suggester, panes, Raw/Canvas actions, bridge client
-│   │   ├── tests/               Vitest over citations, actions, the vault index, and the paper store
+│   │   ├── tests/               Vitest over links, indexes, completion, actions, and panes (Obsidian mocked)
 │   │   ├── manifest.json        Obsidian plugin manifest
 │   │   ├── styles.css           Link, editor and pane styling
 │   │   └── package.json
@@ -15,7 +15,7 @@ UniZero/
 │   │   └── package.json
 │   └── zotero-addon/
 │       ├── addon/
-│       │   ├── chrome/content/  Privileged dialogs: panel, explorer (legacy Home), graph, vendor, icons
+│       │   ├── chrome/content/  Privileged dialogs: panel, explorer (legacy Home), icons
 │       │   ├── locale/          Fluent strings per locale
 │       │   ├── manifest.json    Zotero add-on manifest template
 │       │   └── prefs.js         Default preferences
@@ -23,7 +23,7 @@ UniZero/
 │       │   ├── core/            Feature registry and lifecycle
 │       │   ├── features/        Conversion and annotation commands
 │       │   ├── modules/         Relations, metadata, providers, cache, derived index, item pane
-│       │   ├── projects/        Project/Board/Paper schemas and Project persistence
+│       │   ├── projects/        Paper catalog schemas and persistence
 │       │   ├── runtime-client/  Runtime HTTP client and process management
 │       │   ├── server/          Bridge (Obsidian, MCP server) and citekey resolution
 │       │   ├── ui/              Menus, panel and explorer bridges, progress, service notices
@@ -98,39 +98,35 @@ data are not part of this structure.
 | Change a menu or panel integration | `apps/zotero-addon/src/ui/` |
 | Read-only Markdown/Canvas source discovery | `apps/zotero-addon/src/zotero/linkSources.ts` |
 | Read or mutate Zotero items/attachments | `apps/zotero-addon/src/zotero/` |
-| Change the reader's highlight shortcuts | `apps/zotero-addon/src/zotero/readerShortcuts.ts` (keys: `readerShortcutKeys.ts`) |
 | Change References, Citations, or metadata UI | `apps/zotero-addon/src/modules/` |
-| Change relation or graph topology | `apps/zotero-addon/src/modules/uniConnection.ts` |
+| Change the derived relation index | `apps/zotero-addon/src/modules/uniConnection.ts` |
 | Change index maintenance or reference backfill | `apps/zotero-addon/src/modules/uniConnectionSync.ts` |
-| Change Project/Board/Paper persisted shapes | `apps/zotero-addon/src/projects/` |
+| Change Paper catalog persisted shapes | `apps/zotero-addon/src/projects/` |
 | Change cached or persisted add-on state | `apps/zotero-addon/src/modules/localStorage.ts` |
 | Change runtime HTTP behavior | schema, both contract models, client, then `api/` |
 | Change conversion orchestration | `services/paper-runtime/.../application/` |
 | Add or change a document pipeline step | `services/paper-runtime/.../pipeline/` |
 | Change runtime filesystem locations | `services/paper-runtime/.../paths.py` |
 
-### Legacy: Unizero Home / Board / Graph dialog
+### Legacy: Unizero Home dialog
 
 | Change | Start here |
 | --- | --- |
 | Add data Home needs | `views.ts` producer, then `src/ui/literatureExplorer.ts` bridge |
-| Board layout, interaction, or detail tabs | `addon/chrome/content/literature-explorer.js` |
-| Graph visuals, forces, or interaction | `addon/chrome/content/literature-graph.js` |
+| Paper tabs, filters, or relation tables | `addon/chrome/content/literature-explorer.js` |
 
 ## Dialog content (add-on)
 
 `addon/chrome/content/` is plain JavaScript and XHTML: not compiled and not type checked.
 `literature-explorer.xhtml` and its scripts are loaded by the `happy-dom` harness in
-`tests/literatureExplorerRace.test.ts`; `panel.js`, Zotero APIs, privileged-window
-lifecycle, and the real canvas are not.
+`tests/literatureExplorerRace.test.ts`; `panel.js`, Zotero APIs, and privileged-window
+lifecycle are not.
 
 | File | Responsibility |
 | --- | --- |
 | `panel.xhtml` / `panel.js` | Runtime jobs, service notices, template editor |
 | `literature-explorer.xhtml` | Legacy Home markup, CSS variables, theming |
-| `literature-explorer.js` | Legacy Board state, pointer interaction, filters, detail tabs |
-| `literature-graph.js` | Force simulation and canvas drawing for the per-paper Graph tab |
-| `vendor/force-graph.min.js` | Vendored MIT force-graph UMD build; see the sibling LICENSE |
+| `literature-explorer.js` | Legacy Home paper tabs, filters, relation tables |
 
 These files talk to the add-on only through `window.arguments[0].api`. They must not
 import bundle modules.

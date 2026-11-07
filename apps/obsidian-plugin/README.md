@@ -20,23 +20,19 @@ bridge API 2. Zotero's HTTP server must be enabled
 - **Item pane** (right): metadata, incoming document Links, References, Citations,
   and Relation. Uncached relations require an explicit **Fetch from providers**.
 - **Search:** type `@` followed by author, title, or year. Insert and drag actions
-  write `[Author, year](unizero://paper/libraryID/itemKey)`. Labels are ordinary
-  Markdown: editing Zotero metadata never rewrites text already inserted in a note.
-  Paper links have a small document badge and a subtle violet background in reading
-  view, Canvas and Live Preview; Vault document links get a quieter teal label with
-  a dotted underline. Placing the cursor inside a link reveals native
-  Markdown for editing; Source mode stays plain. Styling never loads paper metadata.
-  A plain `@` query also lists up to five matching Vault documents after the
-  papers; `@vault query` or `@zotero query` restricts the search to one source, and
-  the source-switch row swaps between them. Inside a link destination,
-  `[your words](@query)` writes only the URL and keeps your label; `[](@query)`
-  fills the label too. So Obsidian's **Add external link** (`[selection]()`, caret
-  in the parentheses) followed by `@` links any text, and **Link selection to a
-  paper or document…** does both steps at once. `↵` finishes the link. `Tab` or `Shift+↵` continue to Raw or PDF,
-  and `#` or `^` go straight to the paper's Raw headings or blocks; the forms a Chinese
-  IME writes for those keys (`＃`, `……`) work the same way.
-  Sidebar insertion uses the active editor or the last open Markdown note; dragging
-  a paper inserts the same link.
+  write `[Author, year](unizero://paper/libraryID/itemKey)`; the label is ordinary
+  Markdown that later Zotero edits never rewrite. Vault documents are listed after
+  the papers; `@vault query` or `@zotero query` searches one source only.
+  - Inside a link destination, `[your words](@query)` keeps your label and
+    `[](@query)` fills it, so **Add external link** followed by `@` links any text;
+    **Link selection to a paper or document…** does both steps at once.
+  - `↵` finishes the link; `Tab` or `Shift+↵` continue to Markdown or PDF; `#` or `^`
+    continue to headings or blocks (a Chinese IME's `＃` and `……` work too).
+  - Sidebar insertion uses the active editor or the last open Markdown note.
+- **Link styling:** paper links get a document badge and violet background, Vault
+  links a teal dotted label, in reading view, Canvas and Live Preview. The cursor
+  inside a link reveals its Markdown; Source mode stays plain. Styling never loads
+  paper metadata.
 - **Search the Zotero library** (command; give it a hotkey): the same search in a
   modal, from anywhere. `↵` opens the paper pane, `Mod+↵` the PDF in Zotero,
   `Shift+↵` Raw, and `Alt+↵` Canvas; each result also has **Insert**, **PDF**, **Raw**, and
@@ -48,15 +44,23 @@ bridge API 2. Zotero's HTTP server must be enabled
 | `unizero://paper/1/HLP48L8X.pdf?page=15` | Open physical PDF page 15 |
 | `unizero://paper/1/HLP48L8X.md#Methods` | Open Raw at a heading |
 | `unizero://paper/1/HLP48L8X.md#%5Eresult-01` | Open Raw at an existing block ID |
+| `unizero://paper/1/HLP48L8X.md?attachment=ABCD1234#Methods` | Open the selected Markdown attachment at a heading |
 | `unizero://note/<vaultID>/<UID>#Methods` | Resolve a Vault document by UID, then locate a heading |
 
 `attachment=<key>` selects one attachment of the paper and never falls back to
 another file. A missing or ambiguous heading or block opens the file with a notice;
-headings match exactly. Typing inside a destination completes it the way `[[` does:
-the attachment after the item key, headings and block IDs after `.md` or `#` (`#^`
-for blocks only), and a page number after `.pdf`. Right-click for actions; **Choose
-location for the UniZero link at the cursor** replaces the destination and keeps the
-label. In source mode, Ctrl/Cmd-click follows a link.
+headings match exactly. Unfinished or malformed Markdown locations (such as `.md^`
+or `.md#^`) also open that file inside Obsidian. Block IDs use letters, digits and
+hyphens at the end of a line; UniZero also recognizes an ID directly after prose
+without a separating space, such as `text^result-01`.
+Typing inside a destination completes it the way `[[` does: the attachment after the
+item key, headings and block IDs after `.md` or `#` (`#^` for blocks only), and a page
+after `.pdf`. Attachment choices list Raw and ordinary Markdown files by name (ordinary
+files need an add-on of the same release); choosing one writes its key. A sole default
+Raw keeps the short `.md` form; an ordinary file always uses `?attachment=<key>`.
+Right-click for actions; **Choose location for the UniZero link at the cursor**
+replaces the destination and keeps the label. In source mode, Ctrl/Cmd-click follows
+a link.
 
 `unizero://` works only inside Obsidian with this plugin; it is not an
 operating-system protocol. From outside, use
@@ -91,9 +95,9 @@ case, existing links, code, comments and frontmatter. Words in space-separated
 scripts must match whole; Chinese or Japanese titles also match inside a sentence.
 Each source note starts collapsed to its name and count; expand it to see every
 mention in context with the match highlighted. Notes are read only while the section
-is open, and a note is read again only after it changes. **Link**, shown on hover,
-replaces one mention with a UniZero link to the note, assigning
-the note a UID first if it has none. Zotero documents are never scanned for mentions.
+is open, and a scan stops when the target changes or the pane closes. **Link**, shown
+on hover, replaces one mention with a UniZero link to the note, assigning the note a
+UID first if it has none. Zotero documents are never scanned for mentions.
 Both panes refresh automatically and show nothing when
 there are no links; the index status and **Rebuild** are in Settings. The Item pane's
 **Links** tab groups incoming UniZero links by Vault or Zotero source, with context
@@ -104,6 +108,10 @@ and per-file counts. Provider Citations are not included.
 Links are indexed in Vault Markdown and in Canvas text cards, group labels and edge
 labels; links inside code and comments are ignored. Library badges count Vault links
 only.
+
+Indexing is incremental: rapid edits are coalesced, large documents are parsed in a
+background worker, and folder moves or deletions produce one update. In the Library
+pane, arrow keys, Page Up/Down and Home/End navigate the full filtered list.
 
 **Index Zotero documents** also reads local Raw, Canvas and other Markdown/Canvas
 attachments, opened or not (Raw Backup and generated summaries excluded). **Source
@@ -215,8 +223,7 @@ npm run build
 `npm run dev` watches for changes. Copy or symlink `manifest.json`, `main.js`, and
 `styles.css` into `<vault>/.obsidian/plugins/unizero/`, then reload the plugin.
 
-Host verification is recorded in
-[the design handoff](../../docs/UNIZERO_LINKS_DESIGN.md#15-本次施工与宿主验收记录).
 Tests cover host-independent logic and mocked asynchronous workflows. Rendering,
 search, panes, dialogs, and bridge calls need a manual check in a real vault against
-Zotero.
+Zotero; open host checks are recorded in
+[the design handoff](../../docs/UNIZERO_LINKS_DESIGN.md#宿主验收记录).

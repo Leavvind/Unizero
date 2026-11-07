@@ -43,8 +43,8 @@ and cached relations. Read-only apart from starting a conversion.
 Optional local Python service for PDF → Markdown conversion and related document jobs.
 Talks to the add-on only through the versioned `/api/v1` contract.
 
-The add-on also still ships **Unizero Home** (Project View / Board), now a legacy
-surface. Current priorities are listed in [AGENTS.md](AGENTS.md).
+The add-on also still ships **Unizero Home**, a legacy per-paper window of References,
+Relation and Citations tables. Current priorities are listed in [AGENTS.md](AGENTS.md).
 
 ## Repository
 
