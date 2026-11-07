@@ -121,9 +121,14 @@ export interface BridgeLinkSource {
 export interface BridgeSourcePage {
   scan: string; scope: number[]; items: BridgeLinkSource[]; complete: boolean; nextOffset?: number; total: number;
 }
+export interface BridgeMarkdown {
+  key: string; title: string; purpose: "raw" | "user"; main: boolean; path?: string;
+}
 export interface BridgeArtifacts {
   libraryID: number; itemKey: string;
   pdfs: { key: string; title: string; main: boolean; path?: string }[];
+  /** Absent on older add-ons that list only generated attachments. */
+  markdowns?: BridgeMarkdown[];
   artifacts: { key: string; title: string; kind: string; path?: string; source?: string }[];
 }
 
@@ -230,8 +235,20 @@ export class UnizeroBridge {
     return this.get("link-sources", { libraries: options.libraries?.join(","), scan: options.scan,
       offset: options.offset === undefined ? undefined : String(options.offset), limit: "100" });
   }
-  artifacts(ref: PaperRef): Promise<BridgeArtifacts> {
-    return this.get("artifacts", { libraryID: String(ref.libraryID), itemKey: ref.itemKey });
+  /** Whether the add-on at an endpoint advertises `markdown-attachments`, asked once. */
+  private markdownSupport?: { endpoint: string; supported: Promise<boolean> };
+  async artifacts(ref: PaperRef): Promise<BridgeArtifacts> {
+    const files = await this.get<BridgeArtifacts>("artifacts", { libraryID: String(ref.libraryID), itemKey: ref.itemKey });
+    // Older add-ons list no Markdown at all; only a listing that has one needs the capability check.
+    if (!files.markdowns) { return files; }
+    const endpoint = this.endpoint();
+    if (this.markdownSupport?.endpoint !== endpoint) {
+      const supported = this.ping().then((ping) => ping.capabilities.includes("markdown-attachments"));
+      this.markdownSupport = { endpoint, supported };
+      supported.catch(() => { if (this.markdownSupport?.supported === supported) { this.markdownSupport = undefined; } });
+    }
+    const supported = await this.markdownSupport.supported.catch(() => false);
+    return supported ? files : { ...files, markdowns: undefined };
   }
   linkTarget(ref: PaperRef, action: "markdown" | "pdf", attachment?: string): Promise<{ source?: BridgeLinkSource; url?: string; attachmentKey?: string }> {
     return this.get("link-target", { libraryID: String(ref.libraryID), itemKey: ref.itemKey, action, attachment });

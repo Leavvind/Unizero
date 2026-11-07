@@ -3,6 +3,7 @@ import { readFile } from "fs/promises";
 import type UnizeroPlugin from "./main";
 import type { LinkTarget, TextLocation } from "./linkTarget";
 import { textAnchors } from "./documentLinks";
+import { markdownAttachments, markdownAttachmentLabel, markdownAttachmentDetail } from "./markdownAttachments";
 
 export function pick<T>(app: App, title: string, items: { label: string; value: T }[]): Promise<T | undefined> {
   return new Promise((resolve) => {
@@ -39,13 +40,14 @@ export async function chooseLinkLocation(plugin: UnizeroPlugin, target: LinkTarg
   let base: LinkTarget = { ...target, location: undefined };
   if (target.kind === "paper") {
     const action = await pick(plugin.app, "Choose target", [
-      { label: "Item pane", value: "detail" }, { label: "PDF / physical page", value: "pdf" }, { label: "Raw / heading / block", value: "markdown" },
+      { label: "Item pane", value: "detail" }, { label: "PDF / physical page", value: "pdf" }, { label: "Markdown / heading / block", value: "markdown" },
     ]);
     if (!action) { return; }
     if (action === "detail") { return { kind: "paper", libraryID: target.libraryID, itemKey: target.itemKey, action }; }
     const files = await plugin.bridge.artifacts(target);
+    const markdowns = markdownAttachments(files);
     const choices = action === "pdf" ? files.pdfs.map((f) => ({ label: f.title + (f.main ? " (default)" : ""), value: f.key }))
-      : files.artifacts.filter((f) => f.kind === "raw").map((f) => ({ label: f.title, value: f.key }));
+      : markdowns.map((f) => ({ label: `${markdownAttachmentLabel(f, markdowns)} (${markdownAttachmentDetail(f)})`, value: f.key }));
     const attachmentKey = await pick(plugin.app, "Choose attachment (required)", choices);
     if (!attachmentKey) { return; }
     base = { kind: "paper", libraryID: target.libraryID, itemKey: target.itemKey, action: action as "pdf" | "markdown", attachmentKey };
@@ -56,7 +58,7 @@ export async function chooseLinkLocation(plugin: UnizeroPlugin, target: LinkTarg
       return { ...base, ...(page ? { page: Number(page) } : {}) };
     }
     const resolved = await plugin.bridge.linkTarget(target, "markdown", attachmentKey);
-    if (!resolved.source?.path) { new Notice("This Raw is not available locally. No conversion or download was started."); return; }
+    if (!resolved.source?.path) { new Notice("This Markdown attachment is not available locally. No conversion or download was started."); return; }
     text = await readFile(resolved.source.path, "utf8");
   } else {
     const resolved = plugin.identity.resolve(target.vaultID, target.uid);

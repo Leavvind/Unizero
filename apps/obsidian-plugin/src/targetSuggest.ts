@@ -16,7 +16,7 @@ import {
 import { readFile } from "fs/promises";
 import { textAnchors, type TextAnchor } from "./documentLinks";
 import {
-  caretAfter, completionAt, locationChoices, pageChoices, targetChoices,
+  caretAfter, completionAt, locationChoices, markdownLocationChoices, pageChoices, targetChoices,
   type CompletionChoice, type LinkCompletion,
 } from "./linkCompletion";
 import { serializeLinkTarget, type LinkTarget } from "./linkTarget";
@@ -58,7 +58,13 @@ export class LinkTargetSuggest extends EditorSuggest<CompletionChoice> {
     if (!completion) { return []; }
     try {
       if (completion.stage === "page") { return pageChoices(completion); }
-      if (completion.stage === "location") { return locationChoices(await this.anchors(completion.target), completion.fragment); }
+      if (completion.stage === "location") {
+        if (completion.target.kind === "paper" && !completion.target.attachmentKey) {
+          const choices = markdownLocationChoices(await this.files(completion.target), completion.fragment);
+          if (choices) { return choices; }
+        }
+        return locationChoices(await this.anchors(completion.target), completion.fragment);
+      }
       return targetChoices(await this.files(completion.ref), completion.query);
     } catch (error) {
       // Each keystroke asks again; an unchanged failure is reported once, not per key.
@@ -113,7 +119,7 @@ export class LinkTargetSuggest extends EditorSuggest<CompletionChoice> {
   private async readDocument(target: LinkTarget): Promise<string> {
     if (target.kind === "paper") {
       const resolved = await this.plugin.bridge.linkTarget(target, "markdown", target.attachmentKey);
-      if (!resolved.source?.path) { throw new Error("This Raw is not available on this machine."); }
+      if (!resolved.source?.path) { throw new Error("This Markdown attachment is not available on this machine."); }
       return readFile(resolved.source.path, "utf8");
     }
     const result = this.plugin.identity.resolve(target.vaultID, target.uid);

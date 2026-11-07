@@ -5,6 +5,7 @@
 import type { PaperRef } from "./citation";
 import type { TextAnchor } from "./documentLinks";
 import { encodeLocation, type LinkTarget, type TextLocation } from "./linkTarget";
+import { markdownAttachments, markdownAttachmentLabel, markdownAttachmentDetail, type MarkdownListing } from "./markdownAttachments";
 
 interface Span { from: number; to: number; closes: boolean }
 export type LinkCompletion =
@@ -72,19 +73,29 @@ function decode(value: string): string {
 export interface CompletionChoice { label: string; detail?: string; text: string; next: boolean; level?: number }
 
 export function targetChoices(
-  files: { pdfs: { key: string; title: string; main: boolean }[]; artifacts: { key: string; title: string; kind: string }[] },
+  files: MarkdownListing & { pdfs: { key: string; title: string; main: boolean }[] },
   query: string,
 ): CompletionChoice[] {
-  const raws = files.artifacts.filter((file) => file.kind === "raw");
-  // One attachment is the default target and survives a replacement; several are explicit.
+  const markdowns = markdownAttachments(files);
+  // Only a sole default Raw can omit the key; a user's Markdown always needs it.
   const choices: CompletionChoice[] = [
-    ...raws.map((file) => ({ label: "Raw", detail: file.title, next: true,
-      text: raws.length > 1 ? `.md?attachment=${file.key}` : ".md" })),
+    ...markdowns.map((file) => ({ label: markdownAttachmentLabel(file, markdowns), detail: markdownAttachmentDetail(file), next: true,
+      text: markdowns.length === 1 && file.main ? ".md" : `.md?attachment=${file.key}` })),
     ...files.pdfs.map((file) => ({ label: "PDF", detail: file.title + (file.main && files.pdfs.length > 1 ? " (default)" : ""), next: true,
       text: files.pdfs.length > 1 ? `.pdf?attachment=${file.key}` : ".pdf" })),
     { label: "Item pane", text: "", next: false },
   ];
   return choices.filter((choice) => choice.text.toLowerCase().startsWith(query.toLowerCase()));
+}
+
+/** Choosing an attachment after `.md#...` retains the pending location query. */
+export function markdownLocationChoices(files: MarkdownListing, fragment?: string): CompletionChoice[] | undefined {
+  const markdowns = markdownAttachments(files);
+  if (!markdowns.length || (markdowns.length === 1 && markdowns[0].main)) { return; }
+  return markdowns.map((file) => ({
+    label: markdownAttachmentLabel(file, markdowns), detail: markdownAttachmentDetail(file), next: true,
+    text: `?attachment=${file.key}${fragment === undefined ? "" : `#${fragment}`}`,
+  }));
 }
 
 export function locationChoices(anchors: Pick<TextAnchor, "location" | "line" | "level">[], fragment?: string): CompletionChoice[] {

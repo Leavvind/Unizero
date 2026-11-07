@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { caretAfter, completionAt, jumpAt, locationChoices, pageChoices, targetChoices } from "../src/linkCompletion";
+import { caretAfter, completionAt, jumpAt, locationChoices, markdownLocationChoices, pageChoices, targetChoices } from "../src/linkCompletion";
 import { parseLinkTarget } from "../src/linkTarget";
 import { textAnchors } from "../src/documentLinks";
 
@@ -74,7 +74,7 @@ describe("punctuation from a Chinese IME", () => {
 describe("choices", () => {
   it("offers Raw, PDF and the Item pane, omitting the attachment when there is one", () => {
     expect(targetChoices(files, "").map((c) => [c.label, c.text, c.next])).toEqual([
-      ["Raw", ".md", true], ["PDF", ".pdf", true], ["Item pane", "", false],
+      ["Raw.md", ".md", true], ["PDF", ".pdf", true], ["Item pane", "", false],
     ]);
     expect(targetChoices(files, ".p").map((c) => c.label)).toEqual(["PDF"]);
     expect(targetChoices({ pdfs: [], artifacts: [] }, "").map((c) => c.label)).toEqual(["Item pane"]);
@@ -83,6 +83,43 @@ describe("choices", () => {
     const many = { pdfs: [{ key: "P1", title: "A", main: true }, { key: "P2", title: "B", main: false }],
       artifacts: [{ key: "R1", title: "R", kind: "raw" }, { key: "R2", title: "S", kind: "raw" }] };
     expect(targetChoices(many, "").map((c) => c.text)).toEqual([".md?attachment=R1", ".md?attachment=R2", ".pdf?attachment=P1", ".pdf?attachment=P2", ""]);
+  });
+  it("lists named Raw and user Markdown with explicit keys, excluding other artifacts", () => {
+    const listing = { ...files, markdowns: [
+      { key: "R1", title: "Main text.md", purpose: "raw" as const, main: true },
+      { key: "U1", title: "Reading notes.md", purpose: "user" as const, main: false },
+    ] };
+    expect(targetChoices(listing, ".m")).toEqual([
+      { label: "Main text.md", detail: "Raw · default", text: ".md?attachment=R1", next: true },
+      { label: "Reading notes.md", detail: "Markdown", text: ".md?attachment=U1", next: true },
+    ]);
+    expect(markdownLocationChoices(listing, "^123")).toEqual([
+      { label: "Main text.md", detail: "Raw · default", text: "?attachment=R1#^123", next: true },
+      { label: "Reading notes.md", detail: "Markdown", text: "?attachment=U1#^123", next: true },
+    ]);
+  });
+  it("keeps a single user Markdown explicit because a bare .md still means Raw", () => {
+    const listing = { pdfs: [], artifacts: [], markdowns: [
+      { key: "U1", title: "Notes.md", purpose: "user" as const, main: false },
+    ] };
+    expect(targetChoices(listing, ".m")[0].text).toBe(".md?attachment=U1");
+    expect(markdownLocationChoices(listing, "Methods")?.[0].text).toBe("?attachment=U1#Methods");
+    expect(markdownLocationChoices(listing)?.[0].text).toBe("?attachment=U1");
+  });
+  it("keeps the sole default Raw shorthand and trusts an empty declared list", () => {
+    const raw = { key: "R1", title: "Raw.md", purpose: "raw" as const, main: true };
+    expect(targetChoices({ ...files, markdowns: [raw] }, ".m")[0].text).toBe(".md");
+    expect(markdownLocationChoices({ ...files, markdowns: [raw] }, "^")).toBeUndefined();
+    expect(targetChoices({ ...files, markdowns: [] }, ".m")).toEqual([]);
+  });
+  it("disambiguates identical names without making names part of the URI", () => {
+    const listing = { pdfs: [], artifacts: [], markdowns: [
+      { key: "U1", title: "Notes.md", purpose: "user" as const, main: false },
+      { key: "U2", title: "Notes.md", purpose: "user" as const, main: false },
+    ] };
+    expect(targetChoices(listing, ".m").map((c) => [c.label, c.text])).toEqual([
+      ["Notes.md · U1", ".md?attachment=U1"], ["Notes.md · U2", ".md?attachment=U2"],
+    ]);
   });
   it("lists and filters headings and blocks, encoding what it writes", () => {
     const anchors = textAnchors("# Related Work\n\n## 引言 (一)\n\nA fact ^fact-1\n\nOther ^other\n");
