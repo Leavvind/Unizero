@@ -25,6 +25,7 @@ import {
 import { artifactKind, artifactSource, type ArtifactKind } from "../zotero/artifactIdentity";
 import { canvasAttachment } from "../zotero/canvasAdapter";
 import { libraryScope } from "../zotero/libraryScope";
+import { attachmentDocumentType } from "../zotero/linkSources";
 import { readMarkdownLink } from "../zotero/markdownLinkRegistry";
 
 /**
@@ -83,6 +84,17 @@ export interface BridgePdf {
   path?: string;
 }
 
+/** One linkable Markdown attachment, including the user's untagged files. */
+export interface BridgeMarkdown {
+  key: string;
+  title: string;
+  purpose: "raw" | "user";
+  /** The Raw opened by a Markdown link without an explicit attachment. */
+  main: boolean;
+  /** Absent when the file is not on this machine. */
+  path?: string;
+}
+
 /** One UniZero-generated attachment, told apart by its `unizero:<kind>` tag. */
 export interface BridgeArtifact {
   kind: ArtifactKind;
@@ -96,7 +108,7 @@ export interface BridgeArtifact {
 }
 
 /**
- * Answer to `GET /artifacts`: every PDF and every generated attachment of a paper,
+ * Answer to `GET /artifacts`: PDFs, linkable Markdown and generated attachments,
  * so a reader can choose the Raw, tables digest, or References of one PDF without
  * knowing how UniZero tags or records them.
  */
@@ -104,6 +116,7 @@ export interface BridgeArtifacts {
   libraryID: number;
   itemKey: string;
   pdfs: BridgePdf[];
+  markdowns: BridgeMarkdown[];
   artifacts: BridgeArtifact[];
 }
 
@@ -251,7 +264,9 @@ async function attachmentFilePath(attachment: Zotero.Item): Promise<string | und
 
 export async function bridgeArtifacts(item: Zotero.Item): Promise<BridgeArtifacts> {
   const main = pdfAttachment(item);
+  const mainRaw = rawAttachment(item);
   const pdfs: BridgePdf[] = [];
+  const markdowns: BridgeMarkdown[] = [];
   const artifacts: BridgeArtifact[] = [];
   for (const id of item.getAttachments()) {
     const attachment = Zotero.Items.get(id) as Zotero.Item | false;
@@ -266,7 +281,16 @@ export async function bridgeArtifacts(item: Zotero.Item): Promise<BridgeArtifact
       });
       continue;
     }
+    // Use the same eligibility and parent/library checks as /link-target.
+    const document = attachmentDocumentType(item, attachment);
     const kind = artifactKind(attachment);
+    const path = document?.format === "md" || kind ? await attachmentFilePath(attachment) : undefined;
+    if (document?.format === "md") {
+      const available = path && await IOUtils.exists(path).catch(() => false);
+      markdowns.push({ key: String(attachment.key), title: title || String(attachment.attachmentFilename || ""),
+        purpose: document.purpose === "raw" ? "raw" : "user",
+        main: attachment.key === mainRaw?.key, path: available ? path : undefined });
+    }
     if (!kind) { continue; }
     artifacts.push({
       kind,
@@ -274,10 +298,10 @@ export async function bridgeArtifacts(item: Zotero.Item): Promise<BridgeArtifact
       title,
       contentType: attachment.attachmentContentType || "",
       source: artifactSource(attachment),
-      path: await attachmentFilePath(attachment),
+      path,
     });
   }
-  return { libraryID: item.libraryID, itemKey: String(item.key), pdfs, artifacts };
+  return { libraryID: item.libraryID, itemKey: String(item.key), pdfs, markdowns, artifacts };
 }
 
 export async function bridgeCanvas(
@@ -489,8 +513,8 @@ export function bridgeCollections(): BridgeCollections {
 /**
  * Papers filed directly in a collection, or every regular item in a library
  * when `collectionKey` is omitted. By default subcollections are separate
- * scopes, matching Unizero Home; `includeSubcollections` adds their papers, like
- * Zotero's "Show Items from Subcollections".
+ * scopes; `includeSubcollections` adds their papers, like Zotero's "Show Items
+ * from Subcollections".
  */
 export async function bridgeCollectionItems(
   libraryID: number,

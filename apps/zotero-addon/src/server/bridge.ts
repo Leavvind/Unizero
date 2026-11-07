@@ -293,6 +293,7 @@ async function handlePing(): Promise<BridgeResponse> {
       "restore-raw",
       "subcollections",
       "artifacts",
+      "markdown-attachments",
       "link-sources",
       "link-targets",
     ],

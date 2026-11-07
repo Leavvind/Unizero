@@ -8,7 +8,8 @@ export interface LinkSource {
   title: string; itemTitle: string; format: "md" | "canvas";
   purpose: "raw" | "canvas" | "user"; path?: string; available: boolean; version: string;
 }
-export async function attachmentLinkSource(parent: Zotero.Item, attachment: Zotero.Item): Promise<LinkSource | undefined> {
+/** Shared eligibility for discovery, explicit resolution and attachment pickers. */
+export function attachmentDocumentType(parent: Zotero.Item, attachment: Zotero.Item): Pick<LinkSource, "format" | "purpose"> | undefined {
   if (attachment.deleted || attachment.libraryID !== parent.libraryID || attachment.parentID !== parent.id) { return; }
   if (!attachment.isFileAttachment()) { return; }
   const kind = artifactKind(attachment);
@@ -21,11 +22,18 @@ export async function attachmentLinkSource(parent: Zotero.Item, attachment: Zote
   const format = kind === "canvas" || /\.canvas$/i.test(filename) ? "canvas"
     : kind === "raw" || contentType === "text/markdown" || /\.md$/i.test(filename) ? "md" : undefined;
   if (!format) { return; }
+  return { format, purpose: kind === "raw" || kind === "canvas" ? kind : "user" };
+}
+
+export async function attachmentLinkSource(parent: Zotero.Item, attachment: Zotero.Item): Promise<LinkSource | undefined> {
+  const document = attachmentDocumentType(parent, attachment);
+  if (!document) { return; }
+  const filename = String(attachment.attachmentFilename || "");
   const candidate = await attachment.getFilePathAsync();
   const available = !!candidate && await IOUtils.exists(candidate);
   return { libraryID: parent.libraryID, itemKey: String(parent.key), attachmentKey: String(attachment.key),
     title: String(attachment.getField("title") || filename), itemTitle: String(parent.getField("title") || parent.key),
-    format, purpose: kind === "raw" || kind === "canvas" ? kind : "user", path: available ? candidate! : undefined,
+    ...document, path: available ? candidate! : undefined,
     available, version: `${attachment.version}:${attachment.dateModified}` };
 }
 
