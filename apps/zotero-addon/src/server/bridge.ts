@@ -364,16 +364,10 @@ async function handleRelations(query: RequestQuery): Promise<BridgeResponse> {
   };
 
   const fetch = query.fetch === "1" || query.fetch === "true";
-  if (kind !== "relation" && !fetch) {
-    // Mirrors Unizero Home: a cache miss is reported, never quietly repaired by
-    // calling the providers. `relationStatuses` reads shards only.
-    const statuses = await views.relationStatuses(found.item);
-    if (!statuses[kind].loaded) {
-      return json(200, bridgeRelationsUnloaded(subject, kind));
-    }
-  }
-
-  const snapshot = await views.getLiteratureSnapshot(found.item, kind);
+  const snapshot = fetch
+    ? await views.getLiteratureSnapshot(found.item, kind, false, { recordDiscovery: false })
+    : await views.getCachedLiteratureSnapshot(found.item, kind);
+  if (!snapshot) { return json(200, bridgeRelationsUnloaded(subject, kind)); }
   return json(200, bridgeRelationsFromSnapshot(
     subject,
     snapshot,
