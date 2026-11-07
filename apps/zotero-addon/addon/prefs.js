@@ -66,9 +66,3 @@ pref("extensions.zotero.__addonRef__.conversion.obsidianVault", "");
 // Template used when a conversion names none (Obsidian, the MCP server, the item
 // menu while the runtime is stopped). Journal Papers publishes Raw under the item.
 pref("extensions.zotero.__addonRef__.conversion.defaultTemplate", "paper-to-markdown");
-
-// ---- Reader ----
-// Selection shortcuts in the reader: Cmd+Option+B/R/P (Ctrl+Alt on Windows) turn the
-// selection into a blue/red/purple highlight; see src/zotero/readerShortcutKeys.ts.
-// Replaces noteEditor.tools, migrated in src/modules/migrate.ts.
-pref("extensions.zotero.__addonRef__.editShortcuts", true);

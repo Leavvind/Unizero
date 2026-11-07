@@ -5,7 +5,6 @@ import Views from "../modules/views";
 import { uniConnectionSync } from "../modules/uniConnectionSync";
 import { startInBackground, stopOnShutdown } from "../runtime-client/process";
 import { registerBridgeEndpoints, unregisterBridgeEndpoints } from "../server/bridge";
-import { registerReaderShortcuts, unregisterReaderShortcuts } from "../zotero/readerShortcuts";
 import { noteServiceFailure } from "../ui/notices";
 import {
   registerAnnotationMenu,
@@ -143,25 +142,10 @@ const bridge: FeatureModule = {
   },
 };
 
-/**
- * Selection shortcuts in the reader. The reader's listener table is process-wide,
- * so registration is idempotent like the bridge's.
- */
-const readerShortcuts: FeatureModule = {
-  id: "reader.shortcuts",
-  onWindowLoad() {
-    registerReaderShortcuts();
-  },
-  onShutdown() {
-    unregisterReaderShortcuts();
-  },
-};
-
 export const featureRegistry = new FeatureRegistry([
   relations,
   metadata,
   conversion,
   annotations,
   bridge,
-  readerShortcuts,
 ]);

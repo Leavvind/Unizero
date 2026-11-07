@@ -32,7 +32,6 @@ class Addon {
   public api: {
     uniConnection?: UniConnection;
     uniConnectionSync?: UniConnectionSync;
-    readerShortcutProbe?: () => unknown;
   };
 
   constructor() {
