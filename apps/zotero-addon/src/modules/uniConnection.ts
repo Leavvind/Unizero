@@ -31,55 +31,6 @@ export interface CouplingHit {
   shared: number;
 }
 
-export interface GraphNode {
-  id: ScopedItemKey;
-  itemKey: string;
-  /** Incident edge count (cites + coupling); for node sizing and decluttering. */
-  degree: number;
-  /** Only in an ego graph: the focal paper. */
-  isCenter?: boolean;
-  // Metadata (title/year/citations/hasPDF/hasMarkdown) is filled by the Views
-  // layer from the live Zotero item — UniConnection reads no item fields here.
-}
-
-export interface GraphEdge {
-  source: ScopedItemKey;
-  target: ScopedItemKey;
-  type: "cites" | "coupled";
-  /** cites = 1; coupled = shared-reference count. */
-  weight: number;
-  directed: boolean;
-}
-
-export interface LiteratureGraph {
-  scope: { libraryID: number };
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  /** Present for an ego graph. */
-  center?: ScopedItemKey;
-}
-
-export interface GraphOptions {
-  /** Skip references shared by more than this many library items (dense, uninformative). */
-  couplingHubCap?: number;
-  /** Drop coupling edges below this shared-reference count. */
-  couplingMinWeight?: number;
-}
-
-export interface BoardConnectionMember {
-  paperID: string;
-  /** Present when this Paper is bound to a Zotero item in the indexed library. */
-  scopedKey?: ScopedItemKey;
-  /** Stable DOI/arXiv/S2 endpoint for library and external Papers alike. */
-  edge?: EdgeKey;
-}
-
-export interface BoardConnection {
-  sourcePaperID: string;
-  targetPaperID: string;
-  type: "cites" | "coupled";
-}
-
 export interface UniConnectionStats {
   items: number;
   edges: number;
@@ -105,22 +56,14 @@ interface LibraryIndex {
   forward: Map<ScopedItemKey, Set<EdgeKey>>;
   /** Library item -> its own stable endpoint. */
   selfEdge: Map<ScopedItemKey, EdgeKey>;
-  /** Stable endpoint -> one owning library item (duplicates use a stable first owner). */
-  edgeOwner: Map<EdgeKey, ScopedItemKey>;
   /** Items with a non-empty cache, including caches made solely of anonymous rows. */
   itemsWithRefs: Set<ScopedItemKey>;
   /** Anonymous cache rows per item, retained so retract/update fixes diagnostics. */
   anonymousByItem: Map<ScopedItemKey, number>;
-  /** Whole-library topology, keyed by the effective graph options. */
-  graphCache: Map<string, LiteratureGraph>;
 }
 
 const READ_BATCH_SIZE = 32;
 const DEFAULT_COUPLING_LIMIT = 20;
-/** References shared by more items than this form a dense, uninformative clique. */
-const COUPLING_HUB_CAP = 200;
-/** Minimum shared-reference count for a coupling edge to be emitted. */
-const COUPLING_MIN_WEIGHT = 1;
 
 function emptyIndex(libraryID: number): LibraryIndex {
   return {
@@ -131,10 +74,8 @@ function emptyIndex(libraryID: number): LibraryIndex {
     inverted: new Map(),
     forward: new Map(),
     selfEdge: new Map(),
-    edgeOwner: new Map(),
     itemsWithRefs: new Set(),
     anonymousByItem: new Map(),
-    graphCache: new Map(),
   };
 }
 
@@ -156,11 +97,6 @@ function libraryIDFromScopedKey(scopedKey: ScopedItemKey): number | undefined {
   if (separator <= 0) { return; }
   const libraryID = Number(scopedKey.slice(0, separator));
   return Number.isFinite(libraryID) ? libraryID : undefined;
-}
-
-function itemKeyOf(scopedKey: ScopedItemKey): string {
-  const separator = scopedKey.indexOf(":");
-  return separator >= 0 ? scopedKey.slice(separator + 1) : scopedKey;
 }
 
 function isReferencesCache(value: unknown): value is ReferencesCache {
@@ -207,8 +143,8 @@ export class UniConnection {
       .filter((item: Zotero.Item) => item.isRegularItem?.() && !item.deleted);
     const next = emptyIndex(libraryID);
 
-    // Establish every library endpoint before reading shards. Coupling still
-    // indexes references outside the library; edgeOwner alone is library-only.
+    // Establish every library endpoint before reading shards. Coupling also
+    // indexes references outside the library.
     for (const item of items) {
       this.ingestSelf(next, item);
     }
@@ -251,8 +187,6 @@ export class UniConnection {
     if (isReferencesCache(record) && cacheMatchesItem(record, item)) {
       this.ingestReferences(index, item, record);
     }
-    // A graph may have been requested while the shard read was in flight.
-    index.graphCache.clear();
     return true;
   }
 
@@ -326,161 +260,6 @@ export class UniConnection {
       .slice(0, safeLimit);
   }
 
-  /**
-   * Query C: the whole-library graph — every item as a node, plus intra-library
-   * `cites` edges and `coupled` (shared-reference) edges. Topology only; the Views
-   * layer enriches each node with title/year/citation metadata from the live
-   * Zotero item, which this module deliberately never reads.
-   */
-  public async libraryGraph(
-    libraryID: number,
-    options: GraphOptions = {},
-  ): Promise<LiteratureGraph> {
-    const index = await this.indexFor(libraryID);
-    const cacheKey = [
-      options.couplingHubCap ?? COUPLING_HUB_CAP,
-      options.couplingMinWeight ?? COUPLING_MIN_WEIGHT,
-    ].join(":");
-    const cached = index.graphCache.get(cacheKey);
-    if (cached) { return cached; }
-    const nodes = new Map<ScopedItemKey, GraphNode>();
-    const ensure = (id: ScopedItemKey): GraphNode => {
-      let node = nodes.get(id);
-      if (!node) {
-        node = { id, itemKey: itemKeyOf(id), degree: 0 };
-        nodes.set(id, node);
-      }
-      return node;
-    };
-    for (const id of index.items) { ensure(id); }
-
-    const edges: GraphEdge[] = [];
-    for (const [source, forward] of index.forward) {
-      for (const edge of forward) {
-        const target = index.edgeOwner.get(edge);
-        if (!target || target === source) { continue; }
-        edges.push({ source, target, type: "cites", weight: 1, directed: true });
-        ensure(source).degree += 1;
-        ensure(target).degree += 1;
-      }
-    }
-
-    this.collectCouplingEdges(index, options, (source, target, weight) => {
-      edges.push({ source, target, type: "coupled", weight, directed: false });
-      ensure(source).degree += 1;
-      ensure(target).degree += 1;
-    });
-
-    const graph = { scope: { libraryID }, nodes: [...nodes.values()], edges };
-    index.graphCache.set(cacheKey, graph);
-    return graph;
-  }
-
-  /**
-   * Project derived topology onto stable Paper IDs currently present on a Board.
-   *
-   * Unlike libraryGraph(), this admits external Paper endpoints: a Zotero-bound
-   * source whose cached References contain an external Paper's identifier still
-   * produces a hint. The result is read-only derived state and never becomes a
-   * manual Board edge.
-   */
-  public async boardConnections(
-    libraryID: number,
-    members: BoardConnectionMember[],
-  ): Promise<BoardConnection[]> {
-    const index = await this.indexFor(libraryID);
-    const unique = new Map<string, BoardConnectionMember>();
-    for (const member of members) {
-      if (member.paperID && !unique.has(member.paperID)) {
-        unique.set(member.paperID, member);
-      }
-    }
-    const byEdge = new Map<EdgeKey, BoardConnectionMember[]>();
-    const byScopedKey = new Map<ScopedItemKey, BoardConnectionMember>();
-    for (const member of unique.values()) {
-      if (member.edge) {
-        const list = byEdge.get(member.edge) || [];
-        list.push(member);
-        byEdge.set(member.edge, list);
-      }
-      if (member.scopedKey) { byScopedKey.set(member.scopedKey, member); }
-    }
-
-    const output: BoardConnection[] = [];
-    const seen = new Set<string>();
-    const add = (
-      sourcePaperID: string,
-      targetPaperID: string,
-      type: BoardConnection["type"],
-    ) => {
-      if (!sourcePaperID || !targetPaperID || sourcePaperID === targetPaperID) {
-        return;
-      }
-      const endpoints = type === "coupled"
-        ? [sourcePaperID, targetPaperID].sort()
-        : [sourcePaperID, targetPaperID];
-      const key = `${type}:${endpoints[0]}\u0000${endpoints[1]}`;
-      if (seen.has(key)) { return; }
-      seen.add(key);
-      output.push({
-        sourcePaperID: endpoints[0],
-        targetPaperID: endpoints[1],
-        type,
-      });
-    };
-
-    for (const source of unique.values()) {
-      if (!source.scopedKey) { continue; }
-      for (const edge of index.forward.get(source.scopedKey) || []) {
-        for (const target of byEdge.get(edge) || []) {
-          add(source.paperID, target.paperID, "cites");
-        }
-      }
-    }
-
-    const graph = await this.libraryGraph(libraryID);
-    for (const edge of graph.edges) {
-      if (edge.type !== "coupled") { continue; }
-      const source = byScopedKey.get(edge.source);
-      const target = byScopedKey.get(edge.target);
-      if (source && target) {
-        add(source.paperID, target.paperID, "coupled");
-      }
-    }
-    return output;
-  }
-
-  /**
-   * Emit shared-reference (coupling) pairs, honouring the hub cap and minimum
-   * weight. Spans all endpoints, including out-of-library ones — two library papers
-   * can be coupled through a reference neither of them is.
-   */
-  private collectCouplingEdges(
-    index: LibraryIndex,
-    options: GraphOptions,
-    emit: (source: ScopedItemKey, target: ScopedItemKey, weight: number) => void,
-  ): void {
-    const hubCap = options.couplingHubCap ?? COUPLING_HUB_CAP;
-    const minWeight = options.couplingMinWeight ?? COUPLING_MIN_WEIGHT;
-    // A scoped key cannot contain NUL, so it is a safe pair delimiter.
-    const weights = new Map<string, number>();
-    for (const citing of index.inverted.values()) {
-      if (citing.size < 2 || citing.size > hubCap) { continue; }
-      const members = [...citing].sort();
-      for (let i = 0; i < members.length; i += 1) {
-        for (let j = i + 1; j < members.length; j += 1) {
-          const pair = `${members[i]}\u0000${members[j]}`;
-          weights.set(pair, (weights.get(pair) || 0) + 1);
-        }
-      }
-    }
-    for (const [pair, weight] of weights) {
-      if (weight < minWeight) { continue; }
-      const [source, target] = pair.split("\u0000");
-      emit(source, target, weight);
-    }
-  }
-
   /** Current in-memory diagnostics; an unbuilt library reports an empty index. */
   public stats(libraryID: number): UniConnectionStats {
     const index = this.indexes.get(libraryID);
@@ -518,11 +297,6 @@ export class UniConnection {
     const self = itemEdge(item);
     if (!self) { return; }
     index.selfEdge.set(scopedKey, self);
-    // Zotero can contain duplicate records for one paper. Keep the first owner
-    // deterministically; queries use selfEdge and therefore still work for both.
-    if (!index.edgeOwner.has(self)) {
-      index.edgeOwner.set(self, scopedKey);
-    }
   }
 
   private ingestReferences(
@@ -560,7 +334,6 @@ export class UniConnection {
   }
 
   private retractFrom(index: LibraryIndex, scopedKey: ScopedItemKey): void {
-    index.graphCache.clear();
     for (const edge of index.forward.get(scopedKey) || []) {
       const citingItems = index.inverted.get(edge);
       citingItems?.delete(scopedKey);
@@ -576,18 +349,7 @@ export class UniConnection {
       index.scopedItemIDs.delete(scopedKey);
     }
 
-    const self = index.selfEdge.get(scopedKey);
     index.selfEdge.delete(scopedKey);
-    if (self && index.edgeOwner.get(self) === scopedKey) {
-      index.edgeOwner.delete(self);
-      // Preserve a valid owner if Zotero has another item with the same endpoint.
-      for (const [candidate, candidateEdge] of index.selfEdge) {
-        if (candidateEdge === self) {
-          index.edgeOwner.set(self, candidate);
-          break;
-        }
-      }
-    }
   }
 }
 

@@ -1,9 +1,8 @@
 /**
- * Read adapter for Collection-level Unizero Home.
+ * Read adapter for Collection-scoped paper listings.
  *
- * The explorer is a view over Zotero's canonical items. Collection selection,
- * membership, bibliographic fields, and attachment state stay on this side of the
- * UI bridge so the XHTML window never reaches into Zotero globals directly.
+ * Collection membership, bibliographic fields, and attachment state stay on this
+ * side of the bridge, so callers never reach into Zotero globals directly.
  */
 
 import type {
@@ -15,80 +14,6 @@ import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
 import { artifactSource, hasKind } from "./artifactIdentity";
 
 const MARKDOWN_TAGS = new Set(["unizero:markdown", "unizero:markdown-copy"]);
-
-function libraryName(libraryID: number): string {
-  const library = (Zotero.Libraries as any).get?.(libraryID);
-  return String(library?.name || library?.libraryType || `Library ${libraryID}`);
-}
-
-/**
- * Collections selected in the left pane.
- *
- * Zotero 10 made the singular getters throw (multi-row collection selection).
- * Prefer the plural APIs and keep a Zotero 8/9 fallback. Home is still one
- * Collection at a time, so callers take the first matching row.
- */
-function selectedCollections(pane: any): Zotero.Collection[] {
-  if (typeof pane?.getSelectedCollections === "function") {
-    const collections = pane.getSelectedCollections() as Zotero.Collection[] | undefined;
-    return Array.isArray(collections) ? collections.filter(Boolean) : [];
-  }
-  const collection = pane?.getSelectedCollection?.() as Zotero.Collection | undefined;
-  return collection ? [collection] : [];
-}
-
-function selectedLibraryIDs(pane: any): number[] {
-  if (typeof pane?.getSelectedLibraryIDs === "function") {
-    const ids = pane.getSelectedLibraryIDs() as unknown;
-    return Array.isArray(ids)
-      ? ids.map(Number).filter((id) => Number.isFinite(id) && id > 0)
-      : [];
-  }
-  const id = Number(pane?.getSelectedLibraryID?.());
-  return Number.isFinite(id) && id > 0 ? [id] : [];
-}
-
-function matchingCollection(
-  collections: Zotero.Collection[],
-  fallbackLibraryID?: number,
-): Zotero.Collection | undefined {
-  if (fallbackLibraryID) {
-    return collections.find((collection) => collection.libraryID === fallbackLibraryID);
-  }
-  return collections[0];
-}
-
-/**
- * Resolve the scope at command time. A context-menu command should follow the
- * Collection selected when the menu opens, not the Collection that happened to
- * be selected when the add-on registered.
- */
-export function selectedLiteratureScope(
-  mainWindow: Window,
-  fallbackLibraryID?: number,
-): LiteratureCollectionScope {
-  const pane = (mainWindow as any).ZoteroPane;
-  const collection = matchingCollection(selectedCollections(pane), fallbackLibraryID);
-  if (collection) {
-    return {
-      libraryID: collection.libraryID,
-      collectionID: collection.id,
-      collectionKey: String((collection as any).key || ""),
-      name: collection.name || libraryName(collection.libraryID),
-    };
-  }
-
-  const libraryIDs = selectedLibraryIDs(pane);
-  const selectedLibraryID = fallbackLibraryID
-    ? libraryIDs.find((id) => id === fallbackLibraryID)
-    : libraryIDs[0];
-  const canUseSelectedLibrary = Number.isFinite(selectedLibraryID) &&
-    (selectedLibraryID as number) > 0;
-  const libraryID = canUseSelectedLibrary
-    ? selectedLibraryID as number
-    : Number(fallbackLibraryID || Zotero.Libraries.userLibraryID || 1);
-  return { libraryID, name: libraryName(libraryID) };
-}
 
 /** A collection's items, then those of every subcollection below it, each once. */
 function itemsWithSubcollections(collection: Zotero.Collection): Zotero.Item[] {

@@ -5,28 +5,6 @@ import type { RelationSourceKey } from "./mergeRelations";
 export type LiteratureRelationKind = "references" | "relation" | "citations";
 export type LiteratureLibraryRelation = "cites" | "coupled";
 
-/**
- * How Unizero Home names a paper that has no Zotero item.
- *
- * The window identifies an open paper by one opaque string, and a Board card can
- * pin a paper the library does not contain. Rather than teach every tab, filter,
- * and snapshot cache a second kind of identity, an external paper is named by its
- * catalog Paper ID behind this prefix. A Zotero item key cannot collide with it:
- * Zotero keys are eight uppercase alphanumerics.
- */
-export const EXTERNAL_PAPER_KEY_PREFIX = "paper:";
-
-export function externalPaperKey(paperID: string): string {
-  return `${EXTERNAL_PAPER_KEY_PREFIX}${paperID}`;
-}
-
-/** The catalog Paper ID behind an external key, or undefined for a Zotero key. */
-export function externalPaperIDFromKey(key: string): string | undefined {
-  return key.startsWith(EXTERNAL_PAPER_KEY_PREFIX)
-    ? key.slice(EXTERNAL_PAPER_KEY_PREFIX.length) || undefined
-    : undefined;
-}
-
 /** One provider's contribution to a relation, as the explorer's source picker sees it. */
 export interface LiteratureSourceView {
   key: RelationSourceKey;
@@ -97,43 +75,6 @@ export interface LiteratureCollectionScope {
   name: string;
 }
 
-/**
- * A graph node as the explorer renders it: UniConnection's topology plus the
- * Zotero metadata the view needs for labels, sizing, and colouring. The graph
- * module owns the first half and deliberately reads no item fields; Views fills
- * the second half from the same helpers the collection table uses, so a node and
- * its table row can never disagree.
- */
-export interface LiteratureGraphNode {
-  id: string;
-  itemKey: string;
-  itemID?: number;
-  degree: number;
-  isCenter?: boolean;
-  title: string;
-  creators: string[];
-  year?: string;
-  publicationTitle?: string;
-  hasPDF: boolean;
-  hasMarkdown: boolean;
-}
-
-export interface LiteratureGraphEdge {
-  source: string;
-  target: string;
-  type: "cites" | "coupled";
-  weight: number;
-  directed: boolean;
-}
-
-export interface LiteratureGraphView {
-  scope: { libraryID: number };
-  nodes: LiteratureGraphNode[];
-  edges: LiteratureGraphEdge[];
-  /** Present for an ego graph: the focal paper's scoped key. */
-  center?: string;
-}
-
 export interface LiteratureLoadStatus {
   loaded: boolean;
   count: number;
@@ -155,11 +96,6 @@ export interface LiteratureCollectionPaper {
   hasMarkdown: boolean;
   references: LiteratureLoadStatus;
   citations: LiteratureLoadStatus;
-}
-
-export interface LiteratureCollectionSnapshot {
-  scope: LiteratureCollectionScope;
-  items: LiteratureCollectionPaper[];
 }
 
 function normalTitle(value: unknown): string {

@@ -1,9 +1,9 @@
 /**
- * Durable Paper catalog shared by library and Board-pinned papers.
+ * Durable Paper catalog for library papers and the external papers they cite.
  *
  * A Zotero item is a binding on a stable Paper document, not the Paper ID itself.
  * Reliable identifier aliases let an external discovery become Zotero-bound later
- * without changing BoardNode.paperID. Ambiguous alias conflicts are rejected rather
+ * without changing its Paper ID. Ambiguous alias conflicts are rejected rather
  * than silently merging two Papers.
  */
 
@@ -13,10 +13,6 @@ import { compareCodeUnits } from "../utils/ordering";
 import { SerialQueue } from "../utils/serialQueue";
 import { literatureCandidateFromItem } from "../zotero/literatureCollectionAdapter";
 import { libraryScope } from "../zotero/libraryScope";
-import {
-  createProjectObjectID,
-  type ProjectObjectKind,
-} from "./projectRepository";
 import {
   LITERATURE_OBSERVATION_SCHEMA,
   PAPER_SCHEMA,
@@ -46,9 +42,28 @@ interface ObservationIndexDocument {
   byPaper: Record<string, string[]>;
 }
 
+export type CatalogObjectKind = "paper" | "observation";
+
 interface PaperCatalogOptions {
   now?: () => number;
-  createID?: (kind: ProjectObjectKind) => string;
+  createID?: (kind: CatalogObjectKind) => string;
+}
+
+function randomHex(bytes: number): string {
+  const values = new Uint8Array(bytes);
+  const cryptoObject = globalThis.crypto;
+  if (cryptoObject?.getRandomValues) {
+    cryptoObject.getRandomValues(values);
+    return Array.from(values, (value) => value.toString(16).padStart(2, "0"))
+      .join("");
+  }
+  const fallback = (Zotero.Utilities as any)?.randomString?.(bytes * 2);
+  if (fallback) { return String(fallback).toLowerCase(); }
+  throw new Error("A secure ID generator is unavailable");
+}
+
+function createCatalogObjectID(kind: CatalogObjectKind): string {
+  return `${kind}_${randomHex(16)}`;
 }
 
 export interface PaperCatalogSeed {
@@ -326,7 +341,7 @@ function samePaperContent(
 
 export class PaperCatalog {
   private readonly now: () => number;
-  private readonly createID: (kind: ProjectObjectKind) => string;
+  private readonly createID: (kind: CatalogObjectKind) => string;
   private index?: PaperIndexDocument;
   private observationIndex?: ObservationIndexDocument;
   private readonly writes = new SerialQueue();
@@ -340,7 +355,7 @@ export class PaperCatalog {
     options: PaperCatalogOptions = {},
   ) {
     this.now = options.now || (() => Date.now());
-    this.createID = options.createID || createProjectObjectID;
+    this.createID = options.createID || createCatalogObjectID;
   }
 
   public async ensureZoteroPaper(item: Zotero.Item): Promise<PaperDocument> {
@@ -384,8 +399,8 @@ export class PaperCatalog {
   }
 
   /**
-   * The same recording for a seed that has no Zotero item — a Board card pinned
-   * from a reference list. Only how the seed Paper is obtained differs; the
+   * The same recording for a seed that has no Zotero item. Only how the seed
+   * Paper is obtained differs; the
    * observations, provenance, and compaction are identical, because a discovery
    * route is a property of the Paper, not of whether Zotero happens to hold it.
    */

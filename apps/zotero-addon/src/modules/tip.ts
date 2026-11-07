@@ -53,13 +53,22 @@ function buildTheme(background: string, title: string) {
   };
 }
 
+/** Hover delay before a reference's card appears. */
+export const TIP_SHOW_DELAY_MS = 233;
+/** Fade in and out of the card. */
+const TIP_FADE_MS = 233;
+/** How long the card lingers after the pointer leaves it. */
+const TIP_LINGER_MS = 500;
+const TIP_BACKGROUND = "#ffffff";
+const TIP_TITLE = "#2270d9";
+
 export default class TipUI {
   private utils: Utils;
   private refRect!: Rect;
   private position!: string;
   public container!: HTMLDivElement;
-  public shadeMillisecond!: number;
-  public removeTipAfterMillisecond!: number;
+  public readonly shadeMillisecond = TIP_FADE_MS;
+  public readonly removeTipAfterMillisecond = TIP_LINGER_MS;
   private option = {
     size: 8,
     color: {
@@ -72,13 +81,8 @@ export default class TipUI {
   private theme!: { background: string; foreground: string; muted: string; title: string };
 
   constructor() {
-    this.shadeMillisecond = parseInt(Zotero.Prefs.get(`${config.addonRef}.shadeMillisecond`) as string)
-    this.removeTipAfterMillisecond = parseInt(Zotero.Prefs.get(`${config.addonRef}.removeTipAfterMillisecond`) as string)
     this.utils = new Utils()
-    this.theme = buildTheme(
-      Zotero.Prefs.get(`${config.addonRef}.tipBackgroundColor`) as string,
-      Zotero.Prefs.get(`${config.addonRef}.tipTitleColor`) as string,
-    )
+    this.theme = buildTheme(TIP_BACKGROUND, TIP_TITLE)
   }
 
   public onInit(refRect: Rect, position:string) {
@@ -291,54 +295,6 @@ export default class TipUI {
     prefIndex?: number,
     titleURL?: string
   ) {
-    const translate = async (text: string) => {
-      if (Zotero.ZoteroPDFTranslate) {
-        Zotero.ZoteroPDFTranslate._sourceText = text
-        const success = await Zotero.ZoteroPDFTranslate.translate.getTranslation()
-        if (!success) {
-          Zotero.ZoteroPDFTranslate.view.showProgressWindow(
-            "Translate Failed",
-            success,
-            "fail"
-          );
-          return
-        }
-        return Zotero.ZoteroPDFTranslate._translatedText;
-      } else if (Zotero.PDFTranslate) {
-        return (await Zotero.PDFTranslate.api.translate(text))?.result
-      }
-    }
-    let translateNode = async function (event: any) {
-      if (
-        (
-          (Zotero.isMac && event.metaKey && !event.ctrlKey) ||
-          (!Zotero.isMac && event.ctrlKey)
-        ) &&
-        Zotero.Prefs.get(`${config.addonRef}.ctrlClickTranslate`)
-      ) {
-        // @ts-ignore
-        let node = this as HTMLElement
-        let sourceText = node.getAttribute("sourceText")
-        let translatedText = node.getAttribute("translatedText")!
-        ztoolkit.log(sourceText, translatedText)
-        if (!sourceText) {
-          sourceText = node.innerText;
-          node.setAttribute("sourceText", sourceText)
-        }
-        if (!translatedText) {
-          translatedText = await translate(sourceText)
-          node.setAttribute("translatedText", translatedText)
-        }
-
-        if (node.innerText == sourceText) {
-          ztoolkit.log("-> translatedText")
-          node.innerText = translatedText
-        } else if (node.innerText == translatedText) {
-          node.innerText = sourceText
-          ztoolkit.log("-> sourceText")
-        }
-      }
-    }
     const isSelect = (
       (index !== undefined && prefIndex !== undefined && index == prefIndex) ||
       this.container.querySelector("#option-container")!.childNodes.length == 0
@@ -377,17 +333,8 @@ export default class TipUI {
             listeners: [
               {
                 type: "click",
-                listener: translateNode
-              },
-              // A plain click opens the link; ctrl/cmd-click still translates.
-              // translateNode checks the modifier itself, and the two listeners'
-              // conditions are mutually exclusive, so one click never both
-              // translates and navigates.
-              {
-                type: "click",
-                listener: (event: any) => {
+                listener: () => {
                   if (!titleURL) { return }
-                  if (Zotero.isMac ? event.metaKey : event.ctrlKey) { return }
                   Zotero.ProgressWindowSet.closeAll();
                   (new PanelStatus("Launching URL"))
                     .createLine({ text: titleURL, type: "default" })
@@ -518,12 +465,6 @@ export default class TipUI {
               overflowY: "auto",
               marginTop: ".4em"
             },
-            listeners: [
-              {
-                type: "click",
-                listener: translateNode
-              }
-            ]
           }
         ]
       }

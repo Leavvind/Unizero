@@ -20,11 +20,8 @@ export interface DiscoveredPaper {
 }
 
 /**
- * Where a discovered paper is filed.
- *
- * Taken from the seed item when the paper was found from one, and from Unizero
- * Home's current scope when the seed is a Board-pinned paper with no Zotero item
- * to inherit a library and collections from.
+ * Where a discovered paper is filed: the library and collections of the seed
+ * item it was found from.
  */
 export interface PaperDestination {
   libraryID: number;
@@ -45,18 +42,6 @@ export function paperDestinationFromItem(seed: Zotero.Item): PaperDestination {
   return {
     libraryID: seed.libraryID,
     collectionIDs: collectionsInLibrary(seed.libraryID, seed.getCollections()),
-  };
-}
-
-export function paperDestinationFromScope(
-  libraryID: number,
-  collectionID?: number,
-): PaperDestination {
-  return {
-    libraryID,
-    collectionIDs: collectionID
-      ? collectionsInLibrary(libraryID, [collectionID])
-      : [],
   };
 }
 

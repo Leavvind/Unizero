@@ -1,9 +1,10 @@
 import { config, version } from "../../package.json";
 import { initLocale, getString } from "../utils/locale";
-import TipUI from "./tip";
+import TipUI, { TIP_SHOW_DELAY_MS } from "./tip";
 import Utils from "./utils";
 import { localStorage } from "./localStorage";
 import { readZoMinerReferences, findReferencesAttachment } from "./zomReferences";
+import { SessionCache } from "./sessionCache";
 import {
   fetchReferencesByIdentifiers,
   fetchReferenceSource,
@@ -27,7 +28,6 @@ import {
   type ItemPaperIdentifiers,
 } from "./itemIdentifiers";
 import { forPersistence } from "./edgeIdentity";
-import { graphPositionsForLibrary } from "./graphLayout";
 import {
   CACHE_KEY_CITATIONS,
   CACHE_KEY_REFERENCES,
@@ -39,53 +39,31 @@ import {
   type CitationsCache,
   type ReferencesCache,
 } from "./literatureCache";
-import {
-  uniConnection,
-  type BoardConnection,
-  type BoardConnectionMember,
-} from "./uniConnection";
+import { uniConnection } from "./uniConnection";
 import {
   invalidateLibraryMembership,
   previewEntries,
   resolveLibraryMembership,
   toLiteratureCandidate,
   type LiteratureCandidate,
-  type LiteratureCollectionPaper,
-  type LiteratureCollectionScope,
-  type LiteratureCollectionSnapshot,
-  type LiteratureGraphNode,
-  type LiteratureGraphView,
   type LiteratureLoadStatus,
   type LiteratureRelationKind,
   type LiteratureSnapshot,
   type LiteratureSourceView,
-  externalPaperKey,
 } from "./literatureRelations";
 import {
   createDiscoveredPaper,
   type PaperDestination,
 } from "../zotero/literatureItemAdapter";
-import {
-  literatureCandidateFromItem,
-  literatureItemsInScope,
-  literaturePaperMetadata,
-} from "../zotero/literatureCollectionAdapter";
+import { literatureCandidateFromItem } from "../zotero/literatureCollectionAdapter";
 import {
   recordCatalogDiscoverySnapshot,
-  recordCatalogExternalDiscoverySnapshot,
   type PaperCatalogDiscoveryResult,
   type PaperCatalogDiscoverySnapshot,
   type PaperCatalogSeed,
 } from "../projects/paperCatalog";
-import type { PaperDocument } from "../projects/types";
 const SECTION_PREVIEW_LIMIT = 5;
 const EXPLORER_COUPLING_LIMIT = 50;
-/**
- * Stamped into every saved graph layout, and required to match on read. Bumped
- * whenever the renderer's force parameters change, because coordinates from the
- * old parameters would seed the simulation at the wrong scale.
- */
-const GRAPH_LAYOUT_VERSION = 3;
 
 function catalogSeedFromEntry(candidate: {
   identifiers: ItemBaseInfo["identifiers"];
@@ -150,25 +128,16 @@ type ExplorerOpener = (
 ) => void;
 
 /**
- * The paper a relation snapshot is centred on.
- *
- * Two things can play that part: a Zotero item, and a catalog Paper pinned to a
- * Board without one. Everything downstream of the fetch — merging, library
- * membership, catalog ingestion, the rendered header — needs the same four
- * facts from either, so they are collected here once rather than branched on at
- * each use. `libraryID` is the scope membership is resolved against, which for
- * an external paper is the window's current library rather than the paper's own.
+ * The paper a relation snapshot is centred on, with the facts everything
+ * downstream of the fetch — merging, library membership, catalog ingestion, the
+ * rendered header — needs from it.
  */
 interface LiteratureSeed {
   libraryID: number;
-  /** Tab identity in Unizero Home: a Zotero item key, or `paper:<catalog ID>`. */
   itemKey: string;
   title: string;
   identifiers: ItemPaperIdentifiers;
-  /** Set for a Zotero seed; absent for an external one. */
-  item?: Zotero.Item;
-  /** Set for an external seed; absent for a Zotero one, which binds on ingest. */
-  paperID?: string;
+  item: Zotero.Item;
 }
 
 function zoteroSeed(item: Zotero.Item): LiteratureSeed {
@@ -178,20 +147,6 @@ function zoteroSeed(item: Zotero.Item): LiteratureSeed {
     title: String(item.getField("title") || ""),
     identifiers: readItemPaperIdentifiers(item),
     item,
-  };
-}
-
-function externalSeed(paper: PaperDocument, libraryID: number): LiteratureSeed {
-  return {
-    libraryID,
-    itemKey: externalPaperKey(paper.id),
-    title: paper.title || "",
-    identifiers: {
-      doi: paper.identifiers.doi,
-      arxiv: paper.identifiers.arxiv,
-      semanticScholarPaperId: paper.identifiers.semanticScholarPaperId,
-    },
-    paperID: paper.id,
   };
 }
 
@@ -207,8 +162,10 @@ export default class Views {
   /** The same, for the Citations route. */
   private lastCitationsDiagnostic: any = null;
   private explorerOpener?: ExplorerOpener;
-  private explorerReferences = new Map<string, ReferencesCache>();
-  private explorerCitations = new Map<string, CitationsCache>();
+  // Each relation kind retains only the 32 most recently used payloads. Disk
+  // shards remain reloadable after eviction; session-only entries become misses.
+  private explorerReferences = new SessionCache<ReferencesCache>();
+  private explorerCitations = new SessionCache<CitationsCache>();
   private catalogIngestions = new Map<
     string,
     Promise<PaperCatalogDiscoveryResult | undefined>
@@ -485,14 +442,10 @@ export default class Views {
           if (panel.dataset.activeTab === "citations") {
             this.selectTab(panel, "citations", true);
           }
-          // The direct-DOI route and the ZoMiner attachment both work in either
-          // tab type without a Reader, so auto-loading runs first; only when
-          // neither source exists does it fall back to the PDF parsing path that
-          // does need a Reader.
+          // The direct-DOI route and the conversion's extracted references both
+          // work in either tab type without a Reader. Parsing the PDF itself is
+          // never started on open; it waits for an explicit Refresh.
           await this.autoLoadReferences(referencesPane, parentItem);
-          if (tabType === "reader" && reader && referencesPane.getAttribute("isAutoLoaded") !== "true") {
-            await this.maybeAutoRefresh(referencesPane, parentItem, reader);
-          }
         } catch (error) {
           ztoolkit.log("Reference section async render failed", error);
         }
@@ -501,6 +454,8 @@ export default class Views {
   }
 
   public onDestroy() {
+    this.explorerReferences.dispose();
+    this.explorerCitations.dispose();
     if (this.registeredPaneID) {
       (Zotero as any).ItemPaneManager?.unregisterSection(this.registeredPaneID);
       this.registeredPaneID = undefined;
@@ -567,6 +522,7 @@ export default class Views {
     references: ItemBaseInfo[],
     resolved: boolean,
     perSource?: RelationSourceResult[],
+    recordDiscovery = true,
   ): Promise<void> {
     const payload = makeReferencesCache(
       item,
@@ -594,7 +550,7 @@ export default class Views {
     }
     // Catalog storage is additive. A catalog conflict or damaged index must not
     // prevent the established References cache from being saved and rendered.
-    void this.ingestCatalogSnapshot(zoteroSeed(item), catalogSnapshot);
+    if (recordDiscovery) { void this.ingestCatalogSnapshot(zoteroSeed(item), catalogSnapshot); }
     if (this.lastLoadDiagnostic) {
       this.lastLoadDiagnostic.savedAt = new Date().toLocaleTimeString();
       this.lastLoadDiagnostic.savedResolved = resolved;
@@ -612,6 +568,7 @@ export default class Views {
   private async persistCitationsCache(
     item: Zotero.Item,
     state: CitationsCache,
+    recordDiscovery = true,
   ): Promise<void> {
     if (!state.all.length && !completedEmptyCitations(state)) { return; }
     const savedAt = Date.now();
@@ -635,7 +592,7 @@ export default class Views {
         perSource: persistRelationSources(state.perSource),
       });
     }
-    void this.ingestCatalogSnapshot(zoteroSeed(item), catalogSnapshot);
+    if (recordDiscovery) { void this.ingestCatalogSnapshot(zoteroSeed(item), catalogSnapshot); }
   }
 
   private saveCitationsCache(pane: HTMLDivElement) {
@@ -676,11 +633,8 @@ export default class Views {
     const key = `${seed.libraryID}:${seed.itemKey}:${snapshot.kind}:${snapshot.retrievedAt}`;
     const existing = this.catalogIngestions.get(key);
     if (existing) { return existing; }
-    // A Zotero seed binds its Paper on the way in; an external seed already is
-    // one, pinned when its Board card was created.
-    const ingestion = (seed.item
-      ? recordCatalogDiscoverySnapshot(seed.item, snapshot)
-      : recordCatalogExternalDiscoverySnapshot(seed.paperID!, snapshot))
+    // The seed binds its Paper on the way in.
+    const ingestion = recordCatalogDiscoverySnapshot(seed.item, snapshot)
       .catch((error) => {
         ztoolkit.log("Literature catalog ingestion failed", error);
         return undefined;
@@ -719,6 +673,7 @@ export default class Views {
     hasMore: boolean,
     source: string,
     retrievedAt = Date.now(),
+    recordDiscovery = true,
   ): Promise<LiteratureSnapshot> {
     const bySource: Partial<Record<RelationSourceKey, LiteratureCandidate[]>> = {};
     const sources: LiteratureSourceView[] = [];
@@ -747,28 +702,30 @@ export default class Views {
       seed.libraryID,
       merged,
     );
-    void this.ingestCatalogSnapshot(seed, {
-      kind: kind as "references" | "citations",
-      retrievedAt,
-      merged: candidates.map(catalogSeed),
-      sources: perSource.map((entry, index) => ({
-        provider: entry.key,
-        entries: sourceCandidates[index].map(catalogSeed),
-        complete: sourceSnapshotIsComplete(entry),
-      })),
-    }).then((observed) => {
-      if (observed) {
-        candidates.forEach((candidate, index) => {
-          candidate.paperID = observed.mergedPaperIDs[index];
-        });
-        perSource.forEach((entry, sourceIndex) => {
-          const sourceList = bySource[entry.key] || [];
-          sourceList.forEach((candidate, entryIndex) => {
-            candidate.paperID = observed.sourcePaperIDs[sourceIndex]?.[entryIndex];
+    if (recordDiscovery) {
+      void this.ingestCatalogSnapshot(seed, {
+        kind: kind as "references" | "citations",
+        retrievedAt,
+        merged: candidates.map(catalogSeed),
+        sources: perSource.map((entry, index) => ({
+          provider: entry.key,
+          entries: sourceCandidates[index].map(catalogSeed),
+          complete: sourceSnapshotIsComplete(entry),
+        })),
+      }).then((observed) => {
+        if (observed) {
+          candidates.forEach((candidate, index) => {
+            candidate.paperID = observed.mergedPaperIDs[index];
           });
-        });
-      }
-    });
+          perSource.forEach((entry, sourceIndex) => {
+            const sourceList = bySource[entry.key] || [];
+            sourceList.forEach((candidate, entryIndex) => {
+              candidate.paperID = observed.sourcePaperIDs[sourceIndex]?.[entryIndex];
+            });
+          });
+        }
+      });
+    }
     return {
       kind,
       seed: {
@@ -812,21 +769,10 @@ export default class Views {
     };
   }
 
-  public async getLiteratureCollectionPaper(
-    item: Zotero.Item,
-  ): Promise<LiteratureCollectionPaper> {
-    await localStorage.load(item);
-    return {
-      ...literaturePaperMetadata(item),
-      references: this.relationLoadStatus(item, "references"),
-      citations: this.relationLoadStatus(item, "citations"),
-    };
-  }
-
   /**
-   * Cache-only re-read of both relations' loaded state, for the explorer to refresh
-   * a collection row without re-probing metadata/PDF/Markdown. Catches loads made
-   * elsewhere (the item pane, an earlier session) that the overview snapshot missed.
+   * Cache-only re-read of both relations' loaded state, behind Unizero Home's
+   * fetch prompt: a paper with nothing saved is offered a fetch instead of one.
+   * Catches loads made elsewhere (the item pane, an earlier session).
    */
   public async relationStatuses(
     item: Zotero.Item,
@@ -835,6 +781,40 @@ export default class Views {
     return {
       references: this.relationLoadStatus(item, "references"),
       citations: this.relationLoadStatus(item, "citations"),
+    };
+  }
+
+  /** Bridge projection only: no provider repair, attachment promotion or catalog writes. */
+  public async getCachedLiteratureSnapshot(
+    item: Zotero.Item,
+    kind: LiteratureRelationKind,
+  ): Promise<LiteratureSnapshot | undefined> {
+    if (kind === "relation") { return this.getUniConnectionSnapshot(item, false); }
+    await localStorage.load(item);
+    const key = this.explorerKey(item);
+    const identifiers = readItemPaperIdentifiers(item);
+    const references = kind === "references"
+      ? this.readReferencesCache(item) || this.sessionReferencesCache(key, identifiers)
+      : undefined;
+    const citations = kind === "citations"
+      ? this.readCitationsCache(item) || this.sessionCitationsCache(key, identifiers)
+      : undefined;
+    const state = references || citations;
+    if (!state) { return; }
+    const entries = references?.references || citations!.all;
+    // The bridge uses the combined list only. Membership is a local, read-only
+    // projection; deliberately do not call buildCombinedSnapshot, which ingests.
+    return {
+      kind,
+      seed: { libraryID: item.libraryID, itemKey: item.key, title: String(item.getField("title") || "") },
+      source: state.source,
+      total: references ? entries.length : citations!.total,
+      // Matches relationLoadStatus, which the item pane reports.
+      loaded: citations ? citations.loaded || entries.length : entries.length,
+      hasMore: citations ? this.citationsHasMore(citations) : false,
+      items: await this.candidatesWithMembership(item.libraryID, entries.map((entry) => ({ ...entry }))),
+      sources: [],
+      bySource: {},
     };
   }
 
@@ -863,166 +843,6 @@ export default class Views {
       ? ["openAlex", "crossref", "semanticScholar"]
       : ["openAlex", "semanticScholar"];
     return order.map((key) => ({ key, status: normalizeProgress(diagnostics[key]) }));
-  }
-
-  /**
-   * Collection overview for the independent explorer. This is deliberately a
-   * status-only read: opening the workbench does not fetch scholarly-provider
-   * data or start conversions for every paper in a Collection.
-   */
-  public async getLiteratureCollectionSnapshot(
-    scope: LiteratureCollectionScope,
-  ): Promise<LiteratureCollectionSnapshot> {
-    const items = await literatureItemsInScope(scope);
-    const papers: LiteratureCollectionPaper[] = [];
-    // Loading in small batches avoids opening hundreds of cache files at once for
-    // a large library while still keeping the initial overview responsive.
-    for (let offset = 0; offset < items.length; offset += 16) {
-      papers.push(...await Promise.all(
-        items.slice(offset, offset + 16)
-          .map((item) => this.getLiteratureCollectionPaper(item)),
-      ));
-    }
-    return { scope, items: papers };
-  }
-
-  /**
-   * Whole-library graph for the explorer's overview.
-   *
-   * UniConnection supplies topology for the entire library; a Collection scope
-   * then narrows it to that Collection's papers, dropping edges whose other end
-   * falls outside. Metadata comes from literaturePaperMetadata, the same helper
-   * behind the collection table, so a node and its row always agree.
-   */
-  public async getLiteratureGraph(
-    scope: LiteratureCollectionScope,
-  ): Promise<LiteratureGraphView> {
-    const graph = await uniConnection.libraryGraph(scope.libraryID);
-    const items = await literatureItemsInScope(scope);
-    const byScopedKey = new Map<string, Zotero.Item>();
-    for (const item of items) {
-      byScopedKey.set(`${item.libraryID}:${item.key}`, item);
-    }
-    const nodes = graph.nodes
-      .filter((node) => byScopedKey.has(node.id))
-      .map((node) => this.graphNode(node, byScopedKey.get(node.id)!));
-    const present = new Set(nodes.map((node) => node.id));
-    const edges = graph.edges.filter(
-      (edge) => present.has(edge.source) && present.has(edge.target),
-    );
-    return { scope: { libraryID: scope.libraryID }, nodes, edges };
-  }
-
-  public async getLiteratureBoardConnections(
-    libraryID: number,
-    members: BoardConnectionMember[],
-  ): Promise<BoardConnection[]> {
-    return uniConnection.boardConnections(libraryID, members);
-  }
-
-  /**
-   * The same graph, centred on one paper.
-   *
-   * Deliberately not the 1-hop neighbourhood: a paper with no direct edge to the
-   * focus can still sit one step away through a paper that does, and cutting the
-   * graph down to immediate neighbours throws exactly that structure away. The
-   * focal paper is marked and the view centres on it instead.
-   */
-  public async getLiteratureFocusedGraph(
-    item: Zotero.Item,
-    scope?: LiteratureCollectionScope,
-  ): Promise<LiteratureGraphView> {
-    const graph = await this.getLiteratureGraph(
-      scope || { libraryID: item.libraryID, name: "" },
-    );
-    const center = `${item.libraryID}:${item.key}`;
-    let nodes = graph.nodes.map((node) => (node.id === center
-      ? { ...node, isCenter: true }
-      : node));
-    // Opening a paper that the Collection filter excludes must still show it.
-    if (!nodes.some((node) => node.id === center)) {
-      nodes = nodes.concat({
-        ...this.graphNode(
-          { id: center, itemKey: item.key, degree: 0, isCenter: true },
-          item,
-        ),
-      });
-    }
-    return { ...graph, nodes, center };
-  }
-
-  /**
-   * Saved force-layout coordinates for a library's graph.
-   *
-   * Purely a starting position for the simulation: a stale or partial layout
-   * settles into the right shape anyway, so this is never validated against the
-   * current graph.
-   *
-   * The version is the one thing that must be checked. Coordinates only mean
-   * anything at the scale the forces that produced them used, so a layout written
-   * by different force parameters is not a head start — it seeds the simulation in
-   * the shape we changed the parameters to get away from. Bump GRAPH_LAYOUT_VERSION
-   * whenever link distance or repulsion changes.
-   */
-  public async getGraphLayout(
-    libraryID: number,
-    signature?: string,
-  ): Promise<Record<string, number[]>> {
-    const payload = await localStorage.readGraphLayout(libraryID);
-    if (payload?.version !== GRAPH_LAYOUT_VERSION) { return {}; }
-    // The same argument one level down: the user's own force settings set the scale
-    // just as a code change does, so coordinates produced under different settings
-    // are not a head start either. The renderer supplies the signature.
-    if (signature !== undefined && payload?.signature !== signature) { return {}; }
-    return graphPositionsForLibrary(libraryID, payload?.positions);
-  }
-
-  public async saveGraphLayout(
-    libraryID: number,
-    positions: Record<string, number[]>,
-    signature?: string,
-  ): Promise<void> {
-    await localStorage.writeGraphLayout(libraryID, {
-      version: GRAPH_LAYOUT_VERSION,
-      signature,
-      savedAt: Date.now(),
-      positions: graphPositionsForLibrary(libraryID, positions),
-    });
-  }
-
-  /**
-   * Graph display and force settings, stored once for every library. The renderer
-   * owns what these values mean and clamps them on the way in, so this layer only
-   * has to hand back whatever was last written.
-   */
-  public async getGraphSettings(): Promise<Record<string, unknown>> {
-    const payload = await localStorage.readGraphSettings();
-    const settings = payload?.settings;
-    return settings && typeof settings === "object" ? settings : {};
-  }
-
-  public async saveGraphSettings(settings: Record<string, unknown>): Promise<void> {
-    await localStorage.writeGraphSettings({ savedAt: Date.now(), settings });
-  }
-
-  private graphNode(
-    node: { id: string; itemKey: string; degree: number; isCenter?: boolean },
-    item: Zotero.Item,
-  ): LiteratureGraphNode {
-    const metadata = literaturePaperMetadata(item);
-    return {
-      id: node.id,
-      itemKey: node.itemKey,
-      itemID: metadata.itemID,
-      degree: node.degree,
-      isCenter: node.isCenter,
-      title: metadata.title,
-      creators: metadata.creators,
-      year: metadata.year,
-      publicationTitle: metadata.publicationTitle,
-      hasPDF: metadata.hasPDF,
-      hasMarkdown: metadata.hasMarkdown,
-    };
   }
 
   /**
@@ -1061,7 +881,11 @@ export default class Views {
     item: Zotero.Item,
     kind: LiteratureRelationKind,
     refresh = false,
+    options: { recordDiscovery?: boolean } = {},
   ): Promise<LiteratureSnapshot> {
+    // Explicit bridge fetches may populate the provider cache, but GET never
+    // writes the Paper catalog. Existing Zotero callers retain catalog ingestion.
+    const recordDiscovery = options.recordDiscovery !== false;
     if (kind === "relation") {
       return this.getUniConnectionSnapshot(item, refresh);
     }
@@ -1093,6 +917,7 @@ export default class Views {
             state.references,
             state.resolved,
             state.perSource,
+            recordDiscovery,
           );
         }
       }
@@ -1126,6 +951,7 @@ export default class Views {
           state.references,
           state.resolved,
           state.perSource,
+          recordDiscovery,
         );
       }
       // Upgrade Crossref "DOI-only" rows to real bibliographic data. The item-pane
@@ -1139,6 +965,7 @@ export default class Views {
           filled.references,
           filled.resolved,
           filled.perSource,
+          recordDiscovery,
         ));
       return this.buildCombinedSnapshot(
         zoteroSeed(item),
@@ -1149,6 +976,7 @@ export default class Views {
         false,
         state.source,
         state.savedAt,
+        recordDiscovery,
       );
     }
 
@@ -1174,7 +1002,7 @@ export default class Views {
         perSource: result?.perSource,
       };
       this.explorerCitations.set(key, state);
-      await this.persistCitationsCache(item, state);
+      await this.persistCitationsCache(item, state, recordDiscovery);
     }
     return this.buildCombinedSnapshot(
       zoteroSeed(item),
@@ -1185,328 +1013,12 @@ export default class Views {
       this.citationsHasMore(state),
       state.source,
       state.savedAt,
-    );
-  }
-
-  // ------------------------------------------------------- External papers
-  //
-  // A Board card can pin a paper the library does not contain. Its References
-  // and Citations come from the same providers by the same identifiers — that
-  // path never needed a Zotero item, only a DOI or a Semantic Scholar ID — so
-  // what follows is the same pipeline over a catalog Paper instead.
-  //
-  // Three things are deliberately absent. There is no ZoMiner fallback, because
-  // an external paper has no attachment to parse. There is no `uniConnection`
-  // ingestion, because library topology is derived from item shards and an
-  // external paper is not in the library. And there is no Relation or Graph
-  // view for the same reason; Unizero Home hides those tabs for these papers.
-
-  private externalCacheKey(paper: PaperDocument): string {
-    return `external:${paper.id}`;
-  }
-
-  private async readExternalReferencesCache(
-    paper: PaperDocument,
-  ): Promise<ReferencesCache | undefined> {
-    if (!this.isCacheEnabled("saveAPIReferences")) { return; }
-    const cached = await localStorage.readExternalRecord(
-      paper.id,
-      CACHE_KEY_REFERENCES,
-    ) as ReferencesCache | undefined;
-    const identifiers = externalSeed(paper, 0).identifiers;
-    return referencesCacheIsUsable(cached, identifiers) ? cached : undefined;
-  }
-
-  private async saveExternalReferencesCache(
-    paper: PaperDocument,
-    state: ReferencesCache,
-  ): Promise<void> {
-    this.explorerReferences.set(this.externalCacheKey(paper), state);
-    if (!this.isCacheEnabled("saveAPIReferences")) { return; }
-    await localStorage.writeExternalRecord(paper.id, CACHE_KEY_REFERENCES, {
-      ...state,
-      references: forPersistence(state.references, state.source),
-      perSource: persistRelationSources(state.perSource),
-    });
-  }
-
-  private async readExternalCitationsCache(
-    paper: PaperDocument,
-  ): Promise<CitationsCache | undefined> {
-    if (!this.isCacheEnabled("saveCitations")) { return; }
-    const cached = await localStorage.readExternalRecord(
-      paper.id,
-      CACHE_KEY_CITATIONS,
-    ) as CitationsCache | undefined;
-    return citationsCacheIsUsable(cached, externalSeed(paper, 0).identifiers)
-      ? cached
-      : undefined;
-  }
-
-  private async persistExternalCitationsCache(
-    paper: PaperDocument,
-    state: CitationsCache,
-  ): Promise<void> {
-    this.explorerCitations.set(this.externalCacheKey(paper), state);
-    if (!state.all.length && !completedEmptyCitations(state)) { return; }
-    if (!this.isCacheEnabled("saveCitations")) { return; }
-    await localStorage.writeExternalRecord(paper.id, CACHE_KEY_CITATIONS, {
-      ...state,
-      all: forPersistence(state.all, state.source),
-      perSource: persistRelationSources(state.perSource),
-    });
-  }
-
-  /** The cache-only read behind Unizero Home's fetch prompt, for an external paper. */
-  public async externalRelationStatuses(
-    paper: PaperDocument,
-  ): Promise<{ references: LiteratureLoadStatus; citations: LiteratureLoadStatus }> {
-    const key = this.externalCacheKey(paper);
-    const identifiers = externalSeed(paper, 0).identifiers;
-    const references = await this.readExternalReferencesCache(paper) ||
-      this.sessionReferencesCache(key, identifiers);
-    const citations = await this.readExternalCitationsCache(paper) ||
-      this.sessionCitationsCache(key, identifiers);
-    return {
-      references: {
-        loaded: Boolean(references),
-        count: references?.references.length || 0,
-        total: references?.references.length || 0,
-        savedAt: references?.savedAt,
-      },
-      citations: {
-        loaded: Boolean(citations),
-        count: citations?.loaded || citations?.all.length || 0,
-        total: citations?.total || 0,
-        savedAt: citations?.savedAt,
-      },
-    };
-  }
-
-  public async getExternalLiteratureSnapshot(
-    paper: PaperDocument,
-    kind: LiteratureRelationKind,
-    libraryID: number,
-    refresh = false,
-  ): Promise<LiteratureSnapshot> {
-    if (kind === "relation") {
-      throw new Error("Relation is a library-derived view and needs a Zotero item");
-    }
-    const seed = externalSeed(paper, libraryID);
-    const key = this.externalCacheKey(paper);
-    const { doi, semanticScholarPaperId } = seed.identifiers;
-
-    if (kind === "references") {
-      let state = refresh
-        ? undefined
-        : (await this.readExternalReferencesCache(paper) ||
-          this.sessionReferencesCache(key, seed.identifiers));
-      if (!state) {
-        const result = await fetchReferencesByIdentifiers(
-          doi,
-          semanticScholarPaperId,
-        );
-        state = {
-          savedAt: Date.now(),
-          source: result?.source || "none",
-          doi: doi || "",
-          semanticScholarPaperId,
-          resolved: true,
-          references: result?.references || [],
-          perSource: result?.perSource,
-        };
-        await this.saveExternalReferencesCache(paper, state);
-      }
-      await this.fillReferencePlaceholders(state, (filled) =>
-        this.saveExternalReferencesCache(paper, filled));
-      return this.buildCombinedSnapshot(
-        seed,
-        kind,
-        state.references,
-        state.perSource || [],
-        state.references.length,
-        false,
-        state.source,
-        state.savedAt,
-      );
-    }
-
-    let state = refresh
-      ? undefined
-      : (await this.readExternalCitationsCache(paper) ||
-        this.sessionCitationsCache(key, seed.identifiers));
-    if (!state) {
-      const result = await fetchCitationsByIdentifiers(
-        doi,
-        semanticScholarPaperId,
-      );
-      state = {
-        savedAt: Date.now(),
-        doi: doi || "",
-        semanticScholarPaperId,
-        source: result?.source || "OpenAlex",
-        openAlexFilter: result?.openAlexFilter,
-        page: result ? 1 : 0,
-        loaded: result?.citations.length || 0,
-        total: result?.total || 0,
-        all: result?.citations || [],
-        perSource: result?.perSource,
-      };
-      await this.persistExternalCitationsCache(paper, state);
-    }
-    return this.buildCombinedSnapshot(
-      seed,
-      kind,
-      state.all,
-      state.perSource || [],
-      state.total,
-      this.citationsHasMore(state),
-      state.source,
-      state.savedAt,
-    );
-  }
-
-  public async refreshExternalLiteratureSource(
-    paper: PaperDocument,
-    kind: LiteratureRelationKind,
-    sourceKey: RelationSourceKey,
-    libraryID: number,
-  ): Promise<LiteratureSnapshot> {
-    if (kind === "relation") {
-      throw new Error("Relation is a local derived view and has no provider source");
-    }
-    const seed = externalSeed(paper, libraryID);
-    const key = this.externalCacheKey(paper);
-    const { doi, semanticScholarPaperId } = seed.identifiers;
-
-    if (kind === "references") {
-      const previous = await this.readExternalReferencesCache(paper) ||
-        this.explorerReferences.get(key);
-      const fresh = await fetchReferenceSource(
-        sourceKey,
-        doi,
-        semanticScholarPaperId,
-      );
-      const perSource = this.replaceSource(previous?.perSource, fresh);
-      const references = mergeRelationSources(perSource, [
-        "crossref",
-        "openAlex",
-        "semanticScholar",
-      ]);
-      const next: ReferencesCache = {
-        savedAt: Date.now(),
-        source: this.combinedSourceName(perSource),
-        doi: doi || "",
-        semanticScholarPaperId,
-        resolved: true,
-        references,
-        perSource,
-      };
-      await this.saveExternalReferencesCache(paper, next);
-      return this.buildCombinedSnapshot(
-        seed,
-        kind,
-        references,
-        perSource,
-        references.length,
-        false,
-        next.source,
-        next.savedAt,
-      );
-    }
-
-    const previous = await this.readExternalCitationsCache(paper) ||
-      this.explorerCitations.get(key);
-    const fresh = await fetchCitationSource(
-      sourceKey,
-      doi,
-      semanticScholarPaperId,
-    );
-    const perSource = this.replaceSource(previous?.perSource, fresh);
-    const all = mergeRelationSources(perSource, ["openAlex", "semanticScholar"]);
-    const next: CitationsCache = {
-      savedAt: Date.now(),
-      doi: doi || "",
-      semanticScholarPaperId,
-      source: this.combinedSourceName(perSource),
-      openAlexFilter: perSource.find((entry) => entry.key === "openAlex")?.openAlexFilter,
-      page: Math.max(0, ...perSource.map((entry) => entry.page || 0)),
-      loaded: all.length,
-      total: Math.max(0, ...perSource.map((entry) => entry.total)),
-      all,
-      perSource,
-    };
-    await this.persistExternalCitationsCache(paper, next);
-    return this.buildCombinedSnapshot(
-      seed,
-      "citations",
-      all,
-      perSource,
-      next.total,
-      this.citationsHasMore(next),
-      next.source,
-      next.savedAt,
-    );
-  }
-
-  public async loadMoreExternalLiteratureCitations(
-    paper: PaperDocument,
-    libraryID: number,
-  ): Promise<LiteratureSnapshot> {
-    const seed = externalSeed(paper, libraryID);
-    const key = this.externalCacheKey(paper);
-    let state = await this.readExternalCitationsCache(paper) ||
-      this.explorerCitations.get(key);
-    if (!state) {
-      return this.getExternalLiteratureSnapshot(paper, "citations", libraryID);
-    }
-    if (state.perSource?.length) {
-      const captured = state;
-      const advanced = await Promise.all(state.perSource.map(async (entry) => {
-        if (!entry.hasMore) { return entry; }
-        const next = await fetchCitationSource(
-          entry.key,
-          captured.doi,
-          captured.semanticScholarPaperId,
-          (entry.page || 1) + 1,
-          entry.openAlexFilter,
-        );
-        if (!next.entries.length) { return { ...entry, hasMore: false }; }
-        return {
-          ...entry,
-          entries: [...entry.entries, ...next.entries],
-          page: next.page ?? (entry.page || 1) + 1,
-          total: next.total || entry.total,
-          hasMore: Boolean(next.hasMore),
-          openAlexFilter: next.openAlexFilter || entry.openAlexFilter,
-        };
-      }));
-      const merged = mergeRelationSources(advanced, ["openAlex", "semanticScholar"]);
-      state = {
-        ...state,
-        savedAt: Date.now(),
-        perSource: advanced,
-        all: merged,
-        loaded: merged.length,
-        total: Math.max(state.total, ...advanced.map((entry) => entry.total)),
-        page: Math.max(0, ...advanced.map((entry) => entry.page || 0)),
-      };
-      await this.persistExternalCitationsCache(paper, state);
-    }
-    return this.buildCombinedSnapshot(
-      seed,
-      "citations",
-      state.all,
-      state.perSource || [],
-      state.total,
-      this.citationsHasMore(state),
-      state.source,
-      state.savedAt,
+      recordDiscovery,
     );
   }
 
   /**
-   * Read-only projection of the derived library graph.
+   * Read-only projection of the derived library relation index.
    *
    * The normal path reuses the lazily built in-memory index. Refresh explicitly
    * rebuilds that index from existing References-Resolved-v4 shards, and neither
@@ -2341,24 +1853,6 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     await this.refreshReferences(panel, true, true);
   }
 
-  private async maybeAutoRefresh(
-    panel: HTMLDivElement,
-    item: Zotero.Item,
-    reader: _ZoteroTypes.ReaderInstance,
-  ) {
-    if (!Zotero.Prefs.get(`${config.addonRef}.autoRefresh`)) { return; }
-    if (panel.getAttribute("isAutoRefresh") === "true") { return; }
-    const excludeItemTypes = String(
-      Zotero.Prefs.get(`${config.addonRef}.notAutoRefreshItemTypes`) || "",
-    ).split(/,\s*/);
-    const itemType = item.itemType;
-    if (!excludeItemTypes.includes(itemType)) {
-      (panel as any)._referenceReader = reader;
-      await this.refreshReferences(panel);
-      panel.setAttribute("isAutoRefresh", "true");
-    }
-  }
-
   private async registerSplitButtons(reader: _ZoteroTypes.ReaderInstance) {
     let _window: any
     // @ts-ignore
@@ -2448,192 +1942,6 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     //     `
     //   },
     // }, ((_window.document as Document).documentElement));
-  }
-
-  /**
-   * Refresh the recommended-related list.
-   * @param array
-   * @param node
-   * @returns
-   */
-  public refreshRelated(array: ItemBaseInfo[], node: HTMLDivElement) {
-    let totalNum = 0
-    // @ts-ignore
-    array.forEach((info: ItemBaseInfo, i: number) => {
-      let {box, label} = this.addRow(node, array, i, false, false) as any
-      if (!box) { return }
-      box.classList.add("only-title")
-      totalNum += 1;
-      // let box = row.querySelector("box") as XUL.Box
-    })
-    return totalNum
-  }
-
-  /**
- * Only item with DOI is supported
- * @returns 
- */
-  async loadingRelated(panel?: HTMLDivElement, currentItem?: Zotero.Item) {
-    if (!Zotero.Prefs.get(`${config.addonRef}.loadingRelated`)) { return }
-    ztoolkit.log("loadingRelated");
-    let item = currentItem || this.utils.getItem() as Zotero.Item
-    if (!item) { return }
-    let itemDOI = item.getField("DOI") as string
-    if (!itemDOI || !this.utils.isDOI(itemDOI)) {
-      ztoolkit.log("Not DOI", itemDOI);
-      return
-    }
-    ztoolkit.log("getDOIRelatedArray")
-    let _relatedArray = (await this.utils.API.getDOIRelatedArray(itemDOI)) as ItemBaseInfo[] || []
-    if (!panel) { return }
-    const node = panel.querySelector(".reference-recommendations") as HTMLDivElement
-    if (!node) { return }
-    const grid = node.querySelector(".reference-grid") as HTMLDivElement
-    grid.replaceChildren()
-    const relatedArray = (item.relatedItems.map((key: string) => {
-      try {
-        return Zotero.Items.getByLibraryAndKey(item.libraryID, key) as Zotero.Item
-      } catch { }
-    })
-      .filter(i => i) as Zotero.Item[])
-      .map((relatedItem: Zotero.Item) => {
-        return {
-          identifiers: { DOI: relatedItem.getField("DOI") },
-          authors: [],
-          title: relatedItem.getField("title"),
-          text: relatedItem.getField("title"),
-          url: relatedItem.getField("url"),
-          type: relatedItem.itemType,
-          year: relatedItem.getField("year"),
-          _item: relatedItem
-        } as ItemBaseInfo
-      }).concat(_relatedArray)
-    node.hidden = relatedArray.length === 0
-    if (relatedArray.length) {
-      this.refreshRelated(relatedArray, node)
-    }
-  }
-
-  public async pdfLinks(reader: _ZoteroTypes.ReaderInstance, panel: XUL.TabPanel) {
-    let _pdfDocument: any, _window: any
-    // @ts-ignore
-    while (!((_window = reader?._iframeWindow?.wrappedJSObject) && (_pdfDocument = _window.PDFViewerApplication?.pdfDocument))) {
-      await Zotero.Promise.delay(10)
-    }
-    // let refKeys: any = []
-    const dests = await _pdfDocument._transport.getDestinations()
-    // window.setTimeout(async () => {
-    //   dests = await _pdfDocument._transport.getDestinations()
-    //   // Work out which href corresponds to which reference.
-    //   // Count the citation groups whose size matches the reference count.
-    //   const statistics: any = {}
-    //   Object.keys(dests).forEach(key => {
-    //     let _key = key.replace(/\d/g, "")
-    //     statistics[_key] ??= 0
-    //     statistics[_key] += 1
-    //   })
-    //   // const totalNum = 36
-    //   // let refKey = Object.keys(statistics).find(k => statistics[k] == totalNum)
-    //   // The largest group is the most likely, though not without risk.
-    //   let refKey = Object.keys(statistics).sort((k1, k2) => statistics[k2]- statistics[k1])[0]
-    //   Object.keys(dests).forEach(key => {
-    //     if (key.replace(/\d/g, "") == refKey) {
-    //       refKeys.push(key)
-    //     }
-    //   })
-    //   // Sort by the matched number.
-    //   refKeys = refKeys.sort((k1: string, k2: string) => {
-    //     let n1 = Number(k1.match(/\d+/)![0])
-    //     let n2 = Number(k2.match(/\d+/)![0])
-    //     return n1 - n2
-    //   })
-    // })
-    let id = window.setInterval(async () => {
-      try {
-        _window.document
-      } catch (e) {
-        ztoolkit.log(e)
-        window.clearInterval(id)
-        return await this.pdfLinks(reader, panel)
-      }
-      
-      _window.document
-        .querySelectorAll(`section.linkAnnotation a[href^='#']:not([${config.addonRef}])`).forEach(async (a: any) => {
-          const isClickLink = Zotero.Prefs.get(`${config.addonRef}.clickLink`) as boolean
-          const isHoverLink = Zotero.Prefs.get(`${config.addonRef}.hoverLink`) as boolean
-          let _a: any, href = a.getAttribute("href")
-          if (href.indexOf("fig") >=0) {return }
-          if (isClickLink) {
-            _a = ztoolkit.UI.appendElement({
-              tag: "a",
-              namespace: "html"
-            }, a.parentNode) as HTMLDivElement
-            _a.setAttribute(config.addonRef, href);
-            _a.setAttribute("style", "cursor: pointer;")
-            a.remove()
-            _a.addEventListener("click", async (event: MouseEvent) => {
-              event.stopPropagation();
-              event.preventDefault();
-              if (_window.secondViewIframeWindow == null) {
-                await reader.menuCmd(
-                  Zotero.Prefs.get(`${config.addonRef}.clickLink.cmd`) as any
-                )
-                while (
-                  !(
-                    _window?.secondViewIframeWindow?.PDFViewerApplication?.pdfDocument
-                  )
-                ) {
-                  await Zotero.Promise.delay(100)
-                }
-                await Zotero.Promise.delay(1000)
-              }
-              // let dest = unescape()
-              // Throws an error; see #39
-              _window.secondViewIframeWindow.eval(`PDFViewerApplication
-                .pdfViewer.linkService.goToDestination("${href.slice(1) }")`)
-
-            })
-          }
-          
-          let timer: undefined | number
-          _a = _a || a
-          if (isHoverLink) {
-            let tipUI: TipUI
-            _a.addEventListener("mouseenter", async (event: MouseEvent) => {
-              // @ts-ignore
-              const references = panel.references
-              if (!references) { return }
-              const [x, y] = dests[href.slice(1)].slice(2, 4)
-              // Determine refIndex
-              const distances = references.map((ref: { x: number; y: number }) => (x - ref.x) ** 2 + (y - ref.y) ** 2)
-              const minDistance = [...distances].sort((a: number, b: number) => a-b)[0]
-              const refIndex = distances.indexOf(minDistance)
-              let reference = references[refIndex]
-              if (reference) {
-                timer = window.setTimeout(() => {
-                  timer = undefined
-                  let rect = _a.getBoundingClientRect()
-                  rect.y = rect.y + 40;
-                  tipUI = this.showTipUI(
-                    rect,
-                    reference,
-                    "top center"
-                  )
-                }, 233)
-              }
-            })
-            _a.addEventListener("mouseleave", async () => {
-              window.clearTimeout(timer)
-              if (tipUI) {
-                const timeout = tipUI.removeTipAfterMillisecond
-                tipUI.tipTimer = window.setTimeout(async () => {
-                  tipUI && tipUI.container.remove()
-                }, timeout)
-              }
-            })
-          }
-        })
-    }, 100)
   }
 
   /**
@@ -3462,7 +2770,7 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     box.addEventListener("mouseenter", () => {
       if (!Zotero.Prefs.get(`${config.addonRef}.isShowTip`)) { return }
       box.classList.add("active")
-      let timeout = parseInt(Zotero.Prefs.get(`${config.addonRef}.showTipAfterMillisecond`) as string)
+      const timeout = TIP_SHOW_DELAY_MS
       const position = Zotero.Prefs.get("extensions.zotero.layout", true) == "stacked" ? "top center" : "left"
       timer = window.setTimeout(async () => {
         const winRect: Rect = document.documentElement.getBoundingClientRect()

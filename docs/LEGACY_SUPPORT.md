@@ -28,9 +28,9 @@ Rules:
   adoption code. New artifacts use `unizero:<kind>` tags.
 - A retirement change must state which condition was met and how it was verified.
 
-Not every version marker belongs here. `GRAPH_LAYOUT_VERSION` in
-`apps/zotero-addon/src/modules/views.ts` guards cached graph coordinates, which are
-derived and cheap to recompute: a version mismatch is discarded, deliberately, and must
-not grow a migration path.
+Not every leftover belongs here. The removed Home Project View, Board and Graph left
+`<Zotero data dir>/unizero/projects/`, `unizero/graph/` and `unizero/external/` behind.
+Nothing reads them any more, so they are inert files, not compatibility paths; the add-on
+does not delete them, because Board documents were user-authored.
 
 Legal provenance is recorded separately in `NOTICE`.

@@ -24,7 +24,6 @@
  */
 
 import { config } from "../../package.json";
-import { isPortableObjectID } from "../projects/types";
 import { isMissingFile } from "../utils/fileState";
 import {
   effectiveLibraryID,
@@ -70,17 +69,13 @@ function emptyShard(item: LibraryScopedItem): Shard {
 export class LocalStorage {
   /** Root of the shard tree; surfaced by UniZeroDebug(). */
   public directory!: string;
-  /** Shards for catalog papers that have no Zotero item. See {@link readExternalRecord}. */
-  public externalDirectory!: string;
-  /** The add-on's data directory: parent of both the shard tree and graph layouts. */
+  /** The add-on's data directory: parent of the shard tree and library-wide records. */
   public root!: string;
   public lock: any;
   /** Resident shards, most-recently-used last (Map preserves insertion order). */
   private resident = new Map<string, Shard>();
   /** Serialises writes per shard, so two saves for one item cannot interleave. */
   private writes = new Map<string, Promise<void>>();
-  /** One writer per layout file; both graph views share the same file and tmp path. */
-  private graphWrites = new Map<number, Promise<void>>();
 
   constructor(name: string) {
     this.lock = Zotero.Promise.defer();
@@ -91,7 +86,6 @@ export class LocalStorage {
     try {
       this.root = PathUtils.join(dataDirectory(), name);
       this.directory = PathUtils.join(this.root, "cache");
-      this.externalDirectory = PathUtils.join(this.root, "external");
       await IOUtils.makeDirectory(this.directory, {
         createAncestors: true,
         ignoreExisting: true,
@@ -186,194 +180,7 @@ export class LocalStorage {
     }
   }
 
-  // --------------------------------------------------- External paper records
-
-  /**
-   * Records for a catalog paper that has no Zotero item.
-   *
-   * A Board card can pin a paper the library does not contain, and its relation
-   * lists have nowhere to live in the shard tree: that tree is keyed by library
-   * and item key, and swept by asking Zotero whether the item still exists — a
-   * question with no answer here. External papers are keyed by their catalog
-   * Paper ID in a sibling directory the sweep never walks; the catalog owns
-   * their lifetime, and a shard left behind by a collected paper is inert.
-   *
-   * No resident LRU either. The item shard tree has one because `get()` has to
-   * stay synchronous for the item pane's render; every caller of these is
-   * already async, so a read is simply a file read.
-   */
-  private externalPathFor(paperID: string): string {
-    // The ID arrives from stored documents, so it is checked rather than
-    // trusted: a portable object ID is a name, never a path.
-    if (!isPortableObjectID(paperID)) {
-      throw new Error(`Unusable paper ID for cache storage: ${paperID}`);
-    }
-    return PathUtils.join(this.externalDirectory, `${paperID}.json`);
-  }
-
-  public async readExternalRecord(paperID: string, key: string): Promise<any> {
-    await this.lock.promise;
-    const pending = this.writes.get(`external:${paperID}`);
-    if (pending) {
-      try {
-        await pending;
-      } catch {
-        // A failed write still leaves the last complete file worth reading.
-      }
-    }
-    try {
-      const shard = JSON.parse(
-        await IOUtils.readUTF8(this.externalPathFor(paperID)) as string,
-      );
-      return shard?.records?.[key];
-    } catch (error) {
-      if (!isMissingFile(error)) {
-        ztoolkit.log(`external cache unreadable for ${paperID}: ${error}`);
-      }
-      return undefined;
-    }
-  }
-
-  public async writeExternalRecord(
-    paperID: string,
-    key: string,
-    value: any,
-  ): Promise<void> {
-    await this.lock.promise;
-    const path = this.externalPathFor(paperID);
-    const scopedKey = `external:${paperID}`;
-    // Read-modify-write inside the queue, so two records saved for one paper
-    // cannot each write a file that is missing the other's.
-    const write = (this.writes.get(scopedKey) || Promise.resolve())
-      .catch(() => undefined)
-      .then(async () => {
-        let records: Record<string, any> = {};
-        try {
-          const existing = JSON.parse(await IOUtils.readUTF8(path) as string);
-          if (existing && typeof existing === "object" && existing.records) {
-            records = existing.records;
-          }
-        } catch (error) {
-          if (!isMissingFile(error)) {
-            ztoolkit.log(`external cache unreadable for ${paperID}: ${error}`);
-          }
-        }
-        records[key] = value;
-        await IOUtils.makeDirectory(this.externalDirectory, {
-          createAncestors: true,
-          ignoreExisting: true,
-        });
-        await IOUtils.writeUTF8(
-          path,
-          JSON.stringify({
-            schema: SHARD_SCHEMA,
-            paperID,
-            updatedAt: Date.now(),
-            records,
-          }),
-          { tmpPath: `${path}.tmp` },
-        );
-      });
-    this.writes.set(scopedKey, write);
-    try {
-      await write;
-    } finally {
-      if (this.writes.get(scopedKey) === write) { this.writes.delete(scopedKey); }
-    }
-  }
-
   // ------------------------------------------------------- Library-wide records
-
-  /**
-   * Graph layout coordinates, one file per library.
-   *
-   * Deliberately outside the shard tree: those files are keyed by item and swept
-   * when their item disappears, which would delete a layout on every startup.
-   * Layout is also disposable — a miss costs one force simulation, never data —
-   * so it is read and written best-effort and never blocks a render.
-   */
-  private layoutPath(libraryID: number): string {
-    return PathUtils.join(this.root, "graph", `${libraryID}.json`);
-  }
-
-  async readGraphLayout(libraryID: number): Promise<any> {
-    await this.lock.promise;
-    try {
-      return JSON.parse(await IOUtils.readUTF8(this.layoutPath(libraryID)) as string);
-    } catch (error) {
-      if (!isMissingFile(error)) {
-        ztoolkit.log(`graph layout unreadable for ${libraryID}: ${error}`);
-      }
-      return undefined;
-    }
-  }
-
-  async writeGraphLayout(libraryID: number, payload: any): Promise<void> {
-    await this.lock.promise;
-    const write = (this.graphWrites.get(libraryID) || Promise.resolve())
-      .catch(() => undefined)
-      .then(() => this.persistGraphLayout(libraryID, payload));
-    this.graphWrites.set(libraryID, write);
-    try {
-      await write;
-    } finally {
-      if (this.graphWrites.get(libraryID) === write) {
-        this.graphWrites.delete(libraryID);
-      }
-    }
-  }
-
-  private async persistGraphLayout(libraryID: number, payload: any): Promise<void> {
-    try {
-      // Inside the try: a failed init leaves no root, and a missing layout must
-      // stay a silent miss rather than break the caller's render.
-      const path = this.layoutPath(libraryID);
-      await IOUtils.makeDirectory(PathUtils.parent(path)!, {
-        createAncestors: true,
-        ignoreExisting: true,
-      });
-      await IOUtils.writeUTF8(path, JSON.stringify(payload), {
-        tmpPath: `${path}.tmp`,
-      });
-    } catch (error) {
-      ztoolkit.log(`graph layout unwritable for ${libraryID}: ${error}`);
-    }
-  }
-
-  /**
-   * Graph display and force settings — one file for every library, because they
-   * describe how the user wants graphs drawn, not anything about a library's
-   * contents. Disposable in the same way layouts are: a miss means defaults.
-   */
-  private settingsPath(): string {
-    return PathUtils.join(this.root, "graph", "settings.json");
-  }
-
-  async readGraphSettings(): Promise<any> {
-    await this.lock.promise;
-    try {
-      return JSON.parse(await IOUtils.readUTF8(this.settingsPath()) as string);
-    } catch (error) {
-      if (!isMissingFile(error)) {
-        ztoolkit.log(`graph settings unreadable: ${error}`);
-      }
-      return undefined;
-    }
-  }
-
-  async writeGraphSettings(payload: any): Promise<void> {
-    await this.lock.promise;
-    try {
-      const path = this.settingsPath();
-      await IOUtils.makeDirectory(PathUtils.parent(path)!, {
-        createAncestors: true,
-        ignoreExisting: true,
-      });
-      await IOUtils.writeUTF8(path, JSON.stringify(payload), { tmpPath: `${path}.tmp` });
-    } catch (error) {
-      ztoolkit.log(`graph settings unwritable: ${error}`);
-    }
-  }
 
   /**
    * OpenAlex work IDs the API has answered 404 for.

@@ -277,26 +277,6 @@ class API {
     }
   }
 
-  // async getDOIRelatedArray(DOI: string): Promise<ItemBaseInfo[] | undefined> {
-  //   const api = `https://services.readcube.com/reader/related?doi=${DOI}`
-  //   let response = await this.requests.get(api)
-  //   if (response) {
-  //     let arr: ItemBaseInfo[] = response.map((i: any) => {
-  //       return this.BaseInfo.readcube(i) as ItemBaseInfo
-  //     })
-  //     return arr
-  //   }
-  // }
-
-
-  async getDOIRelatedArray(DOI: string, limit: number = 20): Promise<ItemBaseInfo[] | undefined> {
-    // The legacy "related recommendations" have no stable endpoint; the reference
-    // pane must not quietly call a second recommendation service in the
-    // background. If related papers or a graph view are redesigned, they belong in
-    // a separate feature rather than tied to metadata enrichment.
-    return
-  }
-
   /**
    * Parse the first <entry> of an arXiv Atom feed.
    * Returns the same shape the previous xml2js-based path produced

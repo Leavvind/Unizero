@@ -24,19 +24,13 @@ const MENU_CONVERT = `${config.addonRef}-convert-menu`;
 const MENU_ANNOTATE = `${config.addonRef}-annotate-menuitem`;
 const MENU_PANEL = `${config.addonRef}-panel-menuitem`;
 const MENU_LITERATURE = `${config.addonRef}-literature-menuitem`;
-const MENU_LITERATURE_TOOLS = `${config.addonRef}-literature-tools-menuitem`;
-const MENU_LITERATURE_COLLECTION = `${config.addonRef}-literature-collection`;
-const TOOLBAR_LITERATURE = `${config.addonRef}-literature-toolbar-button`;
 const MENU_SEPARATOR = `${config.addonRef}-itemmenu-separator`;
-const LITERATURE_ICON =
-  `chrome://${config.addonRef}/content/icons/literature-explorer.svg`;
 
 /** The add-on's item-menu commands, in the order they appear at the bottom. */
 const ITEM_MENU_COMMANDS = [MENU_LITERATURE, MENU_CONVERT, MENU_ANNOTATE];
 
 
 type OpenPanel = (mainWindow: Window) => void;
-type OpenLiteratureCollection = (mainWindow: Window) => void;
 type OpenLiteratureItem = (mainWindow: Window, item: Zotero.Item) => void;
 
 /**
@@ -44,7 +38,6 @@ type OpenLiteratureItem = (mainWindow: Window, item: Zotero.Item) => void;
  * exactly what registration added (AGENTS.md invariant 8).
  */
 const orderListeners = new WeakMap<Window, EventListener>();
-let registeredLiteratureCollectionMenuID: string | undefined;
 
 /**
  * Put this add-on's entries, behind a separator, at the bottom of the item menu.
@@ -262,33 +255,12 @@ export function registerAnnotationMenu(mainWindow: Window): void {
  * and keep a Zotero 8/9 fallback. Home is one Collection, so visibility is
  * true when any selected row is a Collection, library, or group.
  */
-function collectionContextRows(context: any): any[] {
-  if (Array.isArray(context?.collectionTreeRows)) {
-    return context.collectionTreeRows;
-  }
-  try {
-    const row = context?.collectionTreeRow;
-    return row ? [row] : [];
-  } catch {
-    return [];
-  }
-}
-
-function collectionContextAllowsHome(context: any): boolean {
-  return collectionContextRows(context).some((row) =>
-    row?.isCollection?.() || row?.isLibrary?.() || row?.isGroup?.());
-}
-
 /**
- * Unizero Home contributions.
- *
- * The item context menu opens the selected paper directly. Tools, the Collection
- * context menu, and the item-toolbar button open the current Collection/library
- * overview, including when there is no paper to right-click.
+ * Unizero Home contribution: the item context menu opens the selected paper's
+ * References, Relation and Citations in the Home window.
  */
 export function registerLiteratureExplorerMenus(
   mainWindow: Window,
-  openCollection: OpenLiteratureCollection,
   openItem: OpenLiteratureItem,
 ): void {
   const document = mainWindow.document;
@@ -308,53 +280,6 @@ export function registerLiteratureExplorerMenus(
     });
     itemMenu.appendChild(itemEntry);
   }
-
-  const toolsMenu = document.getElementById("menu_ToolsPopup");
-  if (toolsMenu && !document.getElementById(MENU_LITERATURE_TOOLS)) {
-    const toolsEntry = (document as any).createXULElement("menuitem");
-    toolsEntry.id = MENU_LITERATURE_TOOLS;
-    toolsEntry.setAttribute("label", label);
-    toolsEntry.addEventListener("command", () => openCollection(mainWindow));
-    toolsMenu.appendChild(toolsEntry);
-  }
-
-  const itemToolbar = document.getElementById("zotero-items-toolbar");
-  if (itemToolbar && !document.getElementById(TOOLBAR_LITERATURE)) {
-    const button = (document as any).createXULElement("toolbarbutton");
-    button.id = TOOLBAR_LITERATURE;
-    button.classList.add("zotero-tb-button");
-    button.setAttribute("tabindex", "-1");
-    button.setAttribute("tooltiptext", label);
-    button.style.listStyleImage = `url("${LITERATURE_ICON}")`;
-    button.addEventListener("command", () => openCollection(mainWindow));
-    // Keep the command with Zotero's creation buttons, before the flexible spacer
-    // that pushes search to the right. This is the same toolbar extension point
-    // used by zotero-style's Graph View button.
-    const spacer = Array.from(itemToolbar.children).find((child) =>
-      child.localName === "spacer" && child.getAttribute("flex") === "1");
-    itemToolbar.insertBefore(button, spacer || null);
-  }
-
-  const menuManager = (Zotero as any).MenuManager;
-  if (!registeredLiteratureCollectionMenuID && menuManager?.registerMenu) {
-    registeredLiteratureCollectionMenuID = menuManager.registerMenu({
-      menuID: MENU_LITERATURE_COLLECTION,
-      pluginID: config.addonID,
-      target: "main/library/collection",
-      menus: [{
-        menuType: "menuitem",
-        l10nID: `${config.addonRef}-literature-explorer-menu-label`,
-        onShowing: (_event: Event, context: any) => {
-          context.setVisible(collectionContextAllowsHome(context));
-        },
-        onCommand: (event: Event) => {
-          const target = event.currentTarget as Element | null;
-          const win = target?.ownerDocument?.defaultView || Zotero.getMainWindow();
-          if (win) { openCollection(win); }
-        },
-      }],
-    });
-  }
   ensureItemMenuOrdering(mainWindow);
 }
 
@@ -373,15 +298,5 @@ export function unregisterAnnotationMenu(mainWindow: Window): void {
 
 export function unregisterLiteratureExplorerMenus(mainWindow: Window): void {
   mainWindow.document.getElementById(MENU_LITERATURE)?.remove();
-  mainWindow.document.getElementById(MENU_LITERATURE_TOOLS)?.remove();
-  mainWindow.document.getElementById(TOOLBAR_LITERATURE)?.remove();
   releaseItemMenuOrdering(mainWindow);
-}
-
-export function unregisterLiteratureExplorerMenusAll(): void {
-  if (!registeredLiteratureCollectionMenuID) { return; }
-  (Zotero as any).MenuManager?.unregisterMenu?.(
-    registeredLiteratureCollectionMenuID,
-  );
-  registeredLiteratureCollectionMenuID = undefined;
 }

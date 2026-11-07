@@ -13,14 +13,12 @@ import {
   unregisterAnnotationMenu,
   unregisterConversionMenus,
   unregisterLiteratureExplorerMenus,
-  unregisterLiteratureExplorerMenusAll,
 } from "../ui/menus";
 import { closePanel, closePanelForOwner, openPanel } from "../ui/panel";
 import {
   closeLiteratureExplorer,
   closeLiteratureExplorerForOwner,
   openLiteratureExplorer,
-  openLiteratureExplorerForCollection,
 } from "../ui/literatureExplorer";
 import { FeatureRegistry, type FeatureModule } from "./featureRegistry";
 
@@ -41,13 +39,8 @@ const relations: FeatureModule = {
       } catch (error) {
         Zotero.logError(error as Error);
       }
-      registerLiteratureExplorerMenus(
-        win,
-        (mainWindow) =>
-          openLiteratureExplorerForCollection(mainWindow, views!),
-        (mainWindow, item) =>
-          openLiteratureExplorer(mainWindow, item, "references", views!),
-      );
+      registerLiteratureExplorerMenus(win, (mainWindow, item) =>
+        openLiteratureExplorer(mainWindow, item, "references", views!));
       return;
     }
     views.setExplorerOpener((mainWindow, item, kind) =>
@@ -55,13 +48,8 @@ const relations: FeatureModule = {
     views.onWindowLoad(win);
     uniConnectionSync.register();
     addon.api.uniConnectionSync = uniConnectionSync;
-    registerLiteratureExplorerMenus(
-      win,
-      (mainWindow) =>
-        openLiteratureExplorerForCollection(mainWindow, views!),
-      (mainWindow, item) =>
-        openLiteratureExplorer(mainWindow, item, "references", views!),
-    );
+    registerLiteratureExplorerMenus(win, (mainWindow, item) =>
+      openLiteratureExplorer(mainWindow, item, "references", views!));
   },
   onWindowUnload(win) {
     unregisterLiteratureExplorerMenus(win);
@@ -71,7 +59,6 @@ const relations: FeatureModule = {
   onShutdown() {
     uniConnectionSync.unregister();
     closeLiteratureExplorer();
-    unregisterLiteratureExplorerMenusAll();
     Zotero[config.addonInstance]?.views?.onDestroy?.();
   },
   onAppShutdown() {
