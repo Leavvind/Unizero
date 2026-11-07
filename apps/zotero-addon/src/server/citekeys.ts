@@ -151,8 +151,8 @@ export function citekeyForItem(item: Zotero.Item): string {
  *
  * Zotero has no query for "the item whose derived key is X" — only pinned keys
  * live in a searchable field — so the index is the only way to resolve the
- * fallback form. It is cached per library and dropped wholesale when any regular
- * item changes, because a single title edit can change one key and un-collide
+ * fallback form. Each library is cached and dropped when one of its regular
+ * items changes, because a single title edit can change one key and un-collide
  * another.
  *
  * Each entry also carries the fields `@` completion ranks on, so a keystroke reads
@@ -170,10 +170,11 @@ const indexes = new Map<number, LibraryIndex>();
 /** One build per library at a time; later callers await it. */
 const building = new Map<number, Promise<LibraryIndex>>();
 /**
- * Bumped by every invalidation. A build that started before one must not cache
- * its result: it may have read the item that just changed.
+ * Global and per-library generations keep builds that predate an invalidation
+ * from caching stale results without disturbing unrelated library builds.
  */
 let indexGeneration = 0;
+const libraryGenerations = new Map<number, number>();
 let observerID: string | undefined;
 
 async function buildLibraryIndex(libraryID: number): Promise<LibraryIndex> {
@@ -208,8 +209,11 @@ function libraryIndex(libraryID: number): Promise<LibraryIndex> {
   if (inFlight) { return inFlight; }
 
   const generation = indexGeneration;
+  const libraryGeneration = libraryGenerations.get(libraryID);
   const build = buildLibraryIndex(libraryID).then((index) => {
-    if (generation === indexGeneration) { indexes.set(libraryID, index); }
+    if (generation === indexGeneration && libraryGeneration === libraryGenerations.get(libraryID)) {
+      indexes.set(libraryID, index);
+    }
     return index;
   }).finally(() => {
     if (building.get(libraryID) === build) { building.delete(libraryID); }
@@ -355,39 +359,40 @@ function rankToken(
 }
 
 export function invalidateCitekeyIndex(libraryID?: number): void {
-  indexGeneration += 1;
   if (libraryID === undefined) {
+    indexGeneration += 1;
+    libraryGenerations.clear();
     indexes.clear();
+    building.clear();
     return;
   }
+  libraryGenerations.set(libraryID, (libraryGenerations.get(libraryID) || 0) + 1);
   indexes.delete(libraryID);
+  // New requests must not join a build that predates the edit.
+  building.delete(libraryID);
 }
 
 /**
- * Notes, attachments, and annotations derive no key, so their churn — a
- * conversion adding its Raw attachments, say — keeps the index.
- * An item that can no longer be read is treated as relevant.
- */
-function touchesRegularItem(id: number | string): boolean {
-  const item = Zotero.Items.get(Number(id)) as Zotero.Item | false;
-  return !item || item.isRegularItem();
-}
-
-/**
- * Drop the index whenever a regular item changes.
+ * Drop only affected libraries, keeping collision detection within each rebuild.
  *
- * Registered once per process, alongside the bridge that depends on it. Beyond
- * skipping child items, the observer deliberately ignores which items changed: a derived key depends on
- * title, creators, and date, and a collision depends on every other item, so
- * there is no cheap incremental update that stays correct.
+ * Deleted items may only have a library in notifier extraData. When neither the
+ * live item nor that metadata supplies a scope, invalidate all as a safe fallback.
  */
 export function registerCitekeyInvalidation(): void {
   if (observerID) { return; }
   observerID = Zotero.Notifier.registerObserver(
     {
-      notify(event: string, _type: string, ids: (number | string)[], _extraData: unknown) {
-        if (event !== "delete" && !ids.some(touchesRegularItem)) { return; }
-        invalidateCitekeyIndex();
+      notify(_event: string, _type: string, ids: (number | string)[], extraData: unknown) {
+        const libraries = new Set<number>();
+        for (const id of ids) {
+          const item = Zotero.Items.get(Number(id)) as Zotero.Item | false;
+          if (item && !item.isRegularItem()) { continue; }
+          const extra = (extraData as Record<string, { libraryID?: number }> | undefined)?.[String(id)];
+          const libraryID = Number(item ? item.libraryID : extra?.libraryID);
+          if (!Number.isInteger(libraryID) || libraryID <= 0) { invalidateCitekeyIndex(); return; }
+          libraries.add(libraryID);
+        }
+        for (const libraryID of libraries) { invalidateCitekeyIndex(libraryID); }
       },
     },
     ["item"],

@@ -7,7 +7,7 @@
  * cache is dropped on change — are all decisions this module makes, not Zotero.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   citekeyForItem,
   deriveCitekey,
@@ -16,6 +16,8 @@ import {
   pinnedCitekey,
   resolveCitekey,
   suggestCitekeys,
+  registerCitekeyInvalidation,
+  unregisterCitekeyInvalidation,
 } from "../src/server/citekeys";
 
 interface FakeFields {
@@ -290,5 +292,85 @@ describe("suggestCitekeys", () => {
       authors: ["Lecun"],
       year: "2020",
     });
+  });
+});
+
+
+describe("library-scoped invalidation", () => {
+  let notify: (event: string, type: string, ids: number[], extra?: unknown) => void;
+  beforeEach(() => {
+    for (const id of [1, 2, 3]) { library[id] = [fakeItem(id, `ITEM${id}`, { extra: "Citation Key: shared" })]; }
+    (Zotero as any).Items.getAll = vi.fn(async (id: number) => library[id] || []);
+    (Zotero as any).Items.get = (id: number) => library[id]?.[0] || false;
+    (Zotero as any).Notifier = {
+      registerObserver: vi.fn((observer) => { notify = observer.notify; return "citekeys"; }),
+      unregisterObserver: vi.fn(),
+    };
+    registerCitekeyInvalidation();
+  });
+  afterEach(() => { unregisterCitekeyInvalidation(); });
+
+  it("rebuilds only the edited library and preserves old/new key collision detection", async () => {
+    await suggestCitekeys("", 20);
+    library[1] = [fakeItem(1, "ITEM1", { extra: "Citation Key: changed" }),
+      fakeItem(1, "OTHER", { extra: "Citation Key: changed" })];
+    notify("modify", "item", [1]);
+    await suggestCitekeys("", 20);
+    expect(vi.mocked(Zotero.Items.getAll).mock.calls.map(([id]) => id)).toEqual([1, 2, 3, 1]);
+    expect(await resolveCitekey("changed", 1)).toMatchObject({ ambiguous: true, candidates: [
+      { libraryID: 1, itemKey: "ITEM1" }, { libraryID: 1, itemKey: "OTHER" },
+    ] });
+    expect((await resolveCitekey("shared", 1))?.libraryID).toBe(2);
+    library[1].pop(); notify("modify", "item", [1]);
+    expect((await resolveCitekey("changed", 1))?.ambiguous).toBe(false);
+  });
+
+  it("uses deleted-item metadata to scope invalidation and falls back when scope is unknown", async () => {
+    await suggestCitekeys("", 20);
+    library[1] = [];
+    notify("delete", "item", [1], { 1: { libraryID: 1 } });
+    expect(await suggestCitekeys("", 20)).toHaveLength(2);
+    expect(vi.mocked(Zotero.Items.getAll).mock.calls.map(([id]) => id)).toEqual([1, 2, 3, 1]);
+    notify("delete", "item", [99]);
+    await suggestCitekeys("", 20);
+    expect(vi.mocked(Zotero.Items.getAll).mock.calls.map(([id]) => id)).toEqual([1, 2, 3, 1, 1, 2, 3]);
+  });
+
+  it("skips child-item changes and coalesces multiple changed items in a library", async () => {
+    await suggestCitekeys("", 20);
+    (Zotero as any).Items.get = () => ({ libraryID: 1, isRegularItem: () => false });
+    notify("modify", "item", [10]);
+    await suggestCitekeys("", 20);
+    expect(Zotero.Items.getAll).toHaveBeenCalledTimes(3);
+    (Zotero as any).Items.get = () => library[1][0];
+    notify("modify", "item", [10, 11]);
+    await suggestCitekeys("", 20);
+    expect(Zotero.Items.getAll).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps another library's in-flight build cacheable", async () => {
+    let finish!: (items: any[]) => void;
+    const getAll = vi.fn((id: number) => id === 2 ? new Promise<any[]>((resolve) => { finish = resolve; }) : Promise.resolve(library[id]));
+    (Zotero as any).Items.getAll = getAll;
+    const pending = resolveCitekey("shared", 2);
+    invalidateCitekeyIndex(1);
+    finish(library[2]); await pending;
+    await resolveCitekey("shared", 2);
+    expect(getAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a fresh build after an edit and does not let the old build overwrite it", async () => {
+    let finish!: (items: any[]) => void;
+    const old = library[1];
+    const getAll = vi.fn().mockImplementationOnce(() => new Promise<any[]>((resolve) => { finish = resolve; }))
+      .mockImplementation(async (id: number) => library[id]);
+    (Zotero as any).Items.getAll = getAll;
+    const pending = resolveCitekey("shared", 1);
+    library[1] = [fakeItem(1, "ITEM1", { extra: "Citation Key: changed" })];
+    notify("modify", "item", [1]);
+    expect((await resolveCitekey("changed", 1))?.itemKey).toBe("ITEM1");
+    finish(old); await pending;
+    expect((await resolveCitekey("changed", 1))?.itemKey).toBe("ITEM1");
+    expect(getAll).toHaveBeenCalledTimes(2);
   });
 });
