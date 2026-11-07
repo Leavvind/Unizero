@@ -1,7 +1,7 @@
 {
   "id": "unizero",
   "name": "UniZero",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "minAppVersion": "1.5.0",
   "description": "Zotero and Vault document links: @ search, stable UID targets, document backlinks, Raw editing, paper details, and Zotero excerpts in Canvas cards.",
   "author": "Leavvind",
