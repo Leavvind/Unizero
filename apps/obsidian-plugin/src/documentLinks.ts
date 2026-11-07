@@ -161,11 +161,17 @@ export function textAnchors(text: string): TextAnchor[] {
     if (node.type === "text") {
       const from = node.position!.start.offset!, to = node.position!.end.offset!;
       const source = masked.slice(from, to);
-      const match = /(?:^|\s)\^([A-Za-z0-9-]+)[ \t]*(?=\r?$)/gm;
+      // UniZero also accepts a line-end ID directly after prose, including CJK.
+      const match = /\^([A-Za-z0-9-]+)[ \t]*(?=\r?$)/gm;
       for (const m of source.matchAll(match)) {
-        // Anchor at the caret: the `\s` before it may be the line break that ends the
-        // previous line of the paragraph, which would put the anchor one line early.
-        const offset = from + m.index! + m[0].indexOf("^");
+        const offset = from + m.index!;
+        let escapes = 0;
+        for (let i = offset - 1; i >= 0 && masked[i] === "\\"; i -= 1) { escapes += 1; }
+        if (escapes % 2) { continue; }
+        // A text node may end before formatting or a link; require the actual line end.
+        let end = offset + m[0].length;
+        while (masked[end] === " " || masked[end] === "\t") { end += 1; }
+        if (end < masked.length && masked[end] !== "\n" && !(masked[end] === "\r" && masked[end + 1] === "\n")) { continue; }
         anchors.push({ location: { kind: "block", value: m[1] }, line: text.slice(0, offset).split("\n").length - 1, offset });
       }
     }
