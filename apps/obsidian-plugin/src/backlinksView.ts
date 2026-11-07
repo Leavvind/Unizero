@@ -5,7 +5,8 @@ import { occurrenceSnippet } from "./documentLinks";
 import { openLinkOccurrence, openNativeBacklink } from "./linkOpening";
 import { nativeBacklinks, type NativeBacklink, type NativeLinkForm } from "./nativeLinks";
 import { describeTarget, markdownLink, serializeLinkTarget } from "./linkTarget";
-import { excludedSpans, findMentions, mentionSnippet, type Mention } from "./unlinkedMentions";
+import { mentionSnippet, type Mention } from "./unlinkedMentions";
+import { MentionScanner } from "./mentionScanner";
 
 export const BACKLINKS_VIEW_TYPE = "unizero-backlinks";
 /** Index state, including scan problems, for Settings only; the panes stay quiet and rely on automatic refresh. */
@@ -15,8 +16,6 @@ export function coverageSummary(plugin: UnizeroPlugin): string {
   return [`Vault ${index.vaultState}`, plugin.settings.indexZoteroSources ? `Zotero ${c.state}` : "Zotero documents not indexed",
     c.unavailable ? `${c.unavailable} Zotero document${c.unavailable === 1 ? "" : "s"} could not be read` : "", scanned ? `last Zotero scan ${scanned}` : "", c.error || ""].filter(Boolean).join(" · ");
 }
-/** Target notes whose mentions each source keeps cached. */
-const MENTION_TERM_SETS = 8;
 const FORM_LABEL:Record<NativeLinkForm, string> = { wikilink: "wikilink", embed: "embed", markdown: "Markdown", property: "property", file: "linked" };
 type Row = { kind: "unizero"; occurrence: LinkOccurrence } | { kind: "native"; link: NativeBacklink };
 const rowSource = (row: Row) => row.kind === "native" ? row.link.sourcePath : row.occurrence.source.kind === "zotero"
@@ -92,12 +91,7 @@ export class BacklinksView extends ItemView {
   private generation = 0;
   /** Unlinked mentions are read from every Vault note, so only while the section is open. */
   private mentionsOpen = false;
-  /**
-   * Per source note, valid while it is unchanged: its excluded spans, which do not
-   * depend on the target, and its mentions for the last few target notes, so moving
-   * between notes does not rescan the Vault.
-   */
-  private readonly mentionCache = new Map<string, { mtime: number; spans?: Array<[number, number]>; byTerms: Map<string, Mention[]> }>();
+  private readonly mentionScanner = new MentionScanner();
   /** Mention sources the user expanded, for the note in `mentionTarget`. */
   private readonly expandedMentions = new Set<string>();
   private mentionTarget?: string;
@@ -131,7 +125,7 @@ export class BacklinksView extends ItemView {
     await this.render();
   }
   onResize(): void { this.showIfStale(); }
-  async onClose(): Promise<void> { this.unsubscribe?.(); this.scheduleRender.cancel(); this.generation++; this.mentionCache.clear(); this.invalidateNative(); }
+  async onClose(): Promise<void> { this.unsubscribe?.(); this.scheduleRender.cancel(); this.generation++; this.mentionScanner.clear(); this.invalidateNative(); }
   private showIfStale(): void {
     if (this.stale && this.contentEl.isShown()) { this.stale = false; void this.render(); }
   }
@@ -163,23 +157,12 @@ export class BacklinksView extends ItemView {
     return [file.basename, ...list.filter((alias): alias is string => typeof alias === "string")];
   }
   /** Unlinked mentions of `file` in other Vault notes, by source path. Zotero documents are not read. */
-  private async unlinkedMentions(file: TFile): Promise<Array<{ path: string; mentions: Mention[] }>> {
-    const terms = this.mentionTerms(file), key = JSON.stringify(terms), { vault } = this.app;
-    const sources = vault.getMarkdownFiles().filter((source) => source.path !== file.path);
-    const live = new Set(sources.map((source) => source.path));
-    for (const path of this.mentionCache.keys()) { if (!live.has(path)) { this.mentionCache.delete(path); } }
-    const found = await Promise.all(sources.map(async (source) => {
-      let entry = this.mentionCache.get(source.path);
-      if (entry?.mtime !== source.stat.mtime) { entry = { mtime: source.stat.mtime, byTerms: new Map() }; this.mentionCache.set(source.path, entry); }
-      const cached = entry.byTerms.get(key);
-      if (cached) { return { path: source.path, mentions: cached }; }
-      const text = await vault.cachedRead(source), current = entry;
-      const mentions = findMentions(text, terms, () => current.spans ??= excludedSpans(text));
-      if (current.byTerms.size >= MENTION_TERM_SETS) { current.byTerms.delete(current.byTerms.keys().next().value!); }
-      current.byTerms.set(key, mentions);
-      return { path: source.path, mentions };
-    }));
-    return found.filter((entry) => entry.mentions.length).sort((a, b) => a.path.localeCompare(b.path));
+  private async unlinkedMentions(file: TFile, generation: number): Promise<Array<{ path: string; mentions: Mention[] }>> {
+    const { vault } = this.app;
+    return this.mentionScanner.scan(vault.getMarkdownFiles().filter((source) => source.path !== file.path),
+      this.mentionTerms(file), (source) => vault.cachedRead(source),
+      () => generation === this.generation && this.mentionsOpen && this.plugin.currentDocument === file
+        && !this.plugin.currentExternal && !this.plugin.externalDocumentPath);
   }
   /** Turns one mention into a UniZero link to `file`, giving `file` a UID first if it has none. */
   private async linkMention(file: TFile, path: string, mention: Mention): Promise<void> {
@@ -267,7 +250,8 @@ export class BacklinksView extends ItemView {
     const native = !external && !this.plugin.externalDocumentPath && file ? await this.nativeLinks(file).catch((error) => {
       console.error("UniZero native backlinks", error); return undefined;
     }) : undefined;
-    const mentions = this.mentionsOpen && native && file ? await this.unlinkedMentions(file).catch((error) => {
+    if (generation !== this.generation) { return; }
+    const mentions = this.mentionsOpen && native && file ? await this.unlinkedMentions(file, generation).catch((error) => {
       console.error("UniZero unlinked mentions", error); return undefined;
     }) : undefined;
     // A newer render started while this one read source files.

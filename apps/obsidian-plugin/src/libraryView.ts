@@ -1,9 +1,8 @@
 /**
  * The left-sidebar library pane.
  *
- * Counterpart of Unizero Home's first column (COLLECTION PAPERS): browse the
- * papers in a chosen Zotero library or collection, filter them locally, and
- * open one in the detail pane. Scope is user-selected here rather than taken
+ * Browse the papers in a chosen Zotero library or collection, filter them
+ * locally, and open one in the detail pane. Scope is user-selected here rather than taken
  * from Zotero's current collection row, because Obsidian has no live selection
  * in Zotero's tree.
  */
@@ -27,6 +26,7 @@ import {
   openZoteroPdf,
 } from "./actions";
 import type UnizeroPlugin from "./main";
+import { LibraryRows } from "./libraryRows";
 
 export const LIBRARY_VIEW_TYPE = "unizero-library";
 
@@ -51,6 +51,8 @@ export class UnizeroLibraryView extends ItemView {
   /** Guards against a slow response overwriting a newer selection. */
   private generation = 0;
   private unsubscribeVaultIndex?: () => void;
+  private rows?: LibraryRows;
+  private filtered?: { items: BridgeCollectionItem[]; query: string; sort: string; result: BridgeCollectionItem[] };
 
   constructor(leaf: WorkspaceLeaf, private readonly plugin: UnizeroPlugin) {
     super(leaf);
@@ -66,7 +68,7 @@ export class UnizeroLibraryView extends ItemView {
     this.collectionKey = this.plugin.settings.lastCollectionKey || "";
     this.render();
     this.unsubscribeVaultIndex = this.plugin.vaultIndex.subscribe(() => {
-      this.renderBody();
+      this.updateCitationBadges();
     });
     await this.loadCatalogAndItems();
   }
@@ -75,6 +77,8 @@ export class UnizeroLibraryView extends ItemView {
     this.generation += 1;
     this.unsubscribeVaultIndex?.();
     this.unsubscribeVaultIndex = undefined;
+    this.rows?.dispose();
+    this.rows = undefined;
   }
 
   /** Re-fetch catalog + current scope from Zotero. */
@@ -195,6 +199,9 @@ export class UnizeroLibraryView extends ItemView {
 
   private visibleItems(): BridgeCollectionItem[] {
     const query = this.filter.trim().toLocaleLowerCase();
+    if (this.filtered?.items === this.items && this.filtered.query === query && this.filtered.sort === this.sortBy) {
+      return this.filtered.result;
+    }
     let result = this.items;
     if (query) {
       const words = query.split(/\s+/).filter(Boolean);
@@ -209,7 +216,9 @@ export class UnizeroLibraryView extends ItemView {
         return words.every((word) => haystack.includes(word));
       });
     }
-    return this.sortItems(result);
+    result = this.sortItems(result);
+    this.filtered = { items: this.items, query, sort: this.sortBy, result };
+    return result;
   }
 
   private sortItems(items: BridgeCollectionItem[]): BridgeCollectionItem[] {
@@ -296,6 +305,8 @@ export class UnizeroLibraryView extends ItemView {
   }
 
   private render(): void {
+    this.rows?.dispose();
+    this.rows = undefined;
     const container = this.contentEl;
     container.empty();
 
@@ -313,10 +324,13 @@ export class UnizeroLibraryView extends ItemView {
 
     const previousList = host.querySelector(".unizero-library__list") as HTMLElement | null;
     const scrollTop = previousList?.scrollTop ?? 0;
+    this.rows?.dispose();
+    this.rows = undefined;
 
     host.empty();
 
-    this.renderStatus(host);
+    const visible = this.visibleItems();
+    this.renderStatus(host, visible.length);
 
     if (this.busy && !this.items.length) {
       host.createDiv({
@@ -335,7 +349,6 @@ export class UnizeroLibraryView extends ItemView {
       return;
     }
 
-    const visible = this.visibleItems();
     if (!visible.length) {
       host.createDiv({
         cls: "unizero-library__empty",
@@ -347,12 +360,7 @@ export class UnizeroLibraryView extends ItemView {
     }
 
     const list = host.createDiv({ cls: "unizero-library__list" });
-    for (const item of visible) {
-      this.renderRow(list, item);
-    }
-    // Preserve position across filter / data refreshes; selection uses
-    // updateSelectionHighlight() so it never rebuilds the list.
-    list.scrollTop = scrollTop;
+    this.rows = new LibraryRows(list, visible, (parent, item) => this.renderRow(parent, item), scrollTop);
   }
 
   /** Mark the selected row without rebuilding the list (avoids scroll jump). */
@@ -491,8 +499,7 @@ export class UnizeroLibraryView extends ItemView {
     refresh.addEventListener("click", () => { void this.refresh(); });
   }
 
-  private renderStatus(container: HTMLElement): void {
-    const visible = this.visibleItems().length;
+  private renderStatus(container: HTMLElement, visible: number): void {
     const total = this.items.length;
     const name = this.scopeName || "Library";
     const text = this.busy && total
@@ -501,7 +508,7 @@ export class UnizeroLibraryView extends ItemView {
     container.createDiv({ cls: "unizero-library__status", text });
   }
 
-  private renderRow(parent: HTMLElement, item: BridgeCollectionItem): void {
+  private renderRow(parent: HTMLElement, item: BridgeCollectionItem): HTMLElement {
     // A plain div, not <button>: Obsidian's button styles force single-line
     // content and hide the multi-line title + meta layout Home uses.
     const row = parent.createDiv({ cls: "unizero-library__item" });
@@ -546,17 +553,7 @@ export class UnizeroLibraryView extends ItemView {
     if (item.hasCanvas) {
       badges.createSpan({ cls: "unizero-badge", text: "Canvas" });
     }
-    const vaultCount = this.plugin.vaultIndex.getCount(ref);
-    if (vaultCount > 0) {
-      const countBadge = badges.createSpan({
-        cls: "unizero-badge unizero-badge--count",
-        text: `${vaultCount}`,
-      });
-      countBadge.setAttr(
-        "title",
-        `Cited ${vaultCount} time${vaultCount === 1 ? "" : "s"} in this vault`,
-      );
-    }
+    this.updateCitationBadge(row, ref);
 
     enableCitationDrag(row, item);
 
@@ -572,6 +569,28 @@ export class UnizeroLibraryView extends ItemView {
       event.preventDefault();
       this.showItemMenu(event, item);
     });
+    return row;
+  }
+
+  /** Index notifications never filter, sort or replace paper rows. */
+  private updateCitationBadges(): void {
+    for (const row of Array.from(this.contentEl.querySelectorAll<HTMLElement>(".unizero-library__item"))) {
+      this.updateCitationBadge(row, { libraryID: Number(row.dataset.libraryId), itemKey: row.dataset.itemKey! });
+    }
+  }
+
+  private updateCitationBadge(row: HTMLElement, ref: PaperRef): void {
+    const count = this.plugin.vaultIndex.getCount(ref);
+    if (row.dataset.vaultCount === String(count)) { return; }
+    row.dataset.vaultCount = String(count);
+    let badge = row.querySelector<HTMLElement>(".unizero-badge--count");
+    if (!count) { badge?.remove(); return; }
+    if (!badge) {
+      badge = row.querySelector<HTMLElement>(".unizero-library__item-badges")!
+        .createSpan({ cls: "unizero-badge unizero-badge--count" });
+    }
+    badge.textContent = String(count);
+    badge.title = `Cited ${count} time${count === 1 ? "" : "s"} in this vault`;
   }
 
   private showItemMenu(event: MouseEvent, item: BridgeCollectionItem): void {

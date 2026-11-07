@@ -42,8 +42,8 @@ export class ExternalIndex {
       if (cache.schema !== CACHE_SCHEMA || !Array.isArray(cache.records)) { return; }
       for (const record of cache.records as SourceRecord[]) {
         if (record.source?.kind !== "zotero" || !Array.isArray(record.links)) { continue; }
-        this.index.records.set(sourceIdentity(record.source), { ...record, stale: true,
-          links: record.links.map((l) => ({ ...l, source: record.source, stale: true })) });
+        this.index.setRecord({ ...record, stale: true,
+          links: record.links.map((l) => ({ ...l, source: record.source, stale: true })) }, false);
       }
       this.index.coverage = { state: "offline", scope: cache.scope || "Cached Zotero sources", unavailable: cache.records.length,
         lastSuccess: cache.lastSuccess };
@@ -105,8 +105,8 @@ export class ExternalIndex {
             if (!force && previous?.fingerprint === fingerprint) {
               // A cached record of a file that has not changed is current again without a parse.
               if (previous.stale) {
-                this.index.records.set(key, { ...previous, source, stale: false, error: undefined,
-                  links: previous.links.map((link) => ({ ...link, source, stale: false })) });
+                this.index.setRecord({ ...previous, source, stale: false, error: undefined,
+                  links: previous.links.map((link) => ({ ...link, source, stale: false })) }, false);
                 mark();
               }
               continue;
@@ -133,7 +133,7 @@ export class ExternalIndex {
       }
       if (!alive()) { return; }
       for (const [key, record] of this.index.records) {
-        if (record.source.kind === "zotero" && !seen.has(key)) { this.index.records.delete(key); mark(); }
+        if (record.source.kind === "zotero" && !seen.has(key)) { this.index.remove(key, false); mark(); }
       }
       const state = unavailable ? "partial" : "complete";
       this.index.coverage = { ...this.index.coverage, state, unavailable, error: undefined, lastSuccess: Date.now() };

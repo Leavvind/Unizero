@@ -48,6 +48,12 @@ describe("durable URI boundary", () => {
 });
 
 describe("structural source parsing", () => {
+  it("keeps entity-encoded schemes and escaped punctuation through the fast exclusion", () => {
+    for (const uri of ["&#117;nizero://paper/2/ABCD1234", "unizero&colon;//paper/2/ABCD1234", "unizero\\:\\/\\/paper/2/ABCD1234"] ) {
+      expect(scanDocumentLinks(`[a](${uri})`)[0]?.target).toMatchObject(ref);
+      expect(scanDocumentLinks(`[a][ref]\n\n[ref]: ${uri}`)[0]?.target).toMatchObject(ref);
+    }
+  });
   it("retargets edited labels without losing Markdown or brackets in code", () => {
     const target: LinkTarget = { kind: "note", vaultID: "a", uid: "123" };
     expect(retargetInlineLink('[**edited** `]`](unizero://paper/2/ABCD1234)', target)).toBe('[**edited** `]`](unizero://note/a/123)');

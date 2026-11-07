@@ -12,6 +12,7 @@ import { paperRefKey, type CitationToken, type PaperRef } from "./citation";
 import { scanDocumentLinks, scanCanvasLinks, type DocumentLink } from "./documentLinks";
 import { LinkIndex, timeSlicer } from "./linkIndex";
 import type { VaultIdentity } from "./vaultIdentity";
+import { DocumentScanner } from "./documentScanner";
 
 export interface VaultCitationOccurrence {
   file: TFile;
@@ -87,10 +88,29 @@ export class VaultIndex {
   private readonly failedPaths = new Set<string>();
   /** The file state each path was last indexed at. */
   private readonly stamps = new Map<string, string>();
+  private readonly scheduled = new Map<string, ReturnType<typeof setTimeout>>();
 
   readonly links = new LinkIndex();
+  private readonly scanner = new DocumentScanner();
 
   constructor(private readonly app: App, readonly identity?: VaultIdentity) {}
+
+  /** Coalesce a burst of editor writes per path, invalidating any older read immediately. */
+  scheduleFile(file: TFile): void {
+    if (this.disposed || !isIndexedNote(file)) { return; }
+    const path = file.path;
+    this.cancelScheduled(path);
+    this.revisions.set(path, ++this.nextRevision);
+    this.scheduled.set(path, setTimeout(() => {
+      this.scheduled.delete(path);
+      if (file.path === path) { void this.indexFile(file); }
+    }, 200));
+  }
+
+  private cancelScheduled(path: string): void {
+    const timer = this.scheduled.get(path);
+    if (timer !== undefined) { clearTimeout(timer); this.scheduled.delete(path); }
+  }
 
   /** Scan the vault's Markdown and Canvas files; `changedOnly` skips what is already current. */
   async initialize(options: { changedOnly?: boolean } = {}): Promise<void> {
@@ -117,16 +137,20 @@ export class VaultIndex {
   async indexFile(file: TFile, notify = true): Promise<void> {
     if (this.disposed) { return; }
     const path = file.path;
+    this.cancelScheduled(path);
     const generation = this.generation;
     const revision = ++this.nextRevision;
     this.revisions.set(path, revision);
     try {
       const content = await this.app.vault.cachedRead(file);
-      if (generation !== this.generation || revision !== this.revisions.get(path)
-        || file.path !== path) { return; }
-      this.indexFileContent(file, content, notify);
-      this.failedPaths.delete(path);
+      const current = () => !this.disposed && generation === this.generation
+        && revision === this.revisions.get(path) && file.path === path;
+      if (!current()) { return; }
       const stamp = stampOf(file);
+      const links = await this.scanner.scan(content, file.extension as "md" | "canvas", current);
+      if (!current() || !links) { return; }
+      this.indexFileContent(file, content, notify, links);
+      this.failedPaths.delete(path);
       if (stamp) { this.stamps.set(path, stamp); }
     } catch (error) {
       if (generation === this.generation && revision === this.revisions.get(path) && !this.disposed) {
@@ -162,30 +186,33 @@ export class VaultIndex {
 
   removeFolder(path: string, notify = true): void {
     const prefix = `${path}/`;
-    for (const filePath of new Set([...this.fileOccurrences.keys(), ...this.revisions.keys()])) {
+    for (const filePath of new Set([...this.fileOccurrences.keys(), ...this.revisions.keys(),
+      ...[...this.links.records.values()].flatMap((record) => record.source.kind === "vault" ? [record.source.path] : [])])) {
       if (filePath.startsWith(prefix)) { this.removeFile(filePath, false); }
     }
-    if (notify) { this.notify(); }
+    if (notify) { this.links.notify(); this.notify(); }
   }
 
   /** Remove a deleted file from the index. */
   removeFile(path: string, notify = true): void {
+    this.cancelScheduled(path);
     this.failedPaths.delete(path);
     this.stamps.delete(path);
     this.identity?.remove(path);
-    this.links.remove(`vault:${path}`);
+    this.links.remove(`vault:${path}`, notify);
     this.revisions.delete(path);
     const changed = this.replaceFile(path, []);
     if (changed && notify) { this.notify(); }
   }
 
   /** Index parsed content for a file and optionally notify subscribers. */
-  indexFileContent(file: TFile, content: string, notify = true): void {
+  indexFileContent(file: TFile, content: string, notify = true, parsed?: DocumentLink[]): void {
     if (this.disposed || !isIndexedNote(file)) { return; }
     if (file.extension === "md") { this.identity?.update(file.path, content); }
-    const links = this.links.replace({ kind: "vault", path: file.path, title: file.basename || file.path,
+    const links = this.links.replaceParsed({ kind: "vault", path: file.path, title: file.basename || file.path,
       vaultID: this.identity?.settings().vaultID || "", uid: this.identity?.get(file.path)?.uid,
-      format: file.extension as "md" | "canvas" }, content, undefined, notify);
+      format: file.extension as "md" | "canvas" }, parsed ?? (file.extension === "canvas"
+        ? scanCanvasLinks(content) : scanDocumentLinks(content)), undefined, notify);
     const occurrences = paperOccurrences(links, { file, filePath: file.path });
     const changed = this.replaceFile(file.path, occurrences);
     if (changed && notify) { this.notify(); }
@@ -267,6 +294,7 @@ export class VaultIndex {
   }
 
   clear(): void {
+    for (const path of this.scheduled.keys()) { this.cancelScheduled(path); }
     this.generation += 1;
     this.revisions.clear();
     this.failedPaths.clear();
@@ -274,11 +302,12 @@ export class VaultIndex {
     this.fileOccurrences.clear();
     this.paperOccurrences.clear();
     this.identity?.clear();
-    for (const [key, record] of this.links.records) { if (record.source.kind === "vault") { this.links.records.delete(key); } }
+    for (const [key, record] of this.links.records) { if (record.source.kind === "vault") { this.links.remove(key, false); } }
   }
 
   dispose(): void {
     this.disposed = true;
+    this.scanner.dispose();
     this.clear();
     this.listeners.clear();
     this.links.dispose();

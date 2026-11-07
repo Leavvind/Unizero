@@ -80,8 +80,13 @@ function lineAt(starts: number[], offset: number): number {
   }
   return low;
 }
+/** CommonMark can decode character references anywhere in a destination. */
+export function mayContainDocumentLinks(text: string): boolean {
+  return text.includes("unizero") || /&(?:#[xX]?[0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]+);/.test(text);
+}
 /** Navigation may supply a forgiving parser; indexing uses the strict default. */
 export function scanDocumentLinks(text: string, parseTarget = parseLinkTarget): DocumentLink[] {
+  if (!mayContainDocumentLinks(text)) { return []; }
   const { masked } = maskObsidianSyntax(text);
   const tree = fromMarkdown(masked);
   const lineStarts = lineStartsOf(text);

@@ -29,6 +29,20 @@ const external = [
 const context = await esbuild.context({
   entryPoints: ["src/main.ts"],
   bundle: true,
+  plugins: [{
+    name: "document-link-worker",
+    setup(build) {
+      build.onResolve({ filter: /^unizero:link-worker$/ }, () => ({ path: "link-worker", namespace: "worker" }));
+      build.onLoad({ filter: /.*/, namespace: "worker" }, async () => {
+        // Neutral resolution avoids DOM-based character-entity decoding in the worker.
+        const result = await esbuild.build({ entryPoints: ["src/documentLinks.worker.ts"],
+          bundle: true, write: false, format: "iife", target: "es2018", minify: production, metafile: true,
+          platform: "neutral", mainFields: ["module", "main"] });
+        return { contents: `export default ${JSON.stringify(result.outputFiles[0].text)}`, loader: "js",
+          watchFiles: Object.keys(result.metafile.inputs) };
+      });
+    },
+  }],
   external,
   format: "cjs",
   target: "es2018",

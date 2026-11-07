@@ -594,12 +594,22 @@ a.unizero-links__name:hover {
 }
 
 .unizero-library__list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
   overflow-y: auto;
+  overflow-anchor: none;
   flex: 1;
   min-height: 0;
+}
+
+.unizero-library__rows {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.unizero-library__rows > .unizero-library__item {
+  position: absolute;
+  left: 0;
+  right: 0;
+  overflow: hidden;
 }
 
 .unizero-draggable {
@@ -667,7 +677,9 @@ a.unizero-links__name:hover {
 
 .unizero-library__item-badges {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-height: 1.5em;
+  overflow: hidden;
   gap: var(--size-2-1);
 }
 

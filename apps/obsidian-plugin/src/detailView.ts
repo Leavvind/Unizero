@@ -1,7 +1,7 @@
 /**
  * The right-sidebar Detail pane.
  *
- * The counterpart of Unizero Home's third column, reduced to what an editor needs:
+ * The counterpart of a Unizero Home paper tab, reduced to what an editor needs:
  * the paper's own metadata, the jump targets, and the cached References /
  * Citations / Relation lists.
  *

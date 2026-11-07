@@ -105,7 +105,7 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
 
     this.registerEvent(this.app.vault.on("modify", (file) => {
       if (file instanceof TFile && isIndexedNote(file)) {
-        void this.vaultIndex.indexFile(file);
+        this.vaultIndex.scheduleFile(file);
       }
     }));
     this.registerEvent(this.app.vault.on("delete", (file) => {
@@ -494,7 +494,7 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     if (!this.settings.indexZoteroSources || this.stopped) {
       this.externalIndex = undefined;
       for (const [key, record] of this.vaultIndex.links.records) {
-        if (record.source.kind === "zotero") { this.vaultIndex.links.records.delete(key); }
+        if (record.source.kind === "zotero") { this.vaultIndex.links.remove(key, false); }
       }
       this.vaultIndex.links.coverage = { ...this.vaultIndex.links.coverage, state: "partial", scope: "Zotero sources disabled" };
       this.vaultIndex.links.notify(); return;

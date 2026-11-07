@@ -35,7 +35,7 @@ export interface UnizeroSettings {
   lastLibraryID: number | null;
   /**
    * Last collection key in that library. Empty string means the whole library
-   * (all regular items), matching Unizero Home's library-level scope.
+   * (all regular items).
    */
   lastCollectionKey: string;
   /**
