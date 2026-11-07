@@ -16,7 +16,7 @@ import { StateEffect, type ChangeDesc, type Extension, type Text as DocText } fr
 import { Decoration, type DecorationSet, EditorView, type PluginValue, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { editorEventOpensLink } from "./linkClick";
 import { scanDocumentLinks, type DocumentLink } from "./documentLinks";
-import type { LinkTarget } from "./linkTarget";
+import { parseLinkTargetForNavigation, type LinkTarget } from "./linkTarget";
 
 const refreshLinkStyles = StateEffect.define<void>();
 const paperMark = Decoration.mark({ class: "unizero-paper-link" });
@@ -87,7 +87,7 @@ export function linkLivePreview(host: LinkHost): Extension {
 
       private parse(): void {
         const text = this.view.state.doc.toString();
-        this.styled = text.includes("unizero://") ? scanDocumentLinks(text) : [];
+        this.styled = text.includes("unizero://") ? scanDocumentLinks(text, parseLinkTargetForNavigation) : [];
         this.parsed = true;
       }
 

@@ -80,7 +80,8 @@ function lineAt(starts: number[], offset: number): number {
   }
   return low;
 }
-export function scanDocumentLinks(text: string): DocumentLink[] {
+/** Navigation may supply a forgiving parser; indexing uses the strict default. */
+export function scanDocumentLinks(text: string, parseTarget = parseLinkTarget): DocumentLink[] {
   const { masked } = maskObsidianSyntax(text);
   const tree = fromMarkdown(masked);
   const lineStarts = lineStartsOf(text);
@@ -103,7 +104,7 @@ export function scanDocumentLinks(text: string): DocumentLink[] {
     const from = node.position?.start.offset, to = node.position?.end.offset;
     if (from === undefined || to === undefined) { return; }
     if (node.type === "link" || node.type === "linkReference") {
-      const target = parseLinkTarget(node.type === "link" ? node.url : definitions.get(node.identifier) || "");
+      const target = parseTarget(node.type === "link" ? node.url : definitions.get(node.identifier) || "");
       if (target) { add(target, from, to, node.children[node.children.length - 1]?.position?.end.offset); }
       return;
     }

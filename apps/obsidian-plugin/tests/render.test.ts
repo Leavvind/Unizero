@@ -26,6 +26,19 @@ function createPlugin(host: Parameters<typeof linkLivePreview>[0], view: ReturnT
 }
 
 describe("UniZero link label styling", () => {
+  it("intercepts unfinished block links in the editor as whole-file targets", () => {
+    vi.useFakeTimers();
+    const text = "\n[北岛 & 林道群, 2022](unizero://paper/1/E23A232D.md^)";
+    const view = mockView(text);
+    const plugin = createPlugin({ openLink: vi.fn(), linkMenu: vi.fn() }, view);
+    try {
+      expect(plugin.linkAt(text.indexOf("北岛"))).toMatchObject({
+        target: { kind: "paper", libraryID: 1, itemKey: "E23A232D", action: "markdown" },
+      });
+      expect(plugin.decorations.size).toBe(1);
+    } finally { plugin.destroy(); vi.useRealTimers(); }
+  });
+
   it("marks only labels, preserving formatting, destinations and reference links", () => {
     const text = `See [**Author** & Robinson, 2019](${uri}.md#Methods) and [Other][paper].\n\n[paper]: ${uri}`;
     const ranges = linkLabelRanges(scanDocumentLinks(text), []);

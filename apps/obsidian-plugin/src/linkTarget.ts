@@ -59,6 +59,23 @@ export function parseLinkTarget(uri: string): LinkTarget | undefined {
   } catch { return; }
 }
 
+/**
+ * Clicks also accept unfinished location completion. Recover only the location:
+ * the file identity and explicit attachment must still pass the strict grammar.
+ * Stored links and indexes continue to use parseLinkTarget.
+ */
+export function parseLinkTargetForNavigation(uri: string): LinkTarget | undefined {
+  const exact = parseLinkTarget(uri);
+  if (exact) { return exact; }
+  const match = /^(unizero:\/\/paper\/[1-9]\d*\/[A-Za-z0-9]+\.md(?:\?attachment=[A-Za-z0-9]+)?|unizero:\/\/note\/[^/?#]+\/[^/?#^＃＾…]+)([#^＃＾…].*)$/s.exec(uri);
+  if (!match) { return; }
+  const base = parseLinkTarget(match[1]);
+  if (!base) { return; }
+  // Normalize the same shorthand/IME punctuation as the location suggester.
+  const fragment = match[2].replace(/^[#＃]/, "").replace(/^(?:…+|＾)/, "^");
+  return parseLinkTarget(`${match[1]}#${fragment}`) ?? base;
+}
+
 const encode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 export function encodeLocation(location: TextLocation): string {
   return `#${encode(`${location.kind === "block" ? "^" : ""}${location.value}`)}`;

@@ -35,7 +35,7 @@ import { randomUUID } from "crypto";
 import { uniqueTimestampUID, VaultIdentity } from "./vaultIdentity";
 import { ExternalIndex, localFileIO } from "./externalIndex";
 import type { SourceDocument } from "./linkIndex";
-import { parseLinkTarget, serializeLinkTarget, markdownLink, type LinkTarget, validIdentity } from "./linkTarget";
+import { parseLinkTargetForNavigation, serializeLinkTarget, markdownLink, type LinkTarget, validIdentity } from "./linkTarget";
 import { openLinkTarget } from "./linkOpening";
 import { BACKLINKS_VIEW_TYPE, BacklinksView } from "./backlinksView";
 import { chooseLinkLocation } from "./linkPicker";
@@ -192,7 +192,7 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
       if (link) { menu.addItem((item) => item.setTitle("UniZero: choose link location…").onClick(() => { void this.relocateEditorLink(editor, link.from, link.to, link.raw, link.target); })); }
     }));
     this.registerObsidianProtocolHandler("unizero", (params) => {
-      const target = parseLinkTarget(params.target || "");
+      const target = parseLinkTargetForNavigation(params.target || "");
       if (target) { this.openLink(target); } else { new Notice("UniZero: invalid transport target."); }
     });
     this.addCommand({ id: "open-backlinks", name: "Open UniZero Backlinks", callback: () => { void this.revealBacklinks(); } });
@@ -448,7 +448,7 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
   private linkAtCursor(editor: Editor): DocumentLink | undefined {
     const text = editor.getValue();
     if (!text.includes("unizero://")) { return undefined; }
-    if (this.cursorParse?.text !== text) { this.cursorParse = { text, links: scanDocumentLinks(text) }; }
+    if (this.cursorParse?.text !== text) { this.cursorParse = { text, links: scanDocumentLinks(text, parseLinkTargetForNavigation) }; }
     const offset = editor.posToOffset(editor.getCursor());
     return this.cursorParse.links.find((l) => offset >= l.from && offset <= l.to);
   }
@@ -473,7 +473,7 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     const handler = (event: MouseEvent) => {
       if (event.type === "auxclick" && event.button !== 1) { return; }
       const anchor = (event.target as Element)?.closest?.("a[href]");
-      const target = parseLinkTarget(anchor?.getAttribute("href") || "");
+      const target = parseLinkTargetForNavigation(anchor?.getAttribute("href") || "");
       if (!target) { return; }
       event.preventDefault(); event.stopImmediatePropagation();
       if (event.type === "contextmenu") { this.linkMenu(event, target); } else { this.openLink(target); }
