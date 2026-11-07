@@ -62,10 +62,6 @@ const CONVERSION_CHECKBOXES: Array<[string, "mdSnapshot"]> = [
   ["conversion-md-snapshot", "mdSnapshot"],
 ];
 
-const CONVERSION_TEXT_FIELDS: Array<[string, "obsidianVault"]> = [
-  ["conversion-obsidian-vault", "obsidianVault"],
-];
-
 /**
  * Push a changed port to the running runtime.
  *
@@ -134,15 +130,6 @@ async function bindRuntimeSettings(doc: Document): Promise<void> {
     box.checked = !!getConversionPref(name);
     box.addEventListener("command", () => {
       setConversionPref(name, !!box.checked);
-    });
-  }
-
-  for (const [id, name] of CONVERSION_TEXT_FIELDS) {
-    const input = element(doc, id);
-    if (!input) { continue; }
-    input.value = getConversionPref(name) || "";
-    input.addEventListener("change", () => {
-      setConversionPref(name, String(input.value).trim());
     });
   }
 

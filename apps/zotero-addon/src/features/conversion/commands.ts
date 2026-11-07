@@ -68,8 +68,8 @@ function targetTitle(target: {
  *
  * Processed one at a time rather than concurrently: the runtime is a single
  * worker anyway, so concurrent submissions only queue up. One failure does not stop
- * the batch. Taking explicit items lets adapters such as Unizero Home reuse
- * the command without changing Zotero's current selection as an implementation
+ * the batch. Taking explicit items lets adapters such as the bridge reuse the
+ * command without changing Zotero's current selection as an implementation
  * detail.
  */
 export async function convertItems(
@@ -108,10 +108,7 @@ export async function convertItems(
       const warnings = await markConverted(target, final.result || {}, {
         mdSnapshot: getConversionPref("mdSnapshot"),
         markdownUrl: target.parent
-          ? defaultMarkdownUrl(
-            target.parent,
-            getConversionPref("obsidianVault"),
-          )
+          ? defaultMarkdownUrl(target.parent)
           : "",
       });
       for (const warning of warnings) { noteConversionFailure(warning, title); }

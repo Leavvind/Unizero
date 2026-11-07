@@ -40,9 +40,5 @@ conversion-mdSnapshot =
   .label = Store a Markdown copy on the item after conversion
 conversion-note = The copy syncs with Zotero and is readable on other machines, at the cost of being overwritten on every re-conversion.
 
-conversion-obsidianVault = Obsidian vault
-conversion-obsidianVault-input =
-  .placeholder = Vault name
-conversion-obsidianVault-note = Open in Obsidian then jumps by the note's uid, which survives renaming or moving it inside the vault. Requires the Advanced URI plugin. Left empty, notes open by file path instead.
 conversion-defaultTemplate = Default template
 conversion-defaultTemplate-note = Used when a conversion names no template: Obsidian set to Zotero's default, the MCP server, and the item menu while the paper runtime is stopped. The list shows the running runtime's templates.

@@ -36,10 +36,8 @@ function item(libraryID: number, key: string): Zotero.Item {
 }
 
 describe("Markdown link registry", () => {
-  it("generates an Advanced URI without using an absolute path", () => {
-    expect(defaultMarkdownUrl(item(1, "ABCD2345"), "Academic"))
-      .toBe("obsidian://adv-uri?vault=Academic&uid=ABCD2345");
-    expect(defaultMarkdownUrl(item(1, "ABCD2345"), ""))
+  it("generates an Advanced URI by uid alone, without a vault or a path", () => {
+    expect(defaultMarkdownUrl(item(1, "ABCD2345")))
       .toBe("obsidian://adv-uri?uid=ABCD2345");
   });
 
@@ -52,7 +50,7 @@ describe("Markdown link registry", () => {
 
   it("creates a generated URL once and preserves a later manual edit", async () => {
     const paper = item(101, "PAPER1");
-    const generated = defaultMarkdownUrl(paper, "Academic");
+    const generated = defaultMarkdownUrl(paper);
     expect(await ensureMarkdownLink(paper, generated)).toMatchObject({
       libraryID: 101,
       itemKey: "PAPER1",
@@ -63,7 +61,7 @@ describe("Markdown link registry", () => {
     await recordMarkdownLink(paper, edited);
     expect(await ensureMarkdownLink(
       paper,
-      defaultMarkdownUrl(paper, "ChangedSetting"),
+      defaultMarkdownUrl(paper),
     )).toMatchObject({ url: edited });
 
     const document = JSON.parse(
@@ -82,14 +80,14 @@ describe("Markdown link registry", () => {
 
     expect(await ensureMarkdownLink(
       paper,
-      defaultMarkdownUrl(paper, "Academic"),
+      defaultMarkdownUrl(paper),
     )).toMatchObject({
       url: "obsidian://adv-uri?vault=Academic&uid=unizero-202-PAPER2",
     });
 
     expect(await ensureMarkdownLink(
       paper,
-      defaultMarkdownUrl(paper, "Academic"),
+      defaultMarkdownUrl(paper),
       { upgradeLegacyUid: true },
     )).toMatchObject({
       url: "obsidian://adv-uri?vault=Academic&uid=PAPER2",

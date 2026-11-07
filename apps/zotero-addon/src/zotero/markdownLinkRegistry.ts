@@ -119,14 +119,15 @@ async function persistDocument(document: RegistryDocument): Promise<void> {
   });
 }
 
-/** Default URL generated for a conversion. No absolute path participates. */
-export function defaultMarkdownUrl(item: Zotero.Item, vault: string): string {
+/**
+ * Default URL generated for a conversion. No absolute path participates, and no
+ * vault is named: Advanced URI resolves the uid in the vault that is open. A URL
+ * the user edited to name a vault is kept as it is.
+ */
+export function defaultMarkdownUrl(item: Zotero.Item): string {
   const key = String(item.key || "").trim();
   if (!key) { return ""; }
-  const encodedVault = String(vault || "").trim();
-  return "obsidian://adv-uri?" +
-    (encodedVault ? `vault=${encodeURIComponent(encodedVault)}&` : "") +
-    `uid=${encodeURIComponent(key)}`;
+  return `obsidian://adv-uri?uid=${encodeURIComponent(key)}`;
 }
 
 export function validateMarkdownUrl(value: string): string {

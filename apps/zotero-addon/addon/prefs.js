@@ -41,11 +41,6 @@ pref("extensions.zotero.__addonRef__.runtime.autoStopOnQuit", true);
 // travels with Zotero sync.
 pref("extensions.zotero.__addonRef__.conversion.mdSnapshot", true);
 
-// Obsidian vault holding the converted Markdown. Set it to open a note by the
-// stable `uid` in its frontmatter, which survives a rename inside the vault;
-// left empty, notes open by absolute path, which does not.
-pref("extensions.zotero.__addonRef__.conversion.obsidianVault", "");
-
 // Template used when a conversion names none (Obsidian, the MCP server, the item
 // menu while the runtime is stopped). Journal Papers publishes Raw under the item.
 pref("extensions.zotero.__addonRef__.conversion.defaultTemplate", "paper-to-markdown");

@@ -16,12 +16,6 @@ export interface ConversionSettings {
    */
   mdSnapshot: boolean;
   /**
-   * Obsidian vault holding the converted Markdown, used to open a note by its
-   * frontmatter `uid` through the Advanced URI plugin. Empty falls back to
-   * opening by absolute path, which does not survive a rename inside the vault.
-   */
-  obsidianVault: string;
-  /**
    * Template a conversion uses when none is named: the bridge's `POST /convert`
    * (Obsidian's "Zotero default", the MCP server's `convert_paper`) and the item
    * menu's offline entry. Shipped as Journal Papers, which publishes Raw.
@@ -31,7 +25,6 @@ export interface ConversionSettings {
 
 export const CONVERSION_PREF_DEFAULTS: ConversionSettings = {
   mdSnapshot: true,
-  obsidianVault: "",
   defaultTemplate: "paper-to-markdown",
 };
 
