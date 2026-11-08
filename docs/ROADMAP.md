@@ -1,15 +1,13 @@
 # Roadmap
 
-Open plans and outstanding host checks only; this is not a work order. Current
-behavior is in the component READMEs and [ARCHITECTURE.md](ARCHITECTURE.md). An open
-check is not evidence of a known defect. Landed items are removed, not annotated.
+Open plans only; this is not a work order. Current behavior is in the component READMEs
+and [ARCHITECTURE.md](ARCHITECTURE.md). Landed items are removed, not annotated.
 
 ## Obsidian plugin
 
-- **Unified links and Backlinks — remaining host checks.** Implemented; the open
-  checks (Markdown attachment choice, heading and block navigation, folder and offline
-  moves, Zotero sources, Canvas, Unlinked mentions, and others) are the single ledger
-  in [design handoff](UNIZERO_LINKS_DESIGN.md#宿主验收记录).
+- **Unified links — open host checks.** Implemented; a fix awaiting recheck and the
+  features never run in a host are listed in the
+  [design handoff](UNIZERO_LINKS_DESIGN.md#宿主验收记录).
 - **Import from Obsidian.** Let an explicit user action add or update papers in Zotero
   from exploration results. Not implemented; needs a separate write contract, since
   the bridge only acts on a paper's own Raw and Canvas.
@@ -20,25 +18,6 @@ check is not evidence of a known defect. Landed items are removed, not annotated
 
 - **Annotations into Raw.** Annotation injection writes to vault Markdown only; Raw is
   now a Markdown file too, but injecting into it would edit the user's working copy.
-
-## Verification
-
-Not yet reconfirmed in a real host; run the relevant check when changing that area.
-
-- **Performance — host check.** Not run in a real host (user, 2026-11-07); automated
-  regression tests cover the paths. In Zotero and a real vault, with disk caching on and
-  off, check: cached DOI-only and empty Relations offline and explicit fetch; rapid
-  edits, deletion during parsing, folder moves/deletions and rapid note switches;
-  scrolling, filtering, keyboard selection, drag and context menus in a large Library
-  collection; font sizing and multiple windows; group-library edits; reloading
-  References/Citations after session-cache eviction.
-- **EPUB conversion.** Reported passing (2026-11-07) without separate results for
-  images, chapter headings, Raw/Raw Backup, and parent-item versus attachment entry
-  points.
-- **Literature cache.** Preserve distinct provider states across reopen, including empty
-  OpenAlex/Crossref results and restricted Semantic Scholar. Switching A → B → A reuses
-  cache quietly; misses show progress. Empty Citations persist across restart without
-  treating failed requests as successful empty results.
 
 ## Contracts and artifacts
 

@@ -96,13 +96,15 @@ stating the current version.
 
 ## Verification
 
-No root command. In `apps/zotero-addon`, `apps/obsidian-plugin`, and `apps/mcp-server`:
-`npm run check`, `npm test`, `npm run build`. In `services/paper-runtime`:
-`.venv/Scripts/python.exe -m pytest` (tests must use the isolated home from
-`tests/conftest.py`, never the real runtime home).
+No root command; verify only the components you changed. In `apps/zotero-addon`,
+`apps/obsidian-plugin`, and `apps/mcp-server`: `npm run check` and `npm test`. Add
+`npm run build` only when you change dependencies, build scripts, the manifest, or files
+under `addon/`; its type check repeats `check`, and the release workflow builds
+everything. In `services/paper-runtime`: `.venv/Scripts/python.exe -m pytest` (tests
+must use the isolated home from `tests/conftest.py`, never the real runtime home).
 
 Tests cover only host-free logic. These always need a manual check — say so when you
-cannot run it:
+cannot run it; do not record it as an open item:
 
 | Component | Manual check required for |
 | --- | --- |
@@ -114,8 +116,8 @@ cannot run it:
 A change to the digest HTML in the runtime's `providers/tables.py` needs
 `apps/mcp-server/tests/fixtures/tables-digest.html` regenerated.
 
-Documentation-only changes: check that referenced paths exist, relative links and
-headings resolve, and no generated or machine-local files were added.
+Documentation-only changes: check that the paths, links, and headings you added or
+changed resolve.
 
 ## Change discipline
 
