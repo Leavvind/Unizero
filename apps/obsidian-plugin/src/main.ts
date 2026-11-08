@@ -142,11 +142,10 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
         this.followDocument(leaf.view.file);
       }
     }));
-    const currentMd = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (currentMd) {
-      this.lastMarkdownLeaf = currentMd.leaf;
-      this.followDocument(currentMd.file);
-    }
+    // Plugins load before the workspace is restored, so the open note is not known yet;
+    // without this the panes wait for the next note switch.
+    this.syncActiveDocument();
+    this.app.workspace.onLayoutReady(() => { if (!this.stopped) { this.syncActiveDocument(); } });
 
     this.addRibbonIcon("graduation-cap", "UniZero Item pane", () => {
       void this.revealDetailView();
@@ -481,6 +480,13 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     const events = ["click", "auxclick", "contextmenu"] as const;
     for (const type of events) { doc.addEventListener(type, handler, true); }
     this.documents.set(doc, () => { for (const type of events) { doc.removeEventListener(type, handler, true); } });
+  }
+  /** Follows the note that is open now, if no document is being followed yet. */
+  syncActiveDocument(): void {
+    if (this.currentDocument || this.currentExternal || this.externalDocumentPath) { return; }
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (view) { this.lastMarkdownLeaf = view.leaf; }
+    this.followDocument(view?.file ?? this.app.workspace.getActiveFile());
   }
   private followDocument(file: TFile | null): void {
     if (!file || !["md", "canvas"].includes(file.extension)) { return; }
