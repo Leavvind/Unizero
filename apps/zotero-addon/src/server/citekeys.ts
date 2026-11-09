@@ -162,6 +162,9 @@ interface IndexedItem extends CitekeyLocation {
   title: string;
   authors: string[];
   year?: string;
+  /** Lower-cased once at build time; ranking reads these on every keystroke. */
+  titleLower: string;
+  authorsLower: string[];
 }
 
 type LibraryIndex = Map<string, IndexedItem[]>;
@@ -183,14 +186,18 @@ async function buildLibraryIndex(libraryID: number): Promise<LibraryIndex> {
   for (const item of items) {
     if (!item.isRegularItem()) { continue; }
     const citekey = citekeyForItem(item);
+    const title = String(item.getField("title") || "");
+    const authors = item.getCreators()
+      .map((creator) => String(creator.lastName || creator.firstName || "").trim())
+      .filter(Boolean);
     const entry: IndexedItem = {
       libraryID,
       itemKey: String(item.key),
-      title: String(item.getField("title") || ""),
-      authors: item.getCreators()
-        .map((creator) => String(creator.lastName || creator.firstName || "").trim())
-        .filter(Boolean),
+      title,
+      authors,
       year: yearSegment(item) || undefined,
+      titleLower: title.toLowerCase(),
+      authorsLower: authors.map((author) => author.toLowerCase()),
     };
     const entries = index.get(citekey);
     if (entries) {
@@ -289,14 +296,15 @@ export async function suggestCitekeys(
   limit: number,
   preferredLibraryID?: number,
 ): Promise<CitekeySuggestion[]> {
-  const needle = String(query || "").trim().toLowerCase();
+  const tokens = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
   const scored: { rank: number; suggestion: CitekeySuggestion }[] = [];
 
   for (const libraryID of searchedLibraries(preferredLibraryID)) {
     const index = await libraryIndex(libraryID);
     for (const [citekey, entries] of index) {
-      for (const { libraryID: id, itemKey, title, authors, year } of entries) {
-        const rank = rankSuggestion(needle, citekey, title, authors, year);
+      const key = citekey.toLowerCase();
+      for (const { libraryID: id, itemKey, title, authors, year, titleLower, authorsLower } of entries) {
+        const rank = rankSuggestion(tokens, key, titleLower, authorsLower, year);
         if (rank < 0) { continue; }
         scored.push({
           rank,
@@ -312,20 +320,17 @@ export async function suggestCitekeys(
     .map((entry) => entry.suggestion);
 }
 
+/** Every argument but `year` is already lower-cased. */
 function rankSuggestion(
-  needle: string,
-  citekey: string,
-  title: string,
-  authors: string[],
+  tokens: string[],
+  key: string,
+  titleL: string,
+  authorNames: string[],
   year?: string,
 ): number {
-  const tokens = needle.split(/\s+/).filter(Boolean);
   if (!tokens.length) { return 4; }
 
-  const key = citekey.toLowerCase();
-  const titleL = title.toLowerCase();
-  const authorNames = authors.map((author) => author.toLowerCase());
-  const yearL = (year || "").toLowerCase();
+  const yearL = year || "";
 
   // Every token must match at least one field; the best (lowest) single-token
   // rank is what we sort by, so a citekey-prefix hit still floats to the top

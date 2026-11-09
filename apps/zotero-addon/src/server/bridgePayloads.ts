@@ -15,6 +15,7 @@ import {
 } from "../modules/itemIdentifiers";
 import type { LiteratureCandidate, LiteratureSnapshot } from "../modules/literatureRelations";
 import {
+  attachmentSummary,
   literatureItemsInScope,
   literaturePaperMetadata,
   markdownAttachment,
@@ -555,7 +556,8 @@ export async function bridgeCollectionItems(
       name,
     },
     items: items.map((item) => {
-      const meta = literaturePaperMetadata(item);
+      const files = attachmentSummary(item);
+      const meta = literaturePaperMetadata(item, files);
       return {
         libraryID: meta.libraryID,
         itemKey: meta.itemKey,
@@ -565,9 +567,9 @@ export async function bridgeCollectionItems(
         venue: meta.publicationTitle,
         hasPDF: meta.hasPDF,
         hasMarkdown: meta.hasMarkdown,
-        hasRaw: Boolean(rawAttachment(item)),
-        hasRawBackup: Boolean(rawBackupAttachment(item)),
-        hasCanvas: Boolean(canvasAttachment(item)),
+        hasRaw: files.hasRaw,
+        hasRawBackup: files.hasRawBackup,
+        hasCanvas: files.hasCanvas,
         dateAdded: meta.dateAdded,
       };
     }),

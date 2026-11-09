@@ -74,6 +74,7 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
   externalDocumentPath?: string;
   private stopped = false;
   private externalTimer?: number;
+  private externalSkipped = false;
   private documents = new Map<Document, () => void>();
   private cursorParse?: { text: string; links: DocumentLink[] };
   /**
@@ -181,6 +182,7 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
       },
     });
 
+    this.registerDomEvent(window, "focus", () => this.catchUpExternalIndex());
     this.installLinkHandlers(document);
     this.app.workspace.iterateAllLeaves((leaf) => this.installLinkHandlers(leaf.view.containerEl.ownerDocument));
     this.registerEvent(this.app.workspace.on("window-open", (_win, window) => this.installLinkHandlers(window.document)));
@@ -281,10 +283,13 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
 
   /** Re-read a paper whose Raw or Canvas changed, everywhere it is shown. */
   paperChanged(ref: PaperRef): void {
-    void this.store.reload(ref);
-    for (const leaf of this.app.workspace.getLeavesOfType(LIBRARY_VIEW_TYPE)) {
-      if (leaf.view instanceof UnizeroLibraryView) { void leaf.view.reloadItems(); }
-    }
+    void this.store.reload(ref).then((state) => {
+      for (const leaf of this.app.workspace.getLeavesOfType(LIBRARY_VIEW_TYPE)) {
+        if (!(leaf.view instanceof UnizeroLibraryView)) { continue; }
+        // The fresh paper carries the row's badges; without it the list is read again.
+        if (state.status === "ready") { leaf.view.applyPaper(state.paper); } else { void leaf.view.reloadItems(); }
+      }
+    });
   }
 
   /** Every action that applies to a paper, for link and library menus. */
@@ -510,11 +515,21 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
       ...localFileIO,
       loadCache: async () => await this.app.vault.adapter.exists(path) ? this.app.vault.adapter.read(path) : null,
       saveCache: (text) => this.app.vault.adapter.write(path, text),
-    }, () => this.settings.sourceLibraryIDs);
+    }, () => this.settings.sourceLibraryIDs, (text, format, current) => this.vaultIndex.scan(text, format, current));
     await service.load();
     if (this.stopped || service !== this.externalIndex) { return; }
     void service.refresh();
-    this.externalTimer = window.setInterval(() => { void service.refresh(); }, 60000);
+    this.externalSkipped = false;
+    // Each pass asks Zotero for its documents and checks every file; nobody reads the result while Obsidian is in the background.
+    this.externalTimer = window.setInterval(() => {
+      if (activeDocument.hasFocus()) { void service.refresh(); } else { this.externalSkipped = true; }
+    }, 60000);
+  }
+  /** Runs the pass a background Obsidian skipped, once it is in front again. */
+  private catchUpExternalIndex(): void {
+    if (!this.externalSkipped) { return; }
+    this.externalSkipped = false;
+    void this.externalIndex?.refresh();
   }
   /** Reads what changed; `rebuild` parses every document again. */
   async refreshLinks(rebuild = false): Promise<void> {

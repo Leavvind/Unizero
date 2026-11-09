@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { attachmentLinkSource, listLinkSources, linkSourceLibraries, paperDocument } from "../src/zotero/linkSources";
+import { attachmentLinkSource, listLinkSources, linkSourceLibraries, paperDocument,
+  registerLinkSourceInvalidation, unregisterLinkSourceInvalidation } from "../src/zotero/linkSources";
 
 const parent = { id: 1, libraryID: 2, key: "PAPER001", deleted: false, isRegularItem: () => true, getField: () => "Paper", getAttachments: () => [10, 11, 12] };
 const attachment = (id: number, kind?: string, path: string | false = `C:/storage/${id}.md`) => ({ id, libraryID: 2, parentID: 1, key: `ATTACH${id}`,
@@ -36,6 +37,27 @@ describe("read-only attachment directory", () => {
     const sources = await listLinkSources([2]);
     expect(sources.map((s) => s.attachmentKey)).toEqual(["ATTACH10", "ATTACH12"]);
     expect(sources[1]).toMatchObject({ available: false, path: undefined, format: "md" });
+  });
+  it("walks a library once until one of its items changes, checking files every scan", async () => {
+    let notify!: (event: string, type: string, ids: number[], extra: unknown) => void;
+    (globalThis as any).Zotero.Notifier = { registerObserver: (observer: { notify: typeof notify }) => { notify = observer.notify; return "id"; }, unregisterObserver: vi.fn() };
+    const getAll = (globalThis as any).Zotero.Items.getAll, exists = (globalThis as any).IOUtils.exists;
+    registerLinkSourceInvalidation();
+    try {
+      await listLinkSources([2]);
+      exists.mockResolvedValue(false);
+      expect((await listLinkSources([2])).map((s) => s.available)).toEqual([false, false]);
+      expect(getAll).toHaveBeenCalledTimes(1);
+      notify("modify", "item", [10], {});
+      await listLinkSources([2]);
+      expect(getAll).toHaveBeenCalledTimes(2);
+      // A deleted item names no library, so every library is walked again.
+      notify("delete", "item", [99], {});
+      await listLinkSources([2]);
+      expect(getAll).toHaveBeenCalledTimes(3);
+    } finally { unregisterLinkSourceInvalidation(); }
+    await listLinkSources([2]); await listLinkSources([2]);
+    expect(getAll).toHaveBeenCalledTimes(5);
   });
   it("does not resolve an explicit missing attachment to a default", async () => {
     expect(await paperDocument(parent as any, "MISSING")).toBeUndefined();

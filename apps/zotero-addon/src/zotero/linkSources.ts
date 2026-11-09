@@ -54,30 +54,102 @@ export function linkSourceLibraries(requested?: number[]): number[] {
   if (requested?.some((id) => !libraries.includes(id))) { throw new Error("Unknown library in source scope"); }
   return requested?.length ? [...new Set(requested)].sort((a, b) => a - b) : libraries.sort((a, b) => a - b);
 }
+interface DocumentAttachment { parent: Zotero.Item; attachment: Zotero.Item }
+
+/**
+ * Per library, the attachments that were documents when the library was last walked.
+ * The plugin asks for a fresh scan every minute, and walking every item and tag of a
+ * library that often is the expensive part. Kept only while the observer below is
+ * registered, which drops a library whenever one of its items changes. Files are
+ * still checked on every scan: a file can appear or vanish without a Zotero event.
+ */
+const documentAttachments = new Map<number, DocumentAttachment[]>();
+const libraryGenerations = new Map<number, number>();
+let generation = 0;
+let observerID: string | undefined;
+
+async function libraryDocuments(libraryID: number): Promise<DocumentAttachment[]> {
+  const cached = documentAttachments.get(libraryID);
+  if (cached) { return cached; }
+  const started = generation, libraryStarted = libraryGenerations.get(libraryID);
+  const items = await Zotero.Items.getAll(libraryID, true, false);
+  const pairs: { parent: Zotero.Item; id: number }[] = [];
+  for (const parent of items) {
+    if (!parent.isRegularItem() || parent.deleted) { continue; }
+    for (const id of parent.getAttachments()) { pairs.push({ parent, id }); }
+  }
+  // One batched load per library instead of one await per attachment.
+  const attachments = pairs.length ? await Zotero.Items.getAsync(pairs.map((pair) => pair.id)) : [];
+  // An unreadable record still fails the scan: a snapshot without it would
+  // prune that source's links from the plugin's index.
+  const missing = pairs.findIndex((_pair, index) => !attachments[index]);
+  if (missing >= 0) { throw new Error(`Unreadable attachment ${pairs[missing].id}`); }
+  const documents = pairs.map((pair, index) => ({ parent: pair.parent, attachment: attachments[index] }))
+    .filter((pair) => attachmentDocumentType(pair.parent, pair.attachment));
+  // A walk that an item change overtook is still this scan's answer, but not the next one's.
+  if (observerID && started === generation && libraryStarted === libraryGenerations.get(libraryID)) {
+    documentAttachments.set(libraryID, documents);
+  }
+  return documents;
+}
+
 export async function listLinkSources(libraryIDs: number[]): Promise<LinkSource[]> {
   const sources: LinkSource[] = [];
   for (const libraryID of libraryIDs) {
-    const items = await Zotero.Items.getAll(libraryID, true, false);
-    const pairs: { parent: Zotero.Item; id: number }[] = [];
-    for (const parent of items) {
-      if (!parent.isRegularItem() || parent.deleted) { continue; }
-      for (const id of parent.getAttachments()) { pairs.push({ parent, id }); }
-    }
-    if (!pairs.length) { continue; }
-    // One batched load per library instead of one await per attachment.
-    const attachments = await Zotero.Items.getAsync(pairs.map((pair) => pair.id));
-    // An unreadable record still fails the scan: a snapshot without it would
-    // prune that source's links from the plugin's index.
-    const missing = pairs.findIndex((_pair, index) => !attachments[index]);
-    if (missing >= 0) { throw new Error(`Unreadable attachment ${pairs[missing].id}`); }
+    const documents = await libraryDocuments(libraryID);
     // File checks run a bounded batch at a time rather than strictly in sequence.
-    for (let start = 0; start < pairs.length; start += FILE_CHECK_BATCH) {
-      const found = await Promise.all(pairs.slice(start, start + FILE_CHECK_BATCH)
-        .map((pair, offset) => attachmentLinkSource(pair.parent, attachments[start + offset])));
+    for (let start = 0; start < documents.length; start += FILE_CHECK_BATCH) {
+      const found = await Promise.all(documents.slice(start, start + FILE_CHECK_BATCH)
+        .map((pair) => attachmentLinkSource(pair.parent, pair.attachment)));
       for (const source of found) { if (source) { sources.push(source); } }
     }
   }
   return sources.sort((a, b) => a.libraryID - b.libraryID || a.attachmentKey.localeCompare(b.attachmentKey));
+}
+
+export function invalidateLinkSources(libraryID?: number): void {
+  if (libraryID === undefined) {
+    generation += 1;
+    libraryGenerations.clear();
+    documentAttachments.clear();
+    return;
+  }
+  libraryGenerations.set(libraryID, (libraryGenerations.get(libraryID) || 0) + 1);
+  documentAttachments.delete(libraryID);
+}
+
+/**
+ * Any item event may add, remove, retag, trash or reparent a document attachment, so
+ * it drops its library. An event that names no library (a tag event, or a deleted
+ * item without one in `extraData`) drops them all.
+ */
+export function registerLinkSourceInvalidation(): void {
+  if (observerID) { return; }
+  observerID = Zotero.Notifier.registerObserver(
+    {
+      notify(_event: string, type: string, ids: (number | string)[], extraData: unknown) {
+        if (type !== "item") { invalidateLinkSources(); return; }
+        const libraries = new Set<number>();
+        for (const id of ids) {
+          const item = Zotero.Items.get(Number(id)) as Zotero.Item | false;
+          const extra = (extraData as Record<string, { libraryID?: number }> | undefined)?.[String(id)];
+          const libraryID = Number(item ? item.libraryID : extra?.libraryID);
+          if (!Number.isInteger(libraryID) || libraryID <= 0) { invalidateLinkSources(); return; }
+          libraries.add(libraryID);
+        }
+        for (const libraryID of libraries) { invalidateLinkSources(libraryID); }
+      },
+    },
+    ["item", "item-tag"],
+    "unizero-link-sources",
+  );
+}
+
+export function unregisterLinkSourceInvalidation(): void {
+  if (!observerID) { return; }
+  Zotero.Notifier.unregisterObserver(observerID);
+  observerID = undefined;
+  invalidateLinkSources();
 }
 
 /** Explicit attachments are constrained to their parent. Default Raw selection stays centralized. */

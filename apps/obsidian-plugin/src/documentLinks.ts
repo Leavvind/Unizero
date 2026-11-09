@@ -36,7 +36,7 @@ function maskObsidianSyntax(text: string): { masked: string; comments: Span[] } 
     if ("children" in node) { node.children.forEach(collect); }
   };
   collect(fromMarkdown(base));
-  const isInert = (offset: number) => inert.some(([from, to]) => offset >= from && offset < to);
+  const isInert = (offset: number) => inSpans(inert, offset);
   const comments: Span[] = [];
   let cursor = 0;
   while (true) {
@@ -53,7 +53,7 @@ function maskObsidianSyntax(text: string): { masked: string; comments: Span[] } 
   for (const [from, to] of comments) { fill(from, to, " "); }
   for (const match of base.matchAll(/!?\[\[[^\n]*?\]\]/g)) {
     const from = match.index!;
-    if (!isInert(from) && !comments.some(([start, end]) => from >= start && from < end)) { fill(from, from + match[0].length, OPAQUE); }
+    if (!isInert(from) && !inSpans(comments, from)) { fill(from, from + match[0].length, OPAQUE); }
   }
   for (const [from, to] of comments) {
     let start = from;
@@ -66,6 +66,17 @@ function maskObsidianSyntax(text: string): { masked: string; comments: Span[] } 
     }
   }
   return { masked: chars.join(""), comments };
+}
+/** Whether `offset` lies in one of `spans`, which are in document order and do not overlap. */
+function inSpans(spans: Span[], offset: number): boolean {
+  let low = 0, high = spans.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (offset < spans[middle][0]) { high = middle - 1; }
+    else if (offset >= spans[middle][1]) { low = middle + 1; }
+    else { return true; }
+  }
+  return false;
 }
 function lineStartsOf(text: string): number[] {
   const starts = [0];
@@ -148,6 +159,7 @@ export function scanCanvasLinks(json: string): DocumentLink[] {
 export interface TextAnchor { location: TextLocation; line: number; offset: number; /** Heading depth, 1 to 6. */ level?: number }
 export function textAnchors(text: string): TextAnchor[] {
   const anchors: TextAnchor[] = [];
+  let lineStarts: number[] | undefined;
   const { masked, comments } = maskObsidianSyntax(text);
   const plain = (node: Ast): string => "value" in node ? String(node.value) : "children" in node ? node.children.map(plain).join("") : "";
   /** A heading's text keeps its wikilinks and drops its comments. */
@@ -178,7 +190,7 @@ export function textAnchors(text: string): TextAnchor[] {
         let end = offset + m[0].length;
         while (masked[end] === " " || masked[end] === "\t") { end += 1; }
         if (end < masked.length && masked[end] !== "\n" && !(masked[end] === "\r" && masked[end + 1] === "\n")) { continue; }
-        anchors.push({ location: { kind: "block", value: m[1] }, line: text.slice(0, offset).split("\n").length - 1, offset });
+        anchors.push({ location: { kind: "block", value: m[1] }, line: lineAt(lineStarts ??= lineStartsOf(text), offset), offset });
       }
     }
     if ("children" in node) { node.children.forEach(visit); }

@@ -57,6 +57,7 @@ describe("bridge cache projection", () => {
     const views = new Views();
     (Zotero as any)[config.addonInstance] = { views };
     (Zotero as any).Server = { Endpoints: {} };
+    (Zotero as any).Notifier = { registerObserver: () => "observer", unregisterObserver: vi.fn() };
     registerBridgeEndpoints();
     const endpoint = new (Zotero as any).Server.Endpoints["/unizero/v1/relations"]();
     const cached = vi.spyOn(views, "getCachedLiteratureSnapshot");

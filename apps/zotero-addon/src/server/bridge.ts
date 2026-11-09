@@ -50,7 +50,14 @@ import { ensureCanvasAttachment } from "../zotero/canvasAdapter";
 import { libraryAcceptsFiles, libraryEditable, libraryScope } from "../zotero/libraryScope";
 import { rawBackupAttachment } from "../zotero/literatureCollectionAdapter";
 import { pdfAttachment } from "../zotero/literatureCollectionAdapter";
-import { listLinkSources, linkSourceLibraries, paperDocument, pdfDocumentURL } from "../zotero/linkSources";
+import {
+  listLinkSources,
+  linkSourceLibraries,
+  paperDocument,
+  pdfDocumentURL,
+  registerLinkSourceInvalidation,
+  unregisterLinkSourceInvalidation,
+} from "../zotero/linkSources";
 import { LinkSourceDirectory, SourceDirectoryError } from "./linkSourceDirectory";
 import { runtimeClient } from "../runtime-client/client";
 import { health } from "../runtime-client/process";
@@ -651,6 +658,7 @@ export function registerBridgeEndpoints(): void {
     table[path] = endpoint;
   }
   registerCitekeyInvalidation();
+  registerLinkSourceInvalidation();
   registered = true;
 }
 
@@ -664,5 +672,6 @@ export function unregisterBridgeEndpoints(): void {
     }
   }
   unregisterCitekeyInvalidation();
+  unregisterLinkSourceInvalidation();
   registered = false;
 }

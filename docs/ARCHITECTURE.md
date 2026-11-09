@@ -128,7 +128,8 @@ Load-bearing properties:
   `apps/zotero-addon/src/server/bridgePayloads.ts` and `linkSourceDirectory.ts`.
 - **Document sources are paged snapshots.** `GET /link-sources` pages an expiring scan
   (`scan`, `offset`, `limit`); an incomplete scan never authorizes pruning, and an
-  expired continuation returns 409 and needs a new scan.
+  expired continuation returns 409 and needs a new scan. A new scan reuses the last
+  walk of a library until one of its items changes, and checks every file again.
 - **Document targets are parent-scoped.** `GET /link-target` resolves a file inside one
   paper; an explicit `attachment` that is missing returns 404 and never falls back to
   another file.

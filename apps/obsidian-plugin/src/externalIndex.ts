@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import type { BridgeLinkSource, UnizeroBridge } from "./bridge";
 import { BRIDGE_API } from "./bridge";
 import { LinkIndex, sourceIdentity, timeSlicer, type SourceDocument, type SourceRecord } from "./linkIndex";
+import { scanCanvasLinks, scanDocumentLinks, type DocumentLink } from "./documentLinks";
 
 /** Bump when a parser change makes cached link records wrong. */
 const CACHE_SCHEMA = 2;
@@ -22,6 +23,10 @@ export const localFileIO = {
   state: async (path: string) => { const s = await stat(path); return `${s.size}:${s.mtimeMs}:${s.ctimeMs}`; },
 };
 
+/** Parses one document; `undefined` means the request went stale and nothing was parsed. */
+export type SourceParser = (text: string, format: "md" | "canvas", current: () => boolean) => Promise<DocumentLink[] | undefined>;
+const parseInline: SourceParser = async (text, format) => format === "canvas" ? scanCanvasLinks(text) : scanDocumentLinks(text);
+
 /** Single-flight, cancelable directory refresh; interrupted scans never prune sources. */
 export class ExternalIndex {
   private generation = 0;
@@ -29,8 +34,10 @@ export class ExternalIndex {
   private runningForced = false;
   private queuedRebuild?: Promise<void>;
   private stopped = false;
+  /** `parse` lets the host move long documents, which Raw usually is, off the window's thread. */
   constructor(private readonly index: LinkIndex, private readonly bridge: UnizeroBridge,
-    private readonly io: SourceIO, private readonly libraries: () => number[]) {}
+    private readonly io: SourceIO, private readonly libraries: () => number[],
+    private readonly parse: SourceParser = parseInline) {}
 
   async load(): Promise<void> {
     const generation = this.generation;
@@ -114,7 +121,9 @@ export class ExternalIndex {
             const text = await this.io.read(entry.path);
             if (!alive()) { return; }
             // Always parse a successful empty read, never substitute empty for errors.
-            this.index.replace(source, text, fingerprint, false);
+            const links = await this.parse(text, source.format, alive);
+            if (!alive() || !links) { return; }
+            this.index.replaceParsed(source, links, fingerprint, false);
             mark();
             await slice();
             if (!alive()) { return; }

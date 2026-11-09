@@ -13,6 +13,7 @@ import type {
   BridgeCollectionItem,
   BridgeCollections,
   BridgeLibrary,
+  BridgePaper,
 } from "./bridge";
 import { enableCitationDrag, type PaperRef } from "./citation";
 import {
@@ -70,7 +71,7 @@ export class UnizeroLibraryView extends ItemView {
     this.unsubscribeVaultIndex = this.plugin.vaultIndex.subscribe(() => {
       this.updateCitationBadges();
     });
-    await this.loadCatalogAndItems();
+    await this.loadScope(true);
   }
 
   async onClose(): Promise<void> {
@@ -83,20 +84,24 @@ export class UnizeroLibraryView extends ItemView {
 
   /** Re-fetch catalog + current scope from Zotero. */
   async refresh(): Promise<void> {
-    await this.loadCatalogAndItems();
+    await this.loadScope(true);
   }
 
-  private async loadCatalogAndItems(): Promise<void> {
+  /** Read the current scope's rows, after the libraries and collections when `withCatalog`. */
+  private async loadScope(withCatalog: boolean): Promise<void> {
+    if (!withCatalog && this.libraryID === null) { return; }
     const generation = ++this.generation;
     this.busy = true;
     this.error = undefined;
     this.render();
 
     try {
-      const catalog = await this.plugin.bridge.collections();
-      if (generation !== this.generation) { return; }
-      this.catalog = catalog;
-      this.ensureValidScope(catalog);
+      if (withCatalog) {
+        const catalog = await this.plugin.bridge.collections();
+        if (generation !== this.generation) { return; }
+        this.catalog = catalog;
+        this.ensureValidScope(catalog);
+      }
 
       const libraryID = this.libraryID;
       if (libraryID === null) {
@@ -128,35 +133,27 @@ export class UnizeroLibraryView extends ItemView {
 
   /** Re-read the current scope's rows, after a paper's Raw or Canvas changed. */
   reloadItems(): Promise<void> {
-    return this.loadItemsOnly();
+    return this.loadScope(false);
   }
 
-  private async loadItemsOnly(): Promise<void> {
-    if (this.libraryID === null) { return; }
-    const generation = ++this.generation;
-    this.busy = true;
-    this.error = undefined;
-    this.render();
-
-    try {
-      const payload = await this.plugin.bridge.collectionItems(
-        this.libraryID,
-        this.collectionKey || undefined,
-        this.plugin.settings.showSubcollectionItems,
-      );
-      if (generation !== this.generation) { return; }
-      this.items = payload.items || [];
-      this.scopeName = payload.scope.name;
-    } catch (error) {
-      if (generation !== this.generation) { return; }
-      this.items = [];
-      this.error = (error as Error).message;
-    } finally {
-      if (generation === this.generation) {
-        this.busy = false;
-        this.render();
-      }
-    }
+  /**
+   * Update one listed paper's attachment badges from a paper just re-read, instead of
+   * asking Zotero for the whole collection again. A paper that is not listed changes nothing.
+   */
+  applyPaper(paper: BridgePaper): void {
+    const index = this.items.findIndex((item) => item.libraryID === paper.libraryID && item.itemKey === paper.itemKey);
+    if (index < 0) { return; }
+    const links = paper.links;
+    // A new array, so the filtered and sorted list is derived again.
+    this.items = this.items.map((item, at) => at !== index ? item : {
+      ...item,
+      hasPDF: Boolean(links.zoteroPdf),
+      hasMarkdown: links.hasMarkdownAttachment,
+      hasRaw: Boolean(links.raw),
+      hasRawBackup: Boolean(links.rawBackup),
+      hasCanvas: Boolean(links.canvas),
+    });
+    this.renderBody();
   }
 
   private ensureValidScope(catalog: BridgeCollections): void {
@@ -411,7 +408,7 @@ export class UnizeroLibraryView extends ItemView {
         this.collectionKey = "";
         this.selectedKey = undefined;
         void this.persistScope();
-        void this.loadItemsOnly();
+        void this.loadScope(false);
       });
     }
 
@@ -438,7 +435,7 @@ export class UnizeroLibraryView extends ItemView {
       this.collectionKey = collectionSelect.value;
       this.selectedKey = undefined;
       void this.persistScope();
-      void this.loadItemsOnly();
+      void this.loadScope(false);
     });
 
     const searchRow = toolbar.createDiv({ cls: "unizero-library__search-row" });
@@ -487,7 +484,7 @@ export class UnizeroLibraryView extends ItemView {
     subcollections.addEventListener("click", () => {
       this.plugin.settings.showSubcollectionItems = !this.plugin.settings.showSubcollectionItems;
       void this.plugin.saveSettings("none");
-      void this.loadItemsOnly();
+      void this.loadScope(false);
     });
 
     const refresh = searchRow.createEl("button", {
@@ -599,6 +596,15 @@ export class UnizeroLibraryView extends ItemView {
       itemKey: item.itemKey,
     };
     const menu = new Menu();
+    // Read from Zotero on each use, not from the paper store: a conversion that
+    // finished since the store's copy was read has changed the paper's files.
+    const withPaper = async (action: (paper: BridgePaper) => unknown): Promise<void> => {
+      try {
+        await action(await this.plugin.bridge.paper(ref));
+      } catch (error) {
+        new Notice(`UniZero: ${(error as Error).message}`);
+      }
+    };
 
     menu.addItem((entry) => entry
       .setTitle("Open paper pane")
@@ -615,41 +621,20 @@ export class UnizeroLibraryView extends ItemView {
     menu.addItem((entry) => entry
       .setTitle("Open PDF in Zotero")
       .setIcon("file-text")
-      .onClick(async () => {
-        try {
-          const paper = await this.plugin.bridge.paper(ref);
-          await openZoteroPdf(paper);
-        } catch (error) {
-          new Notice(`UniZero: ${(error as Error).message}`);
-        }
-      }));
+      .onClick(() => withPaper((paper) => openZoteroPdf(paper))));
 
     if (hasRaw(item)) {
       menu.addItem((entry) => entry
         .setTitle("Open Raw")
         .setIcon("file-symlink")
-        .onClick(async () => {
-          try {
-            const paper = await this.plugin.bridge.paper(ref);
-            await openRaw(paper, this.plugin.actionContext());
-          } catch (error) {
-            new Notice(`UniZero: ${(error as Error).message}`);
-          }
-        }));
+        .onClick(() => withPaper((paper) => openRaw(paper, this.plugin.actionContext()))));
     } else {
       menu.addItem((entry) => entry
         .setTitle("Convert to Markdown")
         .setIcon("file-down")
-        .onClick(async () => {
-          try {
-            const paper = await this.plugin.bridge.paper(ref);
-            await convertToMarkdown(
-              this.plugin.bridge, ref, paper, this.plugin.settings.defaultTemplate,
-            );
-          } catch (error) {
-            new Notice(`UniZero: ${(error as Error).message}`);
-          }
-        }));
+        .onClick(() => withPaper((paper) => convertToMarkdown(
+          this.plugin.bridge, ref, paper, this.plugin.settings.defaultTemplate,
+        ))));
       menu.addItem((entry) => entry
         .setTitle("Convert with template…")
         .setIcon("list")

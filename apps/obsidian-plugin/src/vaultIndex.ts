@@ -95,6 +95,11 @@ export class VaultIndex {
 
   constructor(private readonly app: App, readonly identity?: VaultIdentity) {}
 
+  /** The index's parser, a worker for long documents, for sources read outside the Vault. */
+  scan(text: string, format: "md" | "canvas", current: () => boolean): Promise<DocumentLink[] | undefined> {
+    return this.scanner.scan(text, format, current);
+  }
+
   /** Coalesce a burst of editor writes per path, invalidating any older read immediately. */
   scheduleFile(file: TFile): void {
     if (this.disposed || !isIndexedNote(file)) { return; }
@@ -118,10 +123,10 @@ export class VaultIndex {
     this.generation += 1;
     this.links.vaultState = "updating";
     this.links.notify();
-    const known = new Set(this.app.vault.getFiles().filter(isIndexedNote).map((f) => f.path));
+    const files = this.app.vault.getFiles().filter(isIndexedNote);
+    const known = new Set(files.map((f) => f.path));
     for (const path of this.revisions.keys()) { if (!known.has(path)) { this.removeFile(path, false); } }
     const generation = this.generation;
-    const files = this.app.vault.getFiles().filter(isIndexedNote);
     const slice = timeSlicer();
     for (const file of files) {
       const stamp = stampOf(file);

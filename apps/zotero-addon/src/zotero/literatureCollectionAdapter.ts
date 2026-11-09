@@ -11,7 +11,7 @@ import type {
   LiteratureCollectionScope,
 } from "../modules/literatureRelations";
 import { readItemPaperIdentifiers } from "../modules/itemIdentifiers";
-import { artifactSource, hasKind } from "./artifactIdentity";
+import { artifactSource, hasKind, kindTag } from "./artifactIdentity";
 
 const MARKDOWN_TAGS = new Set(["unizero:markdown", "unizero:markdown-copy"]);
 
@@ -117,8 +117,49 @@ function mainArtifact(item: Zotero.Item, kind: "raw" | "raw-backup"): Zotero.Ite
     ?? owned[0];
 }
 
+export interface AttachmentSummary {
+  hasPDF: boolean;
+  hasMarkdown: boolean;
+  hasRaw: boolean;
+  hasRawBackup: boolean;
+  hasCanvas: boolean;
+}
+
+const RAW_TAG = kindTag("raw");
+const RAW_BACKUP_TAG = kindTag("raw-backup");
+const CANVAS_TAG = kindTag("canvas");
+
+/**
+ * What a listing row shows about a paper's attachments, read in one pass. Each flag
+ * answers the same question as `pdfAttachment`, `markdownAttachment`,
+ * `rawAttachment`, `rawBackupAttachment` and `canvasAttachment` finding one; a
+ * library-wide listing would otherwise walk every paper's attachments once per flag.
+ */
+export function attachmentSummary(item: Zotero.Item): AttachmentSummary {
+  const summary: AttachmentSummary = {
+    hasPDF: false, hasMarkdown: false, hasRaw: false, hasRawBackup: false, hasCanvas: false,
+  };
+  for (const attachment of attachments(item)) {
+    const contentType = attachment.attachmentContentType;
+    if (contentType === "application/pdf") { summary.hasPDF = true; }
+    let markdown = contentType === "text/markdown";
+    for (const { tag } of attachment.getTags()) {
+      if (tag === RAW_TAG) { summary.hasRaw = true; }
+      else if (tag === RAW_BACKUP_TAG) { summary.hasRawBackup = true; }
+      else if (tag === CANVAS_TAG) { summary.hasCanvas = true; }
+      if (MARKDOWN_TAGS.has(tag)) { markdown = true; }
+    }
+    if (!summary.hasMarkdown) {
+      summary.hasMarkdown = markdown
+        || /\.md(?:\s|$)/i.test(String(attachment.getField("title") || ""));
+    }
+  }
+  return summary;
+}
+
 export function literaturePaperMetadata(
   item: Zotero.Item,
+  files: Pick<AttachmentSummary, "hasPDF" | "hasMarkdown"> = attachmentSummary(item),
 ): Omit<LiteratureCollectionPaper, "references" | "citations"> {
   const date = String(item.getField("date") || "");
   const year = date.match(/\b(?:1[5-9]|20|21)\d{2}\b/)?.[0];
@@ -139,8 +180,8 @@ export function literaturePaperMetadata(
     year,
     dateAdded: String(item.dateAdded || ""),
     publicationTitle: String(item.getField("publicationTitle") || "") || undefined,
-    hasPDF: hasPdfAttachment(item),
-    hasMarkdown: hasMarkdownAttachment(item),
+    hasPDF: files.hasPDF,
+    hasMarkdown: files.hasMarkdown,
   };
 }
 
