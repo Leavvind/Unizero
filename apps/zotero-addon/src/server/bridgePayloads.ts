@@ -25,7 +25,7 @@ import {
 import { artifactKind, artifactSource, type ArtifactKind } from "../zotero/artifactIdentity";
 import { canvasAttachment } from "../zotero/canvasAdapter";
 import { libraryScope } from "../zotero/libraryScope";
-import { attachmentDocumentType } from "../zotero/linkSources";
+import { attachmentDocumentType, safeAttachmentFilename } from "../zotero/linkSources";
 import { readMarkdownLink } from "../zotero/markdownLinkRegistry";
 
 /**
@@ -287,7 +287,7 @@ export async function bridgeArtifacts(item: Zotero.Item): Promise<BridgeArtifact
     const path = document?.format === "md" || kind ? await attachmentFilePath(attachment) : undefined;
     if (document?.format === "md") {
       const available = path && await IOUtils.exists(path).catch(() => false);
-      markdowns.push({ key: String(attachment.key), title: title || String(attachment.attachmentFilename || ""),
+      markdowns.push({ key: String(attachment.key), title: title || safeAttachmentFilename(attachment),
         purpose: document.purpose === "raw" ? "raw" : "user",
         main: attachment.key === mainRaw?.key, path: available ? path : undefined });
     }

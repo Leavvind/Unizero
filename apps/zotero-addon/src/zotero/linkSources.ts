@@ -8,6 +8,14 @@ export interface LinkSource {
   title: string; itemTitle: string; format: "md" | "canvas";
   purpose: "raw" | "canvas" | "user"; path?: string; available: boolean; version: string;
 }
+/**
+ * `attachmentFilename` throws for a linked file whose stored path this OS cannot parse,
+ * such as a Windows `D:\code\…` path in a library synced to a Mac. One such attachment must
+ * not fail the whole library scan, so it reads as having no filename.
+ */
+export function safeAttachmentFilename(attachment: Zotero.Item): string {
+  try { return String(attachment.attachmentFilename || ""); } catch { return ""; }
+}
 /** Shared eligibility for discovery, explicit resolution and attachment pickers. */
 export function attachmentDocumentType(parent: Zotero.Item, attachment: Zotero.Item): Pick<LinkSource, "format" | "purpose"> | undefined {
   if (attachment.deleted || attachment.libraryID !== parent.libraryID || attachment.parentID !== parent.id) { return; }
@@ -18,7 +26,7 @@ export function attachmentDocumentType(parent: Zotero.Item, attachment: Zotero.I
   const tags = attachment.getTags().map((tag) => tag.tag);
   if (!kind && tags.some((tag) => /^(?:unizero|zominer):/.test(tag))) { return; }
   const contentType = attachment.attachmentContentType;
-  const filename = String(attachment.attachmentFilename || "");
+  const filename = safeAttachmentFilename(attachment);
   const format = kind === "canvas" || /\.canvas$/i.test(filename) ? "canvas"
     : kind === "raw" || contentType === "text/markdown" || /\.md$/i.test(filename) ? "md" : undefined;
   if (!format) { return; }
@@ -28,9 +36,10 @@ export function attachmentDocumentType(parent: Zotero.Item, attachment: Zotero.I
 export async function attachmentLinkSource(parent: Zotero.Item, attachment: Zotero.Item): Promise<LinkSource | undefined> {
   const document = attachmentDocumentType(parent, attachment);
   if (!document) { return; }
-  const filename = String(attachment.attachmentFilename || "");
-  const candidate = await attachment.getFilePathAsync();
-  const available = !!candidate && await IOUtils.exists(candidate);
+  const filename = safeAttachmentFilename(attachment);
+  // An unparseable path is an unavailable file on this machine, not a failed scan.
+  const candidate = await attachment.getFilePathAsync().catch(() => undefined);
+  const available = !!candidate && await IOUtils.exists(candidate).catch(() => false);
   return { libraryID: parent.libraryID, itemKey: String(parent.key), attachmentKey: String(attachment.key),
     title: String(attachment.getField("title") || filename), itemTitle: String(parent.getField("title") || parent.key),
     ...document, path: available ? candidate! : undefined,

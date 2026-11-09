@@ -27,6 +27,16 @@ describe("read-only attachment directory", () => {
     (globalThis as any).IOUtils.exists.mockResolvedValue(false);
     expect(await attachmentLinkSource(parent as any, attachment(10, "raw") as any)).toMatchObject({ available: false, path: undefined });
   });
+  it("keeps scanning when one attachment path cannot be parsed on this OS", async () => {
+    // A Windows linked file in a library synced to a Mac: Zotero throws on the filename and path.
+    const broken = attachment(12);
+    Object.defineProperty(broken, "attachmentFilename", { get() { throw new Error("NS_ERROR_FILE_UNRECOGNIZED_PATH"); } });
+    broken.getFilePathAsync.mockRejectedValue(new Error("NS_ERROR_FILE_UNRECOGNIZED_PATH"));
+    (globalThis as any).Zotero.Items.getAsync = async (ids: number[]) => ids.map((id) => id === 12 ? broken : attachment(id, id === 10 ? "raw" : "raw-backup"));
+    const sources = await listLinkSources([2]);
+    expect(sources.map((s) => s.attachmentKey)).toEqual(["ATTACH10", "ATTACH12"]);
+    expect(sources[1]).toMatchObject({ available: false, path: undefined, format: "md" });
+  });
   it("does not resolve an explicit missing attachment to a default", async () => {
     expect(await paperDocument(parent as any, "MISSING")).toBeUndefined();
     expect(await paperDocument(parent as any, "ATTACH10")).toMatchObject({ attachmentKey: "ATTACH10" });

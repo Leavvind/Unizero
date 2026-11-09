@@ -89,11 +89,12 @@ export function renderOccurrences(container: HTMLElement, plugin: UnizeroPlugin,
 export class BacklinksView extends ItemView {
   private unsubscribe?: () => void;
   private generation = 0;
-  /** Unlinked mentions are read from every Vault note, so only while the section is open. */
+  /** Unlinked mentions are read from every Vault note, so only while the user has the section open. */
   private mentionsOpen = false;
   private readonly mentionScanner = new MentionScanner();
   /** Mention sources the user expanded, for the note in `mentionTarget`. */
   private readonly expandedMentions = new Set<string>();
+  /** The note the mentions section and its expanded sources belong to; changing it collapses both. */
   private mentionTarget?: string;
   /**
    * Native links into the shown note, kept until a change that can alter them, so
@@ -180,8 +181,6 @@ export class BacklinksView extends ItemView {
     this.scheduleRender();
   }
   private renderMentions(body: HTMLElement, file: TFile, found: Array<{ path: string; mentions: Mention[] }> | undefined): void {
-    // Expanded sources belong to one target note; another note starts all collapsed.
-    if (this.mentionTarget !== file.path) { this.mentionTarget = file.path; this.expandedMentions.clear(); }
     const total = found?.reduce((sum, entry) => sum + entry.mentions.length, 0);
     const header = body.createDiv({ cls: "unizero-links__section unizero-links__toggle", attr: { role: "button", tabindex: "0" } });
     setIcon(header.createSpan({ cls: "unizero-links__chevron" }), this.mentionsOpen ? "chevron-down" : "chevron-right");
@@ -245,8 +244,11 @@ export class BacklinksView extends ItemView {
   }
   private async render(): Promise<void> {
     const generation = ++this.generation;
+    this.plugin.syncActiveDocument();
     const external = this.plugin.currentExternal || (this.plugin.externalDocumentPath ? this.plugin.externalIndex?.findPath(this.plugin.externalDocumentPath) : undefined);
     const file = this.plugin.currentDocument;
+    // Unlinked mentions scan the whole Vault, so they stay opt-in per note: another note starts collapsed.
+    if (this.mentionTarget !== file?.path) { this.mentionTarget = file?.path; this.expandedMentions.clear(); this.mentionsOpen = false; }
     const native = !external && !this.plugin.externalDocumentPath && file ? await this.nativeLinks(file).catch((error) => {
       console.error("UniZero native backlinks", error); return undefined;
     }) : undefined;
