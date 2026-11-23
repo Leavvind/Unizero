@@ -28,6 +28,7 @@ import { serviceURL } from "./settings";
  *  bookkeeping, so none should take anywhere near this long. */
 const REQUEST_TIMEOUT_MS = 15000;
 const LIBRARY_SCOPE_CAPABILITY = "library-scope";
+const JOB_CANCEL_CAPABILITY = "job-cancel";
 let runtimeCapabilities = new Set<string>();
 
 /**
@@ -152,6 +153,21 @@ export const runtimeClient = {
       `/jobs/${encodeURIComponent(jobId)}?log_tail=${logTail}`,
     ),
   jobs: () => request<unknown>("GET", "/jobs"),
+  /**
+   * Stop a queued or running job. Resolves with the status the job ended with: a job
+   * that finished just before the request landed comes back `done`, not `cancelled`.
+   *
+   * Not part of the required handshake — an older runtime still converts — so the
+   * capability is checked here, where the user actually asks for it.
+   */
+  cancelJob: async (jobId: string) => {
+    if (!runtimeCapabilities.has(JOB_CANCEL_CAPABILITY)) {
+      throw new RuntimeIncompatibleError(
+        "This local service cannot cancel jobs; restart Zotero to start the updated UniZero runtime",
+      );
+    }
+    return request<JobState>("POST", `/jobs/${encodeURIComponent(jobId)}/cancel`);
+  },
 
   annotate: (payload: AnnotateRequest) => {
     const compatible = withoutUnsupportedLibraryScope(payload);

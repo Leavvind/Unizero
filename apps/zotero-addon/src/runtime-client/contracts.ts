@@ -142,7 +142,7 @@ export interface ConvertAccepted {
   status: JobStatus;
 }
 
-export type JobStatus = "queued" | "running" | "done" | "failed";
+export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
 /** Pure PDF extraction output; provider enrichment happens in the add-on. */
 export interface ExtractedReference {
@@ -177,6 +177,8 @@ export interface JobState {
   log_tail?: string[];
   result?: JobResult;
   error?: string;
+  /** A stop was asked for while it ran; it may still end `done` once Publish has started. */
+  cancel_requested?: boolean;
 }
 
 export interface AnnotationPayloadItem {

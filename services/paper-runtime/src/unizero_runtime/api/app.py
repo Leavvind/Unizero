@@ -38,7 +38,7 @@ from ..pipeline.templates import TemplateStore
 API_PREFIX = f"/api/v{API_VERSION}"
 CAPABILITIES = [
     "convert", "annotate", "jobs", "config", "workflows",
-    "templates", "modules", "library-scope",
+    "templates", "modules", "library-scope", "job-cancel",
 ]
 
 
@@ -95,6 +95,7 @@ def _job_status(job: Job, log_tail: int) -> dict:
         "log_tail": job.log[-tail_size:] if tail_size else [],
         "result": job.result,
         "error": job.error,
+        "cancel_requested": job.cancel_requested,
     }
 
 
@@ -110,6 +111,7 @@ def _job_list_item(job: Job) -> dict:
         "template": request.template_id,
         "created": job.created,
         "error": job.error,
+        "cancel_requested": job.cancel_requested,
         "md_path": (job.result or {}).get("md_path"),
         "last_log": job.log[-1] if job.log else "",
     }
@@ -240,6 +242,19 @@ def create_app(
         if job is None:
             raise ServiceError("job_not_found", "job not found", status_code=404)
         return _job_status(job, log_tail)
+
+    @app.post(
+        f"{API_PREFIX}/jobs/{{job_id}}/cancel",
+        response_model=JobStatusResponse,
+        responses={404: {"model": ErrorResponse}},
+    )
+    def job_cancel(job_id: str):
+        # Returns the status the job ended with, not an acknowledgement: a job that
+        # finished before the request landed is reported as done, not cancelled.
+        job = jobs.cancel(job_id)
+        if job is None:
+            raise ServiceError("job_not_found", "job not found", status_code=404)
+        return _job_status(job, 0)
 
     @app.get(f"{API_PREFIX}/jobs", response_model=list[JobListItem])
     @app.get("/jobs", include_in_schema=False)

@@ -15,10 +15,10 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import sys
 from pathlib import Path
 from typing import Callable, Optional
 
+from ..cancellation import tracked_process
 from .mineru import command as mineru_command
 
 LogFn = Callable[[str], None]
@@ -73,17 +73,19 @@ def refine_tables(
     # ---- run advanced tier once ----
     vlm_out = work_dir / "vlm_out"
     cmd = mineru_command(mini, vlm_out, backend="advanced")
-    creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    proc = subprocess.Popen(
+    # A cancelled job raises out of this block instead of falling through to the
+    # "advanced tier failed" path below, which would carry on with the conversion.
+    with tracked_process(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, encoding="utf-8", errors="replace", creationflags=creationflags,
-    )
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        s = line.strip()
-        if s and not s.startswith(("Layout", "Predict", "Extract", "Post", "Processing")):
-            log("[vlm] " + s[-160:])
-    if proc.wait() != 0:
+        text=True, encoding="utf-8", errors="replace",
+    ) as proc:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            s = line.strip()
+            if s and not s.startswith(("Layout", "Predict", "Extract", "Post", "Processing")):
+                log("[vlm] " + s[-160:])
+        returncode = proc.wait()
+    if returncode != 0:
         log("[vlm] advanced tier failed — tables left as-is")
         return md_text, content_list, 0
 

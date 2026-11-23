@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .postprocess import PostCtx, read_pdf_toc, run_passes
+from ..cancellation import tracked_process
 from ..providers.references import extract_references
 from ..providers.mineru import command as mineru_command
 from ..providers.table_vlm import refine_tables
@@ -608,20 +609,19 @@ def _mineru_cmd(src: Path, out_dir: Path, opts: ConvertOptions) -> list[str]:
 
 def _run(cmd: list[str], log: LogFn) -> int:
     log("$ " + " ".join(cmd))
-    creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    proc = subprocess.Popen(
+    # Raises JobCancelled, not a bad exit code, when the job is stopped meanwhile.
+    with tracked_process(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding="utf-8", errors="replace",
-        creationflags=creationflags,
-    )
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        s = line.rstrip()
-        # skip tqdm progress-bar spam (floods the job log ring buffer)
-        if "%|" in s or not s.strip():
-            continue
-        log(s)
-    return proc.wait()
+    ) as proc:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            s = line.rstrip()
+            # skip tqdm progress-bar spam (floods the job log ring buffer)
+            if "%|" in s or not s.strip():
+                continue
+            log(s)
+        return proc.wait()
 
 
 @dataclass

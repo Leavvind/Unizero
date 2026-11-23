@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from .. import paths
+from ..cancellation import JobCancelled
 from ..contracts import AnnotateRequest
 from ..pipeline.steps import (
     ConvertOptions,
@@ -257,20 +258,26 @@ class ZoMinerApplication:
         work_dir = Path(cfg["work_dir"]) / f"{safe_key}_{job.id[:8]}"
 
         job.append(f"[job] {pdf.name} ({safe_key})")
-        result = convert_pdf(
-            pdf_path=pdf,
-            work_dir=work_dir,
-            papers_dir=papers_dir,
-            citekey=safe_key,
-            artifact_key=artifact_key,
-            meta=meta,
-            opts=options,
-            log=job.append,
-            mineru_version=self.mineru_version,
-            store_dir=self.store_dir,
-            template=template,
-            output_root=output_root,
-        )
+        try:
+            result = convert_pdf(
+                pdf_path=pdf,
+                work_dir=work_dir,
+                papers_dir=papers_dir,
+                citekey=safe_key,
+                artifact_key=artifact_key,
+                meta=meta,
+                opts=options,
+                log=job.append,
+                mineru_version=self.mineru_version,
+                store_dir=self.store_dir,
+                template=template,
+                output_root=output_root,
+            )
+        except JobCancelled:
+            # Unlike a failure, a cancelled run has nothing worth inspecting: the
+            # half-converted chunks would only sit in the work directory.
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise
         for warning in result.warnings:
             job.append(f"[warn] {warning}")
         job.result = {

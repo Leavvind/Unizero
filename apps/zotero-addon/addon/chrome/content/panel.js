@@ -23,6 +23,7 @@ var Panel = {
   currentDocument: null,
   selectedStep: -1,
   removedSettings: {},
+  cancelling: new Set(),
 
   init() {
     document.getElementById("btn-settings").addEventListener("click", () => this.openSettings());
@@ -134,7 +135,9 @@ var Panel = {
     empty.style.display = "none";
     table.style.display = "table";
     body.textContent = "";
-    const labels = { queued: "Queued", running: "Converting", done: "Done", failed: "Failed" };
+    const labels = {
+      queued: "Queued", running: "Converting", done: "Done", failed: "Failed", cancelled: "Cancelled",
+    };
     for (let entry of rows) {
       let row = document.createElement("tr");
       let time = document.createElement("td");
@@ -160,8 +163,51 @@ var Panel = {
         retry.addEventListener("click", () => this.retryService(entry.id));
         info.appendChild(retry);
       }
+      if (entry.job_id && (entry.status === "queued" || entry.status === "running")) {
+        let stop = document.createElement("button");
+        stop.className = "row-action";
+        // `cancel_requested` comes from the runtime and outlasts the request: a stop
+        // can take longer than the request waits (Publish is never interrupted), and
+        // the button must not offer "Cancel" again for a job already being stopped.
+        let stopping = this.cancelling.has(entry.job_id) || !!entry.cancel_requested;
+        stop.textContent = stopping ? "Cancelling…" : "Cancel";
+        stop.disabled = stopping;
+        stop.addEventListener("click", () => this.cancelJob(entry));
+        info.appendChild(stop);
+      }
       row.appendChild(info);
       body.appendChild(row);
+    }
+  },
+
+  /**
+   * Stop a queued or running conversion.
+   *
+   * A running job is confirmed first: stopping it throws away minutes of work, and the
+   * button sits right next to rows the user is also reading. A queued one has done
+   * nothing yet, so it goes without asking.
+   *
+   * The id is held in `cancelling` until the runtime answers, because the table is
+   * rebuilt every two seconds and a plain `disabled` would not survive the rebuild.
+   * After that the job's own `cancel_requested` keeps the row at "Cancelling…" for as
+   * long as the job takes to wind down.
+   */
+  async cancelJob(entry) {
+    let id = entry.job_id;
+    if (this.cancelling.has(id) || entry.cancel_requested) return;
+    if (entry.status === "running"
+      && !window.confirm("Stop converting “" + (entry.title || "(untitled)") + "”? Its progress is discarded.")) {
+      return;
+    }
+    this.cancelling.add(id);
+    this.refresh();
+    try {
+      await api.client.cancelJob(id);
+    } catch (error) {
+      window.alert("Could not cancel the job: " + error);
+    } finally {
+      this.cancelling.delete(id);
+      this.refresh();
     }
   },
 

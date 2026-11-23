@@ -121,6 +121,7 @@ class JobStatusResponse(BaseModel):
     log_tail: list[str] = Field(default_factory=list)
     result: Optional[dict[str, Any]] = None
     error: Optional[str] = None
+    cancel_requested: bool = False
 
 
 class TemplateSummary(BaseModel):
@@ -177,6 +178,7 @@ class JobListItem(BaseModel):
     template: str
     created: float
     error: Optional[str] = None
+    cancel_requested: bool = False
     md_path: Optional[str] = None
     last_log: str = ""
 

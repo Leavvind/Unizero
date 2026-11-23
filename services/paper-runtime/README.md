@@ -26,6 +26,15 @@ job result as `zotero_md_path` and, when there are images, `zotero_md_images_dir
 built-in template uses it. A stored template that still names
 the removed `publish.zotero-note` is migrated to `publish.zotero-markdown` on load.
 
+A queued or running job can be stopped with `POST /api/v1/jobs/{job_id}/cancel` (capability
+`job-cancel`). A queued job is dropped; for a running one the MinerU process tree is killed,
+its work directory is removed, and the job ends as `cancelled` rather than `failed`. The
+response carries the status the job actually ended with, so a job that finished just before
+the request landed comes back `done`. Cancellation takes effect between modules and never
+once the first Publish module has started: from there the job runs every remaining
+module and ends `done`, so no output is left half-written or unregistered. Until a
+requested stop settles, job status and the job list report `cancel_requested: true`.
+
 A module can declare `requires_any`, the modules it serves. When none of them is enabled
 the runner skips it with a log line instead of asking the user to switch it off:
 `transform.frontmatter` serves both Markdown Publish modules, so a template with neither
@@ -41,7 +50,7 @@ uv venv --python 3.12
 uv pip install -e ".[dev]"
 ```
 
-MinerU 4.1.7 converts all PDF pages and exports Markdown, images, and structured
+MinerU 4.2.3 converts all PDF pages and exports Markdown, images, and structured
 content. Parsing quality: `flash` for speed, `basic` (default) for OCR, formulas,
 and tables, and `standard` / `advanced` for VLM-assisted parsing.
 
@@ -105,6 +114,7 @@ apply to its Raw.
 | `application/` | Configuration, jobs, conversion, annotations |
 | `pipeline/` | Workflow registry, templates, transforms, publishing |
 | `providers/` | Reference extraction, table processing, remote providers |
+| `cancellation.py` | Per-job cancel token and killable child processes |
 | `contracts.py` | Pydantic request and response models |
 | `composition.py` | Dependency construction |
 | `paths.py` | Runtime-home resolution |

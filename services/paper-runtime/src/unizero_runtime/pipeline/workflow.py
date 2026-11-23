@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Generic, TypeVar
+
+from ..cancellation import JobCancelled, raise_if_cancelled, shielded
 
 
 ContextT = TypeVar("ContextT")
@@ -296,30 +299,60 @@ class WorkflowRunner(Generic[ContextT]):
     def run(self, context: ContextT, log: Callable[[str], None]) -> WorkflowReport:
         report = WorkflowReport(self.template.id, str(self.template.version))
         log(f"[template] {self.template.id}@{self.template.version}")
-        for item in self.template.modules:
-            if not item.enabled:
-                continue
-            module = self.registry.get(item.module)
-            if module is None:  # validated above; keeps type checkers honest.
-                raise RuntimeError(f"unknown module '{item.module}'")
-            reason = self.registry.inactive_reason(self.template, item)
-            if reason:
-                report.stages.append(StageReport(item.id, item.module, "skipped", 0))
-                log(f"[module:{item.id}] skipped: {reason}")
-                continue
-            settings = self.registry.settings_for(item)
-            started = time.perf_counter()
-            log(f"[module:{item.id}] {item.module} started")
-            try:
-                module.handler(context, settings)
-            except Exception as exc:
-                elapsed = int((time.perf_counter() - started) * 1000)
-                report.stages.append(
-                    StageReport(item.id, item.module, "failed", elapsed, str(exc)),
-                )
-                log(f"[module:{item.id}] failed after {elapsed}ms: {exc}")
-                raise
-            elapsed = int((time.perf_counter() - started) * 1000)
-            report.stages.append(StageReport(item.id, item.module, "done", elapsed))
-            log(f"[module:{item.id}] done in {elapsed}ms")
+        with contextlib.ExitStack() as stack:
+            publishing = False
+            for item in self.template.modules:
+                if not item.enabled:
+                    continue
+                module = self.registry.get(item.module)
+                if module is None:  # validated above; keeps type checkers honest.
+                    raise RuntimeError(f"unknown module '{item.module}'")
+                reason = self.registry.inactive_reason(self.template, item)
+                if reason:
+                    report.stages.append(StageReport(item.id, item.module, "skipped", 0))
+                    log(f"[module:{item.id}] skipped: {reason}")
+                    continue
+                if not publishing:
+                    # Checked only before a module that will actually run: a cancel
+                    # landing in the last module must not be raised by a disabled or
+                    # skipped one after it, once the real work is already finished.
+                    raise_if_cancelled()
+                    if module.role == "publish":
+                        # From the first Publish module on, the run is no longer
+                        # cancellable: stopping between two outputs, or after one,
+                        # would leave written files the add-on never registers.
+                        publishing = True
+                        stack.enter_context(shielded())
+                self._run_module(module, item, context, log, report)
         return report
+
+    def _run_module(
+        self,
+        module: WorkflowModule[ContextT],
+        item: TemplateModule,
+        context: ContextT,
+        log: Callable[[str], None],
+        report: WorkflowReport,
+    ) -> None:
+        settings = self.registry.settings_for(item)
+        started = time.perf_counter()
+        log(f"[module:{item.id}] {item.module} started")
+        try:
+            module.handler(context, settings)
+        except JobCancelled:
+            elapsed = int((time.perf_counter() - started) * 1000)
+            report.stages.append(
+                StageReport(item.id, item.module, "cancelled", elapsed),
+            )
+            log(f"[module:{item.id}] cancelled after {elapsed}ms")
+            raise
+        except Exception as exc:
+            elapsed = int((time.perf_counter() - started) * 1000)
+            report.stages.append(
+                StageReport(item.id, item.module, "failed", elapsed, str(exc)),
+            )
+            log(f"[module:{item.id}] failed after {elapsed}ms: {exc}")
+            raise
+        elapsed = int((time.perf_counter() - started) * 1000)
+        report.stages.append(StageReport(item.id, item.module, "done", elapsed))
+        log(f"[module:{item.id}] done in {elapsed}ms")

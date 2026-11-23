@@ -45,7 +45,7 @@ async function pollJob(jobId: string): Promise<JobState> {
   for (;;) {
     await Zotero.Promise.delay(POLL_MS);
     const status = await runtimeClient.job(jobId, 0);
-    if (status.status === "done" || status.status === "failed") { return status; }
+    if (status.status !== "queued" && status.status !== "running") { return status; }
   }
 }
 
@@ -101,6 +101,10 @@ export async function convertItems(
       ztoolkit.log(`job ${accepted.job_id} (${templateName || templateId}) for ${title}`);
 
       const final = await pollJob(accepted.job_id);
+      // The user stopped this one from the panel; the rest of the batch is stopped
+      // with it, since the panel only lists items already submitted and the others
+      // would otherwise start converting behind a Cancelled row.
+      if (final.status === "cancelled") { return; }
       // A failed job is already a failed row in the panel carrying the runtime's own
       // error; repeating it as a notice would put the same failure on screen twice.
       if (final.status !== "done") { continue; }

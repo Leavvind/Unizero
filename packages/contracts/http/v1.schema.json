@@ -7,7 +7,7 @@
   "$defs": {
     "JobStatus": {
       "type": "string",
-      "enum": ["queued", "running", "done", "failed"]
+      "enum": ["queued", "running", "done", "failed", "cancelled"]
     },
     "ConvertOptionsPatch": {
       "type": "object",
@@ -230,7 +230,8 @@
             "references_count": { "type": "integer", "minimum": 0 }
           }
         },
-        "error": { "type": ["string", "null"], "default": null }
+        "error": { "type": ["string", "null"], "default": null },
+        "cancel_requested": { "type": "boolean", "default": false }
       }
     },
     "ExtractedReference": {
