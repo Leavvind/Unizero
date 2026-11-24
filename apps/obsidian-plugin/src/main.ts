@@ -75,6 +75,8 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
   private stopped = false;
   private externalTimer?: number;
   private externalSkipped = false;
+  /** Pending re-reads of Zotero documents saved in Obsidian, by path. */
+  private readonly externalEdits = new Map<string, number>();
   private documents = new Map<Document, () => void>();
   private cursorParse?: { text: string; links: DocumentLink[] };
   /**
@@ -105,9 +107,9 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     });
 
     this.registerEvent(this.app.vault.on("modify", (file) => {
-      if (file instanceof TFile && isIndexedNote(file)) {
-        this.vaultIndex.scheduleFile(file);
-      }
+      if (!(file instanceof TFile)) { return; }
+      if (isIndexedNote(file)) { this.vaultIndex.scheduleFile(file); }
+      else if (["md", "canvas"].includes(file.extension)) { this.scheduleExternalFile(file.path); }
     }));
     this.registerEvent(this.app.vault.on("delete", (file) => {
       if (file instanceof TFile) {
@@ -228,6 +230,8 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     // teardown; the store's listeners belong to elements that go with them.
     this.stopped = true;
     window.clearInterval(this.externalTimer);
+    for (const timer of this.externalEdits.values()) { window.clearTimeout(timer); }
+    this.externalEdits.clear();
     this.externalIndex?.dispose();
     for (const cleanup of this.documents.values()) { cleanup(); }
     this.documents.clear();
@@ -524,6 +528,14 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     this.externalTimer = window.setInterval(() => {
       if (activeDocument.hasFocus()) { void service.refresh(); } else { this.externalSkipped = true; }
     }, 60000);
+  }
+  /** A Zotero document edited in Obsidian is re-read from disk once the edits pause, with or without Zotero. */
+  private scheduleExternalFile(path: string): void {
+    window.clearTimeout(this.externalEdits.get(path));
+    this.externalEdits.set(path, window.setTimeout(() => {
+      this.externalEdits.delete(path);
+      if (!this.stopped) { void this.externalIndex?.refreshPath(path); }
+    }, 500));
   }
   /** Runs the pass a background Obsidian skipped, once it is in front again. */
   private catchUpExternalIndex(): void {

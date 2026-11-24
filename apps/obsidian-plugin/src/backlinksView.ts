@@ -283,7 +283,8 @@ export class BacklinksView extends ItemView {
       body.createDiv({ cls: "unizero-links__notice", text: "Reading this document's UID…" });
       this.indexAhead(file);
     } else if (!note?.uid) {
-      const notice = body.createDiv({ cls: "unizero-links__notice", text: `${note?.error || "This document has no stable identity."} UniZero links to it are not listed.` });
+      // A malformed UID still says why; a missing one only offers the fix.
+      const notice = body.createDiv({ cls: "unizero-links__notice", text: note?.error || "" });
       notice.createEl("button", { text: "Assign UID" }).onclick = () => { void this.plugin.assignDocumentUID(); };
     } else {
       const resolution = this.plugin.identity.resolve(this.plugin.settings.vaultID, note.uid);

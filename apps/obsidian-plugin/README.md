@@ -117,7 +117,9 @@ pane, arrow keys, Page Up/Down and Home/End navigate the full filtered list.
 attachments, opened or not (Raw Backup and generated summaries excluded). **Source
 libraries** limits it; empty means all non-feed libraries. It refreshes every
 minute; **Rebuild document links** re-reads everything. Indexing never converts,
-downloads or queries providers.
+downloads or queries providers. While Zotero is closed, the documents it listed
+before are still re-read from disk, and a Zotero document saved in Obsidian is
+re-read at once; only new or removed attachments wait for Zotero.
 
 Settings shows coverage, unavailable sources and the last successful Zotero scan.
 A file that cannot be read keeps its previous links, marked stale. The

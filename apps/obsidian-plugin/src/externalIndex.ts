@@ -148,17 +148,84 @@ export class ExternalIndex {
       this.index.coverage = { ...this.index.coverage, state, unavailable, error: undefined, lastSuccess: Date.now() };
       if (force || unannounced || state !== stateBefore) { this.index.notify(); }
       if (!changed && hadSuccess) { return; }
-      const records = [...this.index.records.values()].filter((r) => r.source.kind === "zotero");
-      await this.io.saveCache(JSON.stringify({ schema: CACHE_SCHEMA, records, scope: this.index.coverage.scope, lastSuccess: this.index.coverage.lastSuccess }));
+      await this.save();
     } catch (error) {
       if (!alive()) { return; }
-      for (const record of this.index.records.values()) {
-        if (record.source.kind === "zotero") { this.index.stale(record.source, (error as Error).message, false); }
-      }
-      const hasCache = [...this.index.records.values()].some((r) => r.source.kind === "zotero");
-      this.index.coverage = { ...this.index.coverage, state: hasCache ? "offline" : "failed", error: (error as Error).message };
+      // Zotero is not answering, but the documents it listed before are still files on this disk.
+      const known = this.zoteroRecords().filter((r) => !seen.has(sourceIdentity(r.source)));
+      const offline = await this.reread(known, force, alive);
+      if (!offline) { return; }
+      this.index.coverage = { ...this.index.coverage, state: this.zoteroRecords().length ? "offline" : "failed",
+        unavailable: unavailable + offline.unavailable, error: (error as Error).message };
       this.index.notify();
+      if (changed || offline.changed) { await this.save(); }
     }
+  }
+  /**
+   * Re-reads one known Zotero document after Obsidian saved it, straight from disk
+   * and without asking Zotero; a path Zotero never listed is ignored.
+   */
+  refreshPath(path: string): Promise<void> {
+    if (this.stopped) { return Promise.resolve(); }
+    if (this.running) { return this.running.catch(() => undefined).then(() => this.refreshPath(path)); }
+    const normalized = normalizeLocalPath(path);
+    const records = this.zoteroRecords().filter((r) => r.source.path && normalizeLocalPath(r.source.path) === normalized);
+    if (!records.length) { return Promise.resolve(); }
+    const generation = this.generation;
+    const alive = () => !this.stopped && generation === this.generation && !this.index.disposed;
+    this.runningForced = false;
+    this.running = this.reread(records, false, alive).then(async (result) => {
+      if (!result?.changed || !alive()) { return; }
+      this.index.notify();
+      await this.save();
+    }).finally(() => { this.running = undefined; });
+    return this.running;
+  }
+  /**
+   * Reads known sources from the paths Zotero last gave, reparsing only files that
+   * changed. A file read this way has current links; one that cannot be read keeps
+   * its previous links, marked stale. Undefined when the pass went stale.
+   */
+  private async reread(records: SourceRecord[], force: boolean, alive: () => boolean): Promise<{ unavailable: number; changed: boolean } | undefined> {
+    let unavailable = 0, changed = false;
+    const slice = timeSlicer();
+    for (const record of records) {
+      const source = record.source;
+      if (source.kind !== "zotero") { continue; }
+      try {
+        if (!source.path) { throw new Error("File unavailable on this machine"); }
+        const fingerprint = `${source.version}:${await this.io.state(source.path)}`;
+        if (!alive()) { return undefined; }
+        if (!force && record.fingerprint === fingerprint) {
+          if (record.stale) {
+            this.index.setRecord({ ...record, stale: false, error: undefined,
+              links: record.links.map((link) => ({ ...link, source, stale: false })) }, false);
+            changed = true;
+          }
+          continue;
+        }
+        const text = await this.io.read(source.path);
+        if (!alive()) { return undefined; }
+        const links = await this.parse(text, source.format, alive);
+        if (!alive() || !links) { return undefined; }
+        this.index.replaceParsed(source, links, fingerprint, false);
+        changed = true;
+        await slice();
+        if (!alive()) { return undefined; }
+      } catch (error) {
+        if (!alive()) { return undefined; }
+        unavailable += 1;
+        const message = (error as Error).message;
+        this.index.stale(source, message, false);
+        if (!record.stale || record.error !== message) { changed = true; }
+      }
+    }
+    return { unavailable, changed };
+  }
+  private zoteroRecords(): SourceRecord[] { return [...this.index.records.values()].filter((r) => r.source.kind === "zotero"); }
+  private save(): Promise<void> {
+    return this.io.saveCache(JSON.stringify({ schema: CACHE_SCHEMA, records: this.zoteroRecords(),
+      scope: this.index.coverage.scope, lastSuccess: this.index.coverage.lastSuccess }));
   }
   findPath(path: string): SourceDocument | undefined {
     const normalized = normalizeLocalPath(path);

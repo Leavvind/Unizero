@@ -48,6 +48,36 @@ describe("external source refresh", () => {
     expect(f.index.records.size).toBe(1);
     f.bridge.linkSources.mockResolvedValueOnce(page([])); await f.service.refresh(); expect(f.index.records.size).toBe(0);
   });
+  it("re-reads known documents from disk while Zotero is offline", async () => {
+    const f = fixture(); await f.service.refresh();
+    const g = fixture(); g.io.loadCache.mockResolvedValueOnce(f.io.saveCache.mock.calls[0][0]); await g.service.load();
+    g.bridge.ping.mockRejectedValue(new Error("offline"));
+    await g.service.refresh();
+    // Unchanged on disk: current again without a parse.
+    expect(g.io.read).not.toHaveBeenCalled();
+    expect(g.index.query(target)[0].stale).toBe(false);
+    expect(g.index.coverage.state).toBe("offline");
+    g.io.state.mockResolvedValue("state-2"); g.io.read.mockResolvedValueOnce("[other](unizero://note/a/456)");
+    await g.service.refresh();
+    expect(g.index.query(target)).toHaveLength(0);
+    expect(g.index.query({ kind: "note", vaultID: "a", uid: "456" })).toHaveLength(1);
+    expect(g.io.saveCache).toHaveBeenCalled();
+    g.io.state.mockRejectedValueOnce(new Error("gone"));
+    await g.service.refresh();
+    expect(g.index.query({ kind: "note", vaultID: "a", uid: "456" })[0].stale).toBe(true);
+    expect(g.index.coverage.unavailable).toBe(1);
+  });
+  it("re-reads one saved document by path without asking Zotero", async () => {
+    const f = fixture(); await f.service.refresh();
+    f.bridge.ping.mockClear(); f.io.state.mockResolvedValue("state-2"); f.io.read.mockResolvedValueOnce("");
+    const listener = vi.fn(); f.index.subscribe(listener);
+    await f.service.refreshPath("file:C:\\storage\\raw.md");
+    expect(f.bridge.ping).not.toHaveBeenCalled();
+    expect(f.index.query(target)).toHaveLength(0);
+    expect(listener).toHaveBeenCalledTimes(1);
+    await f.service.refreshPath("file:C:/elsewhere.md");
+    expect(f.io.read).toHaveBeenCalledTimes(2);
+  });
   it("does not prune unseen records when a page fails", async () => {
     const f = fixture(); await f.service.refresh();
     f.bridge.linkSources.mockResolvedValueOnce(page([], 1)).mockRejectedValueOnce(new Error("page interrupted"));
