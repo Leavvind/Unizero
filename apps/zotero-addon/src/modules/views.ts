@@ -1,5 +1,5 @@
 import { config, version } from "../../package.json";
-import { initLocale, getString } from "../utils/locale";
+import { initLocale } from "../utils/locale";
 import TipUI, { TIP_SHOW_DELAY_MS } from "./tip";
 import Utils from "./utils";
 import { localStorage } from "./localStorage";
@@ -22,7 +22,6 @@ import {
   type RelationSourceResult,
 } from "./mergeRelations";
 import { resolveMany } from "./resolve";
-import { PanelStatus } from "./status";
 import {
   readItemPaperIdentifiers,
   type ItemPaperIdentifiers,
@@ -42,7 +41,6 @@ import {
 import { uniConnection } from "./uniConnection";
 import {
   invalidateLibraryMembership,
-  previewEntries,
   resolveLibraryMembership,
   toLiteratureCandidate,
   type LiteratureCandidate,
@@ -56,13 +54,14 @@ import {
   type PaperDestination,
 } from "../zotero/literatureItemAdapter";
 import { literatureCandidateFromItem } from "../zotero/literatureCollectionAdapter";
+import { paperDestinationFromItem } from "../zotero/literatureItemAdapter";
+import { LiteratureSidebar, type LiteratureSidebarPort } from "../ui/literatureSidebar";
 import {
   recordCatalogDiscoverySnapshot,
   type PaperCatalogDiscoveryResult,
   type PaperCatalogDiscoverySnapshot,
   type PaperCatalogSeed,
 } from "../projects/paperCatalog";
-const SECTION_PREVIEW_LIMIT = 5;
 const EXPLORER_COUPLING_LIMIT = 50;
 
 function catalogSeedFromEntry(candidate: {
@@ -153,14 +152,13 @@ function zoteroSeed(item: Zotero.Item): LiteratureSeed {
 export default class Views {
   public utils!: Utils;
   private registeredPaneID?: string;
-  private registeredCitationsPaneID?: string;
-  /** Every section rebuild produces fresh DOM, so the selected tab has to live on
-   *  the instance to survive one. */
-  private lastActiveTab: "references" | "citations" = "references";
-  /** Which route the last reference load took; read back by UniZeroDebug(). */
-  private lastLoadDiagnostic: any = null;
-  /** The same, for the Citations route. */
-  private lastCitationsDiagnostic: any = null;
+  /** The item-pane References / Citations section. */
+  private readonly sidebar = new LiteratureSidebar(this.sidebarPort());
+  /**
+   * References cache writes per paper (explorerKey). A background resolve that
+   * started before a newer write must not save its older list over it.
+   */
+  private readonly referencesWrites = new Map<string, number>();
   private explorerOpener?: ExplorerOpener;
   // Each relation kind retains only the 32 most recently used payloads. Disk
   // shards remain reloadable after eviction; session-only entries become misses.
@@ -194,86 +192,247 @@ export default class Views {
       namespace: "html",
       properties: {
         innerHTML: `
-          .zoference-section {
+          /* contain: inline-size keeps long rows from widening the whole pane
+             (and pushing the tabs and search box out of view). */
+          .unizero-sidebar {
             width: 100%;
+            min-width: 0;
+            max-width: 100%;
             box-sizing: border-box;
+            overflow: hidden;
+            contain: inline-size;
             color: var(--fill-primary, inherit);
           }
-          .zoference-section .header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-            padding: 4px 8px 8px;
-          }
-          .zoference-section .header button {
-            min-height: 24px;
-          }
-          .zoference-section .reference-grid {
-            display: grid;
-            align-items: center;
-            overflow: hidden;
-          }
-          .zoference-section .box[data-library-state="in"] {
-            border-left: 3px solid var(--accent-green, #57ab5a);
-            background: color-mix(in srgb, var(--accent-green, #57ab5a) 10%, transparent);
-            opacity: 1 !important;
-          }
-          .zoference-section .box[data-library-state="out"] {
-            border-left: 3px solid var(--accent-orange, #d29922);
-            background: color-mix(in srgb, var(--accent-orange, #d29922) 7%, transparent);
-          }
-          .zoference-section .literature-open {
-            display: block;
-            margin: 8px;
-            padding: 5px 10px;
-            border-radius: 5px;
-            cursor: pointer;
-            text-align: center;
-            font-weight: 600;
-            color: var(--accent-blue, #2f6fca);
-            background: var(--fill-quinary, rgb(128 128 128 / 10%));
-          }
-          .zoference-section .literature-open:hover {
-            background: var(--fill-quarternary, rgb(128 128 128 / 20%));
-          }
-          .zoference-section .reference-tabs {
+          .unizero-sidebar__tabs {
             display: flex;
             gap: 2px;
             padding: 2px 6px 6px;
-            border-bottom: 1px solid var(--material-border, #d8d8d8);
             margin-bottom: 6px;
+            border-bottom: 1px solid var(--material-border, rgb(128 128 128 / 30%));
           }
-          .zoference-section .reference-tab {
+          .unizero-sidebar__tab {
             flex: 1;
-            min-height: 24px;
-            background: transparent;
-            border: none;
+            min-height: 20px;
+            padding: 4px 8px;
             border-radius: 4px;
-            padding: 3px 8px;
+            text-align: center;
             cursor: pointer;
-            color: inherit;
+            user-select: none;
             opacity: 0.65;
           }
-          .zoference-section .reference-tab:hover {
+          .unizero-sidebar__tab:hover {
             background: var(--fill-quinary, rgb(128 128 128 / 12%));
             opacity: 0.85;
           }
-          .zoference-section .reference-tab.active {
+          .unizero-sidebar__tab.is-active {
             background: var(--fill-quarternary, rgb(128 128 128 / 20%));
             font-weight: 600;
             opacity: 1;
           }
-          /* Do not rely on the UA stylesheet's handling of [hidden]: this section
-             lives in Zotero's XHTML main window, so hiding has to be decided by
-             our own rules or switching tabs looks like it did nothing. */
-          .zoference-section .reference-tab-pane[hidden],
-          .zoference-section .reference-tab-pane.is-hidden {
+          .unizero-sidebar__toolbar {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 0 6px 6px;
+          }
+          .unizero-sidebar__search {
+            flex: 1;
+            min-width: 0;
+            padding: 3px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--material-border, rgb(128 128 128 / 35%));
+            background: var(--material-background, transparent);
+            color: inherit;
+          }
+          .unizero-sidebar__action {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid rgb(128 128 128 / 35%);
+            background: rgb(128 128 128 / 10%);
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+            text-align: center;
+          }
+          .unizero-sidebar__action:hover {
+            background: rgb(128 128 128 / 22%);
+          }
+          .unizero-sidebar__status {
+            margin: 0 6px 6px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            background: var(--fill-quinary, rgb(128 128 128 / 12%));
+            border-left: 3px solid var(--fill-tertiary, rgb(128 128 128 / 45%));
+          }
+          .unizero-sidebar__status[data-type="success"] {
+            border-left-color: var(--accent-green, #57ab5a);
+          }
+          .unizero-sidebar__status[data-type="fail"] {
+            border-left-color: var(--accent-red, #e5534b);
+          }
+          .unizero-sidebar__status[hidden] {
             display: none !important;
           }
-          /* In-panel status bar: messages appear next to the action that caused
-             them instead of flying to the bottom-right of the screen. */
-          .zoference-section .reference-status {
+          .unizero-sidebar__list {
+            max-height: 60vh;
+            overflow-x: hidden;
+            overflow-y: auto;
+            padding: 0 2px;
+          }
+          .unizero-sidebar__group {
+            margin: 8px 6px 2px;
+            font-size: 0.85em;
+            font-weight: 600;
+            opacity: 0.6;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+          }
+          .unizero-sidebar__hint,
+          .unizero-sidebar__empty {
+            margin: 6px;
+            padding: 6px 8px;
+            font-size: 0.9em;
+            opacity: 0.7;
+            overflow-wrap: anywhere;
+          }
+          .unizero-sidebar__empty .unizero-sidebar__action {
+            display: block;
+            margin-top: 6px;
+          }
+          /* Library state is a thin marker, not a fill: the text stays the focus. */
+          .unizero-sidebar__row {
+            border-radius: 3px;
+            border-left: 2px solid transparent;
+          }
+          .unizero-sidebar__row:hover {
+            background: var(--fill-quinary, rgb(128 128 128 / 10%));
+          }
+          .unizero-sidebar__row[data-library-state="in"] {
+            border-left-color: color-mix(in srgb, var(--accent-green, #57ab5a) 70%, transparent);
+          }
+          .unizero-sidebar__row[data-library-state="out"] {
+            border-left-color: color-mix(in srgb, var(--accent-orange, #d29922) 55%, transparent);
+          }
+          .unizero-sidebar__row[data-library-state="out"] .unizero-sidebar__text {
+            opacity: 0.7;
+          }
+          .unizero-sidebar__row[data-library-state="missing"] {
+            border-left-color: var(--fill-tertiary, rgb(128 128 128 / 45%));
+            opacity: 0.6;
+          }
+          .unizero-sidebar__row.is-expanded {
+            background: var(--fill-quinary, rgb(128 128 128 / 8%));
+          }
+          .unizero-sidebar__row.is-drop-target {
+            outline: 2px dashed var(--accent-blue, #4a8fe0);
+            outline-offset: -2px;
+          }
+          .unizero-sidebar__head {
+            display: flex;
+            align-items: flex-start;
+            gap: 4px;
+            padding: 2px 4px;
+            min-height: 20px;
+            cursor: default;
+          }
+          .unizero-sidebar__chevron {
+            flex: none;
+            width: 10px;
+            opacity: 0.6;
+          }
+          .unizero-sidebar__icon {
+            flex: none;
+            width: 14px;
+            height: 14px;
+            margin-top: 2px;
+          }
+          .unizero-sidebar__text {
+            flex: 1;
+            min-width: 0;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+            /* At most two lines; an expanded row shows the whole title. */
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            overflow: hidden;
+          }
+          .unizero-sidebar__row.is-expanded .unizero-sidebar__text {
+            display: block;
+            -webkit-line-clamp: unset;
+          }
+          .unizero-sidebar__number {
+            opacity: 0.5;
+          }
+          .unizero-sidebar__credit {
+            font-weight: 600;
+          }
+          .unizero-sidebar__title {
+            opacity: 0.85;
+          }
+          .unizero-sidebar__badge {
+            flex: none;
+            padding: 0 5px;
+            border-radius: 8px;
+            font-size: 0.85em;
+            background: var(--fill-quarternary, rgb(128 128 128 / 20%));
+          }
+          .unizero-sidebar__add {
+            flex: none;
+            padding: 0 5px;
+            line-height: 1.2;
+            font-weight: 600;
+          }
+          .unizero-sidebar__excerpts {
+            padding: 2px 6px 6px 22px;
+          }
+          .unizero-sidebar__excerpt {
+            display: flex;
+            gap: 6px;
+            align-items: flex-start;
+            margin: 3px 0;
+            padding: 3px 6px;
+            border-left: 2px solid var(--accent-yellow, #ffd400);
+            background: var(--fill-quinary, rgb(128 128 128 / 8%));
+          }
+          .unizero-sidebar__quote {
+            flex: 1;
+            min-width: 0;
+            overflow-wrap: anywhere;
+            cursor: pointer;
+            font-style: italic;
+          }
+          .unizero-sidebar__quote:hover {
+            text-decoration: underline;
+          }
+          .unizero-sidebar__excerpt-meta {
+            flex: none;
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            font-size: 0.85em;
+            opacity: 0.75;
+          }
+          .unizero-sidebar__remove {
+            padding: 0 5px;
+          }
+          .unizero-sidebar__drop-hint {
+            margin-top: 4px;
+            padding: 4px 6px;
+            border: 1px dashed rgb(128 128 128 / 40%);
+            border-radius: 4px;
+            font-size: 0.85em;
+            text-align: center;
+            opacity: 0.6;
+          }
+          .unizero-sidebar__more {
+            display: block;
+            margin: 8px 6px;
+          }
+          /* PanelStatus (modules/status.ts) inserts this bar under the tabs. */
+          .unizero-sidebar .reference-status {
             display: flex;
             align-items: center;
             gap: 6px;
@@ -286,28 +445,26 @@ export default class Views {
             background: var(--fill-quinary, rgb(128 128 128 / 12%));
             border-left: 3px solid var(--fill-tertiary, rgb(128 128 128 / 45%));
           }
-          .zoference-section .reference-status[data-type="success"] {
+          .unizero-sidebar .reference-status[data-type="success"] {
             border-left-color: var(--accent-green, #57ab5a);
           }
-          .zoference-section .reference-status[data-type="fail"] {
+          .unizero-sidebar .reference-status[data-type="fail"] {
             border-left-color: var(--accent-red, #e5534b);
           }
-          .zoference-section .reference-status-headline {
+          .unizero-sidebar .reference-status-headline {
             flex: none;
             font-weight: 600;
             opacity: 0.75;
           }
-          .zoference-section .reference-status-text {
+          .unizero-sidebar .reference-status-text {
             flex: 1;
             min-width: 0;
-            /* The status bar is a fixture one line tall: long text is truncated
-               and never pushes the list down. */
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             opacity: 0.9;
           }
-          .zoference-section .reference-status-progress {
+          .unizero-sidebar .reference-status-progress {
             position: absolute;
             left: 0;
             right: 0;
@@ -316,26 +473,11 @@ export default class Views {
             border-radius: 0 0 4px 4px;
             overflow: hidden;
           }
-          .zoference-section .reference-status-progress-bar {
+          .unizero-sidebar .reference-status-progress-bar {
             height: 100%;
             width: 0;
             background: var(--accent-blue, #4a8fe0);
             transition: width 0.2s ease;
-          }
-          .zoference-section .citations-more {
-            display: block;
-            width: calc(100% - 16px);
-            margin: 8px;
-            min-height: 24px;
-          }
-          .reference-search-box .icon {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            opacity: 0.8;
-          }
-          .reference-search-box .icon:hover {
-            opacity: 1
           }
         `
       },
@@ -366,8 +508,6 @@ export default class Views {
         semanticScholarKey: Boolean(Zotero.Prefs.get(`${config.addonRef}.semanticScholar.apiKey`)),
       },
       cache: await localStorage.summary(),
-      lastReferenceLoad: this.lastLoadDiagnostic,
-      lastCitationsLoad: this.lastCitationsDiagnostic,
       citationsEngines: citationsDiagnostics,
       referencesEngines: referencesDiagnostics,
       connectionSync: addon.api.uniConnectionSync?.diagnostics(),
@@ -404,48 +544,19 @@ export default class Views {
       },
       onRender: ({ body, item, tabType }: any) => {
         if (!["library", "reader"].includes(tabType)) {
-          body.querySelectorAll(".zoference-section").forEach((element: Element) => element.remove());
+          this.sidebar.clear(body);
           return;
         }
-        if (tabType === "library") {
-          // ZoMiner references live in an attachment and need no Reader, so the
-          // library view can render them fully.
-          this.renderReferenceSection(body, item, undefined, true);
-          return;
-        }
-        const reader = this.getReaderForBody(body);
-        const attachment = reader && Zotero.Items.get((reader as any).itemID || (reader as any)._itemID);
-        const parentItem = attachment?.parentItem || (item?.isAttachment?.() ? item.parentItem : item);
-        if (!parentItem) { return; }
-        this.renderReferenceSection(body, parentItem, reader);
+        const paper = this.sectionPaper(body, item, tabType);
+        // A standalone note or PDF has no paper: clear the section rather than leave
+        // the previous paper's lists (and drop targets) under it.
+        if (paper) { this.sidebar.render(body, paper); } else { this.sidebar.clear(body); }
       },
-      onAsyncRender: async ({ body, item, tabType, setSectionSummary }: any) => {
+      onAsyncRender: async ({ body, tabType, setSectionSummary }: any) => {
         if (!["library", "reader"].includes(tabType)) { return; }
-        const panel = body.querySelector(".zoference-section") as HTMLDivElement;
-        if (!panel) { return; }
-        const reader = (panel as any)._referenceReader || this.getReaderForBody(body);
-        const parentItem = (panel as any)._referenceItem || item;
-        // Auto-loading applies to the Reference tab only; Citations waits until
-        // the user actually switches to it.
-        const referencesPane = this.getPane(panel, "references");
         setSectionSummary("");
         try {
-          // Bring this item's cache shard into memory before anything reads it.
-          // Everything downstream — including the synchronous render path — then
-          // hits memory, so only this one place has to be aware that the cache
-          // lives in per-item files.
-          if (parentItem) { await localStorage.load(parentItem); }
-          // selectTab() ran during the synchronous render, when the shard was not
-          // loaded yet, so a Citations tab restored from cache comes up empty.
-          // Re-running it now is the restore; the guard inside skips the work when
-          // the tab already has state.
-          if (panel.dataset.activeTab === "citations") {
-            this.selectTab(panel, "citations", true);
-          }
-          // The direct-DOI route and the conversion's extracted references both
-          // work in either tab type without a Reader. Parsing the PDF itself is
-          // never started on open; it waits for an explicit Refresh.
-          await this.autoLoadReferences(referencesPane, parentItem);
+          await this.sidebar.whenLoaded(body);
         } catch (error) {
           ztoolkit.log("Reference section async render failed", error);
         }
@@ -531,7 +642,9 @@ export default class Views {
       resolved,
       perSource,
     );
-    this.explorerReferences.set(this.explorerKey(item), payload);
+    const key = this.explorerKey(item);
+    this.referencesWrites.set(key, (this.referencesWrites.get(key) || 0) + 1);
+    this.explorerReferences.set(key, payload);
     const catalogSnapshot: PaperCatalogDiscoverySnapshot = {
       kind: "references",
       retrievedAt: payload.savedAt,
@@ -551,11 +664,6 @@ export default class Views {
     // Catalog storage is additive. A catalog conflict or damaged index must not
     // prevent the established References cache from being saved and rendered.
     if (recordDiscovery) { void this.ingestCatalogSnapshot(zoteroSeed(item), catalogSnapshot); }
-    if (this.lastLoadDiagnostic) {
-      this.lastLoadDiagnostic.savedAt = new Date().toLocaleTimeString();
-      this.lastLoadDiagnostic.savedResolved = resolved;
-      this.lastLoadDiagnostic.savedCount = references.length;
-    }
   }
 
   private readCitationsCache(item: Zotero.Item): CitationsCache | undefined {
@@ -593,33 +701,6 @@ export default class Views {
       });
     }
     if (recordDiscovery) { void this.ingestCatalogSnapshot(zoteroSeed(item), catalogSnapshot); }
-  }
-
-  private saveCitationsCache(pane: HTMLDivElement) {
-    const item = (pane as any)._referenceItem as Zotero.Item;
-    const state = (pane as any)._citationsState as CitationsCache | undefined;
-    if (!item || !state || !Array.isArray(state.all)) { return; }
-    void this.persistCitationsCache(item, state).catch(
-      (error) => ztoolkit.log("save citations cache failed", error),
-    );
-  }
-
-  /** Restore the whole Citations tab from cache, paging progress included. True on a hit. */
-  private restoreCitationsFromCache(pane: HTMLDivElement): boolean {
-    if (!this.isCacheEnabled("saveCitations")) { return false; }
-    const item = (pane as any)._referenceItem as Zotero.Item;
-    if (!item) { return false; }
-    const cached = this.readCitationsCache(item);
-    if (!cached) { return false; }
-    (pane as any)._citationsState = { ...cached };
-    pane.setAttribute("source", cached.source);
-    const list = pane.querySelector(".reference-main-list .reference-grid") as HTMLDivElement;
-    list.querySelectorAll("*").forEach((element) => element.remove());
-    this.appendCitationRows(pane, cached.all);
-    this.updateCitationsLabel(pane);
-    const moreButton = pane.querySelector("#citations-more-button") as HTMLElement;
-    if (moreButton) { this.setHidden(moreButton, cached.loaded >= cached.total); }
-    return true;
   }
 
   private explorerKey(item: Zotero.Item): string {
@@ -1333,203 +1414,150 @@ export default class Views {
   }
 
   /**
-   * Fetch and render the papers citing this one.
-   *
-   * @param pane   The Citations tab's container, not the whole section: both tabs
-   *               contain `#reference-num` and `.reference-grid`, so the scope has
-   *               to be narrowed to this tab or the Reference tab's count and list
-   *               get modified instead.
-   * @param silent Auto-rendering shows no message and only a manual refresh gives
-   *               feedback; otherwise expanding the section pops one up every time.
+   * The paper a section shows: the item itself, or in a reader tab (or for a
+   * selected attachment or note) its parent.
    */
-  public async refreshCitations(
-    pane: HTMLDivElement,
-    silent: boolean = false,
-    useCache: boolean = true,
-  ) {
-    const item = (pane as any)._referenceItem as Zotero.Item;
+  private sectionPaper(body: Element, item: Zotero.Item | undefined, tabType: string): Zotero.Item | undefined {
+    if (tabType === "reader") {
+      const reader = this.getReaderForBody(body);
+      const attachment = reader && Zotero.Items.get((reader as any).itemID || (reader as any)._itemID);
+      const parent = attachment?.parentItem;
+      if (parent) { return parent; }
+    }
     if (!item) { return; }
-    await localStorage.load(item);
-    // A manual refresh passes useCache=false: that click means "give me the latest".
-    if (useCache && this.restoreCitationsFromCache(pane)) { return; }
-    const label = pane.querySelector("#reference-num") as HTMLSpanElement;
-    const list = pane.querySelector(".reference-main-list .reference-grid") as HTMLDivElement;
-    list.querySelectorAll("*").forEach((element) => element.remove());
-    const moreButton = pane.querySelector("#citations-more-button") as HTMLElement;
-    if (moreButton) { this.setHidden(moreButton, true); }
-
-    const identifiers = readItemPaperIdentifiers(item);
-    const doi = identifiers.doi || "";
-    const semanticScholarPaperId = identifiers.semanticScholarPaperId || "";
-    this.lastCitationsDiagnostic = {
-      at: new Date().toLocaleTimeString(),
-      itemKey: item.key,
-      doi,
-      semanticScholarPaperId,
-      useCache,
-      cacheEnabled: this.isCacheEnabled("saveCitations"),
-      stage: "start",
-    };
-    if (!doi && !semanticScholarPaperId) {
-      label.innerText = getString("citationsbox-no-identifier-label");
-      this.lastCitationsDiagnostic.stage = "no-identifier";
-      return;
-    }
-
-    label.innerText = getString("citationsbox-loading-label");
-    let result;
-    try {
-      result = await fetchCitationsByIdentifiers(doi, semanticScholarPaperId);
-    } catch (error) {
-      // There used to be no catch here: on a throw the count froze forever at
-      // "loading citations…", which looked like a hang while not a word of the
-      // actual reason ever surfaced.
-      this.lastCitationsDiagnostic.stage = "threw";
-      this.lastCitationsDiagnostic.error = String(error);
-      label.innerText = `${getString("citationsbox-number-label")} — ${String(error).slice(0, 80)}`;
-      ztoolkit.log("refreshCitations failed", error);
-      return;
-    }
-    this.lastCitationsDiagnostic.stage = result ? "fetched" : "empty";
-    this.lastCitationsDiagnostic.total = result?.total;
-    this.lastCitationsDiagnostic.source = result?.source;
-    this.lastCitationsDiagnostic.pageSize = result?.citations.length;
-    const citationFailures = [
-      ["OpenAlex", citationsDiagnostics.openAlex],
-      ["Semantic Scholar", citationsDiagnostics.semanticScholar],
-    ].filter(([, status]) => String(status || "").startsWith("error:"));
-    label.title = `OpenAlex: ${citationsDiagnostics.openAlex}
-Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier"}): ${citationsDiagnostics.semanticScholar}`;
-    this.lastCitationsDiagnostic.engines = { ...citationsDiagnostics };
-    if (!result) {
-      label.innerText = `0 ${getString("citationsbox-number-label")}`;
-      if (!silent) {
-        new PanelStatus("Citations")
-          .createLine({
-            text: citationFailures.length
-              ? `Citation lookup incomplete: ${citationFailures.map(([source]) => source).join(", ")} failed`
-              : "No citations found",
-            type: citationFailures.length ? "fail" : "default",
-          })
-          .show();
-      }
-      return;
-    }
-
-    // Paging state hangs on the pane: a later "Load more" must reuse the engine
-    // and filter chosen for the first page, since switching engines duplicates or
-    // skips entries because the two order results differently.
-    (pane as any)._citationsState = {
-      doi,
-      semanticScholarPaperId,
-      source: result.source,
-      openAlexFilter: result.openAlexFilter,
-      page: 1,
-      loaded: result.citations.length,
-      total: result.total,
-      all: [...result.citations],
-      perSource: result.perSource,
-    };
-    pane.setAttribute("source", result.source);
-    try {
-      this.appendCitationRows(pane, result.citations);
-      this.updateCitationsLabel(pane);
-    } catch (error) {
-      // Fetched but unrenderable is a different problem from never fetched, and
-      // the two have to be distinguishable.
-      this.lastCitationsDiagnostic.stage = "render-failed";
-      this.lastCitationsDiagnostic.error = String(error);
-      label.innerText = `${result.total} ${getString("citationsbox-number-label")} (render failed)`;
-      ztoolkit.log("appendCitationRows failed", error);
-      return;
-    }
-    this.lastCitationsDiagnostic.stage = "rendered";
-    if (moreButton) { this.setHidden(moreButton, !result.hasMore); }
-    this.saveCitationsCache(pane);
-
-    if (!silent) {
-      new PanelStatus(`[${result.source}]`)
-        .createLine({
-          text: citationFailures.length
-            ? `${result.total} citations; ${citationFailures.map(([source]) => source).join(", ")} failed`
-            : `${result.total} citations`,
-          type: citationFailures.length ? "fail" : "success",
-        })
-        .show();
-    }
+    return item.isRegularItem() ? item : item.parentItem || undefined;
   }
 
-  /** "Load more": continue paging by descending citation count, appending to the list. */
-  private async loadMoreCitations(pane: HTMLDivElement) {
-    const state = (pane as any)._citationsState;
-    if (!state) { return; }
-    const moreButton = pane.querySelector("#citations-more-button") as HTMLElement;
-    if (moreButton) {
-      moreButton.style.pointerEvents = "none";
-      moreButton.style.opacity = "0.5";
-    }
-    try {
-      const result = await fetchCitationsPage(
-        state.doi,
-        state.page + 1,
-        state.source,
-        state.openAlexFilter,
-        state.semanticScholarPaperId,
-      );
-      if (!result?.citations.length) {
-        if (moreButton) { this.setHidden(moreButton, true); }
-        return;
-      }
-      state.page += 1;
-      state.loaded += result.citations.length;
-      state.all.push(...result.citations);
-      this.appendCitationRows(pane, result.citations);
-      this.updateCitationsLabel(pane);
-      if (moreButton) { this.setHidden(moreButton, !result.hasMore); }
-      // Persist after every page: reopening the section on page 5 should not send
-      // the user back to page 1.
-      this.saveCitationsCache(pane);
-    } finally {
-      if (moreButton) {
-        moreButton.style.pointerEvents = "";
-        moreButton.style.opacity = "";
-      }
-    }
+  /** The sidebar's view of this data plane; see LiteratureSidebarPort. */
+  private sidebarPort(): LiteratureSidebarPort {
+    return {
+      cachedReferences: (item) => this.getCachedLiteratureSnapshot(item, "references"),
+      fetchReferences: (item, refresh) => this.getLiteratureSnapshot(item, "references", refresh),
+      canFetchReferences: (item) => {
+        const identifiers = readItemPaperIdentifiers(item);
+        // References can also come from the conversion's extracted bibliography.
+        return Boolean(identifiers.doi || identifiers.semanticScholarPaperId || findReferencesAttachment(item));
+      },
+      resolvePendingReferences: (item) => this.resolvePendingReferences(item),
+      addToLibrary: (item, candidate) =>
+        this.addLiteratureCandidateToLibrary(paperDestinationFromItem(item), candidate),
+      openExplorer: (win, item, kind) => this.explorerOpener?.(win, item, kind),
+      attachTip: (element, candidate, item) => this.attachTip(element, candidate, item),
+    };
   }
 
   /**
-   * Render one page of citations as rows.
-   *
-   * addRow reads `references[refIndex]`, so the whole accumulated array must be
-   * passed in together with a global index rather than just this page — otherwise
-   * in-row interactions read someone else's data.
+   * Finish resolving a cached References list whose rows still lack a title — raw
+   * citation text, or Crossref's DOI-only rows. The sidebar calls this in the
+   * background on every open until the shard is marked resolved. Writes the shard
+   * only when something resolved, and marks it resolved only when the whole batch
+   * reached the providers. A list written meanwhile (a Refresh) wins: this run's
+   * older copy is dropped rather than saved over it.
    */
-  private appendCitationRows(pane: HTMLDivElement, page: ItemBaseInfo[]) {
-    const state = (pane as any)._citationsState;
-    const container = pane.querySelector(".reference-main-list") as HTMLDivElement;
-    const grid = container.querySelector(".reference-grid") as HTMLDivElement;
-    grid.replaceChildren();
-    const preview = previewEntries(state.all, SECTION_PREVIEW_LIMIT);
-    preview.forEach((citation, index) => {
-      const row = this.addRow(container, preview, index, true, false, false);
-      if (row) {
-        // @ts-ignore addRow binds this when it builds the row; rebind explicitly in
-        // case addRow took its deduplication branch.
-        row.box.reference = citation;
-      }
-    });
-    const item = (pane as any)._referenceItem as Zotero.Item | undefined;
-    if (item) { void this.markSectionLibraryState(container, preview, item); }
+  public async resolvePendingReferences(item: Zotero.Item): Promise<boolean> {
+    await localStorage.load(item);
+    const cached = this.readReferencesCache(item);
+    if (!cached || cached.resolved) { return false; }
+    const key = this.explorerKey(item);
+    const writes = this.referencesWrites.get(key) || 0;
+    const references = cached.references;
+    const pending = references.filter((reference) =>
+      !reference.title && (reference.text || reference.identifiers?.DOI));
+    let changed = false;
+    const { failed } = pending.length
+      ? await resolveMany(
+        pending.map((reference) => ({ raw: reference.text || "", identifiers: reference.identifiers })),
+        (position, info) => {
+          if (!info) { return; }
+          const reference = pending[position];
+          // A low-confidence result is a guess: it may be shown, never stored as
+          // identity — "+" would otherwise import the wrong paper from it.
+          if (info.lowConfidence) {
+            reference.lowConfidence = true;
+            reference.abstract = info.abstract || reference.abstract;
+            return;
+          }
+          if (info.identifiers.DOI) {
+            reference.identifiers = { ...reference.identifiers, DOI: info.identifiers.DOI };
+          }
+          reference.title = info.title || reference.title;
+          reference.authors = info.authors?.length ? info.authors : reference.authors;
+          reference.year = info.year || reference.year;
+          reference.primaryVenue = info.primaryVenue || reference.primaryVenue;
+          reference.abstract = info.abstract || reference.abstract;
+          reference.citations = info.citations ?? reference.citations;
+          reference.url = info.url || reference.url;
+          reference.source = info.source || reference.source;
+          if (reference._placeholderText && info.title) {
+            reference.text = [
+              reference.authors?.length ? reference.authors.slice(0, 3).join(", ") : undefined,
+              reference.year,
+              reference.title,
+              reference.primaryVenue,
+            ].filter(Boolean).join(". ");
+            delete reference._placeholderText;
+          }
+          changed = true;
+        },
+      )
+      : { failed: 0 };
+    if ((this.referencesWrites.get(key) || 0) !== writes) { return false; }
+    const complete = failed === 0;
+    if (changed || complete) {
+      await this.saveReferencesCache(item, cached.source, references, complete, cached.perSource);
+    }
+    return changed;
   }
 
-  /** Show the count as "loaded/total", so it is clear this is the top pages, not everything. */
-  private updateCitationsLabel(pane: HTMLDivElement) {
-    const state = (pane as any)._citationsState;
-    const label = pane.querySelector("#reference-num") as HTMLSpanElement;
-    const suffix = getString("citationsbox-number-label");
-    label.innerText = state.loaded < state.total
-      ? `${state.loaded}/${state.total} ${suffix}`
-      : `${state.total} ${suffix}`;
+  /**
+   * The hover card for a provider row (the "isShowTip" preference), shared by the
+   * sidebar's rows. Shows after a delay and lingers while the pointer moves onto it.
+   */
+  private attachTip(element: HTMLElement, candidate: LiteratureCandidate, item?: Zotero.Item): void {
+    const reference = {
+      identifiers: { ...(candidate.identifiers || {}) },
+      title: candidate.title,
+      text: candidate.text || candidate.title,
+      authors: candidate.authors || [],
+      year: candidate.year,
+      abstract: candidate.abstract,
+      primaryVenue: candidate.primaryVenue,
+      source: candidate.source,
+      tags: [],
+      _item: item,
+    } as unknown as ItemInfo;
+    const idText = Object.entries(candidate.identifiers || {})
+      .filter(([, value]) => value)
+      .map(([key, value]) => `${key}: ${value}`)[0] || "Reference";
+    const win = element.ownerDocument.defaultView!;
+    let timer: number | undefined;
+    let tipUI: TipUI | undefined;
+    element.addEventListener("mouseenter", () => {
+      if (!Zotero.Prefs.get(`${config.addonRef}.isShowTip`)) { return; }
+      element.classList.add("active");
+      const position = Zotero.Prefs.get("extensions.zotero.layout", true) == "stacked" ? "top center" : "left";
+      timer = win.setTimeout(() => {
+        const rect = element.getBoundingClientRect();
+        rect.x -= 5;
+        tipUI = this.showTipUI(rect, reference, position, idText);
+        if (!element.classList.contains("active")) { tipUI.container.style.display = "none"; }
+      }, TIP_SHOW_DELAY_MS);
+    });
+    element.addEventListener("mouseleave", () => {
+      element.classList.remove("active");
+      win.clearTimeout(timer);
+      if (!tipUI) { return; }
+      const current = tipUI;
+      const timeout = current.removeTipAfterMillisecond;
+      const list = element.closest(".unizero-sidebar__list");
+      current.tipTimer = win.setTimeout(async () => {
+        for (let i = 0; i < timeout / 2; i++) {
+          if (list?.querySelector(".active")) { return; }
+          await Zotero.Promise.delay(1 / 1000);
+        }
+        current.clear();
+      }, timeout / 2);
+    });
   }
 
   /** Resolve the reader that owns this item-pane section, not whichever tab is
@@ -1542,315 +1570,6 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
       if (reader) { return reader; }
     }
     return this.utils.getReader();
-  }
-
-  private renderReferenceSection(
-    body: HTMLDivElement,
-    item: Zotero.Item,
-    reader?: _ZoteroTypes.ReaderInstance,
-    showReaderControls: boolean = true,
-  ) {
-    // Zotero calls onRender repeatedly — scrolling, pane resizing, and item
-    // refreshes can all trigger it — while onAsyncRender is not guaranteed to run
-    // again alongside it. Rebuilding unconditionally produces this: the list has
-    // just loaded, a spare onRender wipes and rebuilds the DOM, auto-loading never
-    // fires again, and the section sits empty from then on. That is exactly the
-    // cause of "switch away and back in the library view, and Reference disappears
-    // and never loads".
-    const existing = body.querySelector(".zoference-section") as HTMLDivElement | null;
-    if (existing && (existing as any)._referenceItem?.id === item.id) {
-      if (reader) { (existing as any)._referenceReader = reader; }
-      for (const name of ["references", "citations"] as const) {
-        const pane = this.getPane(existing, name);
-        (pane as any)._referenceItem = item;
-        if (reader) { (pane as any)._referenceReader = reader; }
-      }
-      // onAsyncRender may not come round again, so trigger auto-loading here too.
-      // It has its own isAutoLoaded gate, so an already-loaded pane makes no
-      // duplicate requests.
-      void this.autoLoadReferences(this.getPane(existing, "references"), item).catch(
-        (error) => ztoolkit.log("auto load on re-render failed", error),
-      );
-      return;
-    }
-    body.querySelectorAll(".zoference-section").forEach((element) => element.remove());
-    // Zotero's main window is an XHTML (XML) document: createElement produces XUL
-    // elements and innerHTML goes through the XML parser. Elements must be created
-    // in the XHTML namespace explicitly.
-    const panel = body.ownerDocument.createElementNS(
-      "http://www.w3.org/1999/xhtml",
-      "div",
-    ) as HTMLDivElement;
-    panel.className = "zoference-section";
-    (panel as any)._referenceItem = item;
-    if (reader) {
-      (panel as any)._referenceReader = reader;
-    }
-    // Reference and Citations are two tabs of one section: the sidebar offers a
-    // single icon, both sets of data always concern the same paper, and splitting
-    // them into two sections would fragment the sidebar and the scroll position.
-    panel.innerHTML = showReaderControls ? `
-      <div class="reference-tab-pane" data-tab="references">
-        <div class="reference-main-list">
-          <div class="header">
-            <span id="reference-num">0 ${getString("relatedbox-number-label")}</span>
-            <div id="refresh-button" class="reference-button">${getString("relatedbox-refresh-label")}</div>
-          </div>
-          <div class="grid reference-grid"></div>
-          <div class="literature-open" data-kind="references" role="button" tabindex="0">${getString("literature-open-references-label") || "View all references ⤢"}</div>
-        </div>
-      </div>
-      <div class="reference-tab-pane is-hidden" data-tab="citations" hidden="hidden">
-        <div class="reference-main-list">
-          <div class="header">
-            <span id="reference-num">0 ${getString("citationsbox-number-label")}</span>
-            <div id="citations-refresh-button" class="reference-button">${getString("relatedbox-refresh-label")}</div>
-          </div>
-          <div class="grid reference-grid"></div>
-          <div class="literature-open" data-kind="citations" role="button" tabindex="0">${getString("literature-open-citations-label") || "View all citations ⤢"}</div>
-        </div>
-      </div>` : `<div class="reference-empty-state"></div>`;
-    body.append(panel);
-
-    if (!showReaderControls) { return; }
-
-    this.buildTabBar(panel);
-    panel.querySelectorAll(".reference-button").forEach(
-      (element) => this.styleAsButton(element as HTMLElement),
-    );
-    const referencesPane = this.getPane(panel, "references");
-    const citationsPane = this.getPane(panel, "citations");
-    // Each tab holds its own item context: the refresh* methods only look at their
-    // own pane and never search the whole section.
-    for (const pane of [referencesPane, citationsPane]) {
-      (pane as any)._referenceItem = item;
-      if (reader) { (pane as any)._referenceReader = reader; }
-    }
-
-    // Tab switching uses delegation plus mousedown in the capture phase: with a
-    // click handler on each button, the tab simply stops responding whenever
-    // Zotero's item pane swallows the click somewhere along the bubble path, or a
-    // section rebuild loses the listener.
-    const tabs = panel.querySelector(".reference-tabs") as HTMLDivElement;
-    tabs.addEventListener("mousedown", (event: Event) => {
-      const button = (event.target as HTMLElement)?.closest(".reference-tab") as HTMLElement | null;
-      if (!button) { return; }
-      event.preventDefault();
-      this.selectTab(panel, button.dataset.tab as "references" | "citations");
-    }, true);
-    this.selectTab(panel, this.lastActiveTab, true);
-
-    const countLabel = referencesPane.querySelector("#reference-num") as HTMLSpanElement;
-    countLabel.addEventListener("dblclick", () => {
-      const text = [...referencesPane.querySelectorAll(".reference-main-list .box #reference-label")]
-        .map((element) => element.textContent || "")
-        .filter(Boolean)
-        .join("\n");
-      if (!text) { return; }
-      this.utils.copyText(text, false);
-      new PanelStatus("Reference")
-        .createLine({ text: "Copy all references", type: "success" })
-        .show();
-    });
-
-    let timer: number | undefined;
-    const refreshButton = referencesPane.querySelector("#refresh-button") as HTMLElement;
-    refreshButton.addEventListener("mousedown", (event: MouseEvent) => {
-      timer = window.setTimeout(async () => {
-        timer = undefined;
-        await this.refreshReferences(referencesPane, false);
-      }, 1000);
-    });
-    refreshButton.addEventListener("mouseup", async (event: MouseEvent) => {
-      if (!timer) { return; }
-      window.clearTimeout(timer);
-      timer = undefined;
-      // Clicking refresh means wanting the latest: local=false bypasses the cache,
-      // re-runs the direct-DOI route, and overwrites what was stored.
-      await this.refreshReferences(referencesPane, false);
-    });
-    refreshButton.addEventListener("mouseleave", () => {
-      if (timer) {
-        window.clearTimeout(timer);
-        timer = undefined;
-      }
-    });
-
-    const citationsRefresh = citationsPane.querySelector("#citations-refresh-button") as HTMLElement;
-    citationsRefresh.addEventListener("click", async () => {
-      await this.refreshCitations(citationsPane, false, false);
-    });
-    panel.querySelectorAll(".literature-open").forEach((element) => {
-      const open = () => {
-        const kind = (element as HTMLElement).dataset.kind as LiteratureRelationKind;
-        const mainWindow = panel.ownerDocument.defaultView as Window | null;
-        if (mainWindow && this.explorerOpener) {
-          this.explorerOpener(mainWindow, item, kind);
-        }
-      };
-      element.addEventListener("click", open);
-      element.addEventListener("keydown", (event: Event) => {
-        const keyboard = event as KeyboardEvent;
-        if (keyboard.key === "Enter" || keyboard.key === " ") {
-          keyboard.preventDefault();
-          open();
-        }
-      });
-    });
-  }
-
-  /**
-   * Hide or show an element.
-   *
-   * Sets both the attribute and inline display: this section lives in Zotero's
-   * XHTML main window, where whether the `hidden` attribute alone takes effect
-   * depends on the host stylesheet, which is not worth betting on.
-   */
-  private setHidden(element: HTMLElement, hidden: boolean) {
-    element.hidden = hidden;
-    element.style.display = hidden ? "none" : "";
-  }
-
-  /**
-   * Dress a div up as a button.
-   *
-   * Every button in this section is a div: `<button>` simply does not render in
-   * Zotero 9's item pane — switching the tab bar from `<button>` to `<div>` made it
-   * visible immediately, which is how this was found. The same cause kept
-   * Citations' "Refresh" and "Load more" invisible.
-   */
-  private styleAsButton(element: HTMLElement) {
-    element.style.cssText = [
-      "display: inline-block", "padding: 3px 10px", "border-radius: 4px",
-      "cursor: pointer", "user-select: none", "text-align: center",
-      "font-size: inherit", "color: inherit", "white-space: nowrap",
-      "border: 1px solid rgb(128 128 128 / 40%)", "background: rgb(128 128 128 / 10%)",
-    ].join(";");
-    element.addEventListener("mouseenter", () => {
-      element.style.background = "rgb(128 128 128 / 22%)";
-    });
-    element.addEventListener("mouseleave", () => {
-      element.style.background = "rgb(128 128 128 / 10%)";
-    });
-  }
-
-  /**
-   * Build the tab bar.
-   *
-   * Deliberately avoids innerHTML, `<button>`, and any reliance on the injected
-   * stylesheet — each of the three could on its own explain a tab bar that does not
-   * appear (XML fragment parsing, the host's button styling, a stylesheet that
-   * never reached the item pane), and ruling them out one at a time takes several
-   * rounds. Building divs through the DOM API with inline styles eliminates all
-   * three at once.
-   */
-  private buildTabBar(panel: HTMLDivElement) {
-    const doc = panel.ownerDocument;
-    const create = (tag: string) =>
-      doc.createElementNS("http://www.w3.org/1999/xhtml", tag) as HTMLElement;
-
-    const bar = create("div");
-    bar.className = "reference-tabs";
-    bar.style.cssText = [
-      "display: flex", "gap: 2px", "padding: 2px 6px 6px",
-      "margin-bottom: 6px", "border-bottom: 1px solid rgb(128 128 128 / 30%)",
-    ].join(";");
-
-    for (const name of ["references", "citations"] as const) {
-      const tab = create("div");
-      tab.className = "reference-tab";
-      tab.dataset.tab = name;
-      tab.textContent = getString(name === "references" ? "tab-references-label" : "tab-citations-label")
-        // When Fluent has no match, show a recognisable word rather than a blank
-        // that looks like the tab bar failed to render.
-        || (name === "references" ? "References" : "Citations");
-      tab.style.cssText = [
-        "flex: 1", "text-align: center", "padding: 4px 8px",
-        "min-height: 20px", "border-radius: 4px", "cursor: pointer",
-        "user-select: none", "font-size: inherit", "color: inherit",
-      ].join(";");
-      bar.append(tab);
-    }
-
-    panel.prepend(bar);
-    ztoolkit.log("reference tab bar built", bar.childElementCount);
-  }
-
-  /**
-   * Switch tabs.
-   *
-   * Hiding sets all three of the `hidden` attribute, the `is-hidden` class, and
-   * inline display: this section lives in Zotero's XHTML main window, where any one
-   * of them alone can be overridden by the host stylesheet, which looks like a
-   * click that did nothing. The selection is recorded on
-   * `panel.dataset.activeTab` so a section rebuild returns to the tab the user was
-   * last on.
-   */
-  private selectTab(
-    panel: HTMLDivElement,
-    name: "references" | "citations",
-    restoring: boolean = false,
-  ) {
-    panel.dataset.activeTab = name;
-    panel.querySelectorAll(".reference-tab").forEach((element) => {
-      const tab = element as HTMLElement;
-      const active = tab.dataset.tab === name;
-      tab.classList.toggle("active", active);
-      // The active state is inline too: if the injected stylesheet never reached
-      // the item pane, both tabs would look identical.
-      tab.style.background = active ? "rgb(128 128 128 / 22%)" : "transparent";
-      tab.style.fontWeight = active ? "600" : "normal";
-      tab.style.opacity = active ? "1" : "0.7";
-    });
-    panel.querySelectorAll(".reference-tab-pane").forEach((element) => {
-      const pane = element as HTMLElement;
-      const hidden = pane.dataset.tab !== name;
-      pane.hidden = hidden;
-      pane.classList.toggle("is-hidden", hidden);
-      pane.style.display = hidden ? "none" : "";
-    });
-    this.lastActiveTab = name;
-    if (name !== "citations") { return; }
-    const citationsPane = this.getPane(panel, "citations");
-    if ((citationsPane as any)._citationsState) { return; }
-    // Restoring the Citations tab after a section rebuild reads the cache only and
-    // never the network: restoration happens passively, the user did not ask for a
-    // refresh, and firing two API calls on every item change burns quota for
-    // nothing.
-    if (restoring) {
-      if (!this.restoreCitationsFromCache(citationsPane)) {
-        const label = citationsPane.querySelector("#reference-num") as HTMLSpanElement;
-        label.innerText = getString("citationsbox-idle-label");
-      }
-      return;
-    }
-    // Data is fetched only when the user switches here deliberately: most of the
-    // time only references are wanted, and two extra API calls on every expansion
-    // are waste.
-    void this.refreshCitations(citationsPane, true).catch(
-      (error) => ztoolkit.log("citations lazy load failed", error),
-    );
-  }
-
-  /** Get a tab's container; falls back to the section itself so older call sites do not throw. */
-  private getPane(panel: HTMLDivElement, name: "references" | "citations"): HTMLDivElement {
-    return (panel.querySelector(`.reference-tab-pane[data-tab="${name}"]`) as HTMLDivElement) || panel;
-  }
-
-  /**
-   * Auto-load references when the section is expanded.
-   *
-   * The test is whether a usable data source exists, not whether a ZoMiner
-   * attachment does: with the direct-DOI route in place, an item with a DOI needs
-   * no attachment at all, and the old attachment test would shut all of them out.
-   */
-  private async autoLoadReferences(panel: HTMLDivElement, item: Zotero.Item) {
-    if (!item) { return; }
-    if (panel.getAttribute("isAutoLoaded") === "true") { return; }
-    const hasSource = Boolean(item.getField("DOI")) || Boolean(findReferencesAttachment(item));
-    if (!hasSource) { return; }
-    panel.setAttribute("isAutoLoaded", "true");
-    await this.refreshReferences(panel, true, true);
   }
 
   private async registerSplitButtons(reader: _ZoteroTypes.ReaderInstance) {
@@ -1945,186 +1664,6 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
   }
 
   /**
-   * Triggered by the refresh button.
-   * @param local whether reading from the local cache is allowed
-   * @returns
-   */
-  public async refreshReferences(panel: HTMLDivElement, local: boolean = true, silent: boolean = false) {
-    Zotero.ProgressWindowSet.closeAll();
-    let label = panel.querySelector("#reference-num") as HTMLSpanElement;
-    label.innerText = `${0} ${getString("relatedbox-number-label")}`;
-    // clear
-    panel.querySelectorAll(".reference-main-list .reference-grid > *").forEach(e => e.remove());
-    panel.querySelectorAll("#zoference-search").forEach(e => e.remove());
-
-    let references: ItemBaseInfo[] | undefined
-    // Captured from the multi-source fetch so the section's cache write keeps the
-    // per-source breakdown, letting the explorer open with its source picker ready.
-    let sectionPerSource: RelationSourceResult[] | undefined
-    let item = (panel as any)._referenceItem || this.utils.getItem() as Zotero.Item
-    if (!item) {
-      throw new Error("Reference panel has no item context");
-    }
-    // A resident shard makes this a no-op; it matters for the paths that reach a
-    // refresh without going through the section's async render, and after the
-    // resident set has evicted this item.
-    await localStorage.load(item);
-
-    // Highest priority: the local cache. A reference list does not change once
-    // settled, and the cost of redoing it is not in the direct-DOI call but in the
-    // hundreds of per-entry metadata requests that follow. Only local=false, i.e. a
-    // manual refresh, bypasses it.
-    let fromCache = false
-    const cached = local ? this.readReferencesCache(item) : undefined
-    this.lastLoadDiagnostic = {
-      at: new Date().toLocaleTimeString(),
-      itemKey: item.key,
-      itemTitle: String(item.getField("title") || "").slice(0, 60),
-      // The library view and the reader both go through this same
-      // refreshReferences yet behave differently, so record the context too — the
-      // difference can only come from these few arguments.
-      context: (panel as any)._referenceReader ? "reader" : "library",
-      local, silent,
-      cacheEnabled: this.isCacheEnabled("saveAPIReferences"),
-      cacheHit: Boolean(cached),
-      cachedResolved: cached?.resolved,
-      cachedCount: cached?.references?.length,
-    }
-    if (cached) {
-      references = cached.references
-      sectionPerSource = cached.perSource
-      fromCache = true
-      panel.setAttribute("source", cached.source)
-      label.title = `${cached.source} · ${new Date(cached.savedAt).toLocaleString()}`
-      if (!silent) {
-        (new PanelStatus(`[Saved] ${cached.source}`))
-          .createLine({ text: `${cached.references.length} references`, type: "success" })
-          .show()
-      }
-    }
-
-    // A DOI can query OpenAlex, Crossref, and S2; without one, a freshly enriched
-    // S2 Paper ID can still query Semantic Scholar directly. When both exist, the
-    // Paper ID is S2's exact entry point and avoids a DOI mapping to another
-    // version of the paper.
-    const identifiers = readItemPaperIdentifiers(item)
-    const itemDOI = identifiers.doi || ""
-    const semanticScholarPaperId = identifiers.semanticScholarPaperId || ""
-    this.lastLoadDiagnostic.doi = itemDOI
-    this.lastLoadDiagnostic.semanticScholarPaperId = semanticScholarPaperId
-    if (!references && (itemDOI || semanticScholarPaperId)) {
-      const popupWin = silent ? null : new PanelStatus("[Pending] API", { closeTime: -1 })
-      const lookupLabel = itemDOI && semanticScholarPaperId
-        ? "DOI + Semantic Scholar Paper ID"
-        : itemDOI ? "DOI" : "Semantic Scholar Paper ID"
-      popupWin?.createLine({ text: `Request references by ${lookupLabel}...`, type: "default" }).show()
-      const result = await fetchReferencesByIdentifiers(itemDOI, semanticScholarPaperId)
-      // Hovering the count shows how many each of the three returned — which is
-      // what distinguishes "this paper simply cites little" from "the source with
-      // the best coverage failed" when the list looks short.
-      this.lastLoadDiagnostic.engines = { ...referencesDiagnostics }
-      label.title = [
-        `OpenAlex: ${referencesDiagnostics.openAlex}`,
-        `Crossref: ${referencesDiagnostics.crossref}`,
-        `Semantic Scholar (${referencesDiagnostics.semanticScholarLookup || "no identifier"}): ` +
-          `${referencesDiagnostics.semanticScholar}`,
-      ].join("\n")
-      const referenceFailures = [
-        ["OpenAlex", referencesDiagnostics.openAlex],
-        ["Crossref", referencesDiagnostics.crossref],
-        ["Semantic Scholar", referencesDiagnostics.semanticScholar],
-      ].filter(([, status]) => String(status || "").startsWith("error:"))
-      if (result) {
-        references = result.references
-        sectionPerSource = result.perSource
-        panel.setAttribute("source", result.source)
-        popupWin?.changeHeadline(`[${result.source}]`)
-        popupWin?.changeLine({
-          text: referenceFailures.length
-            ? `${result.references.length} references; ` +
-              `${referenceFailures.map(([source]) => source).join(", ")} failed`
-            : `${result.references.length} references`,
-          type: referenceFailures.length ? "fail" : "success",
-        })
-      } else {
-        popupWin?.changeHeadline("[API]")
-        popupWin?.changeLine({
-          text: referenceFailures.length
-            ? `Reference lookup incomplete: ` +
-              `${referenceFailures.map(([source]) => source).join(", ")} failed`
-            : "No references found for these identifiers",
-          type: referenceFailures.length ? "fail" : "default",
-        })
-      }
-      popupWin?.startCloseTimer(3000)
-    }
-
-    // Fallback source: references extracted by ZoMiner into a JSON attachment. A
-    // pure extraction artifact, so title and authors come from local parsing.
-    const zomRefs = references?.length
-      ? null
-      : await this.parsedZoMinerReferences(item)
-    let usedZoMiner = false
-    if (zomRefs?.length) {
-      references = zomRefs
-      usedZoMiner = true
-      panel.setAttribute("source", "ZoMiner");
-      // Auto-loading fires on every section expansion and shows no message, since
-      // one popup per click would be noisy; only a manual refresh gives feedback.
-      if (!silent) {
-        (new PanelStatus("[ZoMiner]"))
-          .createLine({ text: `${references.length} references`, type: "success" })
-          .show()
-      }
-    }
-
-    const finalReferences: ItemBaseInfo[] = references || []
-    const referenceNum = finalReferences.length
-    // @ts-ignore
-    panel.references = finalReferences
-    const preview = previewEntries(finalReferences, SECTION_PREVIEW_LIMIT);
-    preview.forEach((reference: ItemBaseInfo, refIndex: number) => {
-      let { box } = this.addRow(
-        panel.querySelector(".reference-main-list") as HTMLDivElement,
-        preview,
-        refIndex,
-        true,
-        false,
-        false,
-      )!;
-      // @ts-ignore
-      box.reference = reference
-      label.innerText = `${refIndex + 1}/${referenceNum} ${getString("relatedbox-number-label")}`;
-    })
-
-    label.innerText = `${referenceNum} ${getString("relatedbox-number-label")}`;
-    void this.markSectionLibraryState(panel, preview, item);
-
-    const source = panel.getAttribute("source") || "API";
-    // Save an unresolved copy first. Resolving a batch of hundreds takes tens of
-    // seconds, while clicking through items one at a time in the library view is
-    // normal — writing the cache only after resolution completes would mean it is
-    // never written on the most common path, which looks like "the cache does
-    // nothing".
-    if (!fromCache || usedZoMiner) {
-      await this.saveReferencesCache(item, source, finalReferences, false, sectionPerSource);
-    }
-    // A cache entry that is already resolved is the end of it; a half-finished one
-    // continues with the remainder and then overwrites.
-    if (fromCache && cached?.resolved && !usedZoMiner) { return; }
-    // Not awaited: blocking would leave the section empty; each entry updates in
-    // place as it resolves.
-    this.resolveReferences(panel, finalReferences)
-      // Marked resolved only when the whole batch really reached the API. If some
-      // entries failed to throttling or a dropped connection, it stays
-      // half-finished and the next expansion completes the rest — otherwise a
-      // single 429 would be frozen in permanently.
-      .then((complete) =>
-        this.saveReferencesCache(item, source, finalReferences, complete, sectionPerSource))
-      .catch((error) => ztoolkit.log("resolve references failed", error));
-  }
-
-  /**
    * Fill Crossref "DOI-only" reference rows for the independent Explorer.
    *
    * Some publishers hand Crossref a reference carrying a DOI but no title, so
@@ -2210,102 +1749,6 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
     // Persist so the enrichment survives the session; unchanged runs (nothing
     // resolved) skip the write to avoid needless cache churn and a bumped savedAt.
     if (changed) { await persist(state); }
-  }
-
-  /**
-   * Use Crossref and OpenAlex to turn raw citations into structured metadata:
-   * DOI, title, authors, venue, year, abstract, and citation count.
-   *
-   * The reference objects are rewritten in place: `box.reference` in addRow points
-   * at the same object, and both the tooltip and the "+" import read it only when
-   * the interaction happens, so a completed lookup takes effect without rebuilding
-   * the row. That is also what makes "+" usable at all — it requires
-   * identifiers.DOI, and a raw citation usually has no DOI.
-   */
-  private async resolveReferences(panel: HTMLDivElement, references: ItemBaseInfo[]): Promise<boolean> {
-    const pending = references
-      .map((reference, index) => ({ reference, index }))
-      // The test is whether a title exists, not whether a DOI does:
-      //   - entries that already have one (returned directly by OpenAlex or S2) are
-      //     structured already, so another fuzzy-match round wastes requests and
-      //     could overwrite something correct with something wrong;
-      //   - Crossref references often contain entries with a DOI and no text at
-      //     all, which must be resolved or the list shows a blank line. Given a
-      //     DOI, resolveOne takes the authoritative lookup, not fuzzy matching.
-      .filter(({ reference }) => !reference.title && (reference.text || reference.identifiers?.DOI));
-    if (!pending.length) { return true; }
-    const label = panel.querySelector("#reference-num") as HTMLSpanElement | null;
-    const total = references.length;
-    const suffix = getString("relatedbox-number-label");
-    let done = 0;
-
-    const { failed } = await resolveMany(
-      pending.map(({ reference }) => ({
-        raw: reference.text || "",
-        identifiers: reference.identifiers,
-      })),
-      (position, info) => {
-        done += 1;
-        const { reference } = pending[position];
-        if (info) {
-          // A low-confidence result is a guess and may only be displayed. Writing
-          // identifiers would feed it into the "+" import path, which creates an
-          // item straight from the DOI — a wrong guess imports the wrong paper.
-          // The title must not be stored either: without a DOI, import looks one
-          // up from the title, with the same result.
-          if (info.lowConfidence) {
-            reference.lowConfidence = true;
-            reference.abstract = info.abstract || reference.abstract;
-            reference.source = info.source || reference.source;
-            if (!label) { return; }
-            label.innerText = done < pending.length
-              ? `${total} ${suffix} · ${done}/${pending.length}`
-              : `${total} ${suffix}`;
-            return;
-          }
-          if (info.identifiers.DOI) {
-            reference.identifiers = { ...reference.identifiers, DOI: info.identifiers.DOI };
-          }
-          reference.title = info.title || reference.title;
-          reference.authors = info.authors?.length ? info.authors : reference.authors;
-          reference.year = info.year || reference.year;
-          reference.primaryVenue = info.primaryVenue || reference.primaryVenue;
-          reference.abstract = info.abstract || reference.abstract;
-          reference.citations = info.citations ?? reference.citations;
-          reference.url = info.url || reference.url;
-          reference.source = info.source || reference.source;
-          // Crossref often returns reference entries with a DOI and no text, so
-          // the row is built with a placeholder. Once the real bibliographic data
-          // resolves, that row has to be replaced in place, or the list shows the
-          // DOI forever.
-          if (reference._placeholderText && info.title) {
-            reference.text = [
-              reference.authors?.length ? reference.authors.slice(0, 3).join(", ") : undefined,
-              reference.year,
-              reference.title,
-              reference.primaryVenue,
-            ].filter(Boolean).join(". ");
-            delete reference._placeholderText;
-            this.updateRowLabel(panel, reference);
-          }
-        }
-        if (!label) { return; }
-        label.innerText = done < pending.length
-          ? `${total} ${suffix} · ${done}/${pending.length}`
-          : `${total} ${suffix}`;
-      },
-    );
-    return failed === 0;
-  }
-
-  /** Replace a reference's row text with its current text; rows link to objects via box.reference. */
-  private updateRowLabel(panel: HTMLDivElement, reference: ItemBaseInfo) {
-    const boxes = [...panel.querySelectorAll(".reference-main-list .box")] as any[];
-    const box = boxes.find((node) => node.reference === reference);
-    const label = box?.querySelector("#reference-label") as HTMLLabelElement | undefined;
-    if (label) {
-      label.innerText = `[${reference.number ?? ""}] ${reference.text}`.replace(/^\[\]\s*/, "");
-    }
   }
 
   public showTipUI(refRect: Rect, reference: ItemInfo, position: string, idText?: string) {
@@ -2442,531 +1885,12 @@ Semantic Scholar (${citationsDiagnostics.semanticScholarLookup || "no identifier
           // official page; otherwise use whatever url the source supplied.
           info.identifiers.DOI
             ? `https://doi.org/${info.identifiers.DOI}`
-            : (info.url || this.utils.identifiers2URL(info.identifiers) || undefined)
+            : (info.url || this.utils.identifiers2URL(info.identifiers) || undefined),
+          // A paper already in the library opens there (its PDF), not on the web.
+          reference._item || undefined
         )
       })
     }
     return tipUI
-  }
-
-  private async markSectionLibraryState(
-    node: HTMLDivElement,
-    entries: ItemBaseInfo[],
-    item: Zotero.Item,
-  ): Promise<void> {
-    const memberships = await resolveLibraryMembership(item.libraryID, entries);
-    const boxes = [...node.querySelectorAll(".reference-grid .box")] as HTMLElement[];
-    boxes.forEach((box, index) => {
-      const localItem = memberships.get(entries[index]);
-      box.dataset.libraryState = localItem ? "in" : "out";
-      box.title = localItem
-        ? getString("literature-in-library-label") || "In Library"
-        : getString("literature-not-in-library-label") || "Not in Library";
-    });
-  }
-
-  public addRow(
-    node: HTMLDivElement,
-    references: ItemBaseInfo[],
-    refIndex: number,
-    addPrefix: boolean = true,
-    addSearch: boolean = true,
-    showRelationAction: boolean = true,
-  ) {
-    let notInLibarayOpacity: string|number = Zotero.Prefs.get(`${config.addonRef}.notInLibarayOpacity`) as string
-    if (/[\d\.]+/.test(notInLibarayOpacity)) {
-      notInLibarayOpacity = Number(notInLibarayOpacity);
-    } else {
-      notInLibarayOpacity = 1
-    }
-    let reference = references[refIndex]
-    // Non-blocking search
-    let refText: string
-    if (addPrefix) {
-      refText = `[${reference?.number || (refIndex + 1)}] ${reference.text}`
-    } else {
-      refText = reference.text!
-    }
-    // Avoid adding a duplicate row
-    let toText = (s: string) => s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "") 
-    if (
-      [...node.querySelectorAll(".box label")].find((e: any) => toText(e.innerText) == toText(refText))
-    ) {
-      return
-    }
-    // Identifier description
-    let idText = (
-      reference.identifiers
-      && Object.values(reference.identifiers).length > 0
-      && Object.keys(reference.identifiers)[0] + ": " + Object.values(reference.identifiers)[0]
-    ) || "Reference"
-    // Current item
-    const contextPanel = node.closest(".zoference-section") as any
-    let item = contextPanel?._referenceItem || this.utils.getItem()!
-    const box = ztoolkit.UI.createElement(
-      document,
-      "div",
-      {
-        namespace: "html",
-        classList: ["box", "zotero-clicky"],
-        listeners: [
-          {
-            type: "click",
-            listener: (event: any) => {
-              event.preventDefault()
-              event.stopPropagation()
-            }
-          },
-          {
-            type: "mouseup",
-            listener: async (event: any) => {
-              event.preventDefault()
-              event.stopPropagation()
-              // ctrl-click jumps to the local item or the url
-              if (event.ctrlKey || event.metaKey) {
-                if (reference._item) {
-                  return this.utils.selectItemInLibrary(reference._item)
-                } else {
-                  const localItem = await this.utils.searchLibraryItem(reference, item.libraryID)
-                  if (localItem) {
-                    return this.utils.selectItemInLibrary(localItem)
-                  }
-                }
-                let URL = reference.url
-                if (!URL) {
-                  const refText = reference.text!
-                  let info: ItemBaseInfo = this.utils.refText2Info(refText);
-                  const popupWin = (new PanelStatus("Searching URL", { closeTime: -1 }))
-                    .createLine({ text: `Title: ${reference.title}`, type: "default" })
-                    .show()
-                  let DOI = (await this.utils.API.getTitleInfoByConnectedpapers(reference.title as string))?.identifiers.DOI
-                  URL = this.utils.identifiers2URL({ DOI })
-                  popupWin.close()
-                }
-                if (URL) {
-                  (new PanelStatus("Launching URL", { closeOtherProgressWindows: true }))
-                    .createLine({ text: URL, type: "default" })
-                    .show()
-                  Zotero.launchURL(URL);
-                }
-              } else {
-                Zotero.ProgressWindowSet.closeAll()
-                this.utils.copyText((idText ? idText + "\n" : "") + refText, false);
-                (new PanelStatus("Reference"))
-                  .createLine({ text: refText, type: "success" })
-                  .show()
-              }
-            }
-          },
-        ],
-        styles: {
-          alignItems: "center",
-          opacity: String(notInLibarayOpacity),
-          paddingTop: "1px",
-          paddingBottom: "1px"
-        },
-        children: [
-          {
-            tag: "img",
-            attributes: {
-              src: Zotero.ItemTypes.getImageSrc(reference.type as any) as string
-            }
-          },
-          {
-            tag: "label",
-            id: "reference-label",
-            properties: {
-              innerText: refText
-            },
-            styles: {
-              width: "100%"
-            }
-          }
-        ]
-      }
-    ) as XUL.Element
-    const label = ztoolkit.UI.createElement(
-      document, 
-      "label",
-      {
-        id: "add-remove",
-        namespace: "xul",
-        attributes: {
-          value: "+"
-        },
-        classList: [
-          "zotero-clicky",
-          "zotero-clicky-plus"
-        ]
-      }
-    )
-
-    // Long-pressing a row used to turn it into a textarea for correcting the raw
-    // citation text. It was removed rather than repaired: the save wrote to a
-    // `References-<source>` key that nothing ever read back, so an edit survived
-    // until the next render and then silently reverted to the fetched text — and
-    // repairing it would have meant a second, user-authored tier of cache with its
-    // own overwrite and lifetime rules, for a correction the reference list is not
-    // the right place to make. Linking a reference to a real library item (the
-    // +/- control below) is unaffected: that writes Zotero relations, not cache.
-
-    let setState = (state: string = "") => {
-      switch (state) {
-        case "+":
-          label.setAttribute("class", "zotero-clicky zotero-clicky-plus");
-          label.setAttribute("value", "+");
-          label.style.opacity = "1";
-          break;
-        case "-":
-          label.setAttribute("class", "zotero-clicky zotero-clicky-minus");
-          label.setAttribute("value", "-");
-          label.style.opacity = "1";
-          break
-        case "":
-          label.setAttribute("value", "");
-          label.style.opacity = ".23";
-          break
-      }
-    }
-
-    let remove = async () => {
-      ztoolkit.log("removeRelatedItem");
-      const popunWin = new PanelStatus("Removing Item", {closeTime: -1})
-        .createLine({ text: refText, type: "default" })
-        .show()
-      setState()
-
-      let relatedItem = this.utils.searchRelatedItem(item, reference._item) as Zotero.Item
-      if (!relatedItem) {
-        popunWin.changeHeadline("Removed");
-        (node.querySelector("#refresh-button") as XUL.Button).click()
-        popunWin.startCloseTimer(3000)
-        return
-      }
-      relatedItem.removeRelatedItem(item)
-      item.removeRelatedItem(relatedItem)
-      await item.saveTx()
-      await relatedItem.saveTx()
-      setState("+")
-      popunWin.changeLine({ type: "success" })
-      popunWin.startCloseTimer(3000)
-    }
-
-    let add = async (collections: undefined | number[] = undefined) => {
-      let collapseText = (text: string) => {
-        let n
-        if (this.utils.isChinese(text)) {
-          n = 15
-        } else {
-          n = 35
-        }
-        return text.length > n ? (text.slice(0, n) + "...") : text
-      }
-      let popupWin = (new PanelStatus("Searching Item",
-        { closeTime: -1, closeOtherProgressWindows: true}))
-        .createLine({ text: collapseText(reference.text!), type: "default" })
-        .show()
-      // Check the local library
-      let refItem = reference._item || await this.utils.searchLibraryItem(reference, item.libraryID)
-      // Disable the button
-      setState()
-      if (refItem) {
-        popupWin.changeHeadline("Existing Item")
-        popupWin.changeLine({ text: collapseText(refItem.getField("title"))})
-      } else {
-        let info: ItemBaseInfo = this.utils.refText2Info(reference.text!);
-        // DOI or arXiv
-        {
-          // Fill in DOI information
-          if (Object.keys(reference.identifiers).length == 0) {
-            // The resolution layer could not identify this citation reliably (it
-            // scored below MIN_SCORE). Looking a DOI up from that guessed title
-            // would only amplify the error into a wrong library item.
-            if (reference.lowConfidence) {
-              setState("+");
-              popupWin.changeHeadline("Uncertain match")
-              popupWin.changeLine({ text: "Could not identify this reference reliably", type: "fail" })
-              popupWin.startCloseTimer(3000)
-              return
-            }
-            popupWin.changeHeadline("Searching DOI")
-            popupWin.changeLine({ text: collapseText(`Title: ${info.title!}`) })
-            let DOI = (await this.utils.API.getTitleInfoByConnectedpapers(info.title))?.identifiers.DOI as string
-            if (!this.utils.isDOI(DOI)) {
-              setState("+");
-              popupWin.changeLine({ type: "fail" })
-              popupWin.startCloseTimer(3000)
-              return
-            }
-            reference.identifiers = { DOI }
-          }
-          popupWin.changeHeadline("Creating Item")
-          popupWin.changeLine({ text: collapseText(`${Object.keys(reference.identifiers)}: ${Object.values(reference.identifiers)[0]}`) })
-          // done
-          if (await this.utils.searchRelatedItem(item, refItem)) {
-            popupWin.changeHeadline("Added Item")
-            popupWin.changeLine({ type: "success" });
-            popupWin.startCloseTimer(3000);
-            (node.querySelector("#refresh-button") as XUL.Button).click();
-            return
-          }
-          // search DOI in local
-          try {
-            // The target library follows the paper being read, not whichever
-            // library is selected in the left pane.
-            refItem = await this.utils.createItemByZotero(
-              reference.identifiers,
-              (collections || item.getCollections()),
-              item.libraryID,
-            )
-          } catch (e: any) {
-            popupWin.changeLine({ type: "fail" })
-            popupWin.startCloseTimer(3000)
-            setState("+")
-            ztoolkit.log(e)
-            return
-          }
-        }
-        for (let collectionID of (collections || item.getCollections())) {
-          refItem.addToCollection(collectionID)
-          await refItem.saveTx()
-        }
-      }
-      popupWin.changeHeadline("Adding Item")
-      popupWin.changeLine({ text: collapseText(refItem.getField("title")) })
-      // addRelatedItem
-      reference._item = refItem
-      item.addRelatedItem(refItem)
-      refItem.addRelatedItem(item)
-      await item.saveTx()
-      await refItem.saveTx()
-      // button
-      setState("-")
-      popupWin.changeLine({ type: "success" })
-      popupWin.startCloseTimer(3000)
-      updateRowByItem(refItem)
-    }
-
-    let updateRowByItem = (refItem: Zotero.Item) => {
-      box.style.opacity = "1";
-      box.querySelector("img")?.setAttribute("src", refItem.getImageSrc())
-      let alreadyRelated = this.utils.searchRelatedItem(item, refItem)
-      if (alreadyRelated) {
-        setState("-")
-      }
-    }
-
-    let timer: undefined | number, tipUI: TipUI;
-    if (notInLibarayOpacity < 1) {
-      window.setTimeout(async () => {
-        const refItem = reference._item ||
-          await this.utils.searchLibraryItem(reference, item.libraryID) as Zotero.Item
-        if (refItem) {
-          updateRowByItem(refItem)
-        }
-      }, refIndex * 0)
-    }
-    // Show the tooltip when the mouse enters
-    box.addEventListener("mouseenter", () => {
-      if (!Zotero.Prefs.get(`${config.addonRef}.isShowTip`)) { return }
-      box.classList.add("active")
-      const timeout = TIP_SHOW_DELAY_MS
-      const position = Zotero.Prefs.get("extensions.zotero.layout", true) == "stacked" ? "top center" : "left"
-      timer = window.setTimeout(async () => {
-        const winRect: Rect = document.documentElement.getBoundingClientRect()
-        const rect = box.getBoundingClientRect()
-        rect.x -= 5
-        tipUI = this.showTipUI(rect, reference, position, idText)
-        if (!box.classList.contains("active")) {
-          tipUI.container.style.display = "none"
-        }
-      }, timeout);
-    })
-
-    box.addEventListener("mouseleave", () => {
-      box.classList.remove("active")
-      window.clearTimeout(timer);
-      if (!tipUI) { return }
-      const timeout = tipUI.removeTipAfterMillisecond
-      tipUI.tipTimer = window.setTimeout(async () => {
-        // Watch for a continuous stretch with nothing active
-        for (let i = 0; i < timeout / 2; i++) {
-          if (rows.querySelector(".active")) { return }
-          await Zotero.Promise.delay(1 / 1000)
-        }
-        tipUI && tipUI.clear()
-      }, timeout / 2)
-    })
-
-    label.addEventListener("click", async (event: MouseEvent) => {
-      event.preventDefault()
-      event.stopPropagation()
-      const value = label.getAttribute("value")
-      if (value == "+") {
-        if (event.ctrlKey || event.metaKey) {
-          let rect = box.getBoundingClientRect()
-          // Build the collection picker
-          let menuPopup = document.createElementNS("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul", 'menupopup') as XUL.MenuPopup;
-          document.querySelector("#browser")!.append(menuPopup);
-          // List only collections from the current paper's library: picking one
-          // from another library could not be saved anyway.
-          let collections = Zotero.Collections.getByLibrary(item.libraryID);
-          for (let col of collections) {
-            let menuItem = Zotero.Utilities.Internal.createMenuForTarget(
-              col,
-              menuPopup,
-              null as any,
-              async (event: any, collection: any) => {
-                if (event.target.tagName == 'menuitem') {
-                  ztoolkit.log(collection)
-                  menuPopup.remove()
-                  await add([collection.id])
-                  event.stopPropagation();
-                }
-              }
-            );
-            menuPopup.append(menuItem);
-          }
-          // @ts-ignore
-          menuPopup.openPopupAtScreen(rect.left, rect.top + rect.height, true);
-        } else {
-          await add()
-        }
-      } else if (value == "-") {
-        await remove()
-      }
-    })
-
-    const rows = node.querySelector(".reference-grid")!
-
-    if (showRelationAction) {
-      rows.append(box, label);
-    } else {
-      rows.append(box);
-    }
-    let referenceNum = rows.childNodes.length
-    if (addSearch && referenceNum && !node.querySelector("#zoference-search")) { this.addSearch(node) }
-    // Height
-    const relatedGrid = node.querySelector(".reference-grid") as HTMLDivElement
-    relatedGrid.style.maxHeight = "60vh"
-    return {box, label}
-  }
-
-  public addSearch(node: HTMLDivElement) {
-    const searchBoxHeight = 10
-    const searchBox = ztoolkit.UI.insertElementBefore({
-      tag: "div",
-      id: "zoference-search",
-      classList: ["reference-search-box"],
-      styles: {
-        // width: "calc(100% - 35px)",
-        height: `${searchBoxHeight}px`,
-        padding: "5px",
-        borderRadius: "5px",
-        border: "1px solid #e0e0e0",
-        display: "flex",
-        flexDirection: "row",
-        alignItems: "center",
-        margin: ".5em 1em",
-        opacity: "0.8"
-      },
-      children: [
-        {
-          tag: "div",
-          styles: {
-            width: `${searchBoxHeight}px`,
-            height: `${searchBoxHeight}px`,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-          },
-          properties: {
-            innerHTML: `<svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="${searchBoxHeight}" height="${searchBoxHeight}"><path d="M1005.312 914.752l-198.528-198.464A448 448 0 1 0 0 448a448 448 0 0 0 716.288 358.784l198.4 198.4a64 64 0 1 0 90.624-90.432zM448 767.936A320 320 0 1 1 448 128a320 320 0 0 1 0 640z" fill="#5a5a5a"></path></svg>`
-          }
-        },
-        {
-          tag: "input",
-          styles: {
-            outline: "none",
-            border: "none",
-            width: "100%",
-            margin: "0 5px"
-          },
-          listeners: [
-            {
-              type: "focus",
-              listener: () => {
-                searchBox.style.opacity = "1"
-                searchBox.style.boxShadow = `0 0 0 1px rgba(0,0,0,0.5)`
-              }
-            },
-            {
-              type: "blur",
-              listener: () => {
-                searchBox.style.opacity = "0.8"
-                searchBox.style.boxShadow = ``
-              }
-            },
-            {
-              type: "keyup",
-              listener: async () => {
-                const keyword = inputNode.value as string
-                if (keyword.length > 0) {
-                  clearNode.style.display = ""
-                } else {
-                  clearNode.style.display = "none"
-                }
-                //   let text = (event.target as any).value
-                let keywords = keyword.split(/[ ,，]/).filter((e: any) => e)
-                ztoolkit.log(keywords)
-                node.querySelectorAll(".reference-grid *").forEach((e: any) => e.style.display = "")
-                if (keywords.length == 0) {
-                  return
-                }
-                node.querySelectorAll(".reference-grid .box").forEach((box: any) => {
-                  let content = (box.querySelector("#reference-label") as any).textContent
-                  let isAllMatched = true;
-                  for (let i = 0; i < keywords.length; i++) {
-                    isAllMatched = isAllMatched && content.toLowerCase().indexOf(keywords[i].toLowerCase()) >= 0
-                  }
-                  if (isAllMatched) {
-                    ztoolkit.log(content)
-                    box.style.display = ""
-                    box.nextElementSibling.style.display = ""
-                  } else {
-                    box.style.display = "none"
-                    box.nextElementSibling.style.display = "none"
-                  }
-                })
-              }
-            }
-          ]
-        },
-        {
-          tag: "div",
-          classList: ["icon", "clear"],
-          styles: {
-            width: `${searchBoxHeight}px`,
-            height: `${searchBoxHeight}px`,
-            display: "none"
-          },
-          properties: {
-            innerHTML: `<svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="${searchBoxHeight}" height="${searchBoxHeight}"><path d="M512.288 1009.984c-274.912 0-497.76-222.848-497.76-497.76s222.848-497.76 497.76-497.76c274.912 0 497.76 222.848 497.76 497.76s-222.848 497.76-497.76 497.76zM700.288 368.768c12.16-12.16 12.16-31.872 0-44s-31.872-12.16-44.032 0l-154.08 154.08-154.08-154.08c-12.16-12.16-31.872-12.16-44.032 0s-12.16 31.84 0 44l154.08 154.08-154.08 154.08c-12.16 12.16-12.16 31.84 0 44s31.872 12.16 44.032 0l154.08-154.08 154.08 154.08c12.16 12.16 31.872 12.16 44.032 0s12.16-31.872 0-44l-154.08-154.08 154.08-154.08z" fill="#5a5a5a" p-id="5698"></path></svg>`
-          },
-          listeners: [
-            {
-              type: "click",
-              listener: async () => {
-                inputNode.value = ""
-                clearNode.style.display = "none"
-                node.querySelectorAll(".reference-grid *").forEach((e: any) => e.style.display = "")
-              }
-            }
-          ]
-        },
-      ]
-    }, node.querySelector(".grid")!) as HTMLDivElement;
-    const inputNode = searchBox.querySelector("input") as HTMLInputElement
-    const clearNode = searchBox.querySelector(".clear") as HTMLInputElement
   }
 }

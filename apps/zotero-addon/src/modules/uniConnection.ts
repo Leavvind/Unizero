@@ -1,9 +1,10 @@
 /**
  * Purely derived, in-memory connections between papers in one Zotero library.
  *
- * The source of truth remains each item's References-Resolved-v4 cache shard.
- * UniConnection neither fetches nor writes relation data: it can be discarded and
- * rebuilt at any time from those forward edges.
+ * The sources of truth remain each item's References-Resolved-v4 cache shard and
+ * the user's excerpt notes (child notes tagged `unizero:excerpts`, see
+ * zotero/excerptNoteFormat.ts). UniConnection neither fetches nor writes relation
+ * data: it can be discarded and rebuilt at any time from those two inputs.
  */
 
 import { edgeIdentity } from "./edgeIdentity";
@@ -15,15 +16,34 @@ import {
 } from "./literatureCache";
 import { localStorage } from "./localStorage";
 import { libraryItemIdentity } from "../zotero/libraryScope";
+import { parseExcerptNote, type ExcerptRecord } from "../zotero/excerptNoteFormat";
+import {
+  excerptNoteRecord,
+  zoteroExcerptNoteSource,
+  type ExcerptNoteRecord,
+  type ExcerptNoteSource,
+} from "../zotero/excerptNoteSource";
 
 export type EdgeKey = string;
 export type ScopedItemKey = string;
 
 export interface RelationHit {
-  /** A library item whose References cache contains the queried paper. */
+  /**
+   * A library item that cites the queried paper: its References cache contains it,
+   * or its excerpt note has a section for it.
+   */
   scopedKey: ScopedItemKey;
   /** The citing item's own stable identity, when it has one. */
   edge?: EdgeKey;
+}
+
+/** Passages one paper quotes about another, from the citing paper's excerpt note. */
+export interface ExcerptGroup {
+  /** The other paper: the cited one for excerptsFrom, the citing one for excerptsAbout. */
+  scopedKey: ScopedItemKey;
+  /** The other paper is no longer a live item in this library (deleted or trashed). */
+  missing: boolean;
+  excerpts: ExcerptRecord[];
 }
 
 export interface CouplingHit {
@@ -60,6 +80,15 @@ interface LibraryIndex {
   itemsWithRefs: Set<ScopedItemKey>;
   /** Anonymous cache rows per item, retained so retract/update fixes diagnostics. */
   anonymousByItem: Map<ScopedItemKey, number>;
+  /** Excerpt note itemID -> what it contributes. Keyed by note, so edits replace. */
+  excerptNotes: Map<number, NoteExcerpts>;
+  /** Cited item -> excerpt notes with a section for it. */
+  excerptedBy: Map<ScopedItemKey, Set<number>>;
+}
+
+interface NoteExcerpts {
+  citing: ScopedItemKey;
+  sections: { cited: ScopedItemKey; excerpts: ExcerptRecord[] }[];
 }
 
 const READ_BATCH_SIZE = 32;
@@ -76,6 +105,8 @@ function emptyIndex(libraryID: number): LibraryIndex {
     selfEdge: new Map(),
     itemsWithRefs: new Set(),
     anonymousByItem: new Map(),
+    excerptNotes: new Map(),
+    excerptedBy: new Map(),
   };
 }
 
@@ -107,11 +138,29 @@ function isReferencesCache(value: unknown): value is ReferencesCache {
   );
 }
 
+/** Append passages under a key, skipping annotations already listed there. */
+function mergeExcerpts(
+  groups: Map<ScopedItemKey, ExcerptRecord[]>,
+  key: ScopedItemKey,
+  excerpts: ExcerptRecord[],
+): void {
+  const list = groups.get(key) || [];
+  for (const excerpt of excerpts) {
+    if (!list.some((known) => known.annotationKey === excerpt.annotationKey)) {
+      list.push(excerpt);
+    }
+  }
+  groups.set(key, list);
+}
+
 export class UniConnection {
   private indexes = new Map<number, LibraryIndex>();
   private builds = new Map<number, Promise<void>>();
 
-  public constructor(private readonly cache: CacheReader = localStorage) {}
+  public constructor(
+    private readonly cache: CacheReader = localStorage,
+    private readonly excerptSource: ExcerptNoteSource = zoteroExcerptNoteSource,
+  ) {}
 
   /**
    * Rebuild one library without touching the cache LRU.
@@ -163,6 +212,10 @@ export class UniConnection {
       });
     }
 
+    for (const record of await this.excerptSource.notes(libraryID)) {
+      this.ingestNote(next, record);
+    }
+
     this.indexes.set(libraryID, next);
   }
 
@@ -188,6 +241,32 @@ export class UniConnection {
       this.ingestReferences(index, item, record);
     }
     return true;
+  }
+
+  /**
+   * Re-index one note from its current HTML. A note that is no longer a live,
+   * tagged excerpt note (untagged, trashed, detached) is retracted instead. Like
+   * ingestItem, an unbuilt library is left for its lazy build unless asked.
+   */
+  public async ingestExcerptNote(
+    note: Zotero.Item,
+    buildIfMissing = true,
+  ): Promise<boolean> {
+    const index = buildIfMissing
+      ? await this.indexFor(note.libraryID)
+      : this.indexes.get(note.libraryID);
+    if (!index) { return false; }
+    this.retractNote(index, note.id);
+    const record = excerptNoteRecord(note);
+    if (record) { this.ingestNote(index, record); }
+    return true;
+  }
+
+  /** Drop one excerpt note's contribution, wherever it was indexed. */
+  public retractExcerptNote(noteID: number): void {
+    for (const index of this.indexes.values()) {
+      this.retractNote(index, noteID);
+    }
   }
 
   /** Remove every contribution made by one library item. */
@@ -223,15 +302,71 @@ export class UniConnection {
     const index = await this.indexFor(item.libraryID);
     const scopedKey = libraryItemIdentity(item);
     const self = index.selfEdge.get(scopedKey) || itemEdge(item);
-    if (!self) { return []; }
+    const citing = new Set<ScopedItemKey>(self ? index.inverted.get(self) || [] : []);
+    // An excerpt is the user saying "this paper cites that one", with or without a
+    // provider record of it and with or without the cited paper's own identifiers.
+    for (const noteID of index.excerptedBy.get(scopedKey) || []) {
+      const note = index.excerptNotes.get(noteID);
+      if (note && index.items.has(note.citing)) { citing.add(note.citing); }
+    }
 
-    return [...(index.inverted.get(self) || [])]
+    return [...citing]
       .filter((candidate) => candidate !== scopedKey)
       .sort()
       .map((candidate) => ({
         scopedKey: candidate,
         edge: index.selfEdge.get(candidate),
       }));
+  }
+
+  /**
+   * The passages this paper's excerpt note holds, grouped by cited paper in the
+   * note's own order. Sections for a paper no longer in the library stay, marked
+   * `missing`: the note still holds the user's text. Sections without a highlight
+   * are left out.
+   */
+  public async excerptsFrom(item: Zotero.Item): Promise<ExcerptGroup[]> {
+    const index = await this.indexFor(item.libraryID);
+    const citing = libraryItemIdentity(item);
+    const groups = new Map<ScopedItemKey, ExcerptRecord[]>();
+    const notes = [...index.excerptNotes]
+      .filter(([, note]) => note.citing === citing)
+      .sort(([left], [right]) => left - right);
+    for (const [, note] of notes) {
+      for (const section of note.sections) {
+        // A heading with no highlight under it (only the user's own text) quotes nothing.
+        if (section.excerpts.length) { mergeExcerpts(groups, section.cited, section.excerpts); }
+      }
+    }
+    return [...groups].map(([scopedKey, excerpts]) => ({
+      scopedKey,
+      missing: !index.items.has(scopedKey),
+      excerpts,
+    }));
+  }
+
+  /**
+   * Library papers whose excerpt notes quote this paper, with those passages. A
+   * section with no highlight left still makes its paper a citer (relationsOf),
+   * but quotes nothing, so it is not listed here.
+   */
+  public async excerptsAbout(item: Zotero.Item): Promise<ExcerptGroup[]> {
+    const index = await this.indexFor(item.libraryID);
+    const cited = libraryItemIdentity(item);
+    const groups = new Map<ScopedItemKey, ExcerptRecord[]>();
+    const noteIDs = [...(index.excerptedBy.get(cited) || [])].sort((left, right) => left - right);
+    for (const noteID of noteIDs) {
+      const note = index.excerptNotes.get(noteID);
+      if (!note || note.citing === cited || !index.items.has(note.citing)) { continue; }
+      for (const section of note.sections) {
+        if (section.cited === cited && section.excerpts.length) {
+          mergeExcerpts(groups, note.citing, section.excerpts);
+        }
+      }
+    }
+    return [...groups]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([scopedKey, excerpts]) => ({ scopedKey, missing: false, excerpts }));
   }
 
   /**
@@ -331,6 +466,43 @@ export class UniConnection {
       }
       citingItems.add(scopedKey);
     }
+  }
+
+  private ingestNote(index: LibraryIndex, record: ExcerptNoteRecord): void {
+    if (record.libraryID !== index.libraryID) { return; }
+    const sections: NoteExcerpts["sections"] = [];
+    for (const section of parseExcerptNote(record.html)) {
+      // Cross-library excerpts are out of scope: the cited paper must share the
+      // citing paper's library, so its key is meaningful here.
+      if (section.target.scope !== record.scope) { continue; }
+      sections.push({
+        cited: `${record.libraryID}:${section.target.itemKey}`,
+        excerpts: section.excerpts,
+      });
+    }
+    index.excerptNotes.set(record.noteID, {
+      citing: `${record.libraryID}:${record.citingKey}`,
+      sections,
+    });
+    for (const section of sections) {
+      let notes = index.excerptedBy.get(section.cited);
+      if (!notes) {
+        notes = new Set();
+        index.excerptedBy.set(section.cited, notes);
+      }
+      notes.add(record.noteID);
+    }
+  }
+
+  private retractNote(index: LibraryIndex, noteID: number): void {
+    const note = index.excerptNotes.get(noteID);
+    if (!note) { return; }
+    for (const section of note.sections) {
+      const notes = index.excerptedBy.get(section.cited);
+      notes?.delete(noteID);
+      if (!notes?.size) { index.excerptedBy.delete(section.cited); }
+    }
+    index.excerptNotes.delete(noteID);
   }
 
   private retractFrom(index: LibraryIndex, scopedKey: ScopedItemKey): void {

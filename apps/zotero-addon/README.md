@@ -23,8 +23,13 @@ window.
 **Literature data**
 
 - Metadata candidate lookup and identifier updates.
-- Compact References and Citations item-pane previews; per-paper Markdown-conversion and
-  cache status with quick actions and relation drill-down.
+- An item-pane References / Citations section. References: one search over the list
+  and the library, `+` to add a missing paper, and citation excerpts — drag a highlight
+  (or text selected in the PDF) onto a reference to attach that passage. Citations come
+  from the library alone, with no provider call: papers quoting this one first, then
+  those whose cached References contain it.
+- Per-paper Markdown-conversion and cache status with quick actions and relation
+  drill-down.
 - A Relation view per paper: which library papers cite it, and which share the most of its
   references — both derived locally with no extra network access.
 - Filtering discovered works by library status, influence, year, publication type, and
@@ -58,7 +63,7 @@ else runs without it.
 ### Legacy: Unizero Home
 
 A tabbed window with one tab per paper and its full References, Relation and Citations
-tables, opened from the item pane's "View all" links or the item context menu.
+tables, opened from the item-pane section's ⤢ button or the item context menu.
 Maintenance traps: [LEGACY_HOME.md](../../docs/LEGACY_HOME.md).
 
 ## Source map
@@ -97,6 +102,7 @@ their load-bearing constraints are in [AGENTS.md](../../AGENTS.md#zotero-constra
 | Paper catalog and citation observations | `<Zotero data dir>/unizero/literature/` |
 | Zotero item ↔ Obsidian URL bindings | `<Zotero data dir>/unizero/markdown-links/<libraryID>.json` |
 | Extracted PDF bibliography | Owned `ZoMiner References` JSON attachment (`unizero:references`) |
+| Citation excerpts (user-chosen passages per cited paper) | Child note of the citing paper tagged `unizero:excerpts` |
 | Preferences | Zotero preference branch, defaults in `addon/prefs.js` |
 
 The derived relation index is memory-only and rebuilt on demand. Completed empty Citations

@@ -16,7 +16,7 @@ the active front end.
 | `apps/mcp-server` | Maintained | Agent tools over the same bridge; reads only files `GET /artifacts` names |
 | `services/paper-runtime` | Optional | Python document-processing service |
 | Unizero Home (per-paper References / Relation / Citations window) in `addon/chrome/content` | **Legacy** | Do not extend or redesign unless the task names Home |
-| Item-pane literature UI | Background | Maintain when a task touches them |
+| Item-pane References / Citations (`src/ui/literatureSidebar.ts`) | Maintained | Where citation excerpts are attached; see `docs/UNICONNECTION.md` |
 
 Two unrelated boundaries, never merged:
 
@@ -48,7 +48,8 @@ those surfaces.
 8. **Lifecycle is symmetric.** Every menu, pane, listener, observer, style, and window
    hook has a matching cleanup.
 9. **Derived state is rebuildable.** The relation index is recomputed from the reference
-   cache, never written back to item shards, and carries no Zotero display fields.
+   cache and the user's excerpt notes (`unizero:excerpts`), never written back to item
+   shards or notes, and carries no Zotero display fields.
 10. **Dialogs talk through their window API bridge** (`window.arguments[0]`); they never
     import bundle modules.
 11. **The bridge is mostly read-only and never fetches unbidden.** GET endpoints do not

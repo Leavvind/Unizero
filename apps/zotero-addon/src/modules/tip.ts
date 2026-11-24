@@ -277,12 +277,28 @@ export default class TipUI {
     document.documentElement.appendChild(this.container)
   }
 
+  /** Open a library item's best attachment (its PDF, normally); select the item when it has none. */
+  private async openItem(item: Zotero.Item): Promise<void> {
+    try {
+      const attachment = item.isRegularItem() ? await item.getBestAttachment() : undefined
+      if (attachment) {
+        await Zotero.getActiveZoteroPane().viewAttachment(attachment.id)
+        return
+      }
+    } catch (error) {
+      ztoolkit.log("[tip] opening the attachment failed", error)
+    }
+    this.utils.selectItemInLibrary(item)
+  }
+
   /**
    * @param title the title
    * @param tags the tags
    * @param descriptions description lines, usually venue, year, and authors
    * @param content the body, usually the abstract
    * @param titleURL link behind the title; clicking opens it in the browser
+   * @param titleItem the library item this card describes; when set, clicking the
+   *   title opens its PDF (or best attachment) instead, or selects it if it has none
    * @returns
    */
   public addTip(
@@ -293,8 +309,10 @@ export default class TipUI {
     according: string,
     index: number,
     prefIndex?: number,
-    titleURL?: string
+    titleURL?: string,
+    titleItem?: Zotero.Item
   ) {
+    const titleLink = Boolean(titleItem || titleURL)
     const isSelect = (
       (index !== undefined && prefIndex !== undefined && index == prefIndex) ||
       this.container.querySelector("#option-container")!.childNodes.length == 0
@@ -321,19 +339,27 @@ export default class TipUI {
               fontSize: "1.15em",
               lineHeight: "1.35",
               color: this.theme.title,
-              cursor: titleURL ? "pointer" : "",
-              textDecoration: titleURL ? "underline" : "",
-              textDecorationStyle: titleURL ? "dotted" : "",
+              cursor: titleLink ? "pointer" : "",
+              textDecoration: titleLink ? "underline" : "",
+              textDecorationStyle: titleLink ? "dotted" : "",
               textUnderlineOffset: "3px"
             },
             directAttributes: {
               innerText: title
             },
-            attributes: titleURL ? { title: titleURL } : {},
+            attributes: titleItem
+              ? { title: "Open in Zotero" }
+              : titleURL ? { title: titleURL } : {},
             listeners: [
               {
                 type: "click",
                 listener: () => {
+                  if (titleItem) {
+                    this.clear()
+                    Zotero.ProgressWindowSet.closeAll()
+                    void this.openItem(titleItem)
+                    return
+                  }
                   if (!titleURL) { return }
                   Zotero.ProgressWindowSet.closeAll();
                   (new PanelStatus("Launching URL"))

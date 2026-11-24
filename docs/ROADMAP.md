@@ -14,6 +14,16 @@ and [ARCHITECTURE.md](ARCHITECTURE.md). Landed items are removed, not annotated.
 - **Literature exploration.** Discover papers, sort results, and follow related papers
   from notes. The next concrete feature still needs to be chosen.
 
+## Citation excerpts
+
+Design: [UNICONNECTION.md](UNICONNECTION.md).
+
+- **Reorder excerpts.** Drag a passage within its row; the writer already takes an
+  insertion index.
+- **Unizero Home rebuild.** The item-pane interaction with room for full tables, as a
+  type-checked dialog bundle; Home stops being legacy when this lands.
+- **Obsidian detail pane.** Show `excerpts` from `GET /relations` (read-only).
+
 ## Raw Markdown
 
 - **Annotations into Raw.** Annotation injection writes to vault Markdown only; Raw is

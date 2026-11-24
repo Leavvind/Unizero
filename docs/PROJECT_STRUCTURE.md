@@ -98,8 +98,10 @@ data are not part of this structure.
 | Change a menu or panel integration | `apps/zotero-addon/src/ui/` |
 | Read-only Markdown/Canvas source discovery | `apps/zotero-addon/src/zotero/linkSources.ts` |
 | Read or mutate Zotero items/attachments | `apps/zotero-addon/src/zotero/` |
-| Change References, Citations, or metadata UI | `apps/zotero-addon/src/modules/` |
+| Change the item-pane References / Citations section | `apps/zotero-addon/src/ui/literatureSidebar.ts` (rows: `literatureSidebarModel.ts`) |
+| Change References / Citations data or metadata UI | `apps/zotero-addon/src/modules/` |
 | Change the derived relation index | `apps/zotero-addon/src/modules/uniConnection.ts` |
+| Change the citation-excerpt note format or its writer | `apps/zotero-addon/src/zotero/excerptNoteFormat.ts`, `excerptNotes.ts` |
 | Change index maintenance or reference backfill | `apps/zotero-addon/src/modules/uniConnectionSync.ts` |
 | Change Paper catalog persisted shapes | `apps/zotero-addon/src/projects/` |
 | Change cached or persisted add-on state | `apps/zotero-addon/src/modules/localStorage.ts` |

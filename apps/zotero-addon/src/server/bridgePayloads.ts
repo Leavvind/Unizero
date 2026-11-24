@@ -14,6 +14,8 @@ import {
   readItemPaperIdentifiers,
 } from "../modules/itemIdentifiers";
 import type { LiteratureCandidate, LiteratureSnapshot } from "../modules/literatureRelations";
+import type { ExcerptGroup } from "../modules/uniConnection";
+import type { ExcerptRecord } from "../zotero/excerptNoteFormat";
 import {
   attachmentSummary,
   literatureItemsInScope,
@@ -179,6 +181,36 @@ export interface BridgeRelations {
   count: number;
   hasMore: boolean;
   items: BridgeRelatedPaper[];
+  /**
+   * The user's own quoted passages (capability `excerpts`), independent of the
+   * provider cache, so present even when `loaded` is false. For `references`, one
+   * group per paper this one quotes; for `citations`, one group per library paper
+   * quoting this one. Absent for `relation` and from older add-ons.
+   */
+  excerpts?: BridgeExcerptGroup[];
+}
+
+export interface BridgeExcerpt {
+  annotationKey: string;
+  /** The PDF attachment holding the annotation. */
+  attachmentKey?: string;
+  pageLabel?: string;
+  /** Snapshot of the quoted text; still present after the annotation is deleted. */
+  text: string;
+  /** `zotero://open-pdf/…?page=…&annotation=…`, when the PDF is known. */
+  open?: string;
+}
+
+export interface BridgeExcerptGroup {
+  libraryID: number;
+  itemKey: string;
+  /** False when that paper is no longer a live item; its passages are still listed. */
+  inLibrary: boolean;
+  title: string;
+  authors: string[];
+  year?: string;
+  citekey?: string;
+  excerpts: BridgeExcerpt[];
 }
 
 function stringField(item: Zotero.Item, field: string): string {
@@ -201,6 +233,15 @@ function venueOf(item: Zotero.Item): string | undefined {
     stringField(item, "bookTitle") ||
     stringField(item, "repository") ||
     undefined;
+}
+
+function creatorNames(item: Zotero.Item): string[] {
+  return item.getCreators()
+    .map((creator) => [creator.firstName, creator.lastName]
+      .map((part) => String(part || "").trim())
+      .filter(Boolean)
+      .join(" "))
+    .filter(Boolean);
 }
 
 export async function bridgePaperFromItem(
@@ -226,12 +267,7 @@ export async function bridgePaperFromItem(
     libraryID: item.libraryID,
     itemKey: String(item.key),
     title: stringField(item, "title"),
-    authors: item.getCreators()
-      .map((creator) => [creator.firstName, creator.lastName]
-        .map((part) => String(part || "").trim())
-        .filter(Boolean)
-        .join(" "))
-      .filter(Boolean),
+    authors: creatorNames(item),
     year: yearOf(item),
     itemType: Zotero.ItemTypes.getName(item.itemTypeID),
     venue: venueOf(item),
@@ -384,6 +420,50 @@ export function bridgeRelationsUnloaded(
     hasMore: false,
     items: [],
   };
+}
+
+function excerptOpenLink(scope: string, excerpt: ExcerptRecord): string | undefined {
+  if (!excerpt.attachmentKey) { return; }
+  // `page` is a position in the PDF. A page label is the printed number (often a
+  // journal's), not a position, so without pageIndex only the annotation is named.
+  const page = excerpt.pageIndex !== undefined ? String(excerpt.pageIndex + 1) : undefined;
+  const query = [page ? `page=${page}` : "", `annotation=${encodeURIComponent(excerpt.annotationKey)}`]
+    .filter(Boolean).join("&");
+  return `zotero://open-pdf/${scope}/items/${excerpt.attachmentKey}?${query}`;
+}
+
+/** Project UniConnection's excerpt groups, adding display fields from live items. */
+export function bridgeExcerptGroups(
+  libraryID: number,
+  groups: ExcerptGroup[],
+  citekeyOf: (libraryID: number, itemID: number) => string | undefined,
+): BridgeExcerptGroup[] {
+  const scope = libraryScope(libraryID);
+  return groups.flatMap((group) => {
+    const separator = group.scopedKey.indexOf(":");
+    const itemKey = group.scopedKey.slice(separator + 1);
+    if (Number(group.scopedKey.slice(0, separator)) !== libraryID || !itemKey) { return []; }
+    const found = group.missing
+      ? undefined
+      : Zotero.Items.getByLibraryAndKey(libraryID, itemKey) as Zotero.Item | false;
+    const item = found && !found.deleted ? found : undefined;
+    return [{
+      libraryID,
+      itemKey,
+      inLibrary: Boolean(item),
+      title: item ? stringField(item, "title") : "",
+      authors: item ? creatorNames(item) : [],
+      year: item ? yearOf(item) : undefined,
+      citekey: item ? citekeyOf(libraryID, item.id) : undefined,
+      excerpts: group.excerpts.map((excerpt) => ({
+        annotationKey: excerpt.annotationKey,
+        attachmentKey: excerpt.attachmentKey,
+        pageLabel: excerpt.pageLabel,
+        text: excerpt.text,
+        open: excerptOpenLink(scope, excerpt),
+      })),
+    }];
+  });
 }
 
 /** One Zotero library the consumer can scope a collection list to. */

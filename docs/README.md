@@ -15,7 +15,7 @@ Two kinds of document live here, and they are read differently.
 | [LEGACY_SUPPORT.md](LEGACY_SUPPORT.md) | Current state | You are about to remove or bypass a compatibility reader |
 | [ROADMAP.md](ROADMAP.md) | Plan | You are looking for unfinished work |
 | [LEGACY_HOME.md](LEGACY_HOME.md) | Maintenance (legacy surface) | Only if a task explicitly touches Unizero Home |
-| [UNICONNECTION.md](UNICONNECTION.md) | Design and handoff | A task touches the derived reverse-reference index |
+| [UNICONNECTION.md](UNICONNECTION.md) | Design (Chinese) | A task touches the derived reverse-reference index, citation excerpts, or the item-pane References / Citations section |
 | [UNIZERO_LINKS_DESIGN.md](UNIZERO_LINKS_DESIGN.md) | Design constraints (Chinese) | Changing UniZero links, Vault UIDs, document-link indexing, or Backlinks; it also holds the open host-check ledger |
 
 Component behaviour and commands are documented next to the code:

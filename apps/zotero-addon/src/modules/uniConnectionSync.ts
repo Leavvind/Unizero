@@ -43,8 +43,10 @@ interface CachePort {
 
 interface ConnectionPort {
   ingestItem(item: Zotero.Item, buildIfMissing?: boolean): Promise<boolean>;
+  ingestExcerptNote(note: Zotero.Item, buildIfMissing?: boolean): Promise<boolean>;
   retract(scopedKey: string): void;
   retractItemID(itemID: number): number | undefined;
+  retractExcerptNote(noteID: number): void;
 }
 
 interface FillTask {
@@ -233,6 +235,7 @@ export class UniConnectionSync {
 
     if (event === "delete") {
       for (const itemID of itemIDs) {
+        this.connection.retractExcerptNote(itemID);
         const indexedLibraryID = this.connection.retractItemID(itemID);
         const extra = extraForID(extraData, itemID);
         const libraryID = Number(extra?.libraryID ?? indexedLibraryID);
@@ -250,6 +253,16 @@ export class UniConnectionSync {
     for (const itemID of itemIDs) {
       try {
         const item = await this.getItem(itemID);
+        if (item?.isNote?.()) {
+          // Any note may have gained or lost the excerpt tag; ingest re-reads or
+          // retracts as appropriate. Never builds an unbuilt library.
+          if (event === "trash" || item.deleted) {
+            this.connection.retractExcerptNote(item.id);
+          } else {
+            await this.connection.ingestExcerptNote(item, false);
+          }
+          continue;
+        }
         if (!item?.isRegularItem?.()) { continue; }
         this.invalidateMembership(item.libraryID);
         if (event === "trash" || item.deleted) {

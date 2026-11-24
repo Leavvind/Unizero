@@ -11,6 +11,7 @@
  */
 
 import { UniConnection } from "../src/modules/uniConnection";
+import type { ExcerptNoteRecord } from "../src/zotero/excerptNoteSource";
 
 export interface Ids {
   doi?: string;
@@ -67,7 +68,18 @@ export function installLibrary(items: any[]): void {
   };
 }
 
-export function makeConnection(papers: Paper[]): { uc: UniConnection; cache: FakeCache } {
+/** Excerpt notes served to a UniConnection build; tests push into `records`. */
+export class FakeExcerptSource {
+  records: ExcerptNoteRecord[] = [];
+  async notes(libraryID: number): Promise<ExcerptNoteRecord[]> {
+    return this.records.filter((record) => record.libraryID === libraryID);
+  }
+}
+
+export function makeConnection(
+  papers: Paper[],
+  excerpts = new FakeExcerptSource(),
+): { uc: UniConnection; cache: FakeCache; excerpts: FakeExcerptSource } {
   installLibrary(papers.map((paper) => paper.item));
   const cache = new FakeCache();
   for (const paper of papers) {
@@ -76,7 +88,7 @@ export function makeConnection(papers: Paper[]): { uc: UniConnection; cache: Fak
       refCacheFor(paper.item, paper.edges),
     );
   }
-  return { uc: new UniConnection(cache), cache };
+  return { uc: new UniConnection(cache, excerpts), cache, excerpts };
 }
 
 export const scoped = (item: any): string => `${item.libraryID}:${item.key}`;
@@ -102,12 +114,12 @@ export function sampleLibrary() {
   const eb = "doi:10/b";
   const ec = "doi:10/c";
   const ex = "doi:10/x";
-  const { uc, cache } = makeConnection([
+  const { uc, cache, excerpts } = makeConnection([
     { item: A, edges: [eb, ec, ""] },
     { item: B, edges: [ec, ex] },
     { item: C, edges: [ex] },
     { item: D, edges: [eb, ex] },
     { item: E, edges: [] },
   ]);
-  return { uc, cache, A, B, C, D, E };
+  return { uc, cache, excerpts, A, B, C, D, E };
 }

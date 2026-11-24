@@ -39,7 +39,7 @@ function findVisiblePanel(win?: Window): HTMLElement | undefined {
   const doc = (win ?? (Zotero as any).getMainWindow?.())?.document
     ?? (typeof document !== "undefined" ? document : undefined);
   if (!doc) { return; }
-  const panels = [...doc.querySelectorAll(".zoference-section")] as HTMLElement[];
+  const panels = [...doc.querySelectorAll(".unizero-sidebar")] as HTMLElement[];
   // A null offsetParent means it lives in a hidden tab; the reader gives every tab
   // its own item pane.
   return panels.find((panel) => panel.isConnected && panel.offsetParent !== null)
@@ -68,7 +68,7 @@ function ensureBar(panel: HTMLElement): HTMLElement {
   const progress = create(doc, "div", "reference-status-progress");
   progress.append(create(doc, "div", "reference-status-progress-bar"));
   bar.append(progress);
-  const tabs = panel.querySelector(".reference-tabs");
+  const tabs = panel.querySelector(".unizero-sidebar__tabs");
   // Placed below the tab bar: both tabs share one bar, so switching tabs does not
   // make an in-progress message disappear.
   if (tabs) { tabs.after(bar); } else { panel.prepend(bar); }

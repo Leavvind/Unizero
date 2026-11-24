@@ -9,7 +9,8 @@ vi.mock("../src/modules/referencesApi", () => ({ fetchReferencesByIdentifiers: v
 vi.mock("../src/modules/citationsApi", () => ({ fetchCitationsByIdentifiers: vi.fn(), citationsDiagnostics: {} }));
 vi.mock("../src/modules/resolve", () => ({ resolveMany: vi.fn() }));
 vi.mock("../src/modules/zomReferences", () => ({ readZoMinerReferences: vi.fn() }));
-vi.mock("../src/modules/uniConnection", () => ({ uniConnection: { ingestItem: vi.fn(), relationsOf: vi.fn().mockResolvedValue([]), coupledWith: vi.fn().mockResolvedValue([]) } }));
+vi.mock("../src/modules/uniConnection", () => ({ uniConnection: { ingestItem: vi.fn(), relationsOf: vi.fn().mockResolvedValue([]), coupledWith: vi.fn().mockResolvedValue([]),
+  excerptsFrom: vi.fn().mockResolvedValue([]), excerptsAbout: vi.fn().mockResolvedValue([]) } }));
 vi.mock("../src/projects/paperCatalog", () => ({ recordCatalogDiscoverySnapshot: vi.fn(), recordCatalogExternalDiscoverySnapshot: vi.fn() }));
 vi.mock("../src/zotero/literatureItemAdapter", () => ({}));
 vi.mock("../src/features/conversion/commands", () => ({}));
@@ -69,7 +70,8 @@ describe("bridge cache projection", () => {
     expect(JSON.parse(hit[2])).toMatchObject({ loaded: true, count: 1, libraryID: 2 });
     vi.mocked(localStorage.get).mockReturnValue(undefined);
     const miss = await endpoint.init({ query });
-    expect(JSON.parse(miss[2])).toMatchObject({ loaded: false, count: 0 });
+    // The user's excerpts do not depend on the provider cache: present on a miss too.
+    expect(JSON.parse(miss[2])).toMatchObject({ loaded: false, count: 0, excerpts: [] });
     expect(cached).toHaveBeenCalledTimes(2);
     expect(fetching).not.toHaveBeenCalled();
     expectReadOnly();

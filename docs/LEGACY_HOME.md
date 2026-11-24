@@ -13,9 +13,9 @@
 - A tabbed window with one tab per open paper. Each tab shows that paper's References,
   Relation, or Citations table, with source, library-status, influence, year,
   publication-type and order filters, per-source refresh, and import of missing papers.
-- Entry: the item pane's "View all references / citations" links and the item context
-  menu. Opening another paper of the same library adds a tab; opening one from another
-  library replaces the tabs. Closing the last tab closes the window.
+- Entry: the ⤢ button in the item pane's References / Citations section and the item
+  context menu. Opening another paper of the same library adds a tab; opening one from
+  another library replaces the tabs. Closing the last tab closes the window.
 - No provider call on open: a paper with nothing cached shows a fetch prompt.
 
 The Project View, Board, per-paper Graph tab and their stores were removed. Their files

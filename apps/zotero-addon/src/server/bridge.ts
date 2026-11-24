@@ -62,6 +62,7 @@ import { LinkSourceDirectory, SourceDirectoryError } from "./linkSourceDirectory
 import { runtimeClient } from "../runtime-client/client";
 import { health } from "../runtime-client/process";
 import type Views from "../modules/views";
+import { uniConnection } from "../modules/uniConnection";
 import type { LiteratureRelationKind } from "../modules/literatureRelations";
 import {
   BRIDGE_API_VERSION,
@@ -70,6 +71,7 @@ import {
   bridgeCollectionItems,
   bridgeCollections,
   bridgePaperFromItem,
+  bridgeExcerptGroups,
   bridgeRelationsFromSnapshot,
   bridgeRelationsUnloaded,
 } from "./bridgePayloads";
@@ -303,6 +305,7 @@ async function handlePing(): Promise<BridgeResponse> {
       "markdown-attachments",
       "link-sources",
       "link-targets",
+      "excerpts",
     ],
     ready: Boolean(activeViews()),
   });
@@ -375,12 +378,28 @@ async function handleRelations(query: RequestQuery): Promise<BridgeResponse> {
   const snapshot = fetch
     ? await views.getLiteratureSnapshot(found.item, kind, false, { recordDiscovery: false })
     : await views.getCachedLiteratureSnapshot(found.item, kind);
-  if (!snapshot) { return json(200, bridgeRelationsUnloaded(subject, kind)); }
-  return json(200, bridgeRelationsFromSnapshot(
-    subject,
-    snapshot,
-    citekeyForLibraryItem,
-  ));
+  const relations = snapshot
+    ? bridgeRelationsFromSnapshot(subject, snapshot, citekeyForLibraryItem)
+    : bridgeRelationsUnloaded(subject, kind);
+  // The user's quoted passages come from their notes, not the providers, so they
+  // are answered whether or not the provider cache is loaded. They are an
+  // addition: if reading them fails, the relations still answer, without the
+  // field, as an older add-on would.
+  if (kind !== "relation") {
+    try {
+      const groups = kind === "references"
+        ? await uniConnection.excerptsFrom(found.item)
+        : await uniConnection.excerptsAbout(found.item);
+      relations.excerpts = bridgeExcerptGroups(
+        found.item.libraryID,
+        groups,
+        citekeyForLibraryItem,
+      );
+    } catch (error) {
+      ztoolkit.log("[bridge] reading excerpts failed", error);
+    }
+  }
+  return json(200, relations);
 }
 
 async function handleSuggest(query: RequestQuery): Promise<BridgeResponse> {

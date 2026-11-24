@@ -65,7 +65,7 @@ artifact publishing, and Markdown annotation injection require the local runtime
 | Lifecycle | `src/hooks.ts`, `src/core/` | Register and clean up features per window |
 | Features | `src/features/` | Commands and user-facing orchestration |
 | Bridge | `src/server/` | Endpoints for Obsidian and the MCP server; see [Bridge contract](#bridge-contract) |
-| UI | `src/ui/`, `src/modules/views.ts` | Menus, panes, dialogs, progress |
+| UI | `src/ui/`, `src/modules/views.ts` | Menus, panes, dialogs, progress; the item-pane References / Citations section (`literatureSidebar.ts`) gets its data from `views.ts` |
 | Dialog content | `addon/chrome/content/` | Privileged XHTML: panel, **legacy** Home |
 | Zotero adapters | `src/zotero/` | Read and mutate Zotero items and attachments |
 | Providers | `src/modules/*Api.ts`, `src/modules/resolve.ts` | Scholarly HTTP access and normalization |
@@ -114,7 +114,7 @@ Load-bearing properties:
 - **Additions are announced, not versioned.** A new endpoint, parameter, or payload
   field is announced by a ping capability (`templates`, `canvas`, `trash`,
   `restore-raw`, `subcollections`, `artifacts`, `markdown-attachments`, `link-sources`,
-  `link-targets`) and keeps `BRIDGE_API_VERSION` at 2. A
+  `link-targets`, `excerpts`) and keeps `BRIDGE_API_VERSION` at 2. A
   client checks the capability; an older add-on ignores an unknown parameter.
 - **Generated files are named by the add-on.** `GET /artifacts` lists a paper's PDFs
   and its `unizero:<kind>` attachments with their source PDF and local path. The MCP
@@ -141,6 +141,11 @@ Load-bearing properties:
 - **No unrequested provider traffic.** Relations answer from cache. A miss is
   `loaded: false` so the caller can prompt; only explicit `fetch=1` may hit the network.
   Rendering a note must never start conversion or provider work.
+- **Excerpts ride along with relations.** `GET /relations` adds `excerpts` for
+  `references` (passages this paper quotes, per cited paper) and `citations` (library
+  papers quoting this one). They come from the user's excerpt notes through
+  UniConnection, so they are present even when `loaded` is false. The bridge has no
+  endpoint that writes them.
 - **Identity.** Persisted citations use `libraryID` + `itemKey`. A citekey is a derived
   alias and may collide; ambiguity is reported, never resolved silently.
 
@@ -186,8 +191,8 @@ Papers never are.
 ## Derived relations index
 
 `UniConnection` is a derived layer. It owns no truth: everything it holds is recomputed
-from the per-item `References-Resolved-v4` caches and from item identifiers, so it can be
-discarded and rebuilt at any time.
+from the per-item `References-Resolved-v4` caches, from item identifiers, and from the
+user's citation-excerpt notes, so it can be discarded and rebuilt at any time.
 
 One reverse index answers every query it serves — the Relation tab, bibliographic
 coupling, and (via the bridge) Obsidian’s detail pane — so a change to how edges are
@@ -203,7 +208,11 @@ Rules this layer keeps:
 - **The index spans all edges, not just library members.** Library filtering happens at
   query time.
 - **Bulk builds read shards directly**, bypassing the cache’s small resident set.
-- **Maintenance is incremental.** `uniConnectionSync` registers a Zotero notifier.
+- **Maintenance is incremental.** `uniConnectionSync` registers a Zotero notifier;
+  it also re-reads or retracts excerpt notes as they change.
+- **Excerpts are item-to-item.** An excerpt note section names a cited item in the
+  citing paper's own library; `relationsOf` counts it as citing even without a
+  provider edge. Sections pointing into another library are ignored.
 - **Reference writes are ordered before topology reads.** A References refresh awaits the
   cache write and `ingestItem` before the bridge resolves.
 
@@ -255,8 +264,9 @@ Neither component reaches through an HTTP boundary to reuse the other’s implem
 | Bibliographic fields and item relations | Zotero items |
 | Stable library/external paper identity and Zotero bindings | UniZero Paper catalog |
 | Highlight and underline annotations | Zotero attachment annotations |
+| Citation excerpts (passages of A attached to a paper A cites) | A's child note tagged `unizero:excerpts`; written only by `src/zotero/excerptNotes.ts` |
 | Provider responses | Refreshable add-on cache, one shard per item |
-| Reverse-reference index and coupling | Derived from the reference cache; rebuildable, never authoritative |
+| Reverse-reference index and coupling | Derived from the reference cache and excerpt notes; rebuildable, never authoritative |
 | Conversion templates and jobs | Paper runtime |
 | Work files and processing records | Runtime home |
 | Published Markdown | User-selected filesystem destination |
