@@ -1,38 +1,36 @@
 # UniConnection — 派生关系索引与引用摘句
 
-> 中文设计文档。**一个纯派生层：用全库每篇论文已缓存的 References，以及用户亲手挑选的
-> 引用摘句（Excerpts），建库内引用关系索引。** 条目面板的 References / Citations、
-> Unizero Home 的 Relation 与 bridge 详情都是只读消费者。
+> 中文设计约束文档。**纯派生层：用每篇论文已缓存的 References 与用户手工挑选的引用摘句
+> （Excerpts）建立库内引用关系索引。** 条目面板、UniConnection full、Unizero Home 与
+> bridge 都是只读消费方。
 
 ## 状态
 
 | 部分 | 状态 | 落点 |
-|---|---|---|
+| --- | --- | --- |
 | 内存索引 + 增量维护 | 在用 | `src/modules/uniConnection.ts`、`uniConnectionSync.ts` |
-| 摘句：笔记格式、写入、索引、bridge 字段 | 在用 | `src/zotero/excerptNote*.ts`、`excerptAnnotations.ts`；`src/server/` |
-| 条目面板 References / Citations | 在用 | `src/ui/literatureSidebar.ts`、`literatureSidebarModel.ts` |
-| Relation（Home）/ Obsidian 详情 | 在用 | `views.ts` + bridge |
-| 摘句排序、Home 重建、Obsidian 展示摘句 | 未做 | [ROADMAP.md](ROADMAP.md#citation-excerpts) |
+| 摘句笔记格式、写入、bridge 字段 | 在用 | `src/zotero/excerptNote*.ts`、`excerptAnnotations.ts`、`src/server/` |
+| 条目面板与 full 窗口（§5.1–5.3） | 在用 | `src/ui/literatureSidebar*.ts`、`uniConnectionFull.ts` |
+| Unizero Home（§5.4） | 在用 | `src/ui/unizeroHome*.ts`、`excerptPairs`、`referencesLoadedAt`、`src/zotero/uniConnectionActivity.ts` |
+| bridge `relation` / Obsidian 详情 | 在用 | `src/modules/views.ts`、`src/server/` |
+| 摘句排序、Obsidian 展示摘句与计数 | 未做 | [ROADMAP.md](ROADMAP.md#citation-excerpts) |
 
-现行行为：[ARCHITECTURE.md](ARCHITECTURE.md)。§1 的约束最该反复读。
+现行架构总览见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-## 1. 关键约束（必须遵守）
+## 1. 关键约束
 
-1. **纯派生、不抓取、不写回。** 只消费两种来源：`References-Resolved-v4` 分片，和带
-   `unizero:excerpts` 标签的摘句笔记（§4）。真相永远在这两处；反向边不写回被引论文
-   的分片，也不写进被引论文的任何笔记。
-2. **哑边不能当端点。** `edgeIdentity` 对没有 DOI/arXiv/paperID 的条目返回
-   `undefined`——用标题拼 key 会把不同论文悄悄合并。摘句边不需要 EdgeKey：两端都是
-   库内条目，直接用 ScopedItemKey。
-3. **索引建在所有边上，不只库内成员。** 库内过滤只在查询时施加。
-4. **索引不含 Zotero 字段。** 只存 ScopedItemKey 与 EdgeKey；title、year 等由
-   消费方从 Zotero 条目富化。摘句例外地携带原文快照（它本就是用户内容）。
-5. **批量 build 走分片直读，不走 LRU。** resident 只有 32；全库 `load` 会淘汰交互集。
+1. **纯派生、不抓取、不写回。** 只消费 `References-Resolved-v4` 分片与带
+   `unizero:excerpts` 标签的子笔记（§4）；反向边绝不写回被引论文的分片或笔记。
+2. **哑边不能当端点。** `edgeIdentity` 对缺少 DOI / arXiv / S2 `paperID` 的条目返回
+   `undefined`（用标题拼 key 会静默合并同名异文）。摘句边两端都是库内条目，直接用
+   `ScopedItemKey`。
+3. **索引建在所有边上，库内过滤在查询时施加。**
+4. **索引不含 Zotero 显示字段。** 只存 `ScopedItemKey` 与 `EdgeKey`（摘句例外保留用户原文快照），标题、年份由消费方在展示时富化。
+5. **批量 `build` 走分片直读，绕过 32 条驻留 LRU。**
 6. **单篇路径读缓存前必须 `await load(item)`。**
-7. **多库隔离。** ScopedItemKey 一律带 `libraryID`。摘句的被引端必须与引用端同库。
-8. **身份变更走 retract + ingest。** 事后补 DOI 会改变 self-edge。
-9. **写入先于读取。** References 刷新 await 缓存写入与 `ingestItem` 之后 bridge 才
-   resolve；摘句写入同理，先 `ingestExcerptNote` 再返回。
+7. **多库隔离。** `ScopedItemKey` 一律含 `libraryID`；摘句引用端与被引端必须同库。
+8. **身份变更走 `retract` + `ingest`**（事后补 DOI 会改变 `selfEdge`）。
+9. **写入先于读取。** References 刷新须 `await` 缓存写入与 `ingestItem` 后再返回；摘句写完立即 `ingestExcerptNote`。
 
 ## 2. 结构与查询
 
@@ -40,61 +38,38 @@
 type EdgeKey = string;       // "doi:…" | "arxiv:…" | "s2:…"
 type ScopedItemKey = string; // `${libraryID}:${itemKey}`
 
-// References 层
-inverted:  Map<EdgeKey, Set<ScopedItemKey>>;
-forward:   Map<ScopedItemKey, Set<EdgeKey>>;
-selfEdge:  Map<ScopedItemKey, EdgeKey>;
-
-// 摘句层（§4），按笔记存，笔记改动整体替换
-excerptNotes: Map<number /* 笔记 itemID */, {
+inverted:     Map<EdgeKey, Set<ScopedItemKey>>;
+forward:      Map<ScopedItemKey, Set<EdgeKey>>;
+selfEdge:     Map<ScopedItemKey, EdgeKey>;
+excerptNotes: Map<number /* note itemID */, {
   citing: ScopedItemKey;
   sections: { cited: ScopedItemKey; excerpts: ExcerptRecord[] }[];
 }>;
-excerptedBy:  Map<ScopedItemKey /* 被引 */, Set<number /* 笔记 itemID */>>;
+excerptedBy:  Map<ScopedItemKey /* cited */, Set<number /* note itemID */>>;
 ```
 
-查询：
+- `relationsOf(P)`：库内谁引用了 P（References 缓存含 P，或摘句笔记含 P 的节）。
+- `coupledWith(P)`：与 P 共享参考文献最多的库内论文。
+- `excerptsFrom(A)` / `excerptsAbout(B)`：A 挂在各被引文献下的句子 / 库内提到 B 的句子。
+- `excerptPairs(libraryID)`：全库所有 `(citing → cited)` 摘句对，与上面两项同源。
 
-- `relationsOf(P)` — 库内谁引用了 P：References 缓存含 P，或摘句笔记有 P 的一节；
-- `coupledWith(P)` — 与 P 共享参考最多的库内论文；
-- `excerptsFrom(A)` — A 的每篇被引文献下挂了哪些句子；
-- `excerptsAbout(B)` — 库内哪些论文、用哪些句子提到了 B。
-
-**为什么是 References 而不是 Citations：** References 有界且已缓存；Citations 无界。
-库内关联边受库大小限制，可精确本地计算。
+**为什么建在 References 而不是 Citations 上：** 单篇 References 有界且已缓存，Citations 无界；库内反向引用受文库规模限制，可本地精确计算。
 
 ## 3. 明确不做
 
-- 把反向边写回被引论文的分片。
-- 用标题给哑边造 key。
-- 把 Citations 拉全当作图原料。
-- 摘句指向库外论文（先加入 Zotero，§4.1）；跨库摘句。
-- 全库总览图、管理表、单篇 Graph 标签、Board hover 提示（已删除，不恢复）。
-- 暂不做：索引落盘水位线（库大到重建卡顿时再做）。
+- 反向边写回分片、用标题拼边 key、拉全量 Citations 建图。
+- 跨库摘句，或直接对库外论文挂摘句（须先点 `+` 加入同库）。
+- 已退役的全库图谱、单篇 Graph 标签与旧 Board 视图（不恢复）；索引落盘待大库实测卡顿再议。
 
 ## 4. 引用摘句（Excerpts）
 
-### 4.1 是什么
+### 4.1 定位与前置条件
 
-读论文 A 的 PDF 时，用户把 A 中提到 B 的句子（Zotero 批注）挂到 A 的 References 里
-B 那一行下面。之后：
+摘句是**用户亲手挑选的内容**（读 A 的 PDF 时把提到 B 的批注挂到 B 名下），不能存进会被刷新覆盖的 References 缓存。被引方 B 必须是与 A 同库的常规条目：库外条目先用行内 `+` 入库；不在 provider References 里的同库条目通过顶部统一搜索关联。
 
-- A 的 References：B 那一行可展开，看到这些句子；挂过句子的行排在最前；
-- B 的 Citations：最上面是“库里谁、用哪几句提到了我”，点句子跳回 A 的 PDF 对应批注；
-- `relationsOf(B)` 计入 A，即使 A 的 References 缓存里没有 B。
+### 4.2 存储格式（A 的子笔记）
 
-句子是**用户自己选的内容**，不是派生数据，所以不存进 References 缓存（会被刷新覆盖）。
-
-**被引的 B 必须已在库中，且与 A 同库。** 三种情况：
-
-1. A 的 References 里有 B、B 不在库：行上的 `+` 加入 Zotero，再挂句子；
-2. A 的 References 里没有 B、B 在库：顶部搜索（References 与整个库一起搜）找到 B；
-3. 都没有：用户自己把 B 加进 Zotero，回到情况 2。
-
-### 4.2 存储：A 的一条子笔记
-
-每篇引用方 A 至多一条摘句笔记：A 的子笔记，带自动标签 `unizero:excerpts`（所有权按
-标签，不按标题）。每篇被引文献一节，节内是 Zotero 原生的批注引用：
+每篇引用方 A 至多一条带 `unizero:excerpts` 标签的子笔记（按标签认所有权，不靠标题），随 Zotero 同步，卸载插件后仍可读可跳；被引方 B 永远只读：
 
 ```html
 <div data-schema-version="9">
@@ -105,88 +80,55 @@ B 那一行下面。之后：
 </div>
 ```
 
-- **节的身份 = `<h2>` 里的 `zotero://select/…/items/KEY` 链接。** 超链接在用户手改后仍保留；
-  自定义 `data-*` 属性可能被笔记编辑器清掉，不依赖它。标题文字只是显示。
-- **句子的身份 = `data-annotation` 里的 `annotationKey`。** 同时保存原文快照、页码、
-  所在 PDF（`attachmentURI`）。批注被删后句子仍在，跳转退化为按页打开。
-- **随 Zotero 同步；卸载 UniZero 仍可读、可点。**
-- 只写在引用方 A 身上；B 永远只读。
-- 解析宽松：用户手改、增删段落、加自己的文字都不让整条笔记失效；无法识别的内容原样
-  保留，写入只做定点插入 / 删除，不整体重写。
+- **节身份 = `<h2>` 内 `zotero://select/…/items/KEY` 链接**（编辑器可能剥掉自定义 `data-*`，但保留超链接；标题文字仅作显示）。
+- **句身份 = `data-annotation` 内的 `annotationKey`**，同时保存文本快照、页码与 `attachmentURI`；原批注删除后句子仍在，跳转退化为按页打开。
+- **宽松解析与定点编辑**：无法识别的用户手写段落原样保留，插入/删除只改目标节点，不整篇重写。
 
-### 4.3 写入
+### 4.3 写入与回滚
 
-都在 `src/zotero/excerptNotes.ts`，串行化：
+集中在 `src/zotero/excerptNotes.ts` 串行执行（bridge 不提供写端点）：
 
-- `addExcerpt(A, B, annotation, index?)`：校验 B 是同库常规条目、批注属于 A 的 PDF、
-  库可编辑；没有笔记就创建；没有 B 的节就追加一节；同一批注在同一节内不重复。
-- `removeExcerpt(A, B, annotationKey)`：只删那条高亮及紧随的引注；段落里用户自己的
-  文字或图片保留，段落空了才整段删除，节空了才删标题。A 有多条摘句笔记（两台设备
-  同步前各建一条）时逐条尝试；一条都没改动则返回 false，侧栏据此提示用户手动删除。
-- 拖放先整体校验（来源 PDF、可写、有文字），再创建高亮；中途失败会擦除本次新建的高亮。
-- 写完立即 `ingestExcerptNote`（约束 9）。
+- `addExcerpt(A, B, annotation, index?)`：校验同库常规条目、批注属于 A 的 PDF、库可写；同节内同一 `annotationKey` 去重。从 PDF 直接拖选文字松手时先整体校验，再建 `unizero:excerpt` 高亮批注，中途失败回滚新建的高亮。
+- `removeExcerpt(A, B, annotationKey)`：仅移除对应高亮及紧随引注，保留同段用户手写内容；段落或节为空时再清理。多设备同步产生多条摘句笔记时逐条尝试，均未命中返回 `false` 交由界面提示。
 
-Bridge 不提供写入端点；Obsidian 只读展示。
+### 4.4 索引边界
 
-### 4.4 索引与维护
+- `uniConnectionSync` 监听笔记增删改与标签变动。
+- 被引条目 B 被删或进回收站时，`excerptsFrom(A)` 标 `missing: true` 保留展示，不静默丢弃。
+- 只剩 `<h2>` 标题、高亮被删光的节：不进入 `excerptsFrom` / `excerptsAbout`，但 `relationsOf` 仍计入引用关系。
 
-- `build(libraryID)` 同时扫描该库带 `unizero:excerpts` 标签的笔记。
-- `uniConnectionSync` 的条目观察者对笔记也生效：带标签的笔记 add / modify → 重新解析；
-  标签被移除、笔记进回收站或删除 → retract。
-- 被引条目 B 被删除或进回收站：`excerptsFrom(A)` 仍报告这一节，标为 `missing`，
-  不静默丢弃（笔记里的数据还在）。
-- 只剩标题、没有高亮的节（用户删光了高亮但留下自己的文字）：不出现在 `excerptsFrom` /
-  `excerptsAbout` 里，但 `relationsOf` 仍把 A 计为 B 的引用方。
+### 4.5 Bridge 输出
 
-### 4.5 Bridge
+`GET /relations` 附带可选字段 `excerpts`（ping 能力 `excerpts`）：`loaded: false` 时照常返回，读取异常时省略该字段而不影响主响应。跳转链接 `zotero://open-pdf/…` 的 `page` 参数只取物理页 `pageIndex`；仅有印刷页码 `pageLabel` 时只带 `annotation`。
 
-`GET /relations` 带可选字段 `excerpts`（ping 能力 `excerpts`，版本不变）：
-
-- `kind=references`：A 挂过句子的被引文献，每组一个被引条目；
-- `kind=citations`：库内提到 B 的引用方，每组一个引用条目；
-- provider 缓存未加载（`loaded: false`）时也返回——它不依赖 provider；
-- 读取摘句失败时省略该字段，relations 本身照常返回。
-
-每句带 `annotationKey`、`attachmentKey`、`pageLabel`、`text` 和
-`zotero://open-pdf/…?page=…&annotation=…` 跳转链接。`page` 只取自高亮的 `pageIndex`
-（PDF 中的位置）；只有印刷页码 `pageLabel` 时链接只带 `annotation`。
-
-## 5. 界面
+## 5. 界面与宿主约束
 
 ### 5.1 条目面板 References / Citations
 
-独立 UI 模块；`views.ts` 只通过 `LiteratureSidebarPort` 提供数据，`PanelStatus` 挂在
-这一区块上。
+`LiteratureSidebar` 经 `LiteratureSidebarPort` 从 `views.ts` 取数：
 
-**行**
+- **References**：挂过摘句的行置顶（含不在 provider 列表中但已手工摘句的同库文献）；顶部搜索同时过滤当前列表并检索全库；拖放到库外行时提示先点 `+`，绝不在拖放中途静默建条目。
+- **Citations（纯本地）**：仅展示 `excerptsAbout(B)` 与 `relationsOf(B)`，刷新只重读本地索引，不请求 provider。
 
-- 每行最多两行（作者年份 + 标题，超出省略），展开后显示全文；
-- 在库 / 不在库用行左侧细色线区分，不在库的行文字略淡、带 `+`；
-- 挂过句子的行可展开：点句子跳回 PDF，× 删除；
-- 悬停卡片的标题：库内文献打开其 PDF（无附件则在库中选中），库外文献打开 DOI 页；
-- Ctrl/Cmd 点击：库内文献在库中选中，库外文献打开 DOI 页。
+### 5.2 表面拆分
 
-**References**
+| 表面 | 范围 | 宿主 | 说明 |
+| --- | --- | --- | --- |
+| UniConnection sidebar | 单篇论文 | 条目面板区块 | `LiteratureSidebar`（`sidebar` 布局） |
+| UniConnection full | 单篇论文 | 独立窗口 | 同一个 `LiteratureSidebar`（`full` 布局），侧重并排拖放摘句 |
+| Unizero Home | 文库 / 分类 | 主窗口标签页 | 按最近改动查看论文与手工摘句网络 |
 
-- 挂过句子的行最前（含 A 的 References 里没有、手动关联的被引文献），其余按 provider
-  顺序，默认显示前 15 条，末尾“显示全部”；
-- 顶部统一搜索：同时过滤列表并搜整个库，库内命中放在“来自文库”分组；
-- 挂句子：① 从批注栏拖一条批注；② 直接从 PDF 拖选中文字——松手时在 A 的 PDF 上建
-  一条高亮批注（标签 `unizero:excerpt`），再挂到行上。拖到不在库的行上提示先点 `+`，
-  不在拖放时建条目；
-- 打开即读缓存；缓存缺失且有 DOI / S2 ID / ZoMiner 参考文献时自动获取；缺标题的缓存行
-  在后台继续解析。⟳ 从 provider 重新获取。
+Zotero 端不再保留 Relation 标签页，但 `coupledWith` 与 bridge `kind=relation` 仍为 Obsidian 详情面板和 MCP 工具保留。
 
-**Citations：只读文库，不联网**
+### 5.3 UniConnection full
 
-- 顶部 `excerptsAbout(B)`（默认展开），下面是 `relationsOf(B)` 里其余的库内论文，按年份
-  新→旧；⟳ 只重读本地索引；
-- 只有已加载过 References 的论文才会出现；provider 的 Citations 留在 Home 与 bridge
-  `fetch=1`。
+- **无脚本窗口壳**：`uniconnection-full.xhtml` 不含脚本，bundle 经 `window.arguments[0]` 的 `onLoad` / `onUnload` 把 `LiteratureSidebar` 画入窗口，无独立构建入口；至多一扇，随所属主窗口或插件关闭。
+- **双信号跟随**：同时监听条目面板 `onItemChange`（侧栏折叠时不触发）与 `tab` 的 `select`，每次都重新读取所属主窗口的当前活动标签，避免被后台面板或其他主窗口带偏；📌 固定后锁定目标论文，跨窗口拖放时校验来源 PDF 必须属于当前锁定论文。
+- **按需远程 Citations**：本地组下方可展开“被引用（数据源）”，打开仅读本地缓存，用户显式点击获取/加载更多才请求 provider，并与本地组去重。
 
-### 5.2 Unizero Home 重建（未做）
+### 5.4 Unizero Home
 
-- 与条目面板同一套行与交互，另加大表格、筛选、按来源刷新、provider Citations；
-- 单独的 esbuild 入口、TypeScript、有类型检查；行组件与条目面板源码共用、各自打包；
-  运行时仍只经 `window.arguments[0]` 通信（AGENTS 规则 10）；
-- 落地时更新 AGENTS.md 组件表与 `LEGACY_HOME.md`。
+- **标签类型与多视图工具栏**：通过 `Zotero_Tabs.add({ type: "unizeroHome", … })` 打开（类型名不能含 `-`，Zotero 会按 `-` 切分类型）；Zotero 9+ 单窗口可有多个文库视图，按钮需注入每条工具栏并在新标签打开时补齐。
+- **会话恢复陷阱**：Zotero 启动时按保存的类型逐个恢复标签，遇到未注册 hook 的类型会直接抛错中止后续标签恢复。因此每个窗口都包装 `Zotero_Tabs.getState` 将 Home 从保存状态剔除（卸载时还原），并在支持 `tabHooks` 的版本注册 `restoreState` / `undoClose`。
+- **行按改动、对端只认手工摘句**：左栏列出有本地活动的论文，但对端只取 `excerptPairs`（provider References 不代表用户摘录）。改动时间取四者最新：非空摘句笔记 `dateModified`、附件批注最新 `dateAdded`、非摘句子笔记最新 `dateModified`、`referencesLoadedAt`（旧缓存回退 `savedAt`）；右栏与对端排序只取对应批注的 `dateAdded`（批注已删则排后，不借用笔记修改时间以免被其他节污染）。
+- **本地读写边界**：活动时间由 `src/zotero/uniConnectionActivity.ts` 用三条按库 SQL 读取，不逐条实例化 `Zotero.Item`；行组装在纯函数 `unizeroHomeModel.ts`。唯一写操作是点击 `+ Canvas` 时调用 `ensureCanvasAttachment`。选中与展开均原地更新 DOM，保证双击落在同一节点上。

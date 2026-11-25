@@ -20,8 +20,8 @@ Design: [UNICONNECTION.md](UNICONNECTION.md).
 
 - **Reorder excerpts.** Drag a passage within its row; the writer already takes an
   insertion index.
-- **Unizero Home rebuild.** The item-pane interaction with room for full tables, as a
-  type-checked dialog bundle; Home stops being legacy when this lands.
+- **Obsidian library counts.** Show the same per-paper quote counts as Unizero Home in
+  the `UniZero library` pane through optional `collection-items` fields.
 - **Obsidian detail pane.** Show `excerpts` from `GET /relations` (read-only).
 
 ## Raw Markdown

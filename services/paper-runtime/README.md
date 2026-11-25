@@ -1,45 +1,26 @@
 # UniZero Paper Runtime
 
-The optional Python service for PDF extraction, Markdown transformation, artifact
-publishing, and annotation injection.
+Optional local Python service (`/api/v1` on loopback) for PDF/EPUB extraction, Markdown
+transformation, artifact publishing, and annotation injection. It never accesses Zotero
+directly and refuses non-loopback `Host` headers or cross-site browser requests (`403
+forbidden_origin`).
 
-It exposes `/api/v1` on localhost, does not access Zotero directly, and is not required
-for metadata or literature-relations features. Requests addressed to a non-loopback
-`Host`, or sent by a cross-site browser page (`Sec-Fetch-Site` or a web `Origin`), are
-refused with `403 forbidden_origin`, so a web page cannot stop or reconfigure it.
+## Pipeline behavior
 
-Extraction always keeps every block MinerU finds. The `transform.content` module then
-decides what the Markdown keeps of display formulas, figures, tables, and the References
-section, replacing whatever it leaves out with a link to its PDF page. From the full
-content list it also produces the structured References (ordered records with raw
-citation text, source page, and any DOI/arXiv identifier printed in the paper, without
-querying scholarly providers) and the table digest, one HTML file of table page crops.
-Stored templates that still use the separate References, Markdown post-processing, and
-Table digest modules, or Extract's formula and table switches, are migrated on load.
-
-A template ends with one or more Publish modules. `publish.markdown-directory` writes the
-Markdown (with frontmatter) to a directory or Obsidian vault; `publish.zotero-markdown`
-leaves the same document, with its referenced images under `attachments/`, in a hand-off
-directory of the runtime store for the add-on to attach to the Zotero item as Raw and
-Raw Backup. The runtime never touches Zotero itself; the hand-off paths come back in the
-job result as `zotero_md_path` and, when there are images, `zotero_md_images_dir`. Every
-built-in template uses it. A stored template that still names
-the removed `publish.zotero-note` is migrated to `publish.zotero-markdown` on load.
-
-A queued or running job can be stopped with `POST /api/v1/jobs/{job_id}/cancel` (capability
-`job-cancel`). A queued job is dropped; for a running one the MinerU process tree is killed,
-its work directory is removed, and the job ends as `cancelled` rather than `failed`. The
-response carries the status the job actually ended with, so a job that finished just before
-the request landed comes back `done`. Cancellation takes effect between modules and never
-once the first Publish module has started: from there the job runs every remaining
-module and ends `done`, so no output is left half-written or unregistered. Until a
-requested stop settles, job status and the job list report `cancel_requested: true`.
-
-A module can declare `requires_any`, the modules it serves. When none of them is enabled
-the runner skips it with a log line instead of asking the user to switch it off:
-`transform.frontmatter` serves both Markdown Publish modules, so a template with neither
-enabled can keep Frontmatter and it simply does nothing. The same field is returned by
-`GET /api/v1/modules` for the panel.
+- **Extraction & content transform:** MinerU extracts every block; `transform.content`
+  controls which formulas, figures, tables, and bibliography stay in Markdown (replacing
+  omitted items with PDF page links) and emits ordered `ZoMiner References` records plus
+  the HTML table-crop digest without calling external providers.
+- **Publishing:** `publish.markdown-directory` writes Markdown (with frontmatter) to a
+  vault or folder; `publish.zotero-markdown` stages Markdown and `attachments/` images in
+  the runtime store, returning `zotero_md_path` / `zotero_md_images_dir` for the add-on to
+  attach as Raw and Raw Backup. `requires_any` skips upstream helper modules (such as
+  `transform.frontmatter`) automatically when no downstream consumer is enabled. Legacy
+  stored templates are migrated on load ([LEGACY_SUPPORT.md](../../docs/LEGACY_SUPPORT.md)).
+- **Cancellation:** `POST /api/v1/jobs/{job_id}/cancel` (`job-cancel` capability) drops
+  queued jobs or kills a running MinerU process tree, cleans up its work directory, and
+  settles as `cancelled` (`cancel_requested: true` while stopping). Once the first Publish
+  module begins, cancellation is ignored so outputs never finish half-written.
 
 ## Install
 
@@ -50,85 +31,42 @@ uv venv --python 3.12
 uv pip install -e ".[dev]"
 ```
 
-MinerU 4.2.3 converts all PDF pages and exports Markdown, images, and structured
-content. Parsing quality: `flash` for speed, `basic` (default) for OCR, formulas,
-and tables, and `standard` / `advanced` for VLM-assisted parsing.
-
-OCR language is automatic. Formula/table switches control exported blocks, not
-inference or inline formulas. Configuration: `MINERU_HOME/config.yaml` or
-`MINERU_CONFIG`. Models download as needed.
-
-To update, stop the runtime, rerun installation with `--upgrade`, and restart.
+MinerU 4.2.3 parses PDFs (`flash`, default `basic`, or VLM-assisted `standard` /
+`advanced`; configured via `MINERU_HOME/config.yaml` or `MINERU_CONFIG`, models downloaded
+on demand). To upgrade, stop the runtime, rerun with `--upgrade`, and restart.
 
 ## Run
 
 ```bash
-python -m unizero_runtime
+python -m unizero_runtime # options: --home PATH, --port N, --no-log-file
 ```
 
-Options:
+Usually started and stopped automatically by the Zotero add-on.
 
-- `--home PATH`: select the runtime-state directory;
-- `--port N`: override the configured port;
-- `--no-log-file`: keep output on the console.
+## Runtime home & built-in templates
 
-The Zotero add-on can launch the installed module or console command automatically. Set
-an explicit Python path in Zotero only when the environment is not discoverable.
+Mutable state (`config.json`, `work/`, `store/`, `user_templates/`, `server.log`) lives
+outside the package, resolved in order: `UNIZERO_RUNTIME_HOME` →
+`%LOCALAPPDATA%\UniZero\runtime` (Windows) → `$XDG_DATA_HOME/unizero/runtime` or
+`~/.local/share/unizero/runtime`.
 
-## Runtime home
-
-Mutable state is kept outside the package. Resolution order:
-
-1. `UNIZERO_RUNTIME_HOME`;
-2. `%LOCALAPPDATA%\UniZero\runtime` on Windows;
-3. `$XDG_DATA_HOME/unizero/runtime` or `~/.local/share/unizero/runtime` elsewhere.
-
-```text
-<home>/
-├── config.json
-├── work/
-├── store/
-├── user_templates/
-└── server.log
-```
-
-Built-in templates live in `src/unizero_runtime/templates/` and are replaced with the
-package. User template overrides live in the runtime home.
-
-| Id | Name | For |
+| Id | Name | Purpose |
 | --- | --- | --- |
-| `paper-to-markdown` | Journal Papers | Papers: VLM-assisted parsing, table digest, extracted References; the add-on's default |
-| `paper-to-zotero-markdown` | Books Basic | Long documents: basic parser, 50-page chunks above 200 pages |
+| `paper-to-markdown` | Journal Papers | VLM-assisted parsing, table digest, extracted References (add-on default) |
+| `paper-to-zotero-markdown` | Books Basic | Basic parser, 50-page chunks above 200 pages |
 | `paper-to-zotero-markdown-copy` | Book Standard | Long documents with VLM-assisted parsing |
-| `book-epub-to-zotero-markdown` | Books EPUB | EPUB books: read without OCR, images kept, no page links |
+| `book-epub-to-zotero-markdown` | Books EPUB | EPUB without OCR or page links (never chunked by page) |
 
-An EPUB is never counted or split into pages, whatever the template's chunking says.
-It has no fixed pages, so page links, table pointers, and `p.N` locations do not
-apply to its Raw.
-
-## Source map
-
-| Path | Responsibility |
-| --- | --- |
-| `api/` | FastAPI endpoints and error mapping |
-| `application/` | Configuration, jobs, conversion, annotations |
-| `pipeline/` | Workflow registry, templates, transforms, publishing |
-| `providers/` | Reference extraction, table processing, remote providers |
-| `cancellation.py` | Per-job cancel token and killable child processes |
-| `contracts.py` | Pydantic request and response models |
-| `composition.py` | Dependency construction |
-| `paths.py` | Runtime-home resolution |
-| `__main__.py` | Command-line entry point |
+Source layout: [PROJECT_STRUCTURE.md](../../docs/PROJECT_STRUCTURE.md).
 
 ## Test
 
 ```bash
-.venv/Scripts/python.exe -m pytest
+uv run --no-sync pytest
 ```
 
-Tests use an isolated runtime home and cover paths, templates, contracts,
-frontmatter, artifact scoping, and annotation idempotency. Real PDF conversion requires
-MinerU and is verified manually.
+Tests run against an isolated runtime home (`tests/conftest.py`). End-to-end PDF
+conversion with MinerU requires a manual check.
 
 ## License
 

@@ -10,72 +10,53 @@ Obsidian is the active note-taking front end.
 
 The **active product surface** for day-to-day reading and writing:
 
-- free-text `@` search against the Zotero library;
+- free-text `@` search against the Zotero library and Vault documents;
 - standard Markdown UniZero links with durable Zotero item or Vault UID targets;
 - a library pane for browsing collections, and drag or insert citations into notes;
-- a paper pane with metadata, References, Citations, and relations from the add-on;
-- jumps to the converted Markdown (Raw), a per-paper Canvas, or the PDF;
-- conversion and Raw/Canvas management, run by the add-on in Zotero.
+- a paper pane with metadata, incoming document links, References, Citations, and relations;
+- jumps to converted Markdown (Raw), a per-paper Canvas, or the PDF, plus Raw/Canvas management.
 
-Importing explored papers or other bibliographic write-back from Obsidian is planned,
-not present — it needs a separate design beyond today’s bridge.
+Importing explored papers or bibliographic write-back from Obsidian is planned, not
+present — see [Roadmap](docs/ROADMAP.md).
 
 ### Zotero add-on (`apps/zotero-addon`)
 
 The **library backend** and scholarly data plane inside Zotero:
 
 - metadata completion for Zotero items;
-- PDF → Markdown conversion (via the local paper runtime);
-- annotation export and injection into Markdown;
+- PDF / EPUB → Markdown conversion (via the local paper runtime) and annotation injection;
 - fetching and caching References / Citations through scholarly providers;
-- derived relation index and Paper catalog.
-
-It also hosts the localhost bridge the Obsidian plugin talks to.
+- derived relation index, citation excerpts, item-pane / full-window UniConnection lists, and the Unizero Home tab;
+- localhost bridge used by the Obsidian plugin and the MCP server.
 
 ### MCP server (`apps/mcp-server`)
 
 Gives agents (Claude Code and other MCP clients) the library's papers through the
-bridge: search, the Raw Markdown with PDF pages, table crops, extracted references,
-and cached relations. Read-only apart from starting a conversion.
+bridge: search, Raw Markdown with PDF pages, table crops, extracted references, and
+cached relations. Read-only apart from starting a conversion.
 
 ### Paper runtime (`services/paper-runtime`)
 
-Optional local Python service for PDF → Markdown conversion and related document jobs.
-Talks to the add-on only through the versioned `/api/v1` contract.
-
-The add-on also still ships **Unizero Home**, a legacy per-paper window of References,
-Relation and Citations tables. Current priorities are listed in [AGENTS.md](AGENTS.md).
+Optional local Python service for PDF / EPUB → Markdown conversion and related document
+jobs. Talks to the add-on only through the versioned `/api/v1` contract.
 
 ## Repository
 
 ```text
-apps/obsidian-plugin/    Obsidian plugin: citations and panes against the bridge
-apps/zotero-addon/       Zotero add-on: data plane, bridge, conversion, (legacy) Home UI
+apps/obsidian-plugin/    Obsidian plugin: citations, links, and panes against the bridge
+apps/zotero-addon/       Zotero add-on: data plane, bridge, conversion, UniConnection UI
 apps/mcp-server/         MCP server: papers, Raw text, tables, references for agents
-services/paper-runtime/  Python service for PDF and Markdown processing
-packages/contracts/      Shared HTTP schemas and example payloads
-docs/                    Architecture, code map, design notes, and roadmap
+services/paper-runtime/  Python service for PDF/EPUB and Markdown processing
+packages/contracts/      Shared HTTP v1 schemas and example payloads
+docs/                    Architecture, code map, design constraints, and roadmap
 ```
 
-Two process boundaries — do not merge them:
-
-1. Add-on ↔ runtime: versioned `/api/v1` (`packages/contracts/http/v1.schema.json`).
-2. Add-on ↔ Obsidian and the MCP server: mostly-read-only bridge on Zotero’s HTTP server
-   (`BRIDGE_API_VERSION` in `apps/zotero-addon/src/server/bridgePayloads.ts`).
-
-Start with:
-
-- [Obsidian plugin README](apps/obsidian-plugin/README.md) — default entry for note-side work;
-- [Documentation map](docs/README.md) — what each document is and when to open it;
-- [Architecture](docs/ARCHITECTURE.md) — system boundaries;
-- [Project structure](docs/PROJECT_STRUCTURE.md) — where code belongs;
-- [AGENTS.md](AGENTS.md) — repository rules, current focus, verification;
-- [Roadmap](docs/ROADMAP.md) — unfinished work (not a work order by itself).
+Start with [docs/README.md](docs/README.md) for the documentation map and
+[AGENTS.md](AGENTS.md) for repository rules, boundaries, and verification.
 
 ## Development
 
-There is no root build command. Each component builds and tests from its own directory;
-setup, build, and test commands are in its README:
+There is no root build command. Each component builds and tests from its own directory:
 [Obsidian plugin](apps/obsidian-plugin/README.md#development),
 [Zotero add-on](apps/zotero-addon/README.md#build),
 [MCP server](apps/mcp-server/README.md#development),

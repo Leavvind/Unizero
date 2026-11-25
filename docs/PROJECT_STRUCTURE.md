@@ -15,20 +15,20 @@ UniZero/
 │   │   └── package.json
 │   └── zotero-addon/
 │       ├── addon/
-│       │   ├── chrome/content/  Privileged dialogs: panel, explorer (legacy Home), icons
+│       │   ├── chrome/content/  Privileged XHTML/JS: panel, preferences, UniConnection full shell, icons
 │       │   ├── locale/          Fluent strings per locale
 │       │   ├── manifest.json    Zotero add-on manifest template
 │       │   └── prefs.js         Default preferences
 │       ├── src/
 │       │   ├── core/            Feature registry and lifecycle
 │       │   ├── features/        Conversion and annotation commands
-│       │   ├── modules/         Relations, metadata, providers, cache, derived index, item pane
+│       │   ├── modules/         Relations, metadata, providers, cache, derived index, preferences
 │       │   ├── projects/        Paper catalog schemas and persistence
 │       │   ├── runtime-client/  Runtime HTTP client and process management
 │       │   ├── server/          Bridge (Obsidian, MCP server) and citekey resolution
-│       │   ├── ui/              Menus, panel and explorer bridges, progress, service notices
+│       │   ├── ui/              Menus, panel, progress, notices, UniConnection lists/window, Home tab
 │       │   ├── utils/           Shared add-on utilities
-│       │   └── zotero/          Zotero adapters and artifact identity
+│       │   └── zotero/          Zotero adapters, excerpt notes, and artifact identity
 │       ├── scripts/             Build and local Zotero development tools
 │       ├── tests/               Host-independent Vitest suites
 │       └── package.json
@@ -40,6 +40,7 @@ UniZero/
 │       │   ├── pipeline/            Templates and document processing
 │       │   ├── providers/           PDF-reference extraction, tables, and remote providers
 │       │   ├── templates/           Built-in workflow templates
+│       │   ├── cancellation.py      Per-job cancel token and child-process cleanup
 │       │   ├── composition.py       Dependency wiring
 │       │   ├── contracts.py         Pydantic boundary models
 │       │   └── paths.py             Runtime-home resolution
@@ -58,7 +59,8 @@ UniZero/
 ```
 
 Generated output, dependency directories, runtime homes, local configuration, and user
-data are not part of this structure.
+data are not part of this structure. Do not create a directory for a planned abstraction
+until executable code or a real schema needs it.
 
 ## Where to make a change
 
@@ -73,7 +75,7 @@ data are not part of this structure.
 | Shared document links and source coverage | `apps/obsidian-plugin/src/linkIndex.ts`, `externalIndex.ts` |
 | Target dispatch and source navigation | `apps/obsidian-plugin/src/linkOpening.ts`, `linkPicker.ts` |
 | Completion inside a link destination | `apps/obsidian-plugin/src/linkCompletion.ts`, `targetSuggest.ts` |
-| Document Backlinks and shared source lists | `apps/obsidian-plugin/src/backlinksView.ts` |
+| Document Backlinks and unlinked mentions | `apps/obsidian-plugin/src/backlinksView.ts`, `unlinkedMentions.ts` |
 | Bridge client (HTTP to Zotero) | `apps/obsidian-plugin/src/bridge.ts` |
 | `@` suggester / free-text search | `apps/obsidian-plugin/src/suggest.ts` |
 | Library search command (modal with PDF / Raw / Canvas jumps) | `apps/obsidian-plugin/src/searchModal.ts` |
@@ -87,7 +89,7 @@ data are not part of this structure.
 | Live-preview link dispatch | `apps/obsidian-plugin/src/render.ts` |
 | Link, editor and pane styling | `apps/obsidian-plugin/styles.css` |
 
-### Zotero data plane and bridge
+### Zotero data plane, bridge, and runtime
 
 | Change | Start here |
 | --- | --- |
@@ -98,54 +100,28 @@ data are not part of this structure.
 | Change a menu or panel integration | `apps/zotero-addon/src/ui/` |
 | Read-only Markdown/Canvas source discovery | `apps/zotero-addon/src/zotero/linkSources.ts` |
 | Read or mutate Zotero items/attachments | `apps/zotero-addon/src/zotero/` |
-| Change the item-pane References / Citations section | `apps/zotero-addon/src/ui/literatureSidebar.ts` (rows: `literatureSidebarModel.ts`) |
-| Change References / Citations data or metadata UI | `apps/zotero-addon/src/modules/` |
-| Change the derived relation index | `apps/zotero-addon/src/modules/uniConnection.ts` |
+| Change the References / Citations lists (item pane and UniConnection full) | `apps/zotero-addon/src/ui/literatureSidebar.ts` (rows: `literatureSidebarModel.ts`) |
+| Change the UniConnection full window shell/following | `apps/zotero-addon/src/ui/uniConnectionFull.ts` |
+| Change Unizero Home (tab, toolbar button, columns, activity SQL) | `apps/zotero-addon/src/ui/unizeroHome.ts`, `unizeroHomeModel.ts`, `src/zotero/uniConnectionActivity.ts` |
+| Change References / Citations data, providers, or preferences | `apps/zotero-addon/src/modules/` |
+| Change the derived relation index or maintenance | `apps/zotero-addon/src/modules/uniConnection.ts`, `uniConnectionSync.ts` |
 | Change the citation-excerpt note format or its writer | `apps/zotero-addon/src/zotero/excerptNoteFormat.ts`, `excerptNotes.ts` |
-| Change index maintenance or reference backfill | `apps/zotero-addon/src/modules/uniConnectionSync.ts` |
 | Change Paper catalog persisted shapes | `apps/zotero-addon/src/projects/` |
 | Change cached or persisted add-on state | `apps/zotero-addon/src/modules/localStorage.ts` |
 | Change runtime HTTP behavior | schema, both contract models, client, then `api/` |
-| Change conversion orchestration | `services/paper-runtime/.../application/` |
-| Add or change a document pipeline step | `services/paper-runtime/.../pipeline/` |
-| Change runtime filesystem locations | `services/paper-runtime/.../paths.py` |
-
-### Legacy: Unizero Home dialog
-
-| Change | Start here |
-| --- | --- |
-| Add data Home needs | `views.ts` producer, then `src/ui/literatureExplorer.ts` bridge |
-| Paper tabs, filters, or relation tables | `addon/chrome/content/literature-explorer.js` |
+| Change conversion orchestration or pipeline steps | `services/paper-runtime/src/unizero_runtime/application/`, `pipeline/` |
+| Change runtime filesystem locations | `services/paper-runtime/src/unizero_runtime/paths.py` |
 
 ## Dialog content (add-on)
 
-`addon/chrome/content/` is plain JavaScript and XHTML: not compiled and not type checked.
-`literature-explorer.xhtml` and its scripts are loaded by the `happy-dom` harness in
-`tests/literatureExplorerRace.test.ts`; `panel.js`, Zotero APIs, and privileged-window
-lifecycle are not.
+`addon/chrome/content/` is privileged XHTML and plain JavaScript outside the TypeScript
+bundle, type checker, and automated tests:
 
-| File | Responsibility |
-| --- | --- |
-| `panel.xhtml` / `panel.js` | Runtime jobs, service notices, template editor |
-| `literature-explorer.xhtml` | Legacy Home markup, CSS variables, theming |
-| `literature-explorer.js` | Legacy Home paper tabs, filters, relation tables |
+| File | Responsibility | Wiring |
+| --- | --- | --- |
+| `panel.xhtml` / `panel.js` | Runtime jobs, service notices, template editor | `window.arguments[0]` |
+| `preferences.xhtml` | UniZero settings pane inside Zotero preferences | `PreferencePanes.register` + `src/modules/prefs.ts` |
+| `uniconnection-full.xhtml` | Script-free window shell; bundle draws `LiteratureSidebar` into it | `window.arguments[0]` |
 
-These files talk to the add-on only through `window.arguments[0].api`. They must not
-import bundle modules.
-
-## Dependency rules
-
-- UI calls feature or application code; it does not own cache or network policy.
-- New Zotero mutations belong in `src/zotero`.
-- The derived index consumes the reference cache and item identifiers only. It does not
-  fetch, does not write back to shards, and does not read display metadata.
-- Graph topology stays free of Zotero fields; `views.ts` enriches it for display.
-- Dialog content consumes the window API bridge, never bundle internals.
-- Runtime-client code contains transport concerns, not document-processing logic.
-- Runtime API handlers validate and map; application services orchestrate.
-- Pipeline steps do not access Zotero.
-- Cross-process shapes start in `packages/contracts`.
-- The Obsidian bridge keeps the rules in [Bridge contract](ARCHITECTURE.md#bridge-contract).
-
-Do not create a directory for a planned abstraction until executable code or a real
-schema needs it.
+Files in this directory must never import bundle modules. Architectural dependency rules
+live in [AGENTS.md](../AGENTS.md#architecture-rules) and [ARCHITECTURE.md](ARCHITECTURE.md).

@@ -1,98 +1,50 @@
 # UniZero Zotero Add-on
 
-The Zotero application component: **library backend** for UniZero. It owns Zotero
-lifecycle, preferences, scholarly-provider access, item and attachment mutations, the
-derived relation index, the bridge used by the Obsidian plugin and the MCP server, and
-the client for the local paper runtime. It also still ships the legacy Unizero Home
-window.
+The Zotero backend for UniZero: owns Zotero lifecycle, preferences, scholarly-provider
+access, item and attachment mutations, the derived relation index, the localhost bridge
+used by Obsidian and the MCP server, and the client for the local paper runtime.
 
 ## Capabilities
 
-**Bridge (Obsidian, MCP server)**
+**Bridge (`src/server/`)**
 
-- Localhost endpoints on Zotero’s HTTP server (`src/server/`).
-- GET: libraries, collections, paper resolve, a paper's PDFs, generated and Markdown
-  attachments with their paths, relations from cache, citekey lookup, conversion
-  templates of an already-running runtime, and the document-link source directory and
-  target resolution. Discovery never adopts or modifies attachments.
-- POST actions on a paper's own Raw and Canvas: convert, create an empty Canvas
-  attachment (`unizero:canvas`), move Raw or Canvas to the trash, restore Raw from
-  Raw Backup. Nothing is erased.
-- Endpoints, capabilities and rules: [Bridge contract](../../docs/ARCHITECTURE.md#bridge-contract).
+- Loopback endpoints under `/unizero/v1/*` on Zotero’s HTTP server.
+- Read-only discovery for libraries, collections, papers, PDFs, `unizero:<kind>` and
+  linkable Markdown/Canvas attachments, cached relations + excerpts, citekeys, and running
+  runtime templates; non-destructive POSTs for conversion and a paper's own Raw / Canvas
+  attachments.
+- Contract and endpoint table: [Bridge contract](../../docs/ARCHITECTURE.md#bridge-contract).
 
-**Literature data**
+**Literature data & UniConnection**
 
 - Metadata candidate lookup and identifier updates.
-- An item-pane References / Citations section. References: one search over the list
-  and the library, `+` to add a missing paper, and citation excerpts — drag a highlight
-  (or text selected in the PDF) onto a reference to attach that passage. Citations come
-  from the library alone, with no provider call: papers quoting this one first, then
-  those whose cached References contain it.
-- Per-paper Markdown-conversion and cache status with quick actions and relation
-  drill-down.
-- A Relation view per paper: which library papers cite it, and which share the most of its
-  references — both derived locally with no extra network access.
-- Filtering discovered works by library status, influence, year, publication type, and
-  order, plus importing missing papers into the current library.
-- A stable Paper catalog giving every loaded References/Citations result a Paper ID;
-  retention, observations, and merges are described in
-  [ARCHITECTURE.md](../../docs/ARCHITECTURE.md#paper-catalog).
+- **Item-pane References / Citations** (`src/ui/literatureSidebar.ts`): unified search
+  across the list and library, `+` import, and drag-and-drop citation excerpts from PDF
+  highlights or selected text; local-only Citations (`excerptsAbout` + `relationsOf`).
+- **UniConnection full** (`src/ui/uniConnectionFull.ts`, ⤢ button or item menu): uncapped
+  side-by-side References and Citations in a standalone window that follows the active
+  tab until pinned, plus opt-in provider Citations.
+- **Unizero Home** (`src/ui/unizeroHome.ts`, items toolbar button): library/collection
+  activity tab pairing papers worked on (left) with papers quoted via hand-attached
+  excerpts (right), with quick jumps to PDF, Raw, Canvas (created on demand), and
+  UniConnection full.
+- Durable Paper catalog (`src/projects/`): [Paper catalog](../../docs/ARCHITECTURE.md#paper-catalog).
 
-**Conversion, annotations, and reader**
+**Conversion and annotations**
 
-- PDF and EPUB conversion commands and generated-artifact registration, including a
-  versioned structured References JSON attachment produced from the PDF bibliography.
-  An EPUB is a book an item has instead of a PDF; convert it with the Books EPUB
-  template, since its Raw has no pages to link. A
-  **Default template** preference (`conversion.defaultTemplate`, shipped as Journal
-  Papers) is used whenever a conversion names none.
-- Raw: the converted Markdown stored under the item as two imported attachments,
-  written by the runtime's `publish.zotero-markdown` module. **Raw**
-  (`unizero:raw`) is the working copy, opened from Zotero with the system's Markdown
-  application (Obsidian, when it is the default) and edited there; it is created
-  once and never overwritten — delete it to get a fresh one on the next conversion.
-  **Raw Backup** (`unizero:raw-backup`) is replaced by every conversion. Images the
-  Markdown links to sit beside each file under `attachments/`. A paper with
-  supplements gets one pair per PDF.
-- Annotation export and Markdown injection.
-- Runtime lifecycle, jobs, service notices, and templates.
+- PDF and EPUB conversion commands (`conversion.defaultTemplate`, default `Journal Papers`;
+  use `Books EPUB` for EPUBs) and `ZoMiner References` (`unizero:references`) extraction.
+- **Raw** (`unizero:raw`, user-edited working copy, created once and never overwritten)
+  and **Raw Backup** (`unizero:raw-backup`, replaced on each conversion), with sibling
+  `attachments/` images — one pair per PDF when a paper has supplements.
+- Annotation export, vault Markdown injection, and runtime job/template management.
 
-Document conversion and annotation injection require `services/paper-runtime`. Everything
-else runs without it.
+Document conversion and annotation injection require `services/paper-runtime`; everything
+else runs inside Zotero alone.
 
-### Legacy: Unizero Home
-
-A tabbed window with one tab per paper and its full References, Relation and Citations
-tables, opened from the item-pane section's ⤢ button or the item context menu.
-Maintenance traps: [LEGACY_HOME.md](../../docs/LEGACY_HOME.md).
-
-## Source map
-
-| Path | Responsibility |
-| --- | --- |
-| `src/core/` | Static feature registry and lifecycle dispatch |
-| `src/features/` | Conversion and annotation command orchestration |
-| `src/modules/` | Item pane, metadata, relations, providers, cache, preferences |
-| `src/modules/uniConnection.ts` | Derived reverse-reference index and coupling |
-| `src/modules/uniConnectionSync.ts` | Notifier-driven index maintenance and reference backfill |
-| `src/server/` | Bridge endpoints (Obsidian, MCP server) and citekey resolution |
-| `src/projects/` | Versioned Paper catalog shapes and storage |
-| `src/runtime-client/` | HTTP contracts, client, launch resolution, process state |
-| `src/zotero/` | Zotero adapters, library scope, artifact identity, document link sources |
-| `src/ui/` | Menus, progress, service notices, panel and Home bridges |
-| `addon/` | Manifest, locales, preferences, icons, dialog markup and scripts |
-| `tests/` | Vitest over Zotero-free logic (cache, catalog, derived index, link sources, Home dialog) |
-
-New Zotero mutations belong in `src/zotero`; new command orchestration belongs in
-`src/features`. Do not rewrite `src/modules` as a single refactor. Extract a focused
-responsibility when a feature change needs it.
-
-## Dialog content
-
-`addon/chrome/content/` holds plain JavaScript dialogs outside the TypeScript bundle: the
-template editor and the legacy Home window. Their file map
-is in [PROJECT_STRUCTURE.md](../../docs/PROJECT_STRUCTURE.md#dialog-content-add-on) and
-their load-bearing constraints are in [AGENTS.md](../../AGENTS.md#zotero-constraints).
+Where files live and how external dialogs (`addon/chrome/content/`) are wired:
+[PROJECT_STRUCTURE.md](../../docs/PROJECT_STRUCTURE.md#zotero-data-plane-bridge-and-runtime)
+and [Zotero constraints](../../AGENTS.md#zotero-constraints).
 
 ## Stored state
 
@@ -102,22 +54,19 @@ their load-bearing constraints are in [AGENTS.md](../../AGENTS.md#zotero-constra
 | Paper catalog and citation observations | `<Zotero data dir>/unizero/literature/` |
 | Zotero item ↔ Obsidian URL bindings | `<Zotero data dir>/unizero/markdown-links/<libraryID>.json` |
 | Extracted PDF bibliography | Owned `ZoMiner References` JSON attachment (`unizero:references`) |
-| Citation excerpts (user-chosen passages per cited paper) | Child note of the citing paper tagged `unizero:excerpts` |
+| Citation excerpts | Child note of the citing paper tagged `unizero:excerpts` |
 | Preferences | Zotero preference branch, defaults in `addon/prefs.js` |
 
-The derived relation index is memory-only and rebuilt on demand. Completed empty Citations
-lookups are a 24-hour negative cache only when at least one provider answered normally.
-In-memory References/Citations caches are small and bounded; an evicted record is read
-again from disk, or is a cache miss when disk caching is off.
+The derived relation index is memory-only. Empty Citations responses are cached for 24h
+only when at least one provider answered normally. Resident in-memory caches are small and
+bounded; evicted entries reload from disk when disk caching is enabled.
 
 ## Runtime connection
 
-The add-on uses `/api/v1` on `127.0.0.1`. Launch resolution (`src/runtime-client/launch.ts`)
-checks, in order: configured server script → configured Python → `PATH` interpreter that
-imports `unizero_runtime` → `unizero-runtime` console command.
-
-The runtime’s lifetime follows Zotero’s (delayed start on main-window load; stop on quit),
-governed by automatic start/stop preferences. Failures surface in the panel’s Jobs list.
+Talks to `/api/v1` on `127.0.0.1`. Launch resolution (`src/runtime-client/launch.ts`)
+checks: configured server script → configured Python → `PATH` Python importing
+`unizero_runtime` → `unizero-runtime` command. Delayed auto-start on window load and
+auto-stop on quit follow user preferences; startup errors appear in the panel's Jobs list.
 
 ## Build
 
@@ -128,36 +77,24 @@ npm test
 npm run build
 ```
 
-`npm run check` runs TypeScript and HTTP-contract drift checks. `npm test` runs Vitest.
-`npm run build` writes `build/unizero.xpi`.
+`npm run check` runs TypeScript and HTTP-contract drift checks; `npm test` runs Vitest;
+`npm run build` packages `build/unizero.xpi`.
 
 ## Release
 
-Releases are published by `.github/workflows/release-zotero-addon.yml`. A pushed `v*` tag
-must match `package.json`. From a clean `main` branch:
+Published by `.github/workflows/release-zotero-addon.yml` from a clean `main` branch:
 
 ```bash
-npm run release -- patch
+npm run release -- patch # or minor | major
 ```
 
-Use `minor` or `major` when appropriate. Do not create a release tag manually unless
-`update.json` has already been regenerated for that version.
-
-The tag also releases the Obsidian plugin. Its version is never chosen separately:
-the release copies this package's version into the plugin's `manifest.json`,
-`package.json`, and `package-lock.json` (`scripts/sync-obsidian-version.mjs`), and the
-plugin's tests fail when they differ.
+A `v*` tag releases both the Zotero add-on and the Obsidian plugin (`scripts/sync-obsidian-version.mjs`
+keeps versions locked; plugin tests fail on mismatch). Never tag manually without
+regenerating `update.json`.
 
 ## Run in Zotero
 
-Copy `scripts/zotero-cmd-default.json` to the gitignored `scripts/zotero-cmd.json`, then
-configure a Zotero executable and development profile.
-
-```bash
-npm run start-watch
-```
-
-For a packaged build, install `build/unizero.xpi` from Zotero’s add-on manager.
-
-Type checking does not verify Zotero APIs, window lifecycle, XUL, or the external dialogs.
-Changes in those areas require a manual Zotero check.
+Copy `scripts/zotero-cmd-default.json` to gitignored `scripts/zotero-cmd.json`, set your
+Zotero binary and dev profile, and run `npm run start-watch` (or install
+`build/unizero.xpi`). Privileged Zotero APIs, lifecycle, XUL/XHTML, and providers always
+require a manual Zotero check.

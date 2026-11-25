@@ -13,6 +13,6 @@ change.
 Verification:
 
 - `apps/zotero-addon`: `npm run check`
-- `services/paper-runtime`: `.venv/Scripts/python.exe -m pytest`
+- `services/paper-runtime`: `uv run --no-sync pytest`
 
 Keep implementation logic and real Zotero library data out of this package.

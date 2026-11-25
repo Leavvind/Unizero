@@ -3,122 +3,144 @@
 Operational guidance for coding agents and contributors. It describes the repository as
 it is; planned work lives in `docs/ROADMAP.md` and is not a work order.
 
-UniZero connects **Zotero** (library, providers, cache, conversion) and **Obsidian**
-(notes, links, exploration). Zotero is canonical for bibliographic identity; Obsidian is
-the active front end.
+UniZero connects **Zotero** (canonical bibliographic store, providers, cache, conversion)
+and **Obsidian** (active note-taking front end).
 
 ## Components and focus
 
 | Component | Status | Notes |
 | --- | --- | --- |
 | `apps/obsidian-plugin` | **Active** — default place for product work | Markdown UniZero links, Vault UIDs, `@` search, panes |
-| `apps/zotero-addon` data plane + `src/server` bridge | Required backend | Providers, reference cache, relations, Paper catalog, conversion client |
-| `apps/mcp-server` | Maintained | Agent tools over the same bridge; reads only files `GET /artifacts` names |
-| `services/paper-runtime` | Optional | Python document-processing service |
-| Unizero Home (per-paper References / Relation / Citations window) in `addon/chrome/content` | **Legacy** | Do not extend or redesign unless the task names Home |
-| Item-pane References / Citations (`src/ui/literatureSidebar.ts`) | Maintained | Where citation excerpts are attached; see `docs/UNICONNECTION.md` |
+| `apps/zotero-addon` data plane + `src/server` bridge | Required backend | Providers, reference cache, relations, conversion client |
+| `apps/mcp-server` | Maintained | Agent tools over the bridge; reads only files `GET /artifacts` names |
+| `services/paper-runtime` | Optional | Local Python PDF/EPUB conversion and annotation service |
+| UniConnection (`src/ui/literatureSidebar.ts`, `uniConnectionFull.ts`, `unizeroHome.ts`) | Maintained | Item-pane & full-window References / Citations, Unizero Home tab, citation excerpts |
 
-Two unrelated boundaries, never merged:
+Two unrelated localhost boundaries — never merge them:
 
-- add-on ↔ runtime: localhost HTTP `/api/v1`, schema `packages/contracts/http/v1.schema.json`;
-- add-on ↔ Obsidian plugin / MCP server: the bridge on Zotero's HTTP server, versioned by
-  `BRIDGE_API_VERSION` in `apps/zotero-addon/src/server/bridgePayloads.ts`.
+- add-on ↔ Obsidian / MCP server: bridge `/unizero/v1/*` on Zotero's HTTP server
+  (`BRIDGE_API_VERSION` in `apps/zotero-addon/src/server/bridgePayloads.ts`);
+- add-on ↔ runtime: `/api/v1` (`packages/contracts/http/v1.schema.json`).
 
-**What to read.** The component README, then the file the task names. For where code
-belongs, `docs/PROJECT_STRUCTURE.md`; for ownership or process boundaries,
-`docs/ARCHITECTURE.md`; for which docs are current state versus design notes,
-`docs/README.md`. Open `docs/LEGACY_HOME.md` or `docs/UNICONNECTION.md` only for
-those surfaces.
+**What to read.** Start with the files the task names; read `docs/PROJECT_STRUCTURE.md`
+when locating where code belongs. Read the component `README.md` when changing
+user-visible behavior, setup, or release steps; `docs/ARCHITECTURE.md` for ownership or
+process boundaries; `docs/README.md` for the document map. Open
+`docs/UNIZERO_LINKS_DESIGN.md` or `docs/UNICONNECTION.md` when touching those surfaces.
 
 ## Architecture rules
 
-1. **Zotero is canonical.** Metadata and annotations originate in Zotero; caches,
-   frontmatter, and generated files are derived state.
-2. **The runtime is separate.** The add-on imports no Python details; the runtime never
-   touches Zotero APIs.
-3. **Cross-process data uses the `/api/v1` models.**
-4. **UI is an adapter.** Views and dialogs delegate network work, cache policy, and
-   Zotero mutations to application code or adapters.
-5. **Feature, provider, and pipeline modules are different concepts** with separate
-   registries and lifecycles.
-6. **Artifact ownership is a tag.** A generated attachment is owned only when it carries
-   `unizero:<kind>`; display titles are not identity.
-7. **Library scope is part of identity.** Cache, artifact, and runtime keys include
+1. **Zotero is canonical.** Bibliographic metadata and PDF annotations originate in
+   Zotero; caches, frontmatter, and generated files are derived state.
+2. **Durable identity, never aliases or paths.** Zotero targets persist `libraryID` +
+   `itemKey` (citekeys are aliases; report ambiguity, never resolve it silently). Vault
+   targets persist logical `vaultID` + `UID` (file paths are derived mappings).
+3. **Library scope is part of identity.** Cache, artifact, and runtime keys include
    `libraryID`; never fall back to the user library.
-8. **Lifecycle is symmetric.** Every menu, pane, listener, observer, style, and window
-   hook has a matching cleanup.
-9. **Derived state is rebuildable.** The relation index is recomputed from the reference
-   cache and the user's excerpt notes (`unizero:excerpts`), never written back to item
-   shards or notes, and carries no Zotero display fields.
-10. **Dialogs talk through their window API bridge** (`window.arguments[0]`); they never
-    import bundle modules.
-11. **The bridge is mostly read-only and never fetches unbidden.** GET endpoints do not
-    mutate Zotero or the Paper catalog. The only POSTs act on a paper's own Raw and
-    Canvas attachments (see [Bridge contract](docs/ARCHITECTURE.md#bridge-contract));
-    none erases anything or writes into an existing file. Relations answer from cache
-    (`loaded: false` on a miss); only explicit `fetch=1` reaches providers. Rendering a
-    note never causes network work or conversion.
-12. **A citekey is an alias, not an identity.** Persist `libraryID` + `itemKey`; report
-    citekey ambiguity, never resolve it silently.
+4. **Artifact ownership is a tag.** Generated Zotero attachments are owned only when they
+   carry `unizero:<kind>`; display titles and storage paths are not identity.
+5. **The bridge is mostly read-only and never acts unbidden.** GET endpoints never mutate
+   Zotero; POSTs act only on a paper's own conversion or Raw/Canvas attachments without
+   erasing files ([Bridge contract](docs/ARCHITECTURE.md#bridge-contract)). Rendering,
+   indexing, or opening panes never triggers provider traffic, runtime startup, or
+   conversion unless explicitly requested (e.g. `fetch=1`).
+6. **The runtime is separate and talks only through `/api/v1`.** The add-on imports no
+   Python details; the runtime never touches Zotero APIs; Obsidian and MCP never call
+   `/api/v1`.
+7. **UI is an adapter and lifecycle is symmetric.** Views and dialogs delegate network
+   work, scanning, cache policy, and host mutations to application code or adapters.
+   Every menu, pane, command, listener, observer, style, wrapper, and window hook has a
+   matching cleanup, and async scans guard against stale generations or post-unload writes.
+8. **Derived indexes are rebuildable.** Neither Zotero's memory-only relation index
+   (recomputed from reference cache shards + `unizero:excerpts` notes, with no Zotero
+   display fields) nor Obsidian's document-link index writes back to shards, notes, or
+   the Paper catalog.
 
-`src/modules` holds large working code paths: do not reorganize it wholesale; extract a
-seam only when the task benefits from it.
+## Obsidian constraints
+
+- **Never write frontmatter unbidden.** Assign or write `uid` frontmatter only on
+  explicit user actions (setting a UID, linking to a UID-less note, Unlinked mentions
+  `Link`) — never during rendering, indexing, or opening panes. Duplicate UIDs must halt
+  navigation and list candidates rather than picking one.
+- **Discover Zotero files only through the bridge.** Use `/artifacts`, `/link-sources`,
+  and `/link-target`; never walk Zotero `storage` directories or infer Raw/Canvas identity
+  from titles or filenames in the plugin.
+- **Strict attachment resolution, graceful anchor fallback.** An explicit missing
+  `attachment` fails (404) without falling back to another file. Missing or ambiguous
+  heading/block anchors still open the resolved file with a notice and never rewrite
+  links automatically.
+- **Guard Obsidian editor internals.** Live-preview `unizero://` click interception
+  (`onEditorClick`) and chained destination autocomplete rely on Obsidian 1.15 internals
+  (`docs/UNIZERO_LINKS_DESIGN.md`); recheck both when changing editor hooks or upgrading
+  Obsidian types.
 
 ## Zotero constraints
 
 The add-on runs in Zotero's privileged Firefox environment, not Node.
 
 - No Node built-ins (`fs`, `path`, `zlib`, `events`, `timers`, …).
-- Prefer public Zotero APIs; route new Zotero mutations through `src/zotero`.
-- Treat every main window independently on load and unload.
+- Prefer public Zotero APIs; route Zotero mutations through `src/zotero/`.
+- Feature, provider, and pipeline modules have separate registries and lifecycles; treat
+  every main window independently on load and unload.
+- `addon/chrome/content/` (`panel.js`, XHTML shells) sits outside the bundle, type
+  checker, and tests: never import bundle modules there (wire windows via
+  `window.arguments[0]`, `preferences` via `src/modules/prefs.ts`), and review changes
+  extra carefully.
+- `src/modules/` holds large working code paths: do not reorganize it wholesale; extract
+  a seam only when the task benefits from it.
 
-`addon/chrome/content/panel.js` and `literature-explorer.js` are outside the bundle and
-type checker, so changes there need extra review.
+## Contracts
 
-## Contract changes (HTTP v1)
-
-Update together: `packages/contracts/http/v1.schema.json`,
-`apps/zotero-addon/src/runtime-client/contracts.ts`,
-`services/paper-runtime/src/unizero_runtime/contracts.py`, and the shared examples when
-a payload shape changes; then verify both components. No generated bindings without a
-reproducible generator. A new add-on must fail clearly against an incompatible runtime.
+- **Bridge (`/unizero/v1/*`, `apps/zotero-addon/src/server/bridgePayloads.ts`).**
+  Announce compatible new endpoints, parameters, or fields via `GET /ping` `capabilities`
+  while keeping `BRIDGE_API_VERSION` unchanged; bump `BRIDGE_API_VERSION` only when an
+  existing field or behavior changes incompatibly. Update `apps/obsidian-plugin` and
+  `apps/mcp-server` bridge clients and tests alongside payload changes.
+- **Runtime HTTP v1 (`/api/v1`).** Update together:
+  `packages/contracts/http/v1.schema.json`,
+  `apps/zotero-addon/src/runtime-client/contracts.ts`,
+  `services/paper-runtime/src/unizero_runtime/contracts.py`, and the shared examples in
+  `packages/contracts/examples/`; then verify both components. No generated bindings
+  without a reproducible generator. A new add-on must fail clearly against an
+  incompatible runtime.
 
 ## Stable state
 
 Do not casually rename the add-on ID, preference keys, feature IDs, artifact tags,
-contract fields, template IDs, or release filenames. Compatibility readers for older
-user state are listed in `docs/LEGACY_SUPPORT.md`; remove one only when its retirement
-condition holds, in a separate change.
+contract fields, template IDs, or release filenames. Compatibility readers are listed in
+`docs/LEGACY_SUPPORT.md`; remove one only when its retirement condition holds, in a
+separate change.
 
-**Versions.** One repository version, in `apps/zotero-addon/package.json`; a `v*` tag
-releases the add-on and the plugin together. Never edit it by hand — run
-`npm run release -- patch|minor|major` in `apps/zotero-addon`. Check `git tag` before
-stating the current version.
+**Versions.** `apps/zotero-addon/package.json` and `apps/obsidian-plugin/package.json`
+share the release version and ship together from one `v*` tag (`mcp-server` and
+`paper-runtime` carry independent package metadata). Never edit release versions by
+hand — run `npm run release -- patch|minor|major` in `apps/zotero-addon`, which updates
+and stages both. Check `git tag` before stating the current released version.
 
 ## Verification
 
-No root command; verify only the components you changed. In `apps/zotero-addon`,
-`apps/obsidian-plugin`, and `apps/mcp-server`: `npm run check` and `npm test`. Add
-`npm run build` only when you change dependencies, build scripts, the manifest, or files
-under `addon/`; its type check repeats `check`, and the release workflow builds
-everything. In `services/paper-runtime`: `.venv/Scripts/python.exe -m pytest` (tests
-must use the isolated home from `tests/conftest.py`, never the real runtime home).
+No root command; verify only the components you changed.
 
-Tests cover only host-free logic. These always need a manual check — say so when you
-cannot run it; do not record it as an open item:
+- `apps/obsidian-plugin`, `apps/zotero-addon`, `apps/mcp-server`: `npm run check && npm test`.
+  Add `npm run build` only when changing dependencies, build scripts, manifests, or files
+  under `addon/`.
+- `services/paper-runtime`: `uv run --no-sync pytest` (tests must use the isolated home
+  from `tests/conftest.py`, never the real runtime home).
+
+Tests cover only host-free logic. Always say in your reply when a required manual check
+could not be run; do not add routine manual checks to `docs/ROADMAP.md` (unrun host
+features and unverified host fixes for links live in `docs/UNIZERO_LINKS_DESIGN.md`):
 
 | Component | Manual check required for |
 | --- | --- |
-| zotero-addon | Lifecycle, menus, preferences, providers, any privileged Zotero API or UI change |
 | obsidian-plugin | Rendering, suggester, panes, bridge calls — in a real vault against a running Zotero |
+| zotero-addon | Lifecycle, menus, preferences, providers, any privileged Zotero API or UI change |
 | mcp-server | Calls against a real library |
 | paper-runtime | End-to-end conversion (MinerU + a real PDF) |
 
-A change to the digest HTML in the runtime's `providers/tables.py` needs
-`apps/mcp-server/tests/fixtures/tables-digest.html` regenerated.
-
-Documentation-only changes: check that the paths, links, and headings you added or
-changed resolve.
+A change to the digest HTML in `services/paper-runtime/src/unizero_runtime/providers/tables.py`
+needs `apps/mcp-server/tests/fixtures/tables-digest.html` regenerated. Documentation
+changes: verify that added or changed paths, links, and headings resolve.
 
 ## Change discipline
 

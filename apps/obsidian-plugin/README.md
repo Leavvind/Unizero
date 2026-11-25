@@ -1,219 +1,16 @@
 # UniZero for Obsidian
 
 Search Zotero papers, cite them in notes, and open their metadata, Raw Markdown,
-Canvas, or PDF. Zotero remains the source of bibliographic data; the plugin reads
-the local UniZero bridge. Only an explicit conversion starts a Zotero-side job.
+Canvas, or PDF. Zotero remains canonical for bibliographic data; the plugin talks to
+the local UniZero bridge and starts Zotero-side work only on explicit conversion or
+Raw/Canvas actions.
 
 ## Requirements
 
-Desktop Obsidian and a running Zotero 7+ with the UniZero add-on; both must speak
-bridge API 2. Zotero's HTTP server must be enabled
-(`extensions.zotero.httpServer.enabled`).
-
-## Use
-
-- **Library pane** (opens in a tab): browse libraries and collections; right-click a
-  paper to insert a citation or open its files. The last collection is remembered.
-  The folder-tree toolbar button (on by default) also lists the papers of every
-  subcollection, like Zotero's "Show Items from Subcollections". Papers with a
-  Canvas carry a Canvas badge.
-- **Item pane** (right): metadata, incoming document Links, References, Citations,
-  and Relation. Uncached relations require an explicit **Fetch from providers**.
-- **Search:** type `@` followed by author, title, or year. Insert and drag actions
-  write `[Author, year](unizero://paper/libraryID/itemKey)`; the label is ordinary
-  Markdown that later Zotero edits never rewrite. Vault documents are listed after
-  the papers; `@vault query` or `@zotero query` searches one source only.
-  - Inside a link destination, `[your words](@query)` keeps your label and
-    `[](@query)` fills it, so **Add external link** followed by `@` links any text;
-    **Link selection to a paper or document…** does both steps at once.
-  - `↵` finishes the link; `Tab` or `Shift+↵` continue to Markdown or PDF; `#` or `^`
-    continue to headings or blocks (a Chinese IME's `＃` and `……` work too).
-  - Sidebar insertion uses the active editor or the last open Markdown note.
-- **Link styling:** paper links get a document badge and violet background, Vault
-  links a teal dotted label, in reading view, Canvas and Live Preview. The cursor
-  inside a link reveals its Markdown; Source mode stays plain. Styling never loads
-  paper metadata.
-- **Search the Zotero library** (command; give it a hotkey): the same search in a
-  modal, from anywhere. `↵` opens the paper pane, `Mod+↵` the PDF in Zotero,
-  `Shift+↵` Raw, and `Alt+↵` Canvas; each result also has **Insert**, **PDF**, **Raw**, and
-  **Canvas** buttons. Choosing Raw for a paper without one offers to convert it.
-
-| Link destination | Click action |
-| --- | --- |
-| `unizero://paper/1/HLP48L8X` | Open the Item pane |
-| `unizero://paper/1/HLP48L8X.pdf?page=15` | Open physical PDF page 15 |
-| `unizero://paper/1/HLP48L8X.md#Methods` | Open Raw at a heading |
-| `unizero://paper/1/HLP48L8X.md#%5Eresult-01` | Open Raw at an existing block ID |
-| `unizero://paper/1/HLP48L8X.md?attachment=ABCD1234#Methods` | Open the selected Markdown attachment at a heading |
-| `unizero://note/<vaultID>/<UID>#Methods` | Resolve a Vault document by UID, then locate a heading |
-
-`attachment=<key>` selects one attachment of the paper and never falls back to
-another file. A missing or ambiguous heading or block opens the file with a notice;
-headings match exactly. Unfinished or malformed Markdown locations (such as `.md^`
-or `.md#^`) also open that file inside Obsidian. Block IDs use letters, digits and
-hyphens at the end of a line; UniZero also recognizes an ID directly after prose
-without a separating space, such as `text^result-01`.
-Typing inside a destination completes it the way `[[` does: the attachment after the
-item key, headings and block IDs after `.md` or `#` (`#^` for blocks only), and a page
-after `.pdf`. Attachment choices list Raw and ordinary Markdown files by name (ordinary
-files need an add-on of the same release); choosing one writes its key. A sole default
-Raw keeps the short `.md` form; an ordinary file always uses `?attachment=<key>`.
-Right-click for actions; **Choose location for the UniZero link at the cursor**
-replaces the destination and keeps the label. In source mode, Ctrl/Cmd-click follows
-a link.
-
-`unizero://` works only inside Obsidian with this plugin; it is not an
-operating-system protocol. From outside, use
-`obsidian://unizero?target=<encoded-unizero-uri>`.
-
-## Vault identity and Backlinks
-
-**UID source** defaults to the `uid` frontmatter property, read as written; a
-filename UID needs an explicit capture pattern. **Set current document UID**, or
-linking to a note that has none, writes a local `YYYYMMDDHHmmss` timestamp to the
-property without asking, a second later for each one the Vault already uses; a
-note that has a UID keeps it. Filename UIDs are never written. Duplicate UIDs
-list every candidate and stop navigation.
-
-The **Vault identity** lives in plugin settings, so sync them between devices;
-**Treat as a new Vault…** gives an independent copy its own. Renaming or moving a
-note keeps its links. Links into another Vault open only in that Vault.
-
-**UniZero Backlinks** follows the last active Vault note and lists every incoming
-link in one place: UniZero links and Obsidian's own links (wikilinks, embeds,
-Markdown links to the note, and links in properties), each row labelled with its
-form. Obsidian's links come from what Obsidian has already resolved, so they need no
-UID; a missing UID or a UID conflict is reported and hides only the UniZero links.
-A source whose links Obsidian counted without a position, such as a Canvas, is listed
-as a whole file. Wikilinks written in Zotero documents are not read. With a Zotero
-attachment such as Raw open, the pane lists the links into its paper instead, with a
-button to its Item pane.
-
-Below the links, a collapsed **Unlinked mentions** section lists plain-text
-occurrences of the note's title or frontmatter aliases in other Vault notes, ignoring
-case, existing links, code, comments and frontmatter. Words in space-separated
-scripts must match whole; Chinese or Japanese titles also match inside a sentence.
-Each source note starts collapsed to its name and count; expand it to see every
-mention in context with the match highlighted. Notes are read only while the section
-is open, and a scan stops when the target changes or the pane closes. **Link**, shown
-on hover, replaces one mention with a UniZero link to the note, assigning the note a
-UID first if it has none. Zotero documents are never scanned for mentions.
-Both panes refresh automatically and show nothing when
-there are no links; the index status and **Rebuild** are in Settings. The Item pane's
-**Links** tab groups incoming UniZero links by Vault or Zotero source, with context
-and per-file counts. Provider Citations are not included.
-
-## Document source coverage
-
-Links are indexed in Vault Markdown and in Canvas text cards, group labels and edge
-labels; links inside code and comments are ignored. Library badges count Vault links
-only.
-
-Indexing is incremental: rapid edits are coalesced, large documents are parsed in a
-background worker, and folder moves or deletions produce one update. In the Library
-pane, arrow keys, Page Up/Down and Home/End navigate the full filtered list.
-
-**Index Zotero documents** also reads local Raw, Canvas and other Markdown/Canvas
-attachments, opened or not (Raw Backup and generated summaries excluded). **Source
-libraries** limits it; empty means all non-feed libraries. It refreshes every
-minute; **Rebuild document links** re-reads everything. Indexing never converts,
-downloads or queries providers. While Zotero is closed, the documents it listed
-before are still re-read from disk, and a Zotero document saved in Obsidian is
-re-read at once; only new or removed attachments wait for Zotero.
-
-Settings shows coverage, unavailable sources and the last successful Zotero scan.
-A file that cannot be read keeps its previous links, marked stale. The
-`link-index-v1.json` cache in the plugin folder can be deleted at any time. A link
-into a Zotero Canvas opens that file; when the card cannot be focused, a notice
-names it.
-
-## Older citation forms
-
-Bare `@libraryID/itemKey` tokens (with `.md`, `.pdf` or `.pdf:15`) are plain text
-after 0.11.0. Convert them first with 0.11.0's **Transition legacy citations…**.
-
-## Raw and conversion
-
-Raw is the converted paper: a Markdown attachment of the Zotero item (tagged
-`unizero:raw`), edited in place. The plugin opens it with the system's Markdown
-application, as Zotero does — Obsidian, when it is the default for `.md` files.
-A UniZero Markdown URI opens the attachment in Obsidian's own editor, at the heading
-or block it names.
-
-**Convert** is the main action while a paper has no Raw; its progress appears in
-Zotero's UniZero panel. It runs the **Default conversion template** setting, which
-unless set follows the add-on's **Default template** (Journal Papers). To pick a template for one
-paper, right-click the paper pane's Convert button or choose **Convert with
-template…** in a menu; the list appears once the paper runtime is running. Only a
-template that publishes to Zotero creates a Raw. Converting again never overwrites
-Raw; it replaces the Raw Backup attachment.
-
-## Canvas
-
-A paper's Canvas is a `.canvas` file attached to the Zotero item (tagged
-`unizero:canvas`), so it travels with Zotero file sync. The first click on Canvas —
-in the paper pane, the library pane, or a citation menu — asks Zotero to create an
-empty `<paper title>.canvas`; every click then opens that file with the system's
-handler for `.canvas`.
-
-The file lives in Zotero's storage. Its links appear in **Links** when Zotero
-source indexing is enabled. Vault files cannot be embedded in it by Vault path.
-
-Canvas files linked by earlier versions stay where they were. Their paths remain in
-this plugin's `data.json` (`canvasLinks`) for migration but are no longer opened.
-
-## Canvas capture
-
-MarginNote-style excerpting into Canvas text Cards and Markdown notes. A Zotero annotation
-
-```text
-“Quoted text” ([Smith et al., 2024, p. 17](zotero://open-pdf/...))
-```
-
-becomes
-
-```text
-Quoted text [Smith et al., 2024](zotero://open-pdf/...)
-```
-
-The `open-pdf` link is preferred when present; an annotation comment follows on a new line.
-
-| Mode | Behaviour |
-| --- | --- |
-| Auto capture into the edited Card or note | A Zotero annotation copied in Zotero is inserted at the cursor of the Canvas Card or Markdown note being edited. |
-| Selected Card paste and drop | `Cmd/Ctrl+V` or a text drop appends to the one selected text Card. |
-| Off (default) | Nothing is captured. |
-
-Click the `Capture:` status bar item to pick a mode from a menu. **Canvas capture:
-Toggle auto capture** switches auto capture on and off and can take a hotkey; the
-other **Canvas capture:** commands and Settings also switch modes.
-
-## Managing Raw and Canvas
-
-In the paper pane, click **Raw** or **Canvas** to open it and right-click it for its
-actions. Right-clicking **Convert** offers the restore when only a Raw Backup is
-left. Citation and library-pane menus list every action that applies to the paper:
-
-| Action | Effect |
-| --- | --- |
-| Re-convert (keeps Raw, updates Raw Backup) | Runs conversion again with the default template. Raw is not touched. |
-| Re-convert with template… | The same, with a template picked from a second menu. |
-| Restore Raw from Raw Backup | Replaces Raw with a copy of Raw Backup, then opens it. The old Raw goes to Zotero's trash. |
-| Move Raw to Zotero trash | The next conversion creates a new Raw. |
-| Move Canvas to Zotero trash | The next Canvas click creates a new empty Canvas. |
-
-When a Raw or Canvas file is missing on this machine, the plugin offers to show the
-attachment in Zotero (so sync can finish) or to replace it: restore or convert again
-for Raw, a new empty file for Canvas.
-
-Every action that replaces or removes a file asks first, and nothing is erased; a
-trashed Raw or Canvas can be restored from Zotero's trash. Renaming the attachment or
-its file in Zotero is safe. Renaming or deleting the file directly in the storage
-folder is not; use the actions above instead.
+Desktop Obsidian and a running Zotero 7+ with the UniZero add-on (`BRIDGE_API_VERSION` 2)
+and Zotero's HTTP server enabled (`extensions.zotero.httpServer.enabled`).
 
 ## Development
-
-Run from this directory:
 
 ```bash
 npm install
@@ -224,8 +21,78 @@ npm run build
 
 `npm run dev` watches for changes. Copy or symlink `manifest.json`, `main.js`, and
 `styles.css` into `<vault>/.obsidian/plugins/unizero/`, then reload the plugin.
+Code layout: [PROJECT_STRUCTURE.md](../../docs/PROJECT_STRUCTURE.md#obsidian-default-product-surface).
+Rendering, search, panes, dialogs, and bridge calls require a manual check against a
+running Zotero; open host checks live in
+[UNIZERO_LINKS_DESIGN.md](../../docs/UNIZERO_LINKS_DESIGN.md#宿主验收记录).
 
-Tests cover host-independent logic and mocked asynchronous workflows. Rendering,
-search, panes, dialogs, and bridge calls need a manual check in a real vault against
-Zotero; open host checks are recorded in
-[the design handoff](../../docs/UNIZERO_LINKS_DESIGN.md#宿主验收记录).
+## Use
+
+- **Library pane** (tab): browse libraries and collections (subcollections included by
+  default; remembers last collection; Canvas badge when present); right-click a paper to
+  insert a citation or open files; arrow/Page/Home/End keys navigate the list.
+- **Item pane** (right): metadata, incoming document **Links**, **References**,
+  **Citations**, and **Relation** (uncached provider lists wait for explicit **Fetch from
+  providers**).
+- **`@` search:** type `@` plus author, title, or year (`@zotero` or `@vault` restricts
+  the source). Insert and drag write `[Author, year](unizero://paper/libraryID/itemKey)`
+  as plain Markdown labels never rewritten by Zotero edits.
+  - `[your words](@query)` keeps your label; `[](@query)` fills it; **Link selection to a
+    paper or document…** wraps selected text directly.
+  - `↵` finishes; `Tab` / `Shift+↵` continues to `.md` or `.pdf`; `#` or `^` (`＃` / `……`
+    in Chinese IMEs) continues to headings or blocks.
+- **Search the Zotero library** (modal command): `↵` Item pane, `Mod+↵` PDF, `Shift+↵`
+  Raw (offers conversion if missing), `Alt+↵` Canvas, plus row action buttons.
+- **Link styling:** violet badge for paper links, teal dotted underline for Vault links in
+  Live Preview, Reading view, and Canvas (Source mode stays plain; styling never fetches
+  metadata).
+
+| Link destination | Click action |
+| --- | --- |
+| `unizero://paper/1/HLP48L8X` | Open the Item pane |
+| `unizero://paper/1/HLP48L8X.pdf?page=15` | Open physical PDF page 15 |
+| `unizero://paper/1/HLP48L8X.md#Methods` | Open Raw at an exact heading |
+| `unizero://paper/1/HLP48L8X.md#%5Eresult-01` | Open Raw at block ID `^result-01` (supports `text^id` without space) |
+| `unizero://paper/1/HLP48L8X.md?attachment=ABCD1234#Methods` | Open a specific Markdown attachment (404 if missing, never falls back) |
+| `unizero://note/<vaultID>/<UID>#Methods` | Resolve a Vault document by UID, then locate a heading |
+
+Missing/ambiguous anchors or unfinished suffixes (`.md^`, `.md#^`) still open the target
+file with a notice. Destination autocomplete suggests attachments, headings, block IDs,
+and pages; **Choose location for the UniZero link at the cursor** updates the URI while
+keeping the label. `unizero://` is internal to Obsidian; external callers use
+`obsidian://unizero?target=<encoded-unizero-uri>`. Bare `@libraryID/itemKey` tokens from
+pre-0.11.0 are plain text.
+
+## Vault identity, Backlinks, and source indexing
+
+- **UIDs & Vault ID:** defaults to frontmatter `uid` (opaque string; filename UIDs need a
+  capture pattern and are never written). Linking to a UID-less note or running **Set
+  current document UID** assigns a unique `YYYYMMDDHHmmss` timestamp; duplicate UIDs halt
+  navigation and list candidates. Sync settings across devices to share `vaultID`, or run
+  **Treat as a new Vault…** for an independent copy.
+- **UniZero Backlinks:** follows the last active Vault note, combining UniZero links with
+  Obsidian's resolved native links (wikilinks, embeds, Markdown, properties); when a
+  Zotero attachment is active, shows links into its parent paper instead. A collapsed
+  **Unlinked mentions** section scans Vault notes on demand for title/alias matches (CJK
+  substring-aware) with one-click **Link**.
+- **Source coverage:** indexes Vault Markdown and Canvas text/group/edge labels
+  incrementally (background worker for large files; `link-index-v1.json` is disposable).
+  Enabling **Index Zotero documents** also scans local Raw, Canvas, and ordinary
+  Markdown/Canvas attachments every minute via `/link-sources` (re-reading known local
+  files even while Zotero is closed, without starting conversions or provider calls).
+
+## Raw, Canvas, and capture
+
+- **Raw (`unizero:raw`) & Convert:** Convert runs **Default conversion template** (falling
+  back to the add-on's default) to create Raw and Raw Backup; re-converting updates only
+  Raw Backup so user edits in Raw survive.
+- **Canvas (`unizero:canvas`):** created empty on first click in Zotero storage and opened
+  with the system `.canvas` handler (legacy `canvasLinks` in `data.json` remain unread for
+  migration).
+- **Managing files:** right-click **Raw**, **Canvas**, or citation/library menus to
+  re-convert (default or chosen template), **Restore Raw from Raw Backup**, or move Raw /
+  Canvas to Zotero's trash (all destructive-looking actions confirm first and use Zotero
+  trash). Never rename or delete files directly inside Zotero's `storage/` folder.
+- **Canvas capture:** converts copied/dropped Zotero annotations into `Quoted text [Author, year](zotero://open-pdf/...)`
+  (plus comment). Modes via `Capture:` status bar, commands, or Settings: **Auto capture
+  into the edited Card or note**, **Selected Card paste and drop**, or **Off** (default).
