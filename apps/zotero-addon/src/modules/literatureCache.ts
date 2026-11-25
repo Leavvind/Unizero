@@ -20,6 +20,12 @@ export const CITATIONS_NEGATIVE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface ReferencesCache {
   savedAt: number;
+  /**
+   * When the list itself was last fetched or extracted. A re-save that only fills in
+   * rows (background title resolution) keeps it; shards older than the field have
+   * only `savedAt`.
+   */
+  loadedAt?: number;
   source: string;
   /** Identifiers at save time; a change means this list may belong to another paper. */
   doi: string;
@@ -176,10 +182,14 @@ export function makeReferencesCache(
   references: ItemBaseInfo[],
   resolved: boolean,
   perSource?: RelationSourceResult[],
+  /** The list's original load time when re-saving it; a new list omits it. */
+  loadedAt?: number,
 ): ReferencesCache {
   const identifiers = readItemPaperIdentifiers(item);
+  const savedAt = Date.now();
   return {
-    savedAt: Date.now(),
+    savedAt,
+    loadedAt: loadedAt ?? savedAt,
     source,
     doi: identifiers.doi || "",
     semanticScholarPaperId: identifiers.semanticScholarPaperId,

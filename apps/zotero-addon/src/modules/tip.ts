@@ -59,8 +59,11 @@ export const TIP_SHOW_DELAY_MS = 233;
 const TIP_FADE_MS = 233;
 /** How long the card lingers after the pointer leaves it. */
 const TIP_LINGER_MS = 500;
-const TIP_BACKGROUND = "#ffffff";
+/** Card background per colour scheme; the foreground follows from it (buildTheme). */
+const TIP_BACKGROUND = { light: "#ffffff", dark: "#2b2d31" };
 const TIP_TITLE = "#2270d9";
+/** Room the card needs beside its row before it flips to the other side. */
+const TIP_MIN_SIDE_ROOM = 300;
 
 export default class TipUI {
   private utils: Utils;
@@ -80,9 +83,16 @@ export default class TipUI {
   /** Foreground colours derived from the background; readable in light and dark themes. */
   private theme!: { background: string; foreground: string; muted: string; title: string };
 
-  constructor() {
+  /** The window that owns the hovered row; the card is drawn and placed in it. */
+  private win: Window;
+  private doc: Document;
+
+  constructor(win: Window = window) {
+    this.win = win
+    this.doc = win.document
     this.utils = new Utils()
-    this.theme = buildTheme(TIP_BACKGROUND, TIP_TITLE)
+    const dark = Boolean(win.matchMedia?.("(prefers-color-scheme: dark)").matches)
+    this.theme = buildTheme(dark ? TIP_BACKGROUND.dark : TIP_BACKGROUND.light, TIP_TITLE)
   }
 
   public onInit(refRect: Rect, position:string) {
@@ -94,9 +104,9 @@ export default class TipUI {
   }
 
   public clear() {
-    document.querySelectorAll(".zoference-tip-container").forEach((e: any) => {
+    this.doc.querySelectorAll(".zoference-tip-container").forEach((e: any) => {
       e.style.opacity = "0"
-      window.setTimeout(() => {
+      this.win.setTimeout(() => {
         e.remove()
       }, this.shadeMillisecond);
     })
@@ -134,7 +144,7 @@ export default class TipUI {
       }
       return this.container.getBoundingClientRect() as Rect
     }
-    const winRect: Rect = document.documentElement.getBoundingClientRect()
+    const winRect: Rect = this.doc.documentElement.getBoundingClientRect()
     const maxWidth = winRect.width;
     const maxHeight = winRect.height;
     const refRect = this.refRect;
@@ -147,7 +157,19 @@ export default class TipUI {
 
     // Left side
     let styles: any
-    if (this.position == "left") {
+    // Left of the row by default; a row near the window's left edge (the References
+    // column of UniConnection full) has no room there, so the card goes to its right.
+    const leftRoom = refRect.x
+    const rightRoom = maxWidth - (refRect.x + refRect.width)
+    if (this.position == "left" && leftRoom < TIP_MIN_SIDE_ROOM && rightRoom > leftRoom) {
+      styles = {
+        left: `${refRect.x + refRect.width + 10}px`,
+        right: "",
+        bottom: "",
+        top: `${refRect.y}px`,
+        width: `${clampWidth(rightRoom * .7)}px`
+      }
+    } else if (this.position == "left") {
       styles = {
         // right: `${maxWidth - refRect.x + maxWidth * .014}px`,
         right: `${maxWidth - refRect.x}px`,
@@ -200,7 +222,7 @@ export default class TipUI {
   private buildContainer() {
     // Position calculation
     this.container = ztoolkit.UI.createElement(
-      document,
+      this.doc,
       "div",
       {
         namespace: "html",
@@ -237,13 +259,13 @@ export default class TipUI {
           {
             type: "mouseenter",
             listener: () => {
-              window.clearTimeout(this.tipTimer);
+              this.win.clearTimeout(this.tipTimer);
             }
           },
           {
             type: "mouseleave",
             listener: () => {
-              this.tipTimer = window.setTimeout(() => {
+              this.tipTimer = this.win.setTimeout(() => {
                 this.container.remove();
               }, this.removeTipAfterMillisecond);
             }
@@ -274,7 +296,7 @@ export default class TipUI {
         ]
       }
     ) as unknown as HTMLDivElement
-    document.documentElement.appendChild(this.container)
+    this.doc.documentElement.appendChild(this.container)
   }
 
   /** Open a library item's best attachment (its PDF, normally); select the item when it has none. */
@@ -319,7 +341,7 @@ export default class TipUI {
     )
     if (isSelect) { this.reset() }
     const contentNode = ztoolkit.UI.createElement(
-      document,
+      this.doc,
       "div",
       {
         classList: ["zoference-tip"],
@@ -496,7 +518,7 @@ export default class TipUI {
       }
     ) as HTMLDivElement
     const optionNode = ztoolkit.UI.createElement(
-      document,
+      this.doc,
       "div",
       {
         id: `option-${index}`,

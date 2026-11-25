@@ -7,7 +7,6 @@ import { readZoMinerReferences, findReferencesAttachment } from "./zomReferences
 import { SessionCache } from "./sessionCache";
 import {
   fetchReferencesByIdentifiers,
-  fetchReferenceSource,
   referencesDiagnostics,
 } from "./referencesApi";
 import {
@@ -44,7 +43,6 @@ import {
   resolveLibraryMembership,
   toLiteratureCandidate,
   type LiteratureCandidate,
-  type LiteratureLoadStatus,
   type LiteratureRelationKind,
   type LiteratureSnapshot,
   type LiteratureSourceView,
@@ -56,6 +54,7 @@ import {
 import { literatureCandidateFromItem } from "../zotero/literatureCollectionAdapter";
 import { paperDestinationFromItem } from "../zotero/literatureItemAdapter";
 import { LiteratureSidebar, type LiteratureSidebarPort } from "../ui/literatureSidebar";
+import { UniConnectionFull } from "../ui/uniConnectionFull";
 import {
   recordCatalogDiscoverySnapshot,
   type PaperCatalogDiscoveryResult,
@@ -120,11 +119,11 @@ function sourceSnapshotIsComplete(source: RelationSourceResult): boolean {
     (status === "ok" || status === "empty" || status === "restricted");
 }
 
-type ExplorerOpener = (
-  mainWindow: Window,
-  item: Zotero.Item,
-  kind: LiteratureRelationKind,
-) => void;
+/** The paper an item stands for: itself, or the parent of an attachment or note. */
+function paperOf(item: Zotero.Item | false | undefined): Zotero.Item | undefined {
+  if (!item || item.deleted) { return; }
+  return item.isRegularItem() ? item : item.parentItem || undefined;
+}
 
 /**
  * The paper a relation snapshot is centred on, with the facts everything
@@ -154,12 +153,19 @@ export default class Views {
   private registeredPaneID?: string;
   /** The item-pane References / Citations section. */
   private readonly sidebar = new LiteratureSidebar(this.sidebarPort());
+  /** The same lists in their own window (UniConnection full). */
+  private readonly full = new UniConnectionFull(
+    this.sidebar,
+    (doc) => this.addStyle(doc),
+    (owner) => this.currentPaper(owner),
+  );
+  /** Follows tab switches for the full window, which the item pane misses while collapsed. */
+  private tabObserverID?: string;
   /**
    * References cache writes per paper (explorerKey). A background resolve that
    * started before a newer write must not save its older list over it.
    */
   private readonly referencesWrites = new Map<string, number>();
-  private explorerOpener?: ExplorerOpener;
   // Each relation kind retains only the 32 most recently used payloads. Disk
   // shards remain reloadable after eviction; session-only entries become misses.
   private explorerReferences = new SessionCache<ReferencesCache>();
@@ -173,16 +179,32 @@ export default class Views {
     this.utils = new Utils()
   }
 
-  public setExplorerOpener(opener: ExplorerOpener): void {
-    this.explorerOpener = opener;
-  }
-
   public onWindowLoad(win: Window): void {
     this.addStyle(win.document);
   }
 
   public onWindowUnload(win: Window): void {
+    this.full.closeForOwner(win);
     win.document.getElementById("reference-style")?.remove();
+  }
+
+  /** Open UniConnection full on `item` (the ⤢ button and the item context menu). */
+  public openFull(win: Window, item: Zotero.Item): void {
+    const paper = paperOf(item);
+    if (paper) { this.full.open(win, paper); }
+  }
+
+  /** The paper of a main window's current tab: the reader's parent item, or the one selected item. */
+  private currentPaper(win: Window): Zotero.Item | undefined {
+    const tabs = (win as any).Zotero_Tabs;
+    const tabID = tabs?.selectedID;
+    let info = tabID ? tabs.getTabInfo?.(tabID) : undefined;
+    if (typeof info?.type !== "string") { info = tabID ? tabs._getTab?.(tabID)?.tab : undefined; }
+    if (typeof info?.type === "string" && info.type.startsWith("reader")) {
+      return paperOf(Zotero.Items.get(info.data?.itemID) as Zotero.Item | false);
+    }
+    const selected = (win as any).ZoteroPane?.getSelectedItems?.() as Zotero.Item[] | undefined;
+    return selected?.length === 1 ? paperOf(selected[0]) : undefined;
   }
 
   private addStyle(targetDocument: Document) {
@@ -479,6 +501,83 @@ export default class Views {
             background: var(--accent-blue, #4a8fe0);
             transition: width 0.2s ease;
           }
+          /* UniConnection full (ui/uniConnectionFull.ts): the same lists, two columns. */
+          .unizero-full {
+            box-sizing: border-box;
+            padding: 8px 10px 10px;
+            gap: 8px;
+            font: message-box;
+            color: var(--fill-primary, CanvasText);
+            background: var(--material-background, Canvas);
+          }
+          .unizero-full__header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 6px 6px;
+            border-bottom: 1px solid var(--material-border, rgb(128 128 128 / 30%));
+          }
+          .unizero-full__paper {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .unizero-full__credit {
+            font-weight: 600;
+          }
+          .unizero-full__pin.is-active {
+            background: var(--fill-quarternary, rgb(128 128 128 / 25%));
+            font-weight: 600;
+          }
+          .unizero-full__body {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+          }
+          .unizero-sidebar.is-full {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            contain: none;
+          }
+          .unizero-sidebar__columns {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 12px;
+          }
+          .unizero-sidebar__column {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            border: 1px solid var(--material-border, rgb(128 128 128 / 30%));
+            border-radius: 6px;
+            padding-top: 6px;
+          }
+          .unizero-sidebar__heading {
+            padding: 0 8px 6px;
+            font-weight: 600;
+          }
+          .unizero-sidebar.is-full .unizero-sidebar__list {
+            flex: 1;
+            min-height: 0;
+            max-height: none;
+          }
+          .unizero-sidebar__provider-actions {
+            display: flex;
+            gap: 6px;
+            margin: 8px 6px;
+          }
+          .unizero-sidebar__provider-actions .unizero-sidebar__more {
+            display: inline-block;
+            margin: 0;
+          }
         `
       },
     });
@@ -536,11 +635,12 @@ export default class Views {
         l10nID: `${config.addonRef}-itemPaneSection-sidenav`,
         icon: `chrome://${config.addonRef}/content/icons/reference-sidenav.svg`,
       },
-      onItemChange: ({ item, tabType, setEnabled }: any) => {
+      onItemChange: ({ body, item, tabType, setEnabled }: any) => {
         // The reader may not have been added to Zotero.Reader yet when this hook
         // runs. Hiding the section based on getReader() therefore makes it stay
         // invisible for the lifetime of the tab in Zotero 8/9.
         setEnabled(["library", "reader"].includes(tabType) && Boolean(item));
+        if (["library", "reader"].includes(tabType)) { this.full.ownerChanged(body?.ownerDocument?.defaultView); }
       },
       onRender: ({ body, item, tabType }: any) => {
         if (!["library", "reader"].includes(tabType)) {
@@ -562,9 +662,20 @@ export default class Views {
         }
       },
     }) as string
+    this.tabObserverID = Zotero.Notifier.registerObserver({
+      notify: async (event: string, type: string) => {
+        // The owner's current tab is re-read, so a switch in another window is a no-op.
+        if (type === "tab" && event === "select") { this.full.ownerChanged(); }
+      },
+    }, ["tab"], `${config.addonRef}-uniconnection-full`);
   }
 
   public onDestroy() {
+    this.full.close();
+    if (this.tabObserverID) {
+      Zotero.Notifier.unregisterObserver(this.tabObserverID);
+      this.tabObserverID = undefined;
+    }
     this.explorerReferences.dispose();
     this.explorerCitations.dispose();
     if (this.registeredPaneID) {
@@ -634,6 +745,8 @@ export default class Views {
     resolved: boolean,
     perSource?: RelationSourceResult[],
     recordDiscovery = true,
+    /** Set when re-saving a list that was not fetched again (see ReferencesCache.loadedAt). */
+    loadedAt?: number,
   ): Promise<void> {
     const payload = makeReferencesCache(
       item,
@@ -641,6 +754,7 @@ export default class Views {
       references,
       resolved,
       perSource,
+      loadedAt,
     );
     const key = this.explorerKey(item);
     this.referencesWrites.set(key, (this.referencesWrites.get(key) || 0) + 1);
@@ -824,47 +938,6 @@ export default class Views {
     };
   }
 
-  private relationLoadStatus(
-    item: Zotero.Item,
-    kind: LiteratureRelationKind,
-  ): LiteratureLoadStatus {
-    const key = this.explorerKey(item);
-    const identifiers = readItemPaperIdentifiers(item);
-    if (kind === "references") {
-      const state = this.readReferencesCache(item) ||
-        this.sessionReferencesCache(key, identifiers);
-      return {
-        loaded: Boolean(state),
-        count: state?.references.length || 0,
-        total: state?.references.length || 0,
-        savedAt: state?.savedAt,
-      };
-    }
-    const state = this.readCitationsCache(item) ||
-      this.sessionCitationsCache(key, identifiers);
-    return {
-      loaded: Boolean(state),
-      count: state?.loaded || state?.all.length || 0,
-      total: state?.total || 0,
-      savedAt: state?.savedAt,
-    };
-  }
-
-  /**
-   * Cache-only re-read of both relations' loaded state, behind Unizero Home's
-   * fetch prompt: a paper with nothing saved is offered a fetch instead of one.
-   * Catches loads made elsewhere (the item pane, an earlier session).
-   */
-  public async relationStatuses(
-    item: Zotero.Item,
-  ): Promise<{ references: LiteratureLoadStatus; citations: LiteratureLoadStatus }> {
-    await localStorage.load(item);
-    return {
-      references: this.relationLoadStatus(item, "references"),
-      citations: this.relationLoadStatus(item, "citations"),
-    };
-  }
-
   /** Bridge projection only: no provider repair, attachment promotion or catalog writes. */
   public async getCachedLiteratureSnapshot(
     item: Zotero.Item,
@@ -890,40 +963,12 @@ export default class Views {
       seed: { libraryID: item.libraryID, itemKey: item.key, title: String(item.getField("title") || "") },
       source: state.source,
       total: references ? entries.length : citations!.total,
-      // Matches relationLoadStatus, which the item pane reports.
       loaded: citations ? citations.loaded || entries.length : entries.length,
       hasMore: citations ? this.citationsHasMore(citations) : false,
       items: await this.candidatesWithMembership(item.libraryID, entries.map((entry) => ({ ...entry }))),
       sources: [],
       bySource: {},
     };
-  }
-
-  /**
-   * A live snapshot of how each source is faring in the most recent fetch, read
-   * straight from the diagnostics the providers update as they resolve. The explorer
-   * polls this while a load is in flight to show per-source progress. Statuses are
-   * normalised to a small vocabulary the view can render without parsing free text.
-   */
-  public relationProgress(
-    kind: LiteratureRelationKind,
-  ): { key: RelationSourceKey; status: string }[] {
-    if (kind === "relation") { return []; }
-    const diagnostics: Partial<Record<RelationSourceKey, string | undefined>> =
-      kind === "references"
-        ? {
-          openAlex: referencesDiagnostics.openAlex,
-          crossref: referencesDiagnostics.crossref,
-          semanticScholar: referencesDiagnostics.semanticScholar,
-        }
-        : {
-          openAlex: citationsDiagnostics.openAlex,
-          semanticScholar: citationsDiagnostics.semanticScholar,
-        };
-    const order: RelationSourceKey[] = kind === "references"
-      ? ["openAlex", "crossref", "semanticScholar"]
-      : ["openAlex", "semanticScholar"];
-    return order.map((key) => ({ key, status: normalizeProgress(diagnostics[key]) }));
   }
 
   /**
@@ -952,11 +997,10 @@ export default class Views {
   }
 
   /**
-   * Shared data entry point for the item-pane preview and the independent
-   * Unizero Home. It reads the same per-item shards as the section; when a
-   * shard is missing it fetches through the established providers and writes the
-   * normal cache shape, so opening the large view never creates a parallel source
-   * of truth.
+   * Shared data entry point for the UniConnection lists and the bridge. It reads
+   * the same per-item shards as the item pane; when a shard is missing it fetches
+   * through the established providers and writes the normal cache shape, so the
+   * full window never creates a parallel source of truth.
    */
   public async getLiteratureSnapshot(
     item: Zotero.Item,
@@ -1047,6 +1091,7 @@ export default class Views {
           filled.resolved,
           filled.perSource,
           recordDiscovery,
+          filled.loadedAt ?? filled.savedAt,
         ));
       return this.buildCombinedSnapshot(
         zoteroSeed(item),
@@ -1269,110 +1314,6 @@ export default class Views {
     );
   }
 
-  /**
-   * Re-query one provider and fold the fresh list back into the combined view,
-   * leaving the other sources untouched. This is the per-source Refresh in the
-   * explorer: a flaky Crossref response can be retried without paying for OpenAlex
-   * and Semantic Scholar again.
-   */
-  public async refreshLiteratureSource(
-    item: Zotero.Item,
-    kind: LiteratureRelationKind,
-    sourceKey: RelationSourceKey,
-  ): Promise<LiteratureSnapshot> {
-    if (kind === "relation") {
-      throw new Error("Relation is a local derived view and has no provider source");
-    }
-    await localStorage.load(item);
-    const key = this.explorerKey(item);
-    const identifiers = readItemPaperIdentifiers(item);
-
-    if (kind === "references") {
-      const previous = this.readReferencesCache(item) || this.explorerReferences.get(key);
-      const fresh = await fetchReferenceSource(
-        sourceKey,
-        identifiers.doi,
-        identifiers.semanticScholarPaperId,
-      );
-      const perSource = this.replaceSource(previous?.perSource, fresh);
-      const references = mergeRelationSources(perSource, [
-        "crossref",
-        "openAlex",
-        "semanticScholar",
-      ]);
-      const next: ReferencesCache = {
-        savedAt: Date.now(),
-        source: this.combinedSourceName(perSource),
-        doi: identifiers.doi || "",
-        semanticScholarPaperId: identifiers.semanticScholarPaperId,
-        resolved: true,
-        references,
-        perSource,
-      };
-      this.explorerReferences.set(key, next);
-      await this.saveReferencesCache(item, next.source, references, true, perSource);
-      return this.buildCombinedSnapshot(
-        zoteroSeed(item),
-        kind,
-        references,
-        perSource,
-        references.length,
-        false,
-        next.source,
-        next.savedAt,
-      );
-    }
-
-    const previous = this.readCitationsCache(item) || this.explorerCitations.get(key);
-    const fresh = await fetchCitationSource(
-      sourceKey,
-      identifiers.doi,
-      identifiers.semanticScholarPaperId,
-    );
-    const perSource = this.replaceSource(previous?.perSource, fresh);
-    const all = mergeRelationSources(perSource, ["openAlex", "semanticScholar"]);
-    const next: CitationsCache = {
-      savedAt: Date.now(),
-      doi: identifiers.doi || "",
-      semanticScholarPaperId: identifiers.semanticScholarPaperId,
-      source: this.combinedSourceName(perSource),
-      openAlexFilter: perSource.find((entry) => entry.key === "openAlex")?.openAlexFilter,
-      page: Math.max(0, ...perSource.map((entry) => entry.page || 0)),
-      loaded: all.length,
-      total: Math.max(0, ...perSource.map((entry) => entry.total)),
-      all,
-      perSource,
-    };
-    this.explorerCitations.set(key, next);
-    if (all.length) { await this.persistCitationsCache(item, next); }
-    return this.buildCombinedSnapshot(
-      zoteroSeed(item),
-      "citations",
-      all,
-      perSource,
-      next.total,
-      this.citationsHasMore(next),
-      next.source,
-      next.savedAt,
-    );
-  }
-
-  /** Swap one source's result into a per-source list, keeping a stable order. */
-  private replaceSource(
-    existing: RelationSourceResult[] | undefined,
-    fresh: RelationSourceResult,
-  ): RelationSourceResult[] {
-    const order: RelationSourceKey[] = ["openAlex", "crossref", "semanticScholar"];
-    const list = (existing || []).filter((entry) => entry.key !== fresh.key);
-    list.push(fresh);
-    return list.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
-  }
-
-  private combinedSourceName(perSource: RelationSourceResult[]): string {
-    const contributing = perSource.filter((entry) => entry.entries.length);
-    return contributing.length > 1 ? "Combined" : (contributing[0]?.name || "none");
-  }
-
   public async addLiteratureCandidateToLibrary(
     destination: PaperDestination,
     candidate: LiteratureCandidate,
@@ -1439,9 +1380,12 @@ export default class Views {
         return Boolean(identifiers.doi || identifiers.semanticScholarPaperId || findReferencesAttachment(item));
       },
       resolvePendingReferences: (item) => this.resolvePendingReferences(item),
+      cachedCitations: (item) => this.getCachedLiteratureSnapshot(item, "citations"),
+      fetchCitations: (item, refresh) => this.getLiteratureSnapshot(item, "citations", refresh),
+      loadMoreCitations: (item) => this.loadMoreLiteratureCitations(item),
       addToLibrary: (item, candidate) =>
         this.addLiteratureCandidateToLibrary(paperDestinationFromItem(item), candidate),
-      openExplorer: (win, item, kind) => this.explorerOpener?.(win, item, kind),
+      openFull: (win, item) => this.openFull(win, item),
       attachTip: (element, candidate, item) => this.attachTip(element, candidate, item),
     };
   }
@@ -1504,7 +1448,8 @@ export default class Views {
     if ((this.referencesWrites.get(key) || 0) !== writes) { return false; }
     const complete = failed === 0;
     if (changed || complete) {
-      await this.saveReferencesCache(item, cached.source, references, complete, cached.perSource);
+      await this.saveReferencesCache(item, cached.source, references, complete, cached.perSource, true,
+        cached.loadedAt ?? cached.savedAt);
     }
     return changed;
   }
@@ -1535,11 +1480,14 @@ export default class Views {
     element.addEventListener("mouseenter", () => {
       if (!Zotero.Prefs.get(`${config.addonRef}.isShowTip`)) { return; }
       element.classList.add("active");
-      const position = Zotero.Prefs.get("extensions.zotero.layout", true) == "stacked" ? "top center" : "left";
+      // The stacked item pane sits below the list, so the card goes above the row; that
+      // layout is the main window's, not UniConnection full's.
+      const stacked = Zotero.Prefs.get("extensions.zotero.layout", true) == "stacked" && Boolean((win as any).ZoteroPane);
+      const position = stacked ? "top center" : "left";
       timer = win.setTimeout(() => {
         const rect = element.getBoundingClientRect();
         rect.x -= 5;
-        tipUI = this.showTipUI(rect, reference, position, idText);
+        tipUI = this.showTipUI(rect, reference, position, idText, win);
         if (!element.classList.contains("active")) { tipUI.container.style.display = "none"; }
       }, TIP_SHOW_DELAY_MS);
     });
@@ -1751,13 +1699,13 @@ export default class Views {
     if (changed) { await persist(state); }
   }
 
-  public showTipUI(refRect: Rect, reference: ItemInfo, position: string, idText?: string) {
+  public showTipUI(refRect: Rect, reference: ItemInfo, position: string, idText?: string, win?: Window) {
     let toTimeInfo = (t: string) => {
       if (!t) { return undefined }
       let info = (new Date(t)).toString().split(" ")
       return `${info[1]} ${info[3]}`
     }
-    let tipUI = new TipUI()
+    let tipUI = new TipUI(win)
     tipUI.onInit(refRect, position)
     const refText = reference.text!;
     let getDefalutInfoByReference = async () => {

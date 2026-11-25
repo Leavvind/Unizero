@@ -3,6 +3,7 @@ import {
   citationRows,
   filterRows,
   libraryRows,
+  providerCitationRows,
   referenceRows,
   rowCredit,
   shortAuthors,
@@ -66,6 +67,19 @@ describe("citationRows", () => {
       ["quoted", "D quotes"], ["library", "G newer"], ["library", "F older"],
     ]);
     expect(rows.every((row) => row.inLibrary)).toBe(true);
+  });
+});
+
+describe("providerCitationRows", () => {
+  it("keeps the provider order and drops papers already listed from the library", () => {
+    const listed = citationRows([], ["1:B"], (key) => ({ libraryID: 1, itemKey: key.slice(2), itemID: 11, title: "B", authors: [] }));
+    const rows = providerCitationRows(
+      [candidate("Out"), candidate("B again", 11), candidate("C paper", 12), candidate("C dup", 12)],
+      listed, keyOf);
+    expect(rows.map((row) => [row.group, row.title, row.inLibrary, row.id])).toEqual([
+      ["provider", "Out", false, "provider:0"],
+      ["provider", "C paper", true, "1:C"],
+    ]);
   });
 });
 

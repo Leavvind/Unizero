@@ -182,6 +182,28 @@ export function citationRows(
   return [...quoted, ...others];
 }
 
+/**
+ * Provider Citations (UniConnection full only) not already listed from the library,
+ * in the provider's order. A candidate whose library item is already a row goes.
+ */
+export function providerCitationRows(
+  candidates: LiteratureCandidate[],
+  listed: SidebarRow[],
+  keyOf: (candidate: LiteratureCandidate) => string | undefined,
+): SidebarRow[] {
+  const known = new Set(listed.map((row) => row.scopedKey).filter(Boolean));
+  const rows: SidebarRow[] = [];
+  candidates.forEach((candidate, position) => {
+    const key = keyOf(candidate);
+    if (key) {
+      if (known.has(key)) { return; }
+      known.add(key);
+    }
+    rows.push(candidateRow(candidate, position, key, "provider"));
+  });
+  return rows;
+}
+
 /** Library search hits not already listed (and not the paper itself), as rows. */
 export function libraryRows(
   hits: PaperSummary[],

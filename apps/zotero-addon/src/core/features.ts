@@ -9,18 +9,17 @@ import { noteServiceFailure } from "../ui/notices";
 import {
   registerAnnotationMenu,
   registerConversionMenus,
-  registerLiteratureExplorerMenus,
+  registerUniConnectionMenu,
   unregisterAnnotationMenu,
   unregisterConversionMenus,
-  unregisterLiteratureExplorerMenus,
+  unregisterUniConnectionMenu,
 } from "../ui/menus";
 import { closePanel, closePanelForOwner, openPanel } from "../ui/panel";
-import {
-  closeLiteratureExplorer,
-  closeLiteratureExplorerForOwner,
-  openLiteratureExplorer,
-} from "../ui/literatureExplorer";
+import { UnizeroHome } from "../ui/unizeroHome";
 import { FeatureRegistry, type FeatureModule } from "./featureRegistry";
+
+/** Unizero Home tabs; one owner for every main window. */
+let home: UnizeroHome | undefined;
 
 const relations: FeatureModule = {
   id: "literature.relations",
@@ -28,8 +27,6 @@ const relations: FeatureModule = {
     let views = Zotero[config.addonInstance]?.views as Views | undefined;
     if (!views) {
       views = new Views();
-      views.setExplorerOpener((mainWindow, item, kind) =>
-        openLiteratureExplorer(mainWindow, item, kind, views!));
       await views.onInit(win);
       Zotero[config.addonInstance].views = views;
       uniConnectionSync.register();
@@ -39,26 +36,27 @@ const relations: FeatureModule = {
       } catch (error) {
         Zotero.logError(error as Error);
       }
-      registerLiteratureExplorerMenus(win, (mainWindow, item) =>
-        openLiteratureExplorer(mainWindow, item, "references", views!));
+      registerUniConnectionMenu(win, (mainWindow, item) => views!.openFull(mainWindow, item));
+      home ||= new UnizeroHome({ openFull: (mainWindow, item) => views!.openFull(mainWindow, item) });
+      home.register(win);
       return;
     }
-    views.setExplorerOpener((mainWindow, item, kind) =>
-      openLiteratureExplorer(mainWindow, item, kind, views!));
     views.onWindowLoad(win);
     uniConnectionSync.register();
     addon.api.uniConnectionSync = uniConnectionSync;
-    registerLiteratureExplorerMenus(win, (mainWindow, item) =>
-      openLiteratureExplorer(mainWindow, item, "references", views!));
+    registerUniConnectionMenu(win, (mainWindow, item) => views!.openFull(mainWindow, item));
+    home ||= new UnizeroHome({ openFull: (mainWindow, item) => views!.openFull(mainWindow, item) });
+    home.register(win);
   },
   onWindowUnload(win) {
-    unregisterLiteratureExplorerMenus(win);
+    home?.unregister(win);
+    unregisterUniConnectionMenu(win);
     Zotero[config.addonInstance]?.views?.onWindowUnload?.(win);
-    closeLiteratureExplorerForOwner(win);
   },
   onShutdown() {
     uniConnectionSync.unregister();
-    closeLiteratureExplorer();
+    home?.shutdown();
+    home = undefined;
     Zotero[config.addonInstance]?.views?.onDestroy?.();
   },
   onAppShutdown() {

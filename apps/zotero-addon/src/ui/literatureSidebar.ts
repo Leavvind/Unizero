@@ -1,5 +1,10 @@
 /**
- * The item-pane References / Citations section.
+ * UniConnection: the References / Citations lists, in two layouts.
+ *
+ * `sidebar` is the item-pane section (one list, References and Citations as tabs);
+ * `full` is the UniConnection full window (both lists side by side, uncapped, and
+ * Citations can also show the providers' list on request). One class drives both, so
+ * rows, excerpts and drag-and-drop behave the same everywhere.
  *
  * A References row can be expanded to show the passages of this paper quoted about
  * it — the citation excerpts kept in the paper's own excerpt note
@@ -36,6 +41,7 @@ import {
   citationRows,
   filterRows,
   libraryRows,
+  providerCitationRows,
   referenceRows,
   rowCredit,
   scopedKeyOf,
@@ -45,6 +51,7 @@ import {
 } from "./literatureSidebarModel";
 
 export type SidebarTab = "references" | "citations";
+export type SectionLayout = "sidebar" | "full";
 
 /** What the section needs from Views; kept narrow so Views stays the data owner. */
 export interface LiteratureSidebarPort {
@@ -56,8 +63,14 @@ export interface LiteratureSidebarPort {
   canFetchReferences(item: Zotero.Item): boolean;
   /** Finish resolving title-less cached References in the background; true when any changed. */
   resolvePendingReferences(item: Zotero.Item): Promise<boolean>;
+  /** Saved provider Citations only; never touches the network. */
+  cachedCitations(item: Zotero.Item): Promise<LiteratureSnapshot | undefined>;
+  /** Fetches provider Citations on a miss, or always when `refresh`. */
+  fetchCitations(item: Zotero.Item, refresh: boolean): Promise<LiteratureSnapshot>;
+  /** The next page of provider Citations. */
+  loadMoreCitations(item: Zotero.Item): Promise<LiteratureSnapshot>;
   addToLibrary(item: Zotero.Item, candidate: LiteratureCandidate): Promise<LibraryMembership>;
-  openExplorer(win: Window, item: Zotero.Item, kind: SidebarTab): void;
+  openFull(win: Window, item: Zotero.Item): void;
   /** The hover card for a provider row, when the user has it enabled. */
   attachTip(element: HTMLElement, candidate: LiteratureCandidate, item?: Zotero.Item): void;
 }
@@ -71,31 +84,46 @@ interface TabState {
   loaded: boolean;
   loading: boolean;
   message?: string;
+  /** Citations, full layout only: the providers' list, read from cache or fetched on request. */
+  provider?: LiteratureSnapshot;
+  providerLoading: boolean;
+  providerMessage?: string;
+}
+
+/** One list with its own search box: the sidebar has one (tabbed), full has two. */
+interface PaneState {
+  tab: SidebarTab;
+  query: string;
+  hits: LibraryHit[];
+  /** The References list past REFERENCE_PREVIEW is shown (always, in full). */
+  showAll: boolean;
+  searchTimer?: number;
+  ui: {
+    /** Full only: the column's heading. */
+    heading?: HTMLElement;
+    input: HTMLInputElement;
+    refresh: HTMLElement;
+    list: HTMLElement;
+  };
 }
 
 interface SectionState {
   item: Zotero.Item;
   root: HTMLElement;
-  tab: SidebarTab;
+  layout: SectionLayout;
   references: TabState;
   citations: TabState;
-  query: string;
-  hits: LibraryHit[];
-  /** Explicit expand/collapse choices; rows without one use their default. */
+  panes: PaneState[];
+  /** Explicit expand/collapse choices by `tab:rowId`; rows without one use their default. */
   expanded: Map<string, boolean>;
   busy: Set<string>;
-  /** The References list past REFERENCE_PREVIEW is shown. */
-  showAll: boolean;
-  searchTimer?: number;
   statusTimer?: number;
   generation: number;
   loading?: Promise<void>;
   ui: {
-    tabs: Record<SidebarTab, HTMLElement>;
-    input: HTMLInputElement;
-    refresh: HTMLElement;
+    /** Sidebar only: the References / Citations tab strip. */
+    tabs?: Record<SidebarTab, HTMLElement>;
     status: HTMLElement;
-    list: HTMLElement;
   };
 }
 
@@ -142,7 +170,7 @@ function action(doc: Document, className: string, text: string, title: string, r
  * A `sidebar-*` string from the add-on's Fluent file, or the English fallback when
  * it is missing (or Fluent is not up yet). `{ $name }` placeholders take `args`.
  */
-function t(key: string, fallback: string, args?: Record<string, unknown>): string {
+export function t(key: string, fallback: string, args?: Record<string, unknown>): string {
   const id = `sidebar-${key}`;
   let value: string | undefined;
   try {
@@ -190,25 +218,21 @@ function errorText(error: unknown): string {
 
 export class LiteratureSidebar {
   private readonly sections = new WeakMap<HTMLElement, SectionState>();
-  /** Survives section rebuilds, like the tab the user was last on. */
+  /** Survives section rebuilds, like the tab the user was last on (sidebar only). */
   private lastTab: SidebarTab = "references";
 
   public constructor(private readonly port: LiteratureSidebarPort) {}
 
-  /** Mount the section for `item` in `body`, or keep the one already there. */
-  public render(body: HTMLElement, item: Zotero.Item): void {
+  /** Mount the lists for `item` in `body`, or keep the ones already there. */
+  public render(body: HTMLElement, item: Zotero.Item, layout: SectionLayout = "sidebar"): void {
     const existing = body.querySelector(`.${SECTION_CLASS}`) as HTMLElement | null;
     const state = existing ? this.sections.get(existing) : undefined;
-    if (state && state.item.id === item.id) { return; }
-    body.querySelectorAll(`.${SECTION_CLASS}`).forEach((element) => {
-      const old = this.sections.get(element as HTMLElement);
-      if (old) { this.dispose(old); }
-      element.remove();
-    });
-    this.mount(body, item);
+    if (state && state.item.id === item.id && state.layout === layout) { return; }
+    this.clear(body);
+    this.mount(body, item, layout);
   }
 
-  /** Remove the section (a tab type this section does not serve). */
+  /** Remove the section (a tab type this section does not serve, or a closing window). */
   public clear(body: HTMLElement): void {
     body.querySelectorAll(`.${SECTION_CLASS}`).forEach((element) => {
       const old = this.sections.get(element as HTMLElement);
@@ -226,13 +250,55 @@ export class LiteratureSidebar {
   private dispose(state: SectionState): void {
     state.generation += 1;
     const win = state.root.ownerDocument.defaultView;
-    if (win && state.searchTimer) { win.clearTimeout(state.searchTimer); }
-    if (win && state.statusTimer) { win.clearTimeout(state.statusTimer); }
+    if (!win) { return; }
+    for (const pane of state.panes) {
+      if (pane.searchTimer) { win.clearTimeout(pane.searchTimer); }
+    }
+    if (state.statusTimer) { win.clearTimeout(state.statusTimer); }
   }
 
-  private mount(body: HTMLElement, item: Zotero.Item): void {
+  private mount(body: HTMLElement, item: Zotero.Item, layout: SectionLayout): void {
     const doc = body.ownerDocument;
-    const root = create(doc, "div", SECTION_CLASS);
+    const full = layout === "full";
+    const root = create(doc, "div", full ? `${SECTION_CLASS} is-full` : SECTION_CLASS);
+    const status = create(doc, "div", `${SECTION_CLASS}__status`);
+    status.hidden = true;
+
+    const empty = (): TabState => ({ excerpts: [], citing: [], loaded: false, loading: false, providerLoading: false });
+    const state: SectionState = {
+      item,
+      root,
+      layout,
+      references: empty(),
+      citations: empty(),
+      panes: [],
+      expanded: new Map(),
+      busy: new Set(),
+      generation: 0,
+      ui: { status },
+    };
+    this.sections.set(root, state);
+
+    if (full) {
+      const columns = create(doc, "div", `${SECTION_CLASS}__columns`);
+      for (const tab of ["references", "citations"] as const) {
+        const column = create(doc, "div", `${SECTION_CLASS}__column`);
+        column.dataset.tab = tab;
+        const pane = this.pane(state, tab, true);
+        column.append(pane.ui.heading!, this.toolbar(state, pane), pane.ui.list);
+        columns.append(column);
+      }
+      root.append(status, columns);
+      body.append(root);
+      const loading = Promise.all([
+        this.load(state, "references", "open"),
+        this.load(state, "citations", "open"),
+        this.loadProvider(state, "cache"),
+      ]).then(() => undefined);
+      state.loading = loading;
+      this.draw(state);
+      return;
+    }
 
     const tabBar = create(doc, "div", `${SECTION_CLASS}__tabs`);
     const tabs = {} as Record<SidebarTab, HTMLElement>;
@@ -243,31 +309,8 @@ export class LiteratureSidebar {
       tabs[tab] = element;
       tabBar.append(element);
     }
-
-    const toolbar = create(doc, "div", `${SECTION_CLASS}__toolbar`);
-    const input = create(doc, "input", `${SECTION_CLASS}__search`);
-    input.type = "search";
-    const status = create(doc, "div", `${SECTION_CLASS}__status`);
-    status.hidden = true;
-    const list = create(doc, "div", `${SECTION_CLASS}__list`);
-    list.setAttribute("role", "list");
-
-    const empty = (): TabState => ({ excerpts: [], citing: [], loaded: false, loading: false });
-    const state: SectionState = {
-      item,
-      root,
-      tab: this.lastTab,
-      references: empty(),
-      citations: empty(),
-      query: "",
-      hits: [],
-      expanded: new Map(),
-      busy: new Set(),
-      showAll: false,
-      generation: 0,
-      ui: { tabs, input, refresh: undefined as unknown as HTMLElement, status, list },
-    };
-    this.sections.set(root, state);
+    state.ui.tabs = tabs;
+    const pane = this.pane(state, this.lastTab, false);
 
     // Tab switching on mousedown in the capture phase: Zotero's item pane has been
     // seen to swallow plain clicks on the way up.
@@ -275,38 +318,61 @@ export class LiteratureSidebar {
       const tab = (event.target as HTMLElement)?.closest(`.${SECTION_CLASS}__tab`) as HTMLElement | null;
       if (!tab) { return; }
       event.preventDefault();
-      this.selectTab(state, tab.dataset.tab as SidebarTab);
+      this.selectTab(state, pane, tab.dataset.tab as SidebarTab);
     }, true);
 
-    input.addEventListener("input", () => {
-      state.query = input.value;
-      this.draw(state);
-      this.scheduleLibrarySearch(state);
-    });
+    const toolbar = this.toolbar(state, pane);
+    toolbar.append(action(doc, `${SECTION_CLASS}__open`, "⤢", t("open-full", "Open in UniConnection full"),
+      () => {
+        const win = doc.defaultView;
+        if (win) { this.port.openFull(win, item); }
+      }));
 
-    state.ui.refresh = action(doc, `${SECTION_CLASS}__refresh`, "⟳", "",
-      () => { void this.load(state, state.tab, "refresh"); });
-    toolbar.append(
-      input,
-      state.ui.refresh,
-      action(doc, `${SECTION_CLASS}__open`, "⤢", t("open-home", "Open in Unizero Home"),
-        () => {
-          const win = doc.defaultView;
-          if (win) { this.port.openExplorer(win, item, state.tab); }
-        }),
-    );
-
-    root.append(tabBar, toolbar, status, list);
+    root.append(tabBar, toolbar, status, pane.ui.list);
     body.append(root);
-    this.selectTab(state, state.tab);
+    this.selectTab(state, pane, pane.tab);
   }
 
-  private selectTab(state: SectionState, tab: SidebarTab): void {
-    state.tab = tab;
+  private pane(state: SectionState, tab: SidebarTab, full: boolean): PaneState {
+    const doc = state.root.ownerDocument;
+    const input = create(doc, "input", `${SECTION_CLASS}__search`);
+    input.type = "search";
+    const list = create(doc, "div", `${SECTION_CLASS}__list`);
+    list.setAttribute("role", "list");
+    const pane: PaneState = {
+      tab,
+      query: "",
+      hits: [],
+      showAll: full,
+      ui: {
+        heading: full ? create(doc, "div", `${SECTION_CLASS}__heading`) : undefined,
+        input,
+        refresh: action(doc, `${SECTION_CLASS}__refresh`, "⟳", "",
+          () => { void this.load(state, pane.tab, "refresh"); }),
+        list,
+      },
+    };
+    input.addEventListener("input", () => {
+      pane.query = input.value;
+      this.draw(state);
+      this.scheduleLibrarySearch(state, pane);
+    });
+    state.panes.push(pane);
+    return pane;
+  }
+
+  private toolbar(state: SectionState, pane: PaneState): HTMLElement {
+    const toolbar = create(state.root.ownerDocument, "div", `${SECTION_CLASS}__toolbar`);
+    toolbar.append(pane.ui.input, pane.ui.refresh);
+    return toolbar;
+  }
+
+  private selectTab(state: SectionState, pane: PaneState, tab: SidebarTab): void {
+    pane.tab = tab;
     this.lastTab = tab;
-    state.hits = [];
+    pane.hits = [];
     this.draw(state);
-    this.scheduleLibrarySearch(state);
+    this.scheduleLibrarySearch(state, pane);
     const tabState = state[tab];
     if (tabState.loaded || tabState.loading) { return; }
     // References fetch on a cache miss as soon as the section opens; Citations only
@@ -377,6 +443,39 @@ export class LiteratureSidebar {
     }
   }
 
+  /**
+   * Full layout: the providers' Citations. `cache` only reads what is saved (opening
+   * the window never reaches a provider); `fetch`, `refresh` and `more` are the user's
+   * explicit requests.
+   */
+  private async loadProvider(state: SectionState, mode: "cache" | "fetch" | "refresh" | "more"): Promise<void> {
+    const tabState = state.citations;
+    if (tabState.providerLoading) { return; }
+    const generation = state.generation;
+    const item = state.item;
+    tabState.providerLoading = true;
+    tabState.providerMessage = undefined;
+    this.draw(state);
+    try {
+      const snapshot = mode === "cache"
+        ? await this.port.cachedCitations(item)
+        : mode === "more"
+          ? await this.port.loadMoreCitations(item)
+          : await this.port.fetchCitations(item, mode === "refresh");
+      if (generation !== state.generation) { return; }
+      tabState.provider = snapshot;
+    } catch (error) {
+      if (generation !== state.generation) { return; }
+      tabState.providerMessage = errorText(error);
+      ztoolkit.log(`[sidebar] provider citations ${mode} failed`, error);
+    } finally {
+      if (generation === state.generation) {
+        tabState.providerLoading = false;
+        this.draw(state);
+      }
+    }
+  }
+
   private async resolveInBackground(state: SectionState): Promise<void> {
     const generation = state.generation;
     try {
@@ -390,24 +489,24 @@ export class LiteratureSidebar {
     }
   }
 
-  private scheduleLibrarySearch(state: SectionState): void {
+  private scheduleLibrarySearch(state: SectionState, pane: PaneState): void {
     const win = state.root.ownerDocument.defaultView;
     if (!win) { return; }
-    if (state.searchTimer) { win.clearTimeout(state.searchTimer); }
-    if (state.tab !== "references" || !searchTokens(state.query).length) {
-      if (state.hits.length) {
-        state.hits = [];
+    if (pane.searchTimer) { win.clearTimeout(pane.searchTimer); }
+    if (pane.tab !== "references" || !searchTokens(pane.query).length) {
+      if (pane.hits.length) {
+        pane.hits = [];
         this.draw(state);
       }
       return;
     }
-    const query = state.query;
+    const query = pane.query;
     const generation = state.generation;
-    state.searchTimer = win.setTimeout(async () => {
+    pane.searchTimer = win.setTimeout(async () => {
       try {
         const hits = await searchLibrary(state.item.libraryID, searchTokens(query).join(" "));
-        if (generation !== state.generation || query !== state.query) { return; }
-        state.hits = hits;
+        if (generation !== state.generation || query !== pane.query) { return; }
+        pane.hits = hits;
         this.draw(state);
       } catch (error) {
         ztoolkit.log("[sidebar] library search failed", error);
@@ -437,47 +536,63 @@ export class LiteratureSidebar {
       : citationRows(tabState.excerpts, tabState.citing, summaryOf);
   }
 
+  private tabLabel(state: SectionState, tab: SidebarTab): string {
+    const tabState = state[tab];
+    const total = tab === "references"
+      ? tabState.snapshot?.total ?? tabState.snapshot?.items.length
+      : this.rows(state, tab).length;
+    const label = tab === "references"
+      ? t("tab-references", "References")
+      : t("tab-citations", "Citations");
+    return typeof total === "number" && tabState.loaded ? `${label} ${total}` : label;
+  }
+
   private draw(state: SectionState): void {
     if (!state.root.isConnected) { return; }
-    const doc = state.root.ownerDocument;
-    const { tabs, input, refresh, list } = state.ui;
-
-    for (const tab of ["references", "citations"] as const) {
-      const tabState = state[tab];
-      const total = tab === "references"
-        ? tabState.snapshot?.total ?? tabState.snapshot?.items.length
-        : this.rows(state, tab).length;
-      const label = tab === "references"
-        ? t("tab-references", "References")
-        : t("tab-citations", "Citations");
-      tabs[tab].textContent = typeof total === "number" && tabState.loaded ? `${label} ${total}` : label;
-      tabs[tab].classList.toggle("is-active", tab === state.tab);
-      tabs[tab].setAttribute("aria-selected", String(tab === state.tab));
+    const { tabs } = state.ui;
+    const active = state.panes[0]?.tab;
+    if (tabs) {
+      for (const tab of ["references", "citations"] as const) {
+        tabs[tab].textContent = this.tabLabel(state, tab);
+        tabs[tab].classList.toggle("is-active", tab === active);
+        tabs[tab].setAttribute("aria-selected", String(tab === active));
+      }
     }
-    input.placeholder = state.tab === "references"
+    for (const pane of state.panes) { this.drawPane(state, pane); }
+  }
+
+  private drawPane(state: SectionState, pane: PaneState): void {
+    const doc = state.root.ownerDocument;
+    const { heading, input, refresh, list } = pane.ui;
+    const tab = pane.tab;
+    if (heading) { heading.textContent = this.tabLabel(state, tab); }
+    input.placeholder = tab === "references"
       ? t("search-references", "Search references and your library")
       : t("search-citations", "Search citations");
-    refresh.title = state.tab === "references"
+    refresh.title = tab === "references"
       ? t("refresh", "Fetch this list again from the providers")
       : t("refresh-citations", "Read your library again");
 
-    const tabState = state[state.tab];
-    const rows = this.rows(state, state.tab);
-    const visible = filterRows(rows, state.query);
-    const extra = state.tab === "references" && searchTokens(state.query).length
-      ? libraryRows(state.hits, rows, scopedKeyOf({ libraryID: state.item.libraryID, itemKey: String(state.item.key) }))
+    const tabState = state[tab];
+    const rows = this.rows(state, tab);
+    const visible = filterRows(rows, pane.query);
+    const searching = searchTokens(pane.query).length > 0;
+    const extra = tab === "references" && searching
+      ? libraryRows(pane.hits, rows, scopedKeyOf({ libraryID: state.item.libraryID, itemKey: String(state.item.key) }))
       : [];
 
+    const scrollTop = list.scrollTop;
     list.replaceChildren();
     if (tabState.loading && !rows.length) {
       list.append(create(doc, "div", `${SECTION_CLASS}__empty`, t("loading", "Loading…")));
+      if (tab === "citations") { this.providerGroup(state, pane, list, rows); }
       return;
     }
     if (tabState.message && !rows.length) {
       const box = create(doc, "div", `${SECTION_CLASS}__empty`, tabState.message);
-      if (state.tab === "references" && this.port.canFetchReferences(state.item)) {
+      if (tab === "references" && this.port.canFetchReferences(state.item)) {
         box.append(action(doc, `${SECTION_CLASS}__fetch`, t("fetch", "Fetch from providers"), t("fetch", "Fetch from providers"),
-          () => { void this.load(state, state.tab, "refresh"); }));
+          () => { void this.load(state, tab, "refresh"); }));
       }
       list.append(box);
     } else if (tabState.message) {
@@ -486,54 +601,107 @@ export class LiteratureSidebar {
 
     const quoted = visible.filter((row) => row.group === "quoted");
     const provider = visible.filter((row) => row.group === "provider");
-    if (state.tab === "references") {
-      this.group(state, list, t("group-quoted", "Quoted passages"), quoted);
-      if (!quoted.length && !searchTokens(state.query).length && rows.length) {
+    if (tab === "references") {
+      this.group(state, pane, list, t("group-quoted", "Quoted passages"), quoted);
+      if (!quoted.length && !searching && rows.length) {
         list.append(create(doc, "div", `${SECTION_CLASS}__hint`,
           t("drag-hint", "Drag a highlight, or text selected in the PDF, onto a reference to attach it.")));
       }
-      const capped = !state.showAll && !searchTokens(state.query).length && provider.length > REFERENCE_PREVIEW;
-      this.group(state, list, t("group-references", "References"),
+      const capped = !pane.showAll && !searching && provider.length > REFERENCE_PREVIEW;
+      this.group(state, pane, list, t("group-references", "References"),
         capped ? provider.slice(0, REFERENCE_PREVIEW) : provider, provider.length);
       if (capped) {
         list.append(action(doc, `${SECTION_CLASS}__more`,
           t("show-all", "Show all { $count }", { count: provider.length }),
           t("show-all-hint", "Or type in the search box to find a reference"),
-          () => { state.showAll = true; this.draw(state); }));
+          () => { pane.showAll = true; this.draw(state); }));
       }
-      this.group(state, list, t("group-library", "From your library"), extra);
+      this.group(state, pane, list, t("group-library", "From your library"), extra);
     } else {
-      this.group(state, list, t("group-quoted-in", "Quoted in your library"), quoted);
-      this.group(state, list, t("group-cited-by", "Cite this paper"),
+      this.group(state, pane, list, t("group-quoted-in", "Quoted in your library"), quoted);
+      this.group(state, pane, list, t("group-cited-by", "Cite this paper"),
         visible.filter((row) => row.group === "library"));
+      this.providerGroup(state, pane, list, rows);
     }
-    if (rows.length && !visible.length && !extra.length) {
+    if (rows.length && !visible.length && !extra.length && !(tab === "citations" && state.layout === "full")) {
       list.append(create(doc, "div", `${SECTION_CLASS}__empty`, t("no-matches", "No matches.")));
     }
+    list.scrollTop = scrollTop;
   }
 
-  private group(state: SectionState, list: HTMLElement, title: string, rows: SidebarRow[], total = rows.length): void {
+  /** Full layout, Citations: the providers' list under the library's, fetched only on request. */
+  private providerGroup(state: SectionState, pane: PaneState, list: HTMLElement, listed: SidebarRow[]): void {
+    if (state.layout !== "full") { return; }
+    const doc = list.ownerDocument;
+    const tabState = state.citations;
+    const snapshot = tabState.provider;
+    const rows = filterRows(providerCitationRows(snapshot?.items || [], listed, keyOf), pane.query);
+    const total = snapshot ? snapshot.total ?? snapshot.items.length : undefined;
+    const title = t("group-provider-citations", "Cited by (providers)");
+    list.append(create(doc, "div", `${SECTION_CLASS}__group`,
+      typeof total === "number" ? `${title} · ${total}` : title));
+    if (tabState.providerMessage) {
+      list.append(create(doc, "div", `${SECTION_CLASS}__empty`, tabState.providerMessage));
+    }
+    if (!snapshot) {
+      const box = create(doc, "div", `${SECTION_CLASS}__empty`, tabState.providerLoading
+        ? t("loading", "Loading…")
+        : t("provider-citations-hint", "Papers outside your library that cite this one. Nothing is fetched until you ask."));
+      if (!tabState.providerLoading) {
+        box.append(action(doc, `${SECTION_CLASS}__fetch`,
+          t("fetch-citations", "Fetch citations from providers"),
+          t("fetch-citations", "Fetch citations from providers"),
+          () => { void this.loadProvider(state, "fetch"); }));
+      }
+      list.append(box);
+      return;
+    }
+    for (const row of rows) { list.append(this.rowElement(state, pane, row)); }
+    const actions = create(doc, "div", `${SECTION_CLASS}__provider-actions`);
+    if (tabState.providerLoading) {
+      actions.append(create(doc, "span", `${SECTION_CLASS}__hint`, t("loading", "Loading…")));
+    } else {
+      if (snapshot.hasMore) {
+        actions.append(action(doc, `${SECTION_CLASS}__more`, t("load-more", "Load more"),
+          t("load-more", "Load more"), () => { void this.loadProvider(state, "more"); }));
+      }
+      actions.append(action(doc, `${SECTION_CLASS}__fetch`, t("refetch-citations", "Fetch again"),
+        t("refetch-citations-hint", "Fetch this list again from the providers"),
+        () => { void this.loadProvider(state, "refresh"); }));
+    }
+    list.append(actions);
+  }
+
+  private group(
+    state: SectionState,
+    pane: PaneState,
+    list: HTMLElement,
+    title: string,
+    rows: SidebarRow[],
+    total = rows.length,
+  ): void {
     if (!rows.length) { return; }
     const doc = list.ownerDocument;
     list.append(create(doc, "div", `${SECTION_CLASS}__group`, `${title} · ${total}`));
-    for (const row of rows) { list.append(this.rowElement(state, row)); }
+    for (const row of rows) { list.append(this.rowElement(state, pane, row)); }
   }
 
-  private isExpanded(state: SectionState, row: SidebarRow): boolean {
-    const choice = state.expanded.get(row.id);
+  private isExpanded(state: SectionState, tab: SidebarTab, row: SidebarRow): boolean {
+    const choice = state.expanded.get(`${tab}:${row.id}`);
     if (choice !== undefined) { return choice; }
     // How other papers quote this one is the point of that group; open it.
-    return state.tab === "citations" && row.group === "quoted";
+    return tab === "citations" && row.group === "quoted";
   }
 
-  private rowElement(state: SectionState, row: SidebarRow): HTMLElement {
+  private rowElement(state: SectionState, pane: PaneState, row: SidebarRow): HTMLElement {
     const doc = state.root.ownerDocument;
-    const references = state.tab === "references";
+    const tab = pane.tab;
+    const references = tab === "references";
     const element = create(doc, "div", `${SECTION_CLASS}__row`);
     element.setAttribute("role", "listitem");
     element.dataset.libraryState = row.missing ? "missing" : row.inLibrary ? "in" : "out";
     const expandable = row.excerpts.length > 0 || (references && row.inLibrary);
-    const expanded = expandable && this.isExpanded(state, row);
+    const expanded = expandable && this.isExpanded(state, tab, row);
     element.classList.toggle("is-expanded", expanded);
 
     const head = create(doc, "div", `${SECTION_CLASS}__head`);
@@ -561,8 +729,8 @@ export class LiteratureSidebar {
       head.append(badge);
     }
     if (!row.inLibrary && !row.missing && row.candidate) {
-      head.append(action(doc, `${SECTION_CLASS}__add`, state.busy.has(row.id) ? "…" : "+",
-        t("add", "Add this paper to Zotero"), () => { void this.addToLibrary(state, row); }));
+      head.append(action(doc, `${SECTION_CLASS}__add`, state.busy.has(`${tab}:${row.id}`) ? "…" : "+",
+        t("add", "Add this paper to Zotero"), () => { void this.addToLibrary(state, tab, row); }));
     }
 
     head.addEventListener("click", (event) => {
@@ -572,7 +740,7 @@ export class LiteratureSidebar {
         return;
       }
       if (!expandable) { return; }
-      state.expanded.set(row.id, !expanded);
+      state.expanded.set(`${tab}:${row.id}`, !expanded);
       this.draw(state);
     });
     if (row.candidate) { this.port.attachTip(head, row.candidate, itemOf(row)); }
@@ -580,7 +748,7 @@ export class LiteratureSidebar {
 
     if (expanded) {
       const body = create(doc, "div", `${SECTION_CLASS}__excerpts`);
-      for (const excerpt of row.excerpts) { body.append(this.excerptElement(state, row, excerpt)); }
+      for (const excerpt of row.excerpts) { body.append(this.excerptElement(state, tab, row, excerpt)); }
       if (references && row.inLibrary) {
         body.append(create(doc, "div", `${SECTION_CLASS}__drop-hint`,
           t("drop-hint", "Drop a highlight or PDF selection here")));
@@ -592,7 +760,7 @@ export class LiteratureSidebar {
     return element;
   }
 
-  private excerptElement(state: SectionState, row: SidebarRow, excerpt: ExcerptRecord): HTMLElement {
+  private excerptElement(state: SectionState, tab: SidebarTab, row: SidebarRow, excerpt: ExcerptRecord): HTMLElement {
     const doc = state.root.ownerDocument;
     const element = create(doc, "div", `${SECTION_CLASS}__excerpt`);
     const quote = create(doc, "div", `${SECTION_CLASS}__quote`, `“${excerpt.text}”`);
@@ -608,7 +776,7 @@ export class LiteratureSidebar {
     element.append(quote);
     const meta = create(doc, "div", `${SECTION_CLASS}__excerpt-meta`);
     if (excerpt.pageLabel) { meta.append(create(doc, "span", "", `p. ${excerpt.pageLabel}`)); }
-    if (state.tab === "references" && row.scopedKey) {
+    if (tab === "references" && row.scopedKey) {
       meta.append(action(doc, `${SECTION_CLASS}__remove`, "×", t("remove", "Remove this passage from the note"),
         () => { void this.removeExcerpt(state, row, excerpt); }));
     }
@@ -655,7 +823,7 @@ export class LiteratureSidebar {
       for (const annotation of annotations) {
         if (await addExcerpt(state.item, cited, annotation)) { added += 1; }
       }
-      state.expanded.set(row.id, true);
+      state.expanded.set(`references:${row.id}`, true);
       if (!state.root.isConnected) { return; }
       await this.load(state, "references", "excerpts");
       this.setStatus(state, added
@@ -688,30 +856,42 @@ export class LiteratureSidebar {
     }
   }
 
-  private async addToLibrary(state: SectionState, row: SidebarRow): Promise<void> {
-    if (!row.candidate || state.busy.has(row.id)) { return; }
-    state.busy.add(row.id);
+  private async addToLibrary(state: SectionState, tab: SidebarTab, row: SidebarRow): Promise<void> {
+    // By `tab:rowId`: provider rows are numbered per list, and full shows both lists.
+    const busy = `${tab}:${row.id}`;
+    if (!row.candidate || state.busy.has(busy)) { return; }
+    state.busy.add(busy);
     this.draw(state);
     try {
       await this.port.addToLibrary(state.item, row.candidate);
-      const snapshot = await this.port.cachedReferences(state.item);
-      if (snapshot) { state.references.snapshot = snapshot; }
+      // Re-read the saved lists so the new item's membership shows on its row.
+      const [references, citations] = await Promise.all([
+        this.port.cachedReferences(state.item),
+        state.citations.provider ? this.port.cachedCitations(state.item) : undefined,
+      ]);
+      if (references) { state.references.snapshot = references; }
+      if (citations) { state.citations.provider = citations; }
       this.setStatus(state, t("added", "Added { $paper } to Zotero.", { paper: rowCredit(row) || row.title }), "success");
     } catch (error) {
       this.setStatus(state, t("add-failed", "Could not add this paper: { $error }", { error: errorText(error) }), "fail");
     } finally {
-      state.busy.delete(row.id);
+      state.busy.delete(busy);
       this.draw(state);
     }
   }
 
-  /** Ctrl/Cmd-click: select the paper in the library, or open its web page. */
+  /**
+   * Ctrl/Cmd-click: select the paper in the library, or open its web page. The full
+   * window has no library of its own, so it reveals in the main window.
+   */
   private reveal(state: SectionState, row: SidebarRow): void {
-    const win = state.root.ownerDocument.defaultView as any;
+    const own = state.root.ownerDocument.defaultView as any;
+    const win = own?.ZoteroPane ? own : Zotero.getMainWindow() as any;
     const item = itemOf(row);
     if (item && win?.ZoteroPane) {
       win.Zotero_Tabs?.select?.("zotero-pane");
       win.ZoteroPane.selectItem(item.id);
+      if (win !== own) { win.focus(); }
       return;
     }
     const doi = (row.candidate?.identifiers as Record<string, string> | undefined)?.DOI;

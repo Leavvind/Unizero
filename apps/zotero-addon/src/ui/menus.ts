@@ -256,10 +256,10 @@ export function registerAnnotationMenu(mainWindow: Window): void {
  * true when any selected row is a Collection, library, or group.
  */
 /**
- * Unizero Home contribution: the item context menu opens the selected paper's
- * References, Relation and Citations in the Home window.
+ * UniConnection full: the item context menu opens the selected paper's References
+ * and Citations in the full window.
  */
-export function registerLiteratureExplorerMenus(
+export function registerUniConnectionMenu(
   mainWindow: Window,
   openItem: OpenLiteratureItem,
 ): void {
@@ -267,8 +267,8 @@ export function registerLiteratureExplorerMenus(
   (mainWindow as any).MozXULElement?.insertFTLIfNeeded?.(
     `${config.addonRef}-addon.ftl`,
   );
-  const label = getString("literature-explorer-menu-label") ||
-    "Unizero Home…";
+  const label = getString("uniconnection-full-menu-label") ||
+    "UniConnection full…";
   const itemMenu = document.getElementById("zotero-itemmenu");
   if (itemMenu && !document.getElementById(MENU_LITERATURE)) {
     const itemEntry = (document as any).createXULElement("menuitem");
@@ -296,7 +296,7 @@ export function unregisterAnnotationMenu(mainWindow: Window): void {
   releaseItemMenuOrdering(mainWindow);
 }
 
-export function unregisterLiteratureExplorerMenus(mainWindow: Window): void {
+export function unregisterUniConnectionMenu(mainWindow: Window): void {
   mainWindow.document.getElementById(MENU_LITERATURE)?.remove();
   releaseItemMenuOrdering(mainWindow);
 }

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<?xml-stylesheet href="chrome://zotero-platform/content/zotero.css"?>
+<!--
+  UniConnection full (docs/UNICONNECTION.md §5.3). An empty shell: the add-on bundle
+  draws into #__addonRef__-full through the callbacks passed in window.arguments[0]
+  (AGENTS rule 10); this document loads no script of its own. `persist` keeps the
+  size and position across openings.
+-->
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+  xmlns:html="http://www.w3.org/1999/xhtml"
+  id="__addonRef__-uniconnection-full"
+  windowtype="__addonRef__:uniconnection-full"
+  title="UniConnection"
+  width="1100"
+  height="780"
+  persist="screenX screenY width height sizemode"
+  style="display: flex; flex-direction: column;"
+  onload="window.arguments?.[0]?.onLoad?.(window)"
+  onunload="window.arguments?.[0]?.onUnload?.(window)">
+  <html:div id="__addonRef__-full" style="flex: 1; min-height: 0; display: flex; flex-direction: column;"/>
+</window>
