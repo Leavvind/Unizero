@@ -10,7 +10,7 @@ vi.mock("../src/modules/itemIdentifiers", () => ({
 
 import { UniConnectionSync } from "../src/modules/uniConnectionSync";
 
-function harness(items: Record<number, any>) {
+function harness(items: Record<number, any>, record?: unknown) {
   let observer: any;
   const connection = {
     ingestItem: vi.fn(async () => true),
@@ -24,7 +24,7 @@ function harness(items: Record<number, any>) {
       registerObserver: (value: any) => { observer = value; return "id"; },
       unregisterObserver: () => undefined,
     },
-    cache: { readRecordDirect: async () => undefined, set: async () => undefined },
+    cache: { readRecordDirect: vi.fn(async () => record), set: async () => undefined },
     connection,
     fetchReferences: async () => null,
     getItem: async (id) => items[id],
@@ -32,7 +32,7 @@ function harness(items: Record<number, any>) {
     cacheEnabled: () => false,
   });
   sync.register();
-  return { connection, notify: (event: string, ids: number[]) => observer.notify(event, "item", ids, {}) };
+  return { connection, sync, notify: (event: string, ids: number[]) => observer.notify(event, "item", ids, {}) };
 }
 
 const note = (id: number, deleted = false) => ({
@@ -53,5 +53,16 @@ describe("UniConnectionSync and excerpt notes", () => {
     await notify("delete", [7]);
     expect(connection.retractExcerptNote.mock.calls).toEqual([[6], [7]]);
     expect(connection.ingestExcerptNote).not.toHaveBeenCalled();
+  });
+});
+
+describe("UniConnectionSync and modified papers", () => {
+  it("reads a modified paper's shard once and hands it to the index", async () => {
+    const paper = { id: 8, libraryID: 1, key: "P", deleted: false, isNote: () => false, isRegularItem: () => true };
+    const record = { references: [] };
+    const { connection, sync, notify } = harness({ 8: paper }, record);
+    await notify("modify", [8]);
+    expect((sync as any).cache.readRecordDirect).toHaveBeenCalledTimes(1);
+    expect(connection.ingestItem).toHaveBeenCalledWith(paper, false, { record });
   });
 });

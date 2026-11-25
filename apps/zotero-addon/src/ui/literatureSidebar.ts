@@ -107,6 +107,20 @@ interface PaneState {
   };
 }
 
+/** Rows computed from one set of inputs; recomputed only when an input object changes. */
+interface RowsMemo {
+  inputs: unknown[];
+  rows: SidebarRow[];
+}
+
+/** A drawn row, reused while its row object and the state it was drawn in are unchanged. */
+interface DrawnRow {
+  row: SidebarRow;
+  expanded: boolean;
+  busy: boolean;
+  element: HTMLElement;
+}
+
 interface SectionState {
   item: Zotero.Item;
   root: HTMLElement;
@@ -118,6 +132,11 @@ interface SectionState {
   expanded: Map<string, boolean>;
   busy: Set<string>;
   statusTimer?: number;
+  /** A draw requested for the next frame; several state changes in one frame draw once. */
+  frame?: number;
+  memo: Partial<Record<SidebarTab | "providerCitations", RowsMemo>>;
+  /** By `tab:rowId`: one element per row per list, reused across draws. */
+  drawn: Map<string, DrawnRow>;
   generation: number;
   loading?: Promise<void>;
   ui: {
@@ -255,6 +274,9 @@ export class LiteratureSidebar {
       if (pane.searchTimer) { win.clearTimeout(pane.searchTimer); }
     }
     if (state.statusTimer) { win.clearTimeout(state.statusTimer); }
+    if (state.frame) { win.cancelAnimationFrame(state.frame); }
+    state.frame = undefined;
+    state.drawn.clear();
   }
 
   private mount(body: HTMLElement, item: Zotero.Item, layout: SectionLayout): void {
@@ -274,6 +296,8 @@ export class LiteratureSidebar {
       panes: [],
       expanded: new Map(),
       busy: new Set(),
+      memo: {},
+      drawn: new Map(),
       generation: 0,
       ui: { status },
     };
@@ -529,11 +553,33 @@ export class LiteratureSidebar {
     }, STATUS_MS);
   }
 
+  /**
+   * Rows of one list, recomputed only when one of its inputs is replaced (every load
+   * assigns new snapshot / excerpt / citing objects). Keystrokes, expanding a row and
+   * loading flags redraw from the same rows, without looking items up again.
+   */
   private rows(state: SectionState, tab: SidebarTab): SidebarRow[] {
     const tabState = state[tab];
     return tab === "references"
-      ? referenceRows(tabState.snapshot?.items || [], tabState.excerpts, keyOf, summaryOf)
-      : citationRows(tabState.excerpts, tabState.citing, summaryOf);
+      ? this.memo(state, tab, [tabState.snapshot, tabState.excerpts],
+        () => referenceRows(tabState.snapshot?.items || [], tabState.excerpts, keyOf, summaryOf))
+      : this.memo(state, tab, [tabState.excerpts, tabState.citing],
+        () => citationRows(tabState.excerpts, tabState.citing, summaryOf));
+  }
+
+  private memo(
+    state: SectionState,
+    key: keyof SectionState["memo"],
+    inputs: unknown[],
+    compute: () => SidebarRow[],
+  ): SidebarRow[] {
+    const known = state.memo[key];
+    if (known && known.inputs.length === inputs.length && known.inputs.every((input, at) => input === inputs[at])) {
+      return known.rows;
+    }
+    const rows = compute();
+    state.memo[key] = { inputs, rows };
+    return rows;
   }
 
   private tabLabel(state: SectionState, tab: SidebarTab): string {
@@ -547,7 +593,21 @@ export class LiteratureSidebar {
     return typeof total === "number" && tabState.loaded ? `${label} ${total}` : label;
   }
 
+  /** Draw on the next frame; state changes in between (three loads settling at once) draw once. */
   private draw(state: SectionState): void {
+    const win = state.root.ownerDocument.defaultView;
+    if (!win?.requestAnimationFrame) {
+      this.drawNow(state);
+      return;
+    }
+    if (state.frame) { return; }
+    state.frame = win.requestAnimationFrame(() => {
+      state.frame = undefined;
+      this.drawNow(state);
+    });
+  }
+
+  private drawNow(state: SectionState): void {
     if (!state.root.isConnected) { return; }
     const { tabs } = state.ui;
     const active = state.panes[0]?.tab;
@@ -559,6 +619,11 @@ export class LiteratureSidebar {
       }
     }
     for (const pane of state.panes) { this.drawPane(state, pane); }
+    // Forget elements of rows no longer in any list; rows a search hides are kept.
+    const current = new Set(Object.values(state.memo).flatMap((memo) => memo?.rows || []));
+    for (const [key, drawn] of state.drawn) {
+      if (!current.has(drawn.row)) { state.drawn.delete(key); }
+    }
   }
 
   private drawPane(state: SectionState, pane: PaneState): void {
@@ -635,7 +700,8 @@ export class LiteratureSidebar {
     const doc = list.ownerDocument;
     const tabState = state.citations;
     const snapshot = tabState.provider;
-    const rows = filterRows(providerCitationRows(snapshot?.items || [], listed, keyOf), pane.query);
+    const rows = filterRows(this.memo(state, "providerCitations", [snapshot, listed],
+      () => providerCitationRows(snapshot?.items || [], listed, keyOf)), pane.query);
     const total = snapshot ? snapshot.total ?? snapshot.items.length : undefined;
     const title = t("group-provider-citations", "Cited by (providers)");
     list.append(create(doc, "div", `${SECTION_CLASS}__group`,
@@ -693,15 +759,40 @@ export class LiteratureSidebar {
     return tab === "citations" && row.group === "quoted";
   }
 
+  /**
+   * The row's element: the one drawn last time when nothing it shows has changed, so
+   * a redraw re-appends existing nodes instead of rebuilding them (and their hover
+   * card and drop listeners).
+   */
   private rowElement(state: SectionState, pane: PaneState, row: SidebarRow): HTMLElement {
+    const tab = pane.tab;
+    const expandable = row.excerpts.length > 0 || (tab === "references" && row.inLibrary);
+    const expanded = expandable && this.isExpanded(state, tab, row);
+    const busy = state.busy.has(`${tab}:${row.id}`);
+    const key = `${tab}:${row.id}`;
+    const known = state.drawn.get(key);
+    if (known && known.row === row && known.expanded === expanded && known.busy === busy) {
+      return known.element;
+    }
+    const element = this.buildRow(state, pane, row, expandable, expanded, busy);
+    state.drawn.set(key, { row, expanded, busy, element });
+    return element;
+  }
+
+  private buildRow(
+    state: SectionState,
+    pane: PaneState,
+    row: SidebarRow,
+    expandable: boolean,
+    expanded: boolean,
+    busy: boolean,
+  ): HTMLElement {
     const doc = state.root.ownerDocument;
     const tab = pane.tab;
     const references = tab === "references";
     const element = create(doc, "div", `${SECTION_CLASS}__row`);
     element.setAttribute("role", "listitem");
     element.dataset.libraryState = row.missing ? "missing" : row.inLibrary ? "in" : "out";
-    const expandable = row.excerpts.length > 0 || (references && row.inLibrary);
-    const expanded = expandable && this.isExpanded(state, tab, row);
     element.classList.toggle("is-expanded", expanded);
 
     const head = create(doc, "div", `${SECTION_CLASS}__head`);
@@ -729,7 +820,7 @@ export class LiteratureSidebar {
       head.append(badge);
     }
     if (!row.inLibrary && !row.missing && row.candidate) {
-      head.append(action(doc, `${SECTION_CLASS}__add`, state.busy.has(`${tab}:${row.id}`) ? "…" : "+",
+      head.append(action(doc, `${SECTION_CLASS}__add`, busy ? "…" : "+",
         t("add", "Add this paper to Zotero"), () => { void this.addToLibrary(state, tab, row); }));
     }
 

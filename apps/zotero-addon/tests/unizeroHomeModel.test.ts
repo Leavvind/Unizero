@@ -91,3 +91,17 @@ describe("Unizero Home columns", () => {
       .toEqual(["1:B"]);
   });
 });
+
+describe("Unizero Home scope", () => {
+  it("describes only the papers that become rows or partners", () => {
+    const described: string[] = [];
+    const scope = {
+      keys: library.map((each) => `1:${each.itemKey}`),
+      paper: (key: string) => { described.push(key); return summaryOf(key)!; },
+    };
+    const lazy = homeColumns(scope, pairs, times, summaryOf);
+    expect(lazy).toEqual(homeColumns(library, pairs, times, summaryOf));
+    // H has no activity and is quoted by nobody; every other paper is described once.
+    expect(described.sort()).toEqual(["1:A", "1:B", "1:C", "1:D", "1:E", "1:F", "1:G"]);
+  });
+});

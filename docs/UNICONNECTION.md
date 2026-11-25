@@ -26,7 +26,7 @@
    `ScopedItemKey`。
 3. **索引建在所有边上，库内过滤在查询时施加。**
 4. **索引不含 Zotero 显示字段。** 只存 `ScopedItemKey` 与 `EdgeKey`（摘句例外保留用户原文快照），标题、年份由消费方在展示时富化。
-5. **批量 `build` 走分片直读，绕过 32 条驻留 LRU。**
+5. **批量 `build` 走分片直读，绕过 32 条驻留 LRU。** 先列一次缓存目录，只读有分片的条目；分两段：条目与摘句笔记先就绪，`excerptsFrom` / `excerptsAbout` / `excerptPairs` 不等分片；`relationsOf`、`coupledWith`、`referencesLoadedAt` 等全部分片读完才返回。构建期间的条目与笔记变动同时写入构建中的索引，避免被构建结果覆盖。
 6. **单篇路径读缓存前必须 `await load(item)`。**
 7. **多库隔离。** `ScopedItemKey` 一律含 `libraryID`；摘句引用端与被引端必须同库。
 8. **身份变更走 `retract` + `ingest`**（事后补 DOI 会改变 `selfEdge`）。
@@ -131,4 +131,8 @@ Zotero 端不再保留 Relation 标签页，但 `coupledWith` 与 bridge `kind=r
 - **标签类型与多视图工具栏**：通过 `Zotero_Tabs.add({ type: "unizeroHome", … })` 打开（类型名不能含 `-`，Zotero 会按 `-` 切分类型）；Zotero 9+ 单窗口可有多个文库视图，按钮需注入每条工具栏并在新标签打开时补齐。
 - **会话恢复陷阱**：Zotero 启动时按保存的类型逐个恢复标签，遇到未注册 hook 的类型会直接抛错中止后续标签恢复。因此每个窗口都包装 `Zotero_Tabs.getState` 将 Home 从保存状态剔除（卸载时还原），并在支持 `tabHooks` 的版本注册 `restoreState` / `undoClose`。
 - **行按改动、对端只认手工摘句**：左栏列出有本地活动的论文，但对端只取 `excerptPairs`（provider References 不代表用户摘录）。改动时间取四者最新：非空摘句笔记 `dateModified`、附件批注最新 `dateAdded`、非摘句子笔记最新 `dateModified`、`referencesLoadedAt`（旧缓存回退 `savedAt`）；右栏与对端排序只取对应批注的 `dateAdded`（批注已删则排后，不借用笔记修改时间以免被其他节污染）。
-- **本地读写边界**：活动时间由 `src/zotero/uniConnectionActivity.ts` 用三条按库 SQL 读取，不逐条实例化 `Zotero.Item`；行组装在纯函数 `unizeroHomeModel.ts`。唯一写操作是点击 `+ Canvas` 时调用 `ensureCanvasAttachment`。选中与展开均原地更新 DOM，保证双击落在同一节点上。
+- **本地读写边界**：活动时间由 `src/zotero/uniConnectionActivity.ts` 用按库聚合 SQL 读取（批注在 SQL 内按论文计数取最新，单条批注时间只查摘句用到的键），不逐条实例化 `Zotero.Item`；行组装在纯函数 `unizeroHomeModel.ts`，论文摘要只为上榜行与对端生成。唯一写操作是点击 `+ Canvas` 时调用 `ensureCanvasAttachment`。选中与展开均原地更新 DOM，保证双击落在同一节点上。
+
+### 5.5 重绘
+
+条目面板、full 窗口与 Home 的行数据只在输入对象（快照、摘句、引用列表、Home 的 `view.data`）被替换时重算；行节点按 `列:行` 缓存复用，搜索、排序、展开只重新挂载已有节点。条目面板与 full 窗口的重绘合并到下一帧（`requestAnimationFrame`）。

@@ -180,6 +180,34 @@ export class LocalStorage {
     }
   }
 
+  /**
+   * Item keys with a shard in one library, plus items whose write is still in
+   * flight (readRecordDirect would wait for those). One directory listing, so a
+   * whole-library index need not attempt a read for every item that has none.
+   * Undefined when the listing fails: the caller then reads every item.
+   */
+  async shardKeys(libraryID: number): Promise<Set<string> | undefined> {
+    await this.lock.promise;
+    if (!this.directory) { return; }
+    const keys = new Set<string>();
+    try {
+      for (const path of await IOUtils.getChildren(PathUtils.join(this.directory, String(libraryID)))) {
+        const name = PathUtils.filename(path);
+        if (name.endsWith(".json")) { keys.add(name.slice(0, -".json".length)); }
+      }
+    } catch (error) {
+      if (!isMissingFile(error)) {
+        ztoolkit.log(`cache directory unreadable for library ${libraryID}: ${error}`);
+        return;
+      }
+    }
+    const prefix = `${libraryID}:`;
+    for (const scopedKey of this.writes.keys()) {
+      if (scopedKey.startsWith(prefix)) { keys.add(scopedKey.slice(prefix.length)); }
+    }
+    return keys;
+  }
+
   // ------------------------------------------------------- Library-wide records
 
   /**

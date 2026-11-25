@@ -164,3 +164,51 @@ describe("UniConnection excerptPairs", () => {
     }
   });
 });
+
+describe("UniConnection staged build", () => {
+  /** A library whose shard reads wait until `release()`. */
+  function gated() {
+    const fixture = sampleLibrary();
+    fixture.excerpts.records.push({
+      noteID: 910, libraryID: 1, scope: "library", citingKey: "A", html: noteHTML([["B", ["K1"]]]),
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const read = fixture.cache.readRecordDirect.bind(fixture.cache);
+    fixture.cache.readRecordDirect = async (item: any, key: string) => {
+      await gate;
+      return read(item, key);
+    };
+    return { ...fixture, release };
+  }
+
+  it("answers excerpt queries before any shard has been read", async () => {
+    const { uc, A, B, release } = gated();
+    const relations = uc.relationsOf(B);
+    expect(keys(await uc.excerptsFrom(A))).toEqual(["1:B"]);
+    expect(keys(await uc.excerptsAbout(B))).toEqual(["1:A"]);
+    expect((await uc.excerptPairs(1)).map((each) => each.cited)).toEqual(["1:B"]);
+    release();
+    expect(keys(await relations)).toEqual(["1:A", "1:D"]);
+  });
+
+  it("keeps note and item changes made while shards are still being read", async () => {
+    const { uc, A, B, D, release } = gated();
+    await uc.excerptsFrom(A); // excerpt stage done; shards still gated
+    expect(await uc.ingestExcerptNote(fakeNote(911, D, noteHTML([["B", ["K9"]]])), false)).toBe(true);
+    uc.retract("1:A");
+    release();
+    await uc.build(1);
+    expect(keys(await uc.excerptsAbout(B))).toEqual(["1:D"]);
+    // The build read A's shard after A was trashed, and did not bring it back.
+    expect(keys(await uc.relationsOf(B))).toEqual(["1:D"]);
+  });
+
+  it("reads only the shards the cache lists", async () => {
+    const { uc, cache, B } = sampleLibrary();
+    const read = vi.spyOn(cache, "readRecordDirect");
+    (cache as any).shardKeys = async () => new Set(["A", "D"]);
+    expect(keys(await uc.relationsOf(B))).toEqual(["1:A", "1:D"]);
+    expect(read.mock.calls.map(([item]) => item.key).sort()).toEqual(["A", "D"]);
+  });
+});

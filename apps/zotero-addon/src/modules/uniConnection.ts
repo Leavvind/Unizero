@@ -69,6 +69,27 @@ export interface UniConnectionStats {
 
 interface CacheReader {
   readRecordDirect(item: Zotero.Item, key: string): Promise<unknown>;
+  /**
+   * Item keys that have a shard (or a pending first write) in one library, so a
+   * build skips items with nothing to read. Undefined when it cannot tell.
+   */
+  shardKeys?(libraryID: number): Promise<Set<string> | undefined>;
+}
+
+/** A shard record the caller has just read, handed to ingestItem so it is not read twice. */
+export interface KnownRecord {
+  record: unknown;
+}
+
+/**
+ * One library's rebuild. `notes` resolves once items and excerpt notes are in the
+ * new index, before any shard is read: excerpt queries need nothing more. `done`
+ * resolves when the index is complete and published.
+ */
+interface Build {
+  index: LibraryIndex;
+  notes: Promise<LibraryIndex>;
+  done: Promise<void>;
 }
 
 interface LibraryIndex {
@@ -167,7 +188,7 @@ function mergeExcerpts(
 
 export class UniConnection {
   private indexes = new Map<number, LibraryIndex>();
-  private builds = new Map<number, Promise<void>>();
+  private builds = new Map<number, Build>();
 
   public constructor(
     private readonly cache: CacheReader = localStorage,
@@ -177,7 +198,8 @@ export class UniConnection {
   /**
    * Rebuild one library without touching the cache LRU.
    *
-   * The replacement becomes visible only after every item has been processed.
+   * Reference queries see the replacement only after every item has been processed.
+   * Excerpt queries may read it as soon as its excerpt notes are in (see Build).
    * Concurrent callers share the same build, while a later explicit call rebuilds
    * again from current Zotero/cache state.
    */
@@ -185,24 +207,40 @@ export class UniConnection {
     if (!Number.isFinite(libraryID) || libraryID <= 0) {
       throw new Error(`Invalid Zotero libraryID: ${libraryID}`);
     }
-    const active = this.builds.get(libraryID);
-    if (active) { return active; }
-
-    const building = this.rebuild(libraryID);
-    this.builds.set(libraryID, building);
-    try {
-      await building;
-    } finally {
-      if (this.builds.get(libraryID) === building) {
-        this.builds.delete(libraryID);
-      }
-    }
+    await (this.builds.get(libraryID) || this.startBuild(libraryID)).done;
   }
 
-  private async rebuild(libraryID: number): Promise<void> {
+  private startBuild(libraryID: number): Build {
+    const index = emptyIndex(libraryID);
+    let notesReady!: (index: LibraryIndex) => void;
+    let notesFailed!: (error: unknown) => void;
+    const notes = new Promise<LibraryIndex>((resolve, reject) => {
+      notesReady = resolve;
+      notesFailed = reject;
+    });
+    // Nobody may be waiting on the excerpt stage; its failure is reported by `done`.
+    notes.catch(() => undefined);
+    const build: Build = { index, notes, done: Promise.resolve() };
+    this.builds.set(libraryID, build);
+    build.done = (async () => {
+      try {
+        await this.rebuild(index, () => notesReady(index));
+      } catch (error) {
+        notesFailed(error);
+        throw error;
+      } finally {
+        if (this.builds.get(libraryID) === build) {
+          this.builds.delete(libraryID);
+        }
+      }
+    })();
+    return build;
+  }
+
+  private async rebuild(next: LibraryIndex, notesReady: () => void): Promise<void> {
+    const libraryID = next.libraryID;
     const items = (await Zotero.Items.getAll(libraryID, true, false))
       .filter((item: Zotero.Item) => item.isRegularItem?.() && !item.deleted);
-    const next = emptyIndex(libraryID);
 
     // Establish every library endpoint before reading shards. Coupling also
     // indexes references outside the library.
@@ -210,47 +248,70 @@ export class UniConnection {
       this.ingestSelf(next, item);
     }
 
+    // Excerpt notes first: one search, and all that excerpt queries need. A note
+    // event during the build is applied to `next` too (liveIndexes), so retract
+    // before ingesting in case one already landed.
+    for (const record of await this.excerptSource.notes(libraryID)) {
+      this.retractNote(next, record.noteID);
+      this.ingestNote(next, record);
+    }
+    notesReady();
+
+    // Only items that have a shard are read; a library is mostly papers whose
+    // References were never loaded.
+    const shardKeys = await this.cache.shardKeys?.(libraryID);
+    const withShards = shardKeys
+      ? items.filter((item: Zotero.Item) => shardKeys.has(String(item.key)))
+      : items;
+
     // Bounded parallel reads keep a large library moving without admitting any
     // of these shards to LocalStorage's 32-entry resident cache.
-    for (let offset = 0; offset < items.length; offset += READ_BATCH_SIZE) {
-      const batch = items.slice(offset, offset + READ_BATCH_SIZE);
+    for (let offset = 0; offset < withShards.length; offset += READ_BATCH_SIZE) {
+      const batch = withShards.slice(offset, offset + READ_BATCH_SIZE);
       const records = await Promise.all(batch.map((item) =>
         this.cache.readRecordDirect(item, CACHE_KEY_REFERENCES)));
       batch.forEach((item, index) => {
+        const scopedKey = libraryItemIdentity(item);
+        // Trashed or deleted while the build ran (item changes reach `next` too).
+        if (!next.items.has(scopedKey)) { return; }
         const record = records[index];
         if (isReferencesCache(record) && cacheMatchesItem(record, item)) {
+          // An ingestItem during the build may already have indexed this item.
+          this.retractReferences(next, scopedKey);
           this.ingestReferences(next, item, record);
         }
       });
-    }
-
-    for (const record of await this.excerptSource.notes(libraryID)) {
-      this.ingestNote(next, record);
     }
 
     this.indexes.set(libraryID, next);
   }
 
   /**
-   * Re-index one item from its current shard. Phase 2's notifier can call this;
-   * Phase 1 exposes it so update/retract invariants are testable without writes.
+   * Re-index one item from its current shard, or from `known`, the shard record the
+   * caller has just read itself. Without `buildIfMissing` it updates whatever is
+   * resident: the published index and a build in progress, never an unbuilt library.
    */
   public async ingestItem(
     item: Zotero.Item,
     buildIfMissing = true,
+    known?: KnownRecord,
   ): Promise<boolean> {
-    const index = buildIfMissing
-      ? await this.indexFor(item.libraryID)
-      : this.indexes.get(item.libraryID);
-    if (!index) { return false; }
+    if (buildIfMissing) { await this.indexFor(item.libraryID); }
+    const targets = this.liveIndexes(item.libraryID);
+    if (!targets.length) { return false; }
     const scopedKey = libraryItemIdentity(item);
-    this.retractFrom(index, scopedKey);
+    for (const index of targets) { this.retractFrom(index, scopedKey); }
     if (!item.isRegularItem?.() || item.deleted) { return true; }
 
-    this.ingestSelf(index, item);
-    const record = await this.cache.readRecordDirect(item, CACHE_KEY_REFERENCES);
-    if (isReferencesCache(record) && cacheMatchesItem(record, item)) {
-      this.ingestReferences(index, item, record);
+    const record = known
+      ? known.record
+      : await this.cache.readRecordDirect(item, CACHE_KEY_REFERENCES);
+    for (const index of this.liveIndexes(item.libraryID)) {
+      this.retractFrom(index, scopedKey);
+      this.ingestSelf(index, item);
+      if (isReferencesCache(record) && cacheMatchesItem(record, item)) {
+        this.ingestReferences(index, item, record);
+      }
     }
     return true;
   }
@@ -258,19 +319,21 @@ export class UniConnection {
   /**
    * Re-index one note from its current HTML. A note that is no longer a live,
    * tagged excerpt note (untagged, trashed, detached) is retracted instead. Like
-   * ingestItem, an unbuilt library is left for its lazy build unless asked.
+   * ingestItem, an unbuilt library is left for its lazy build unless asked. A
+   * build in progress gets the change too, since it read its notes up front.
    */
   public async ingestExcerptNote(
     note: Zotero.Item,
     buildIfMissing = true,
   ): Promise<boolean> {
-    const index = buildIfMissing
-      ? await this.indexFor(note.libraryID)
-      : this.indexes.get(note.libraryID);
-    if (!index) { return false; }
-    this.retractNote(index, note.id);
+    if (buildIfMissing) { await this.excerptIndexFor(note.libraryID); }
+    const targets = this.liveIndexes(note.libraryID);
+    if (!targets.length) { return false; }
     const record = excerptNoteRecord(note);
-    if (record) { this.ingestNote(index, record); }
+    for (const index of targets) {
+      this.retractNote(index, note.id);
+      if (record) { this.ingestNote(index, record); }
+    }
     return true;
   }
 
@@ -279,14 +342,16 @@ export class UniConnection {
     for (const index of this.indexes.values()) {
       this.retractNote(index, noteID);
     }
+    for (const build of this.builds.values()) {
+      this.retractNote(build.index, noteID);
+    }
   }
 
   /** Remove every contribution made by one library item. */
   public retract(scopedKey: ScopedItemKey): void {
     const libraryID = libraryIDFromScopedKey(scopedKey);
     if (libraryID === undefined) { return; }
-    const index = this.indexes.get(libraryID);
-    if (index) { this.retractFrom(index, scopedKey); }
+    for (const index of this.liveIndexes(libraryID)) { this.retractFrom(index, scopedKey); }
   }
 
   /**
@@ -295,11 +360,12 @@ export class UniConnection {
    * retract the old scoped contribution.
    */
   public retractItemID(itemID: number): number | undefined {
-    for (const [libraryID, index] of this.indexes) {
+    const candidates = [...this.indexes.values(), ...[...this.builds.values()].map((build) => build.index)];
+    for (const index of candidates) {
       const scopedKey = index.itemIDs.get(itemID);
       if (!scopedKey) { continue; }
-      this.retractFrom(index, scopedKey);
-      return libraryID;
+      for (const live of this.liveIndexes(index.libraryID)) { this.retractFrom(live, scopedKey); }
+      return index.libraryID;
     }
     return undefined;
   }
@@ -338,7 +404,7 @@ export class UniConnection {
    * are left out.
    */
   public async excerptsFrom(item: Zotero.Item): Promise<ExcerptGroup[]> {
-    const index = await this.indexFor(item.libraryID);
+    const index = await this.excerptIndexFor(item.libraryID);
     const citing = libraryItemIdentity(item);
     const groups = new Map<ScopedItemKey, ExcerptRecord[]>();
     const notes = [...index.excerptNotes]
@@ -363,7 +429,7 @@ export class UniConnection {
    * but quotes nothing, so it is not listed here.
    */
   public async excerptsAbout(item: Zotero.Item): Promise<ExcerptGroup[]> {
-    const index = await this.indexFor(item.libraryID);
+    const index = await this.excerptIndexFor(item.libraryID);
     const cited = libraryItemIdentity(item);
     const groups = new Map<ScopedItemKey, ExcerptRecord[]>();
     const noteIDs = [...(index.excerptedBy.get(cited) || [])].sort((left, right) => left - right);
@@ -415,7 +481,7 @@ export class UniConnection {
    * cited paper that is gone stays, marked `missing`. Keys and records only (§1.4).
    */
   public async excerptPairs(libraryID: number): Promise<ExcerptPair[]> {
-    const index = await this.indexFor(libraryID);
+    const index = await this.excerptIndexFor(libraryID);
     const pairs = new Map<string, ExcerptPair>();
     const notes = [...index.excerptNotes].sort(([left], [right]) => left - right);
     for (const [, note] of notes) {
@@ -471,9 +537,31 @@ export class UniConnection {
 
   private async indexFor(libraryID: number): Promise<LibraryIndex> {
     const active = this.builds.get(libraryID);
-    if (active) { await active; }
+    if (active) { await active.done; }
     if (!this.indexes.has(libraryID)) { await this.build(libraryID); }
     return this.indexes.get(libraryID)!;
+  }
+
+  /**
+   * An index whose items and excerpt notes are complete; its References may not be.
+   * Excerpt queries use it so they never wait for every shard to be read.
+   */
+  private async excerptIndexFor(libraryID: number): Promise<LibraryIndex> {
+    const active = this.builds.get(libraryID);
+    if (active) { return active.notes; }
+    const index = this.indexes.get(libraryID);
+    if (index) { return index; }
+    if (!Number.isFinite(libraryID) || libraryID <= 0) {
+      throw new Error(`Invalid Zotero libraryID: ${libraryID}`);
+    }
+    return this.startBuild(libraryID).notes;
+  }
+
+  /** The published index and the one being built, for note changes that must reach both. */
+  private liveIndexes(libraryID: number): LibraryIndex[] {
+    const live = [this.indexes.get(libraryID), this.builds.get(libraryID)?.index]
+      .filter((index): index is LibraryIndex => Boolean(index));
+    return [...new Set(live)];
   }
 
   private ingestSelf(index: LibraryIndex, item: Zotero.Item): void {
@@ -560,7 +648,7 @@ export class UniConnection {
     index.excerptNotes.delete(noteID);
   }
 
-  private retractFrom(index: LibraryIndex, scopedKey: ScopedItemKey): void {
+  private retractReferences(index: LibraryIndex, scopedKey: ScopedItemKey): void {
     for (const edge of index.forward.get(scopedKey) || []) {
       const citingItems = index.inverted.get(edge);
       citingItems?.delete(scopedKey);
@@ -570,6 +658,10 @@ export class UniConnection {
     index.itemsWithRefs.delete(scopedKey);
     index.referencesLoadedAt.delete(scopedKey);
     index.anonymousByItem.delete(scopedKey);
+  }
+
+  private retractFrom(index: LibraryIndex, scopedKey: ScopedItemKey): void {
+    this.retractReferences(index, scopedKey);
     index.items.delete(scopedKey);
     const itemID = index.scopedItemIDs.get(scopedKey);
     if (itemID !== undefined) {

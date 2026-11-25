@@ -22,7 +22,7 @@ import {
   fetchReferencesByIdentifiers,
   type ReferencesResult,
 } from "./referencesApi";
-import { uniConnection } from "./uniConnection";
+import { uniConnection, type KnownRecord } from "./uniConnection";
 
 const DEFAULT_QUEUE_INTERVAL_MS = 1_100;
 
@@ -42,7 +42,7 @@ interface CachePort {
 }
 
 interface ConnectionPort {
-  ingestItem(item: Zotero.Item, buildIfMissing?: boolean): Promise<boolean>;
+  ingestItem(item: Zotero.Item, buildIfMissing?: boolean, known?: KnownRecord): Promise<boolean>;
   ingestExcerptNote(note: Zotero.Item, buildIfMissing?: boolean): Promise<boolean>;
   retract(scopedKey: string): void;
   retractItemID(itemID: number): number | undefined;
@@ -270,14 +270,16 @@ export class UniConnectionSync {
           continue;
         }
 
-        // Updating an unbuilt graph would defeat lazy construction. If it is
-        // resident, ingestItem retracts its old identity/edges before re-reading.
-        await this.connection.ingestItem(item, false);
-
+        // One read serves both the index and the fill decision; shards can be
+        // large and a sync modifies many items at once.
         const record = await this.cache.readRecordDirect(
           item,
           CACHE_KEY_REFERENCES,
         );
+        // Updating an unbuilt graph would defeat lazy construction. If it is
+        // resident, ingestItem retracts its old identity/edges before re-reading.
+        await this.connection.ingestItem(item, false, { record });
+
         if (
           isReferencesCache(record) &&
           cacheMatchesItem(record, item)
@@ -358,7 +360,7 @@ export class UniConnectionSync {
           isReferencesCache(existing) &&
           cacheMatchesItem(existing, item)
         ) {
-          await this.connection.ingestItem(item, false);
+          await this.connection.ingestItem(item, false, { record: existing });
           this.noteFill(task, "discarded");
           continue;
         }

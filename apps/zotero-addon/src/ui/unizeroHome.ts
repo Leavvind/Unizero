@@ -75,8 +75,11 @@ interface HomeView {
   /** Empty: the whole library. */
   collectionKey: string;
   subcollections: boolean;
-  papers: HomePaper[];
+  /** Papers in scope (the status line's count). */
+  paperCount: number;
   data: Record<HomeColumn, HomeRow[]>;
+  /** Drawn rows by `column|scopedKey`, reused while the row and its partner fold are unchanged. */
+  drawn: Map<string, { row: HomeRow; all: boolean; element: HTMLElement }>;
   selected?: { column: HomeColumn; key: string };
   /** Partners the user folded; passages show by default. By `column|row|partner`. */
   collapsed: Set<string>;
@@ -233,6 +236,7 @@ export class UnizeroHome {
     const view = this.views.get(win);
     if (!view) { return; }
     view.generation += 1;
+    view.drawn.clear();
     this.views.delete(win);
   }
 
@@ -377,7 +381,8 @@ export class UnizeroHome {
 
     const view: HomeView = {
       win, tabID, root, libraryID, collectionKey, subcollections: false,
-      papers: [], data: { references: [], citations: [] }, collapsed: new Set(), expanded: new Set(),
+      paperCount: 0, data: { references: [], citations: [] }, drawn: new Map(),
+      collapsed: new Set(), expanded: new Set(),
       columns: {} as Record<HomeColumn, ColumnState>,
       loading: false, generation: 0, stale: false,
       ui: { library, collection, subcollections, status },
@@ -468,14 +473,18 @@ export class UnizeroHome {
       const items = await this.scopeItems(view);
       // A deleted collection falls back to the whole library; show that in the picker.
       if (view.collectionKey !== collectionKey && generation === view.generation) { this.drawScope(view); }
-      const [pairs, references, activity] = await Promise.all([
+      const [pairs, references] = await Promise.all([
         uniConnection.excerptPairs(view.libraryID),
         uniConnection.referencesLoadedAt(view.libraryID),
-        libraryActivity(view.libraryID),
       ]);
+      // Only the passages' own highlights need a time of their own.
+      const activity = await libraryActivity(view.libraryID,
+        pairs.flatMap((pair) => pair.excerpts.map((excerpt) => excerpt.annotationKey)));
       if (generation !== view.generation) { return; }
-      view.papers = items.map(paperOf);
-      view.data = homeColumns(view.papers, pairs, { ...activity, references }, (key) => {
+      const scope = new Map(items.map((item) => [`${item.libraryID}:${item.key}`, item]));
+      view.paperCount = scope.size;
+      view.data = homeColumns({ keys: scope.keys(), paper: (key) => paperOf(scope.get(key)!) },
+        pairs, { ...activity, references }, (key) => {
         const item = itemOf(key);
         return item?.isRegularItem() ? paperOf(item) : undefined;
       });
@@ -545,7 +554,7 @@ export class UnizeroHome {
   private drawStatus(view: HomeView): void {
     view.ui.status.textContent = view.loading
       ? t("loading", "Loading…")
-      : view.error || t("papers", "{ $count } papers", { count: view.papers.length });
+      : view.error || t("papers", "{ $count } papers", { count: view.paperCount });
   }
 
   private draw(view: HomeView): void {
@@ -572,8 +581,13 @@ export class UnizeroHome {
           : t("citations-empty", "No paper here has been quoted yet.")));
       return;
     }
+    // Rows from an earlier load are not coming back.
+    const current = new Set(view.data[state.column]);
+    for (const [key, drawn] of view.drawn) {
+      if (key.startsWith(`${state.column}|`) && !current.has(drawn.row)) { view.drawn.delete(key); }
+    }
     const linked = this.linked(view, state.column);
-    for (const row of rows.slice(0, state.limit)) { list.append(this.rowElement(view, state, row, linked)); }
+    for (const row of rows.slice(0, state.limit)) { list.append(this.drawnRow(view, state, row, linked)); }
     if (rows.length > state.limit) {
       const more = create(doc, "div", `${CLASS}__action ${CLASS}__more`,
         t("show-more", "Show { $count } more", { count: Math.min(ROW_PAGE, rows.length - state.limit) }));
@@ -585,6 +599,32 @@ export class UnizeroHome {
       list.append(more);
     }
     list.scrollTop = scrollTop;
+  }
+
+  /**
+   * The row's element, reused from the last draw while the row object (replaced on
+   * every load) and its partner fold are unchanged: searching and sorting then
+   * re-append nodes instead of rebuilding them and re-reading every paper's
+   * attachments. Selection is marked afresh; partner folds are kept in place.
+   */
+  private drawnRow(view: HomeView, state: ColumnState, row: HomeRow, linked: Set<string>): HTMLElement {
+    const key = `${state.column}|${row.scopedKey}`;
+    const all = view.expanded.has(key);
+    const known = view.drawn.get(key);
+    if (known && known.row === row && known.all === all) {
+      this.markRow(view, state.column, known.element, row.scopedKey, linked);
+      return known.element;
+    }
+    const element = this.rowElement(view, state, row, linked);
+    view.drawn.set(key, { row, all, element });
+    return element;
+  }
+
+  private markRow(view: HomeView, column: HomeColumn, element: HTMLElement, key: string, linked: Set<string>): void {
+    const selected = view.selected?.column === column && view.selected.key === key;
+    element.classList.toggle("is-selected", selected);
+    element.setAttribute("aria-selected", String(selected));
+    element.classList.toggle("is-linked", linked.has(key));
   }
 
   /** Papers to highlight in `column`: the selected paper's partners from the other column. */
@@ -602,10 +642,7 @@ export class UnizeroHome {
     element.setAttribute("role", "option");
     element.tabIndex = 0;
     element.dataset.key = row.scopedKey;
-    const selected = view.selected?.column === state.column && view.selected.key === row.scopedKey;
-    element.classList.toggle("is-selected", selected);
-    element.classList.toggle("is-linked", linked.has(row.scopedKey));
-    element.setAttribute("aria-selected", String(selected));
+    this.markRow(view, state.column, element, row.scopedKey, linked);
 
     const head = create(doc, "div", `${CLASS}__head`);
     head.append(this.icon(doc, row.paper), this.paperText(doc, row.paper, `${CLASS}__text`));
@@ -733,11 +770,7 @@ export class UnizeroHome {
     for (const column of ["references", "citations"] as const) {
       const linked = this.linked(view, column);
       for (const row of Array.from(view.columns[column].ui.list.querySelectorAll(`.${CLASS}__row`)) as HTMLElement[]) {
-        const key = row.dataset.key || "";
-        const selected = view.selected?.column === column && view.selected.key === key;
-        row.classList.toggle("is-selected", selected);
-        row.setAttribute("aria-selected", String(selected));
-        row.classList.toggle("is-linked", linked.has(key));
+        this.markRow(view, column, row, row.dataset.key || "", linked);
       }
     }
   }

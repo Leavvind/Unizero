@@ -81,6 +81,15 @@ export interface HomeTimes {
   references: ReadonlyMap<string, number>;
 }
 
+/**
+ * The papers in scope, described only on demand: Home's rows are the few papers with
+ * activity, so the rest of the library is never summarised.
+ */
+export interface HomeScope {
+  keys: Iterable<string>;
+  paper(scopedKey: string): HomePaper;
+}
+
 export interface HomeQuery {
   column: HomeColumn;
   sort: HomeSort;
@@ -144,17 +153,21 @@ function activityOf(scopedKey: string, pairs: HomePair[] | undefined, times: Hom
  * by the newest passage quoting it.
  */
 export function homeColumns(
-  papers: HomePaper[],
+  papers: HomePaper[] | HomeScope,
   pairs: HomePair[],
   times: HomeTimes,
   summaryOf: (scopedKey: string) => HomePaper | undefined,
 ): Record<HomeColumn, HomeRow[]> {
-  const inScope = new Map(papers.map((paper) => [`${paper.libraryID}:${paper.itemKey}`, paper]));
+  const inScope = scopeOf(papers);
   const byCiting = new Map<string, HomePair[]>();
   const byCited = new Map<string, HomePair[]>();
+  const add = (groups: Map<string, HomePair[]>, key: string, pair: HomePair) => {
+    const list = groups.get(key);
+    if (list) { list.push(pair); } else { groups.set(key, [pair]); }
+  };
   for (const pair of pairs) {
-    byCiting.set(pair.citing, [...(byCiting.get(pair.citing) || []), pair]);
-    if (!pair.missing) { byCited.set(pair.cited, [...(byCited.get(pair.cited) || []), pair]); }
+    add(byCiting, pair.citing, pair);
+    if (!pair.missing) { add(byCited, pair.cited, pair); }
   }
   const partner = (scopedKey: string, pair: HomePair): HomePartner => ({
     scopedKey,
@@ -195,6 +208,31 @@ export function homeColumns(
   return { references, citations };
 }
 
+/** Scope as a lookup that summarises each paper at most once, and only when asked. */
+function scopeOf(papers: HomePaper[] | HomeScope): {
+  keys(): Iterable<string>;
+  get(scopedKey: string): HomePaper | undefined;
+} {
+  if (Array.isArray(papers)) {
+    const byKey = new Map(papers.map((paper) => [`${paper.libraryID}:${paper.itemKey}`, paper]));
+    return { keys: () => byKey.keys(), get: (scopedKey) => byKey.get(scopedKey) };
+  }
+  const keys = new Set(papers.keys);
+  const described = new Map<string, HomePaper>();
+  return {
+    keys: () => keys,
+    get: (scopedKey) => {
+      if (!keys.has(scopedKey)) { return; }
+      let paper = described.get(scopedKey);
+      if (!paper) {
+        paper = papers.paper(scopedKey);
+        described.set(scopedKey, paper);
+      }
+      return paper;
+    },
+  };
+}
+
 function credit(paper?: { authors: string[]; year?: string }): string {
   return paper ? rowCredit({ authors: paper.authors, year: paper.year } as any) : "";
 }
@@ -214,7 +252,18 @@ const ORDER: Record<HomeSort, (left: HomeRow, right: HomeRow) => number> = {
   year: (left, right) => (right.paper.year || "").localeCompare(left.paper.year || "") || byTitle(left, right),
 };
 
+/** Rows are rebuilt on every load, so a row's search text can be kept for its lifetime. */
+const haystacks = new WeakMap<HomeRow, string>();
+
 function haystack(row: HomeRow): string {
+  const known = haystacks.get(row);
+  if (known !== undefined) { return known; }
+  const text = searchText(row);
+  haystacks.set(row, text);
+  return text;
+}
+
+function searchText(row: HomeRow): string {
   const paperText = (paper?: HomePaper) => paper
     ? [paper.title, paper.authors.join(" "), paper.year, paper.venue].filter(Boolean).join(" ")
     : "";
