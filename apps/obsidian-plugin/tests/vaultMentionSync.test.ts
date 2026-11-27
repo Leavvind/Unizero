@@ -56,17 +56,18 @@ describe("Vault mention sync", () => {
   function setup(capabilities = ["vault-mentions"]) {
     const links = index();
     const sent: VaultMentionSnapshot[] = [];
-    let vaultID = "vault-1";
+    let vaultID = "vault-1", enabled = true, vaultName = "Notes";
     const bridge = {
       ping: vi.fn(async () => ({ product: "unizero", addonVersion: "x", api: BRIDGE_API, capabilities, ready: true })),
       vaultMentions: vi.fn(async (snapshot: VaultMentionSnapshot) => { sent.push(snapshot); return { vaultID: snapshot.vaultID, mentions: snapshot.mentions.length }; }),
     } as unknown as UnizeroBridge;
     const sync = new VaultMentionSync({
-      bridge, endpoint: () => "http://127.0.0.1:23119", enabled: () => true,
-      vaultID: () => vaultID, vaultName: () => "Notes", vaultState: () => links.vaultState,
+      bridge, endpoint: () => "http://127.0.0.1:23119", enabled: () => enabled,
+      vaultID: () => vaultID, vaultName: () => vaultName, vaultState: () => links.vaultState,
       records: () => links.records.values(), mtime: () => undefined, subscribe: (listener) => links.subscribe(listener),
     });
-    return { links, sent, sync, bridge, setVault: (id: string) => { vaultID = id; } };
+    return { links, sent, sync, bridge, setVault: (id: string) => { vaultID = id; },
+      setEnabled: (value: boolean) => { enabled = value; }, setName: (name: string) => { vaultName = name; } };
   }
 
   it("waits for a finished pass, sends once, and resends only what changed", async () => {
@@ -97,6 +98,32 @@ describe("Vault mention sync", () => {
     sync.schedule();
     await vi.runOnlyPendingTimersAsync();
     expect(sent.map((each) => [each.vaultID, each.mentions.length])).toEqual([["vault-1", 4], ["vault-1", 0], ["vault-2", 4]]);
+    sync.stop();
+  });
+
+  it("clears Zotero's snapshot when sharing is turned off, once", async () => {
+    const { links, sent, sync, setEnabled } = setup();
+    links.vaultState = "complete";
+    sync.start();
+    await vi.runOnlyPendingTimersAsync();
+    setEnabled(false);
+    sync.schedule();
+    await vi.runOnlyPendingTimersAsync();
+    links.replace(vault("New.md"), "[D](unizero://paper/1/DKEY0001)");
+    await vi.runOnlyPendingTimersAsync();
+    expect(sent.map((each) => [each.vaultID, each.mentions.length])).toEqual([["vault-1", 4], ["vault-1", 0]]);
+    sync.stop();
+  });
+
+  it("resends when only the Vault's name changed", async () => {
+    const { links, sent, sync, setName } = setup();
+    links.vaultState = "complete";
+    sync.start();
+    await vi.runOnlyPendingTimersAsync();
+    setName("Renamed");
+    sync.schedule();
+    await vi.runOnlyPendingTimersAsync();
+    expect(sent.map((each) => each.vaultName)).toEqual(["Notes", "Renamed"]);
     sync.stop();
   });
 

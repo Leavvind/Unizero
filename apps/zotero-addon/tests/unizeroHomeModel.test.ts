@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   columnRows,
   homeColumns,
+  obsidianCanvasURL,
+  obsidianNoteURL,
   paperCredit,
   searchTokens,
   type HomeMention,
@@ -151,5 +153,21 @@ describe("Uniconnection Vault notes", () => {
     expect(keys(only.citations)).toEqual(["1:F"]);
     // Only annotations put rows on the left; being mentioned does not.
     expect(keys(only.references).sort()).toEqual(["1:A", "1:E"]);
+  });
+});
+
+describe("obsidian:// URLs", () => {
+  const note = { vaultID: "v-1", vaultName: "My Vault", path: "Files/方方 日记.md", title: "方方 日记", format: "md" as const };
+
+  it("open a Vault note by its Vault-relative file, at a line or card", () => {
+    expect(obsidianNoteURL(note)).toBe("obsidian://unizero?vault=My%20Vault&vaultID=v-1&file=Files%2F%E6%96%B9%E6%96%B9%20%E6%97%A5%E8%AE%B0.md");
+    expect(obsidianNoteURL(note, 0, "abc")).toMatch(/&line=0&node=abc$/);
+  });
+
+  it("open a Zotero Canvas by its paper and attachment key, never its path", () => {
+    expect(obsidianCanvasURL({ libraryID: 1, itemKey: "ABCD1234", attachmentKey: "EKQC4CPK" }, "5b2c421ea3b7b8af", "My Vault"))
+      .toBe("obsidian://unizero?vault=My%20Vault&libraryID=1&itemKey=ABCD1234&canvas=EKQC4CPK&node=5b2c421ea3b7b8af");
+    expect(obsidianCanvasURL({ libraryID: 2, itemKey: "K", attachmentKey: "C" }))
+      .toBe("obsidian://unizero?libraryID=2&itemKey=K&canvas=C");
   });
 });

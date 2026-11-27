@@ -68,7 +68,7 @@ running Zotero; open host checks live in
 Missing/ambiguous anchors or unfinished suffixes (`.md^`, `.md#^`) still open the target
 file with a notice. Destination autocomplete suggests attachments, headings, block IDs,
 and pages; **Choose location for the UniZero link at the cursor** updates the URI while
-keeping the label. `unizero://` is internal to Obsidian; external callers use
+keeping the label and title (a `-@` link stays render-only). `unizero://` is internal to Obsidian; external callers use
 `obsidian://unizero?target=<encoded-unizero-uri>`. Bare `@libraryID/itemKey` tokens from
 pre-0.11.0 are plain text.
 
@@ -98,11 +98,13 @@ pre-0.11.0 are plain text.
   Enabling **Index Zotero documents** also scans local Raw, Canvas, and ordinary
   Markdown/Canvas attachments every minute via `/link-sources` (re-reading known local
   files even while Zotero is closed, without starting conversions or provider calls).
-- **Show Vault notes in Zotero** (on by default): after the Vault index settles, the
+- **Show Vault notes in Zotero** (on by default; turning it off clears this Vault's notes
+  from Zotero): after the Vault index settles, the
   plugin sends Zotero the paper links in Vault notes, with their paragraphs, so Zotero's
   Uniconnection lists those notes among a paper's Citations. Only changes are sent;
-  Zotero's **Obsidian** buttons come back through `obsidian://unizero` and open the note
-  at the line or Canvas card.
+  Clicking a note in Zotero comes back through `obsidian://unizero` and opens it at its
+  first mention's line or Canvas card. A Zotero mention's **Canvas** button opens the
+  paper's Zotero Canvas here, found through the bridge, with that card selected.
 
 ## Raw, Canvas, and capture
 

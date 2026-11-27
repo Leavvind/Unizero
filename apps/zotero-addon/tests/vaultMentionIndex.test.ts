@@ -56,6 +56,8 @@ describe("vault mention snapshots", () => {
     index.put(parseVaultSnapshot(body([]), 2));
     expect(index.citations({ libraryID: 1, itemKey: "BKEY0001" }).map((group) => group.note.vaultID)).toEqual(["vault-2"]);
     expect(index.mentions()).toHaveLength(1);
+    // An emptied Vault is forgotten, so the status bar no longer lists it.
+    expect(index.snapshots().map((snapshot) => snapshot.vaultID)).toEqual(["vault-2"]);
   });
 
   it("round-trips through its cache file and skips an unreadable Vault", () => {

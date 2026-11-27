@@ -212,8 +212,11 @@ Exact add-on paths: [Stored state](../apps/zotero-addon/README.md#stored-state).
   Bibliography reads provider caches through `views.ts` and fetches only on a click;
   `ensureCanvasAttachment` on `+ Canvas` is the tab's only write. Citations also lists
   the Vault notes from the plugin's snapshots (`src/zotero/vaultMentionStore.ts`, which
-  reloads open tabs when one arrives); their buttons open the note through
-  `obsidian://unizero?vault=…&vaultID=…&file=…&line=…&node=…`. Because Zotero aborts
+  reloads open tabs when one arrives) by name only; clicking one opens the note at its
+  first mention through `obsidian://unizero?vault=…&vaultID=…&file=…&line=…&node=…`. A
+  mention's Canvas button opens the paper's Zotero Canvas at the card through
+  `obsidian://unizero?libraryID=…&itemKey=…&canvas=…&node=…`, which carries only Zotero
+  identity; the plugin finds the file through `/artifacts`. Because Zotero aborts
   startup tab restoration on an unregistered tab type, each window's
   `Zotero_Tabs.getState` is wrapped to omit the tab from saved sessions, and all wrappers,
   hooks, toolbar buttons, menu entries and tabs are cleaned up on window unload and

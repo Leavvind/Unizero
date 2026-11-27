@@ -590,7 +590,9 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     await this.app.workspace.revealLeaf(leaf);
   }
   async assignDocumentUID(): Promise<void> {
-    const file = this.currentDocument;
+    // While a Zotero attachment is followed, `currentDocument` is only the last Vault
+    // note the panes fall back to, not the document in front of the user.
+    const file = this.currentExternal || this.externalDocumentPath ? undefined : this.currentDocument;
     if (!file) { new Notice("Open a Vault Markdown document first."); return; }
     const existing = this.identity.get(file.path)?.uid;
     if (existing) { new Notice(`This document already has UID ${existing}.`); return; }

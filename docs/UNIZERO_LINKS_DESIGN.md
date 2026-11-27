@@ -73,7 +73,7 @@
 
 - **多 Markdown 附件**：11-07 只出现一个候选，已修复，需配合新版 add-on 复验。
 - **标题与块定位**：定位本身尚未在宿主中确认，含无空格行尾 ID `text^1231312`。测法：在目标 Markdown 写 `用于定位的段落。 ^test-block`，再选 `^test-block`；“No block IDs in this file” 只表示文件里没有显式块 ID。
-- **Zotero Canvas**：Canvas 内定位与卡片聚焦提示从未在宿主中运行。
+- **Zotero Canvas**：Canvas 内定位与卡片聚焦提示从未在宿主中运行。11-27 起 Obsidian 经 `file:<绝对路径>` 打开论文 Canvas 并等待卡片载入后选中（Zotero Uniconnection 的 Canvas 按钮经 `obsidian://unizero?libraryID=…&itemKey=…&canvas=…&node=…`，插件经 `/artifacts` 找文件），需确认 `getAbstractFileByPath("file:…")` 对未打开过的 Canvas 也返回文件、卡片在一秒内载入。
 - **Vault 笔记推送到 Zotero**：`POST /vault-mentions` 与 Zotero Uniconnection 中的 Vault 笔记、经 `obsidian://unizero?…&file=` 回到 Obsidian 的行与 Canvas 卡片定位，尚未完整复验。11-27 用 `path=` 时 Obsidian 报 “Vault not found”（`path` 被 Obsidian 当作绝对路径选 Vault），已改为 `file=`，需配合新版 add-on 与插件复验。
 - **UniZero Outgoing links**：面板从未在宿主中运行。需确认：随笔记切换刷新；论文标题加载；原生未解析链接点击后按 Obsidian 行为打开；Unlinked mentions 的 `Link` 写入正确位置并为目标分配 UID。
 - **`nocite` 渲染**：阅读视图与 Canvas 卡片中的灰色虚线框依赖 Obsidian 把链接 title 输出为 `title` 或 `aria-label`，未在宿主中确认；Live Preview 由插件自行标记。`-@` 补全（含 `[](-@…)` 与继续到标题/块）也未在宿主中运行。

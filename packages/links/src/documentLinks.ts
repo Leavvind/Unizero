@@ -43,7 +43,24 @@ export function indexedLinks<T extends Pick<DocumentLink, "nocite">>(links: T[])
  * Evidence unit (docs/UNICONNECTION.md §2): the block's plain text and the
  * Zotero PDF links written in that same block, which locate the passage in the PDF.
  */
-export interface LinkUnit { text: string; pdf: string[] }
+export interface LinkUnit {
+  text: string;
+  pdf: string[];
+  /**
+   * Where the block (or table row) starts in the scanned text, which tells two units
+   * with the same text apart. Absent in units cached before it was recorded.
+   */
+  from?: number;
+}
+/**
+ * A mention's evidence unit within its document (and Canvas card). Links to one paper
+ * that share it are one mention (docs/UNICONNECTION.md §2); a link outside any block
+ * is a mention of its own.
+ */
+export function unitKey(link: Pick<DocumentLink, "unit" | "nodeId" | "line" | "ch">): string {
+  const where = !link.unit ? `@${link.line}:${link.ch}` : link.unit.from !== undefined ? `#${link.unit.from}` : `=${link.unit.text}`;
+  return `${link.nodeId ?? ""}|${where}`;
+}
 const UNIT_TEXT_LIMIT = 600;
 type Ast = Root | RootContent;
 type Span = [number, number];
@@ -125,7 +142,7 @@ export function mayContainDocumentLinks(text: string): boolean {
 /** Navigation may supply a forgiving parser; indexing uses the strict default. */
 export function scanDocumentLinks(text: string, parseTarget = parseLinkTarget): DocumentLink[] {
   if (!mayContainDocumentLinks(text)) { return []; }
-  const { masked } = maskObsidianSyntax(text);
+  const { masked, comments } = maskObsidianSyntax(text);
   const tree = fromMarkdown(masked);
   const lineStarts = lineStartsOf(text);
   const definitions = new Map<string, { url: string; title?: string | null }>();
@@ -139,13 +156,18 @@ export function scanDocumentLinks(text: string, parseTarget = parseLinkTarget): 
     : node.type === "linkReference" ? definitions.get(node.identifier)?.url || "" : "";
   const titleOf = (node: Ast): string | null | undefined => node.type === "link" ? node.title
     : node.type === "linkReference" ? definitions.get(node.identifier)?.title : undefined;
-  /** The block's text and PDF anchors, as an evidence unit for every UniZero link in it. */
-  function unitOf(block: Ast): LinkUnit {
+  /**
+   * The block's text and PDF anchors, as an evidence unit for every UniZero link in it.
+   * `base` is where `block` was parsed from, for a table row parsed on its own.
+   */
+  function unitOf(block: Ast, base = 0, row = false): LinkUnit {
+    const from = row ? base : block.position!.start.offset!;
     const parts: string[] = [], pdf: string[] = [];
     const walk = (node: Ast): void => {
       if (node.type === "text") {
         const from = node.position?.start.offset, to = node.position?.end.offset;
-        parts.push(node.value.includes(OPAQUE) && from !== undefined && to !== undefined ? text.slice(from, to) : node.value);
+        parts.push(node.value.includes(OPAQUE) && from !== undefined && to !== undefined
+          ? obsidianText(text, comments, base + from, base + to, row) : node.value);
         return;
       }
       if (node.type === "inlineCode") { parts.push(node.value); return; }
@@ -159,7 +181,7 @@ export function scanDocumentLinks(text: string, parseTarget = parseLinkTarget): 
     };
     walk(block);
     const plain = parts.join("").replace(/\(\s*\)/g, "").replace(/\s+/g, " ").trim();
-    return { text: plain.length > UNIT_TEXT_LIMIT ? `${plain.slice(0, UNIT_TEXT_LIMIT).trimEnd()}…` : plain, pdf };
+    return { text: plain.length > UNIT_TEXT_LIMIT ? `${plain.slice(0, UNIT_TEXT_LIMIT).trimEnd()}…` : plain, pdf, from };
   }
   function add(target: LinkTarget, from: number, to: number, labelTo: number | undefined, unit: LinkUnit | undefined, nocite: boolean): void {
     const line = lineAt(lineStarts, from), lineStart = lineStarts[line];
@@ -170,21 +192,83 @@ export function scanDocumentLinks(text: string, parseTarget = parseLinkTarget): 
       lineText: text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd).replace(/\r$/, ""),
       ...(unit ? { unit } : {}), ...(nocite ? { nocite: true as const } : {}) });
   }
-  function visit(node: Ast, block?: { node: Ast; unit?: LinkUnit }): void {
+  /**
+   * CommonMark reads a GFM table as one paragraph; each row is its own unit, so a
+   * mention is never paired with the PDF anchors of another row.
+   */
+  function unitAt(block: Block, offset: number): LinkUnit {
+    if (!block.rows) { return block.unit ??= unitOf(block.node); }
+    const row = block.rows.find(([from, to]) => offset >= from && offset < to)!;
+    if (!row[2]) { row[2] = unitOf(fromMarkdown(withoutCellBars(masked.slice(row[0], row[1]))), row[0], true); }
+    return row[2];
+  }
+  function visit(node: Ast, block?: Block): void {
     const from = node.position?.start.offset, to = node.position?.end.offset;
     if (from === undefined || to === undefined) { return; }
     if (node.type === "link" || node.type === "linkReference") {
       const target = parseTarget(urlOf(node));
-      if (target && block) { block.unit ??= unitOf(block.node); }
-      if (target) { add(target, from, to, node.children[node.children.length - 1]?.position?.end.offset, block?.unit, titleOf(node) === NOCITE_TITLE); }
+      const unit = target && block ? unitAt(block, from) : undefined;
+      if (target) { add(target, from, to, node.children[node.children.length - 1]?.position?.end.offset, unit, titleOf(node) === NOCITE_TITLE); }
       return;
     }
     if (["code", "inlineCode", "html", "image", "imageReference", "definition"].includes(node.type)) { return; }
-    const inner = node.type === "paragraph" || node.type === "heading" ? { node } : block;
+    const inner = node.type === "heading" ? { node }
+      : node.type === "paragraph" ? { node, rows: tableRows(masked, from, to) } : block;
     if ("children" in node) { node.children.forEach((child) => visit(child, inner)); }
   }
   visit(tree);
   return result.sort((a, b) => a.from - b.from);
+}
+type Block = { node: Ast; unit?: LinkUnit; rows?: [number, number, LinkUnit?][] };
+/** A GFM delimiter row such as `| --- | :-: |`. */
+const TABLE_DELIMITER = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*\r?$/;
+/**
+ * The rows of a paragraph that GFM would read as a table — a header line, then a
+ * delimiter row, with a `|` in one of them — as offset spans; undefined otherwise.
+ */
+function tableRows(source: string, from: number, to: number): [number, number][] | undefined {
+  const lines: [number, number][] = [];
+  for (let start = from; start < to;) {
+    const newline = source.indexOf("\n", start), end = newline < 0 || newline >= to ? to : newline;
+    // A row indented under a list item would parse as code on its own.
+    let first = start;
+    while (first < end && (source[first] === " " || source[first] === "\t")) { first += 1; }
+    lines.push([first, end]); start = end + 1;
+  }
+  if (lines.length < 2) { return; }
+  const [header, delimiter] = lines.slice(0, 2).map(([start, end]) => source.slice(start, end));
+  if (!TABLE_DELIMITER.test(delimiter) || !(header.includes("|") || delimiter.includes("|"))) { return; }
+  return lines;
+}
+/**
+ * Source text holding Obsidian syntax, as a reader sees it: comments dropped,
+ * wikilinks as their display text, embeds left out, Markdown escapes and character
+ * references decoded. Surrounding spaces are kept, since they join adjacent nodes.
+ */
+function obsidianText(text: string, comments: Span[], from: number, to: number, row = false): string {
+  let source = "", cursor = from;
+  for (const [start, end] of comments) {
+    if (end <= from || start >= to) { continue; }
+    source += text.slice(cursor, Math.max(start, cursor)); cursor = Math.max(cursor, Math.min(end, to));
+  }
+  source += text.slice(cursor, to);
+  source = source.replace(/(!?)\[\[([^\n]*?)\]\]/g, (_match, embed: string, inner: string) => embed ? "" : wikilinkLabel(inner));
+  if (row) { source = withoutCellBars(source); }
+  const plain = (node: Ast): string => "value" in node ? String(node.value) : "children" in node ? node.children.map(plain).join("") : "";
+  const lead = /^\s*/.exec(source)![0], trail = /\s*$/.exec(source.slice(lead.length))![0];
+  return lead + plain(fromMarkdown(source.trim())) + trail;
+}
+/** A table row with its cell bars as spaces, offsets kept; an escaped `\\|` is cell text. */
+function withoutCellBars(row: string): string {
+  return row.replace(/(\\*)\|/g, (match, slashes: string) => slashes.length % 2 ? match : `${slashes} `);
+}
+/** `[[Note#Heading|alias]]` reads as its alias, otherwise as `Note > Heading`. */
+function wikilinkLabel(inner: string): string {
+  // In a table the alias bar is written `\|`.
+  const bar = inner.indexOf("|"), alias = bar >= 0 ? inner.slice(bar + 1).trim() : "";
+  if (alias) { return alias; }
+  const target = bar >= 0 ? inner.slice(0, inner[bar - 1] === "\\" ? bar - 1 : bar) : inner;
+  return target.split("#").map((part) => part.replace(/^\^/, "").trim()).filter(Boolean).join(" > ");
 }
 export interface CanvasTextField { nodeId?: string; text: string; from: number; to: number }
 export function canvasTextFields(json: string): CanvasTextField[] {
@@ -272,7 +356,10 @@ export function occurrenceSnippet(line: string, ch: number, width = 160, lead = 
   return `${start ? "…" : ""}${text.slice(0, width).trim()}${text.length > width ? "…" : ""}`;
 }
 
-/** Preserve all authored Markdown within an inline link label. */
+/**
+ * Preserve all authored Markdown within an inline link label, and its title: the
+ * render-only `"nocite"` must survive a new target, or the link would start counting.
+ */
 export function retargetInlineLink(raw: string, target: LinkTarget): string {
   const paragraph = fromMarkdown(raw).children[0];
   const link = paragraph?.type === "paragraph" ? paragraph.children[0] : undefined;
@@ -280,5 +367,6 @@ export function retargetInlineLink(raw: string, target: LinkTarget): string {
     throw new Error("Use an inline Markdown link to reselect its location; reference-style targets can be copied from the link menu.");
   }
   const end = link.children.length ? link.children[link.children.length - 1].position!.end.offset! : 1;
-  return `${raw.slice(0, end)}](${serializeLinkTarget(target)})`;
+  const title = link.title == null ? "" : ` "${link.title.replace(/[\\"]/g, "\\$&")}"`;
+  return `${raw.slice(0, end)}](${serializeLinkTarget(target)}${title})`;
 }

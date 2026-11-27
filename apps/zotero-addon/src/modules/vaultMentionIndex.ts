@@ -149,9 +149,13 @@ function compareInNote(left: VaultMention, right: VaultMention): number {
 export class VaultMentionIndex {
   private readonly vaults = new Map<string, VaultSnapshot>();
 
-  /** Replace the Vault's snapshot. */
+  /**
+   * Replace the Vault's snapshot. An empty one forgets the Vault: the plugin sends it
+   * when the Vault takes a new identity or stops sharing its notes, and a Vault with
+   * no mentions has nothing to show.
+   */
   public put(snapshot: VaultSnapshot): void {
-    this.vaults.set(snapshot.vaultID, snapshot);
+    if (snapshot.mentions.length) { this.vaults.set(snapshot.vaultID, snapshot); } else { this.vaults.delete(snapshot.vaultID); }
   }
 
   public clear(): void {

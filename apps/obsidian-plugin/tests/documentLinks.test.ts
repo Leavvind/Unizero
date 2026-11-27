@@ -63,6 +63,12 @@ describe("structural source parsing", () => {
     const target: LinkTarget = { kind: "note", vaultID: "a", uid: "123" };
     expect(retargetInlineLink('[**edited** `]`](unizero://paper/2/ABCD1234)', target)).toBe('[**edited** `]`](unizero://note/a/123)');
   });
+  it("keeps the link title, so a render-only link stays render-only", () => {
+    const target: LinkTarget = { kind: "note", vaultID: "a", uid: "123" };
+    expect(retargetInlineLink('[Smith, 2020](unizero://paper/2/ABCD1234 "nocite")', target)).toBe('[Smith, 2020](unizero://note/a/123 "nocite")');
+    expect(retargetInlineLink("[a](unizero://paper/2/ABCD1234 'say \"hi\"')", target)).toBe('[a](unizero://note/a/123 "say \\"hi\\"")');
+    expect(scanDocumentLinks(retargetInlineLink('[a](unizero://paper/2/ABCD1234 "nocite")', target))[0]?.nocite).toBe(true);
+  });
   it.each([
     ["a line starting with a wikilink", "[[Note]] see "],
     ["a short wikilink", "[[a]] "],

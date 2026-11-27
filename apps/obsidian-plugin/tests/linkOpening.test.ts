@@ -3,7 +3,7 @@ import { TFile } from "obsidian";
 import { shell } from "electron";
 import { readFile } from "fs/promises";
 import type UnizeroPlugin from "../src/main";
-import { openLinkTarget } from "../src/linkOpening";
+import { openLinkTarget, openZoteroCanvas } from "../src/linkOpening";
 import { parseLinkTargetForNavigation } from "../src/linkTarget";
 
 const notices = vi.hoisted(() => vi.fn());
@@ -62,4 +62,48 @@ describe("opening a Markdown attachment with a location", () => {
     expect(notices).not.toHaveBeenCalled();
     expect(shell.openExternal).not.toHaveBeenCalled();
   });
+});
+
+describe("opening a Zotero Canvas from Uniconnection", () => {
+  function canvasFixture(artifacts: Array<{ key: string; kind: string; path?: string }>, outsideFiles = true) {
+    const file = Object.assign(new TFile(), { path: "file:/Zotero/storage/EKQC4CPK/paper.canvas", extension: "canvas" });
+    const openOccurrence = vi.fn();
+    const bridge = { artifacts: vi.fn(async () => ({ libraryID: 1, itemKey: "PAPER", pdfs: [], artifacts })) };
+    const getAbstractFileByPath = vi.fn(() => outsideFiles ? file : null);
+    const plugin = { bridge, vaultIndex: { openOccurrence }, app: { vault: { getAbstractFileByPath } } } as unknown as UnizeroPlugin;
+    return { plugin, bridge, file, openOccurrence, getAbstractFileByPath };
+  }
+  const params = { libraryID: "1", itemKey: "PAPER", canvas: "EKQC4CPK", node: "5b2c421ea3b7b8af" };
+
+  it("asks the bridge for the Canvas file and selects the card", async () => {
+    const f = canvasFixture([{ key: "OTHER", kind: "canvas", path: "/elsewhere.canvas" },
+      { key: "EKQC4CPK", kind: "canvas", path: "/Zotero/storage/EKQC4CPK/paper.canvas" }]);
+    await openZoteroCanvas(f.plugin, params);
+    expect(f.bridge.artifacts).toHaveBeenCalledWith({ libraryID: 1, itemKey: "PAPER" });
+    expect(f.getAbstractFileByPath).toHaveBeenCalledWith("file:/Zotero/storage/EKQC4CPK/paper.canvas");
+    expect(f.openOccurrence).toHaveBeenCalledWith(expect.objectContaining({ file: f.file, nodeId: "5b2c421ea3b7b8af" }));
+    expect(shell.openPath).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the system handler without outside files, naming the card", async () => {
+    const f = canvasFixture([{ key: "EKQC4CPK", kind: "canvas", path: "/Zotero/storage/EKQC4CPK/paper.canvas" }], false);
+    vi.mocked(shell.openPath).mockResolvedValue("");
+    await openZoteroCanvas(f.plugin, params);
+    expect(shell.openPath).toHaveBeenCalledWith("/Zotero/storage/EKQC4CPK/paper.canvas");
+    expect(notices).toHaveBeenCalledWith("UniZero: opened the original Canvas; select card 5b2c421ea3b7b8af.");
+  });
+
+  it("refuses an attachment that is not that paper's Canvas, or has no file here", async () => {
+    await expect(openZoteroCanvas(canvasFixture([{ key: "EKQC4CPK", kind: "raw", path: "/x.md" }]).plugin, params))
+      .rejects.toThrow("no longer attached");
+    await expect(openZoteroCanvas(canvasFixture([{ key: "EKQC4CPK", kind: "canvas" }]).plugin, params))
+      .rejects.toThrow("not on this computer");
+  });
+
+  it.each([{ ...params, libraryID: "0" }, { ...params, itemKey: "../x" }, { ...params, canvas: "" }])(
+    "rejects malformed identities without asking the bridge", async (bad) => {
+      const f = canvasFixture([]);
+      await expect(openZoteroCanvas(f.plugin, bad)).rejects.toThrow("Invalid Canvas link");
+      expect(f.bridge.artifacts).not.toHaveBeenCalled();
+    });
 });

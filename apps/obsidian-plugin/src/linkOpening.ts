@@ -28,6 +28,45 @@ async function openExternalMarkdown(plugin: UnizeroPlugin, path: string, locatio
   }
 }
 
+/**
+ * Open a Zotero Canvas in Obsidian, which addresses outside files as `file:<path>`, and
+ * select the card `nodeId` once the Canvas has loaded. Without outside files the system
+ * handler opens it, and the card has to be found by hand.
+ */
+async function openExternalCanvas(plugin: UnizeroPlugin, path: string, nodeId?: string): Promise<void> {
+  const file = plugin.app.vault.getAbstractFileByPath(`file:${normalizeLocalPath(path)}`);
+  if (file instanceof TFile) {
+    await plugin.vaultIndex.openOccurrence({ file, filePath: file.path, line: 0, ch: 0, lineText: "",
+      ...(nodeId ? { nodeId } : {}),
+      token: { libraryID: 1, itemKey: "SOURCE", action: "detail", raw: "", from: 0, to: 0 } });
+    return;
+  }
+  const error = await shell.openPath(path);
+  if (error) { throw new Error(error); }
+  if (nodeId) { new Notice(`UniZero: opened the original Canvas; select card ${nodeId}.`); }
+}
+
+const ZOTERO_KEY = /^[A-Za-z0-9]+$/;
+
+/**
+ * `obsidian://unizero?libraryID=…&itemKey=…&canvas=…&node=…`, from Zotero's Uniconnection:
+ * a paper's Zotero Canvas at the card holding a mention. The URL names the Canvas only by
+ * its Zotero identity; its file comes from the bridge's artifact list, which answers
+ * only for a Canvas still attached to that paper.
+ */
+export async function openZoteroCanvas(plugin: UnizeroPlugin, params: Record<string, string | undefined>): Promise<void> {
+  const libraryID = Number(params.libraryID), itemKey = params.itemKey || "", key = params.canvas || "";
+  if (!/^[1-9]\d*$/.test(params.libraryID || "") || !Number.isSafeInteger(libraryID)
+    || !ZOTERO_KEY.test(itemKey) || !ZOTERO_KEY.test(key)) {
+    throw new Error("Invalid Canvas link from Zotero.");
+  }
+  const files = await plugin.bridge.artifacts({ libraryID, itemKey });
+  const canvas = files.artifacts.find((artifact) => artifact.kind === "canvas" && artifact.key === key);
+  if (!canvas) { throw new Error("That Canvas is no longer attached to the paper in Zotero."); }
+  if (!canvas.path) { throw new Error("That Canvas's file is not on this computer; let Zotero sync finish."); }
+  await openExternalCanvas(plugin, canvas.path, params.node || undefined);
+}
+
 export async function openLinkTarget(plugin: UnizeroPlugin, target: LinkTarget): Promise<void> {
   if (target.kind === "paper") {
     if (target.action === "detail") { await plugin.showInDetailView(target); return; }
@@ -74,9 +113,7 @@ export async function openLinkOccurrence(plugin: UnizeroPlugin, occurrence: Link
         token: { libraryID: 1, itemKey: "SOURCE", action: "detail", raw: same.raw, from: same.ch, to: same.ch + same.raw.length } });
     } else { await plugin.app.workspace.getLeaf(false).openFile(file, same ? { eState: { line: same.line } } : undefined); }
   } else if (source.format === "canvas") {
-    const error = await shell.openPath(source.path!);
-    if (error) { throw new Error(error); }
-    if (same?.nodeId) { new Notice("UniZero: opened the original Canvas; select card " + same.nodeId + "."); }
+    await openExternalCanvas(plugin, source.path!, same?.nodeId);
   } else {
     await openExternalMarkdown(plugin, source.path!, undefined, same?.line);
   }

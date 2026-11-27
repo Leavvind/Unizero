@@ -9,13 +9,15 @@
  * mention written in the paper's Raw or Canvas, an annotation made), each with the
  * papers it mentions. Right, Citations: each mentioned paper, with who mentions it.
  * A partner opens to its mentions: the paragraph's text, a PDF button for each
- * `zotero://open-pdf` link in that paragraph, and the Raw or Canvas holding it.
+ * `zotero://open-pdf` link in that paragraph, and the Raw or Canvas holding it. A
+ * Canvas opens in Obsidian at the card holding the mention (`obsidian://unizero`).
  * Selecting a paper highlights its partners in the other column; double-clicking it
  * opens its own page in this tab.
  *
  * Citations also lists the Obsidian Vault notes that mention a paper, from the
- * snapshot the plugin sends (src/zotero/vaultMentionStore.ts); their buttons open
- * the note in Obsidian through `obsidian://unizero`.
+ * snapshot the plugin sends (src/zotero/vaultMentionStore.ts). A note shows only its
+ * name, not its passages; clicking it opens the note in Obsidian through
+ * `obsidian://unizero`, at its first mention.
  *
  * Paper page: References (what this paper's Raw and Canvas mention), Citations (whose
  * Raw and Canvas, and which Vault notes, mention it), and a folded Bibliography of the providers' References,
@@ -53,6 +55,8 @@ import { pdfAnchorPage } from "@unizero/links";
 import {
   columnRows,
   homeColumns,
+  obsidianCanvasURL,
+  obsidianNoteURL,
   paperCredit,
   shortAuthors,
   type ActivityKind,
@@ -261,19 +265,6 @@ function vaultPairs(mentions: VaultMention[]): HomePair[] {
   return [...pairs.values()];
 }
 
-/**
- * `obsidian://unizero?…` opening a Vault note at a line or Canvas card. The plugin
- * checks `vaultID` and that the path is a note in that Vault before opening it. The
- * Vault-relative path travels as `file`: Obsidian itself claims `path` as an absolute
- * filesystem path to pick the Vault, and fails with "Vault not found" on a relative one.
- */
-export function obsidianNoteURL(note: HomeNote, line?: number, nodeId?: string): string {
-  const params: Array<[string, string]> = [["vault", note.vaultName], ["vaultID", note.vaultID], ["file", note.path]];
-  if (line !== undefined) { params.push(["line", String(line)]); }
-  if (nodeId) { params.push(["node", nodeId]); }
-  return `obsidian://unizero?${params.map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("&")}`;
-}
-
 function syncedAgo(time: number): string {
   const minutes = Math.floor((Date.now() - time) / 60_000);
   if (minutes < 1) { return t("just-now", "just now"); }
@@ -356,7 +347,7 @@ export class UnizeroHome {
     const existing = this.views.get(win);
     if (existing) {
       tabs.select(existing.tabID);
-      if (existing.stale) { void this.load(existing); }
+      this.reshow(existing);
       return;
     }
     const { id, container } = tabs.add({
@@ -465,6 +456,16 @@ export class UnizeroHome {
     doc.documentElement.appendChild(style);
   }
 
+  /**
+   * The tab is shown again: re-read it. Obsidian edits Raw and Canvas files without
+   * telling Zotero, and unchanged files are skipped, so this is cheap. A load already
+   * under way for the current state is not restarted.
+   */
+  private reshow(view: HomeView): void {
+    if (view.loading && !view.stale) { return; }
+    void this.load(view);
+  }
+
   /** Reload visible tabs after a burst of changes; hidden ones reload when shown. */
   private scheduleReload(): void {
     if (!this.views.size) { return; }
@@ -478,8 +479,8 @@ export class UnizeroHome {
   }
 
   /**
-   * Library changes and a new Vault snapshot from Obsidian reload a visible tab; tab
-   * events add toolbar buttons and refresh a stale one.
+   * Library, collection and tag changes and a new Vault snapshot from Obsidian reload
+   * a visible tab; tab events add toolbar buttons, and selecting the tab re-reads it.
    */
   private observe(): void {
     if (this.observerID) { return; }
@@ -490,14 +491,14 @@ export class UnizeroHome {
           for (const win of this.hooks.keys()) { this.addButtons(win); }
           if (event === "select") {
             for (const view of this.views.values()) {
-              if (ids.includes(view.tabID) && view.stale) { void this.load(view); }
+              if (ids.includes(view.tabID)) { this.reshow(view); }
             }
           }
           return;
         }
         this.scheduleReload();
       },
-    }, ["item", "collection-item", "tab"], `${config.addonRef}-home`);
+    }, ["item", "item-tag", "collection", "collection-item", "tab"], `${config.addonRef}-home`);
   }
 
   private unobserve(): void {
@@ -916,18 +917,17 @@ export class UnizeroHome {
 
   /** One paper the row mentions (References) or that mentions it (Citations); opens to the mentions. */
   private partnerElement(view: HomeView, state: ColumnState, row: HomeRow, partner: HomePartner): HTMLElement {
+    if (partner.note) { return this.noteElement(view, partner.note, partner.mentions); }
     const doc = view.win.document;
     const id = `${state.column}|${row.scopedKey}|${partner.scopedKey}`;
     const open = !view.collapsed.has(id);
     const element = create(doc, "div", `${CLASS}__partner`);
     element.classList.toggle("is-open", open);
-    element.classList.toggle("is-missing", !partner.paper && !partner.note);
+    element.classList.toggle("is-missing", !partner.paper);
     const line = create(doc, "div", `${CLASS}__partner-line`);
     const chevron = create(doc, "span", `${CLASS}__chevron`, open ? "▾" : "▸");
     line.append(chevron);
-    if (partner.note) {
-      line.append(this.noteText(doc, partner.note, `${CLASS}__partner-text`));
-    } else if (partner.paper) {
+    if (partner.paper) {
       line.append(this.paperText(doc, partner.paper, `${CLASS}__partner-text`));
     } else {
       line.append(create(doc, "span", `${CLASS}__partner-text`, t("missing", "Not in the library")));
@@ -935,14 +935,10 @@ export class UnizeroHome {
     const meta = create(doc, "span", `${CLASS}__partner-meta`, `❝ ${partner.mentions.length}`);
     if (partner.time) { meta.textContent += ` · ${relativeTime(partner.time)}`; }
     line.append(meta);
-    if (partner.note) {
-      line.append(this.noteActions(view, partner.note, `${CLASS}__partner-actions`));
-    } else if (partner.paper) {
+    if (partner.paper) {
       line.append(this.actions(view, partner.scopedKey, `${CLASS}__partner-actions`));
     }
-    line.title = partner.note
-      ? t("note-partner-hint", "Click to fold")
-      : t("partner-hint", "Click to fold, double-click to open this paper's page");
+    line.title = t("partner-hint", "Click to fold, double-click to open this paper's page");
     // A References row's mentions sit in the row's own notes; a Citations row's in the partner's.
     const citing = state.column === "references" ? row.scopedKey : partner.scopedKey;
     line.addEventListener("click", (event) => {
@@ -990,18 +986,16 @@ export class UnizeroHome {
         }).catch((error) => this.failed(view, "pdf", error));
       }, "pdf"));
     });
-    if (mention.purpose === "vault") {
-      buttons.append(this.button(doc, "Obsidian", t("open-mention-note-hint", "Open { $note } in Obsidian at this mention", {
-        note: mention.note.title,
-      }), () => { this.openNote(view, mention.note, mention.line, mention.nodeId); }, "obsidian"));
-      element.append(buttons);
-      return element;
+    // Vault notes are drawn by noteElement, without their passages.
+    if (mention.purpose === "vault") { return element; }
+    const { attachmentKey } = mention;
+    if (mention.purpose === "canvas") {
+      buttons.append(this.button(doc, "Canvas", t("open-mention-canvas-hint", "Open the Canvas in Obsidian at the card holding this mention"),
+        () => { this.openCanvas(view, citing, attachmentKey, mention.nodeId); }, "canvas"));
+    } else {
+      buttons.append(this.button(doc, "Raw", t("open-mention-raw-hint", "Open the Raw holding this mention (line { $line })", { line: mention.line + 1 }),
+        () => { void this.openSource(view, citing, attachmentKey); }, "raw"));
     }
-    const source = mention.purpose === "canvas" ? "Canvas" : "Raw";
-    buttons.append(this.button(doc, source, mention.purpose === "canvas"
-      ? t("open-mention-canvas-hint", "Open the Canvas holding this mention")
-      : t("open-mention-raw-hint", "Open the Raw holding this mention (line { $line })", { line: mention.line + 1 }),
-    () => { void this.openSource(view, citing, mention.attachmentKey); }, mention.purpose));
     element.append(buttons);
     return element;
   }
@@ -1107,11 +1101,46 @@ export class UnizeroHome {
     }
   }
 
-  private noteActions(view: HomeView, note: HomeNote, className: string): HTMLElement {
-    const bar = create(view.win.document, "span", className);
-    bar.append(this.button(view.win.document, "Obsidian", t("open-note-hint", "Open { $note } in Obsidian", { note: note.title }),
-      () => { this.openNote(view, note); }, "obsidian"));
-    return bar;
+  /**
+   * A paper's Zotero Canvas in Obsidian, at the card holding a mention. Obsidian, not
+   * Zotero's file handler, so the card can be selected; the plugin finds the file
+   * through the bridge. The Vault to open it in is the one that reported last.
+   */
+  private openCanvas(view: HomeView, citing: string, attachmentKey: string, nodeId?: string): void {
+    const separator = citing.indexOf(":");
+    const vault = vaultMentions.index.snapshots().reduce<{ vaultName: string; receivedAt: number } | undefined>(
+      (best, snapshot) => !best || snapshot.receivedAt > best.receivedAt ? snapshot : best, undefined);
+    try {
+      launchObsidianURL(obsidianCanvasURL({
+        libraryID: Number(citing.slice(0, separator)), itemKey: citing.slice(separator + 1), attachmentKey,
+      }, nodeId, vault?.vaultName));
+    } catch (error) {
+      this.failed(view, "canvas", error);
+    }
+  }
+
+  /**
+   * A Vault note that mentions a paper: its name and how many mentions, without their
+   * passages. Clicking it opens the note in Obsidian at its first mention.
+   */
+  private noteElement(view: HomeView, note: HomeNote, mentions: HomeMention[]): HTMLElement {
+    const doc = view.win.document;
+    const element = create(doc, "div", `${CLASS}__partner ${CLASS}__vault-note`);
+    const line = create(doc, "div", `${CLASS}__partner-line`);
+    const meta = create(doc, "span", `${CLASS}__partner-meta`, `❝ ${mentions.length}`);
+    const time = Math.max(0, ...mentions.map((mention) => mention.time || 0));
+    if (time) { meta.textContent += ` · ${relativeTime(time)}`; }
+    line.append(this.noteText(doc, note, `${CLASS}__partner-text`), meta);
+    line.setAttribute("role", "button");
+    line.title = `${t("open-note-hint", "Open { $note } in Obsidian", { note: note.title })}\n${note.vaultName}: ${note.path}`;
+    const first = mentions[0];
+    line.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.openNote(view, note, first?.line, first?.nodeId);
+    });
+    line.addEventListener("dblclick", (event) => event.stopPropagation());
+    element.append(line);
+    return element;
   }
 
   private failed(view: HomeView, what: string, error: unknown): void {
@@ -1233,15 +1262,7 @@ export class UnizeroHome {
       section.append(create(doc, "div", `${CLASS}__subheading`, t("page-notes", "Vault notes · { $count }", { count: notes.length })));
     }
     for (const group of notes) {
-      const element = create(doc, "div", `${CLASS}__partner is-open`);
-      const line = create(doc, "div", `${CLASS}__partner-line`);
-      line.append(
-        this.noteText(doc, group.note, `${CLASS}__partner-text`),
-        create(doc, "span", `${CLASS}__partner-meta`, `❝ ${group.mentions.length}`),
-        this.noteActions(view, group.note, `${CLASS}__partner-actions`),
-      );
-      element.append(line, this.mentionsElement(view, vaultNoteKey(group.note), group.mentions.map(vaultHomeMention)));
-      section.append(element);
+      section.append(this.noteElement(view, group.note, group.mentions.map(vaultHomeMention)));
     }
     return section;
   }
@@ -1253,7 +1274,6 @@ export class UnizeroHome {
     element.append(create(doc, "strong", undefined, note.title));
     const folder = note.path.includes("/") ? note.path.slice(0, note.path.lastIndexOf("/")) : "";
     element.append(create(doc, "span", `${CLASS}__note-path`, ` · ${note.vaultName}${folder ? ` / ${folder}` : ""}`));
-    element.title = `${note.vaultName}: ${note.path}`;
     return element;
   }
 
@@ -1587,6 +1607,7 @@ const HOME_CSS = `
   .${CLASS}__open[data-target="pdf"] { border-color: color-mix(in srgb, var(--accent-red, #db2c3a) 50%, transparent); }
   .${CLASS}__open[data-target="obsidian"] { border-color: color-mix(in srgb, var(--accent-purple, #a28ae5) 35%, transparent); }
   .${CLASS}__note-icon { margin-inline-end: 4px; opacity: .7; }
+  .${CLASS}__vault-note .${CLASS}__partner-line { cursor: pointer; }
   .${CLASS}__note-path { opacity: .6; font-weight: normal; }
   .${CLASS}__subheading { margin: 10px 0 4px; font-weight: 600; opacity: .8; }
   .${CLASS}__open[data-target="canvas"] { border-color: color-mix(in srgb, var(--accent-purple, #a28ae5) 60%, transparent); }

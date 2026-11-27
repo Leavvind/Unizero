@@ -22,19 +22,19 @@ describe("evidence units", () => {
       `liquidity ${paperLink("providers", B)} charge a higher price after negative news. [pdf](${pdf("P8XU5H7P")})`,
     ].join("\n");
     const [link] = scanDocumentLinks(text);
-    expect(link.unit).toEqual({ text: "liquidity providers charge a higher price after negative news.", pdf: [pdf("P8XU5H7P")] });
+    expect(link.unit).toMatchObject({ text: "liquidity providers charge a higher price after negative news.", pdf: [pdf("P8XU5H7P")] });
   });
 
   it("keeps the quoted text and drops the PDF label and its empty brackets", () => {
     const text = `“${paperLink("Although the best", B)} quote instantly adjusts” ([pdf](${pdf("SZHY9F7F")}))`;
-    expect(scanDocumentLinks(text)[0].unit).toEqual({ text: "“Although the best quote instantly adjusts”", pdf: [pdf("SZHY9F7F")] });
+    expect(scanDocumentLinks(text)[0].unit).toMatchObject({ text: "“Although the best quote instantly adjusts”", pdf: [pdf("SZHY9F7F")] });
   });
 
   it("scopes units to one paragraph inside a Canvas card and ignores other link shapes", () => {
     const card = `First ${paperLink("B", B)}.\n\nSecond [pdf](${pdf("K1")}) [web](https://example.com) [sel](zotero://select/library/items/K)`;
     const [link] = scanCanvasLinks(canvas(card));
     expect(link.nodeId).toBe("n0");
-    expect(link.unit).toEqual({ text: "First B.", pdf: [] });
+    expect(link.unit).toMatchObject({ text: "First B.", pdf: [] });
   });
 
   it("gives a heading its own unit", () => {
@@ -69,6 +69,16 @@ describe("paper relations", () => {
     expect(group.paper).toEqual(B);
     expect(group.mentions.map((m) => m.source.kind === "zotero" && m.source.purpose)).toEqual(["canvas", "raw", "raw"]);
     expect(group.mentions[0].unit?.pdf).toEqual([pdf("ANN1")]);
+  });
+
+  it("counts links to one paper in one unit once, and same-text units apart", () => {
+    const index = build();
+    index.replace(zotero(A, "RAWA", "raw"),
+      `See ${paperLink("B", B)} and ${paperLink("B p. 3", B, ".pdf?page=3")}.\n\n- Same ${paperLink("B", B)}\n- Same ${paperLink("B", B)}`);
+    index.replace(vault("notes/review.md"), `${paperLink("B", B)} ${paperLink("B again", B)}`);
+    expect(paperReferences(index, A)[0].mentions.map((m) => m.line)).toEqual([0, 0, 2, 3]);
+    expect(paperCitations(index, B)[0].mentions).toHaveLength(4);
+    expect(noteCitations(index, B).find((group) => group.title === "notes/review.md")?.mentions).toHaveLength(1);
   });
 
   it("lists other papers' Raw and Canvas links as Citations, grouped by citing paper", () => {

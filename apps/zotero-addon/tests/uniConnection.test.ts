@@ -145,26 +145,3 @@ describe("UniConnection multi-library isolation", () => {
     expect(keys(await uc.relationsOf(G))).toEqual(["2:F"]);
   });
 });
-
-describe("UniConnection.referencesLoadedAt (Unizero Home activity)", () => {
-  it("reports when each paper's References were loaded, empty lists included", async () => {
-    const { uc, A, cache } = sampleLibrary();
-    cache.records.get(scoped(A)).savedAt = 42;
-    const loadedAt = await uc.referencesLoadedAt(1);
-    expect(loadedAt.get("1:A")).toBe(42);
-    expect(loadedAt.get("1:E")).toBe(1);
-  });
-
-  it("prefers the load time over a later re-save", async () => {
-    const { uc, A, cache } = sampleLibrary();
-    Object.assign(cache.records.get(scoped(A)), { savedAt: 900, loadedAt: 42 });
-    expect((await uc.referencesLoadedAt(1)).get("1:A")).toBe(42);
-  });
-
-  it("forgets a retracted paper", async () => {
-    const { uc, A } = sampleLibrary();
-    await uc.referencesLoadedAt(1);
-    uc.retract(scoped(A));
-    expect((await uc.referencesLoadedAt(1)).has("1:A")).toBe(false);
-  });
-});

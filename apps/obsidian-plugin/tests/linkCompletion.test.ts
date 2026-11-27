@@ -14,7 +14,7 @@ const files = {
 describe("what the caret is completing", () => {
   it("starts at the attachment choice right after the item key", () => {
     const c = at(`${paper}|) after`)!;
-    expect(c).toMatchObject({ stage: "target", query: "", closes: true, ref: { libraryID: 1, itemKey: "2BJFPCUL" } });
+    expect(c).toMatchObject({ stage: "target", query: "", end: paper.length + 1, ref: { libraryID: 1, itemKey: "2BJFPCUL" } });
     expect(`${paper}) after`.slice(c.from, c.to)).toBe("");
     expect(at(`${paper}.m|)`)).toMatchObject({ stage: "target", query: ".m" });
   });
@@ -50,8 +50,12 @@ describe("what the caret is completing", () => {
   it("keeps the title of a render-only link", () => {
     const line = `${paper}.md# "nocite")`;
     const c = completionAt(line, line.indexOf("#") + 1)!;
-    expect(c).toMatchObject({ stage: "location", fragment: "", closes: false });
+    expect(c).toMatchObject({ stage: "location", fragment: "", end: line.length });
     expect(line.slice(c.to)).toBe(' "nocite")');
+    // A finished choice leaves the caret after the title and `)`, not inside the link.
+    const done = caretAfter(c, { text: "#Methods", next: false });
+    expect(`${line.slice(0, c.from)}#Methods${line.slice(c.to)}`.slice(0, done)).toBe(`${paper}.md#Methods "nocite")`);
+    expect(caretAfter(c, { text: "?attachment=K", next: true })).toBe(c.from + "?attachment=K".length);
   });
 });
 
@@ -158,9 +162,9 @@ describe("choices", () => {
     expect(pageChoices({ digits: "15" }).map((c) => c.text)).toEqual(["?page=15", ""]);
   });
   it("keeps the caret inside to continue and moves past the link when done", () => {
-    const span = { from: 10, to: 10, closes: true };
+    const span = { from: 10, to: 10, end: 11 };
     expect(caretAfter(span, { text: ".md", next: true })).toBe(13);
     expect(caretAfter(span, { text: "#Methods", next: false })).toBe(19);
-    expect(caretAfter({ ...span, closes: false }, { text: "#Methods", next: false })).toBe(18);
+    expect(caretAfter({ from: 10, to: 10 }, { text: "#Methods", next: false })).toBe(18);
   });
 });

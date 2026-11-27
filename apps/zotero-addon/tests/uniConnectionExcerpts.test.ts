@@ -134,37 +134,6 @@ describe("UniConnection excerpt layer", () => {
   });
 });
 
-describe("UniConnection excerptPairs", () => {
-  it("holds the same passages as excerptsFrom and excerptsAbout, one pair per citing and cited paper", async () => {
-    const fixture = sampleLibrary();
-    fixture.excerpts.records.push(
-      { noteID: 900, libraryID: 1, scope: "library", citingKey: "A",
-        html: noteHTML([["B", ["K1", "K2"]], ["E", ["K3"]], ["GONE", ["K4"]]]) },
-      // A second note for A (two devices before sync) repeats K2 and adds K5.
-      { noteID: 901, libraryID: 1, scope: "library", citingKey: "A", html: noteHTML([["B", ["K2", "K5"]]]) },
-      { noteID: 902, libraryID: 1, scope: "library", citingKey: "D", html: noteHTML([["B", ["K6"]]]) },
-    );
-    const { uc } = fixture;
-    const pairs = await uc.excerptPairs(1);
-    expect(pairs.map((pair) => [pair.citing, pair.cited, pair.missing, pair.excerpts.map((e) => e.annotationKey)]))
-      .toEqual([
-        ["1:A", "1:B", false, ["K1", "K2", "K5"]],
-        ["1:A", "1:E", false, ["K3"]],
-        ["1:A", "1:GONE", true, ["K4"]],
-        ["1:D", "1:B", false, ["K6"]],
-      ]);
-    for (const item of [fixture.A, fixture.B, fixture.D, fixture.E]) {
-      const key = `1:${item.key}`;
-      const from = (await uc.excerptsFrom(item)).map((group) => [group.scopedKey, group.excerpts.length]);
-      expect(pairs.filter((pair) => pair.citing === key).map((pair) => [pair.cited, pair.excerpts.length]))
-        .toEqual(from);
-      const about = (await uc.excerptsAbout(item)).map((group) => [group.scopedKey, group.excerpts.length]);
-      expect(pairs.filter((pair) => pair.cited === key).map((pair) => [pair.citing, pair.excerpts.length]).sort())
-        .toEqual(about.sort());
-    }
-  });
-});
-
 describe("UniConnection staged build", () => {
   /** A library whose shard reads wait until `release()`. */
   function gated() {
@@ -187,7 +156,6 @@ describe("UniConnection staged build", () => {
     const relations = uc.relationsOf(B);
     expect(keys(await uc.excerptsFrom(A))).toEqual(["1:B"]);
     expect(keys(await uc.excerptsAbout(B))).toEqual(["1:A"]);
-    expect((await uc.excerptPairs(1)).map((each) => each.cited)).toEqual(["1:B"]);
     release();
     expect(keys(await relations)).toEqual(["1:A", "1:D"]);
   });

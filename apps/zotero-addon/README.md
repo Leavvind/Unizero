@@ -25,11 +25,12 @@ used by Obsidian and the MCP server, and the client for the local paper runtime.
   with papers they mention (right); each mention shows its paragraph, a PDF button for any
   `zotero://open-pdf` link in it, and the Raw or Canvas holding it. Citations also list
   the Obsidian Vault notes that mention a paper, as the plugin last reported them
-  (`POST /vault-mentions`; the status line shows when); their **Obsidian** button opens
-  the note at that line or card. Double-click a paper
+  (`POST /vault-mentions`; the status line shows when), by name only: clicking one opens
+  the note in Obsidian at its first mention. Double-click a paper
   for its page: References, Citations, and a folded **Bibliography** of provider
   References / Citations and the library Relation list (cache only until **Fetch**).
-  Opening a Raw or Canvas from Zotero opens the file; it does not focus the line or card.
+  A mention's **Canvas** button opens the Canvas in Obsidian with that card selected;
+  **Raw** opens the file without focusing the line.
 - Durable Paper catalog (`src/projects/`): [Paper catalog](../../docs/ARCHITECTURE.md#paper-catalog).
 
 **Conversion and annotations**

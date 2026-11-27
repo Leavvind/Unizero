@@ -1,15 +1,3 @@
-prefs-label = Reference
-tabpanel-reader-tab-label = Riferimenti
-relatedbox-number-label = riferimenti:
-relatedbox-refresh-label = Aggiorna
-relatedbox-search-placeholder =Cerca riferimenti
-relatedbox-recommended-label = Articoli consigliati
-
-citationsbox-number-label = citazioni
-citationsbox-loading-label = Caricamento citazioni...
-citationsbox-no-identifier-label = Nessun DOI o Semantic Scholar Paper ID - citazioni non disponibili
-citationsbox-more-label = Carica altri
-citationsbox-idle-label = Premi Aggiorna per caricare le citazioni
 uniconnection-menu-label = Show in Uniconnection
 
 metadata-enrich-menu-label = Completa metadati
@@ -70,8 +58,6 @@ home-highlights = { $count } annotations
 home-quoting = Mentions { $count } papers
 home-quoted-by = Mentioned by { $count } papers
 home-noted-by = Mentioned in { $count } Vault notes
-home-note-partner-hint = Click to fold
-home-open-mention-note-hint = Open { $note } in Obsidian at this mention
 home-open-note-hint = Open { $note } in Obsidian
 home-page-notes = Vault notes · { $count }
 home-vault-synced = Vault { $vault } synced { $time }
@@ -86,7 +72,7 @@ home-row-hint = Click to select, double-click to open this paper's page
 home-partner-hint = Click to fold, double-click to open this paper's page
 home-open-anchor-hint = Open the PDF at this passage
 home-anchor-missing = That PDF or annotation is not in the library.
-home-open-mention-canvas-hint = Open the Canvas holding this mention
+home-open-mention-canvas-hint = Open the Canvas in Obsidian at the card holding this mention
 home-open-mention-raw-hint = Open the Raw holding this mention (line { $line })
 home-source-missing = That note is no longer in the library.
 home-open-pdf-hint = Open the PDF

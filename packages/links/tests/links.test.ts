@@ -7,6 +7,7 @@ import {
   scanCanvasLinks,
   scanDocumentLinks,
   serializeLinkTarget,
+  unitKey,
   type LinkTarget,
 } from "../src";
 
@@ -47,12 +48,12 @@ describe("evidence units", () => {
     const [link] = scanDocumentLinks(text);
     expect(link.target).toMatchObject({ kind: "paper", libraryID: 1, itemKey: "BKEY0001" });
     expect(link.line).toBe(2);
-    expect(link.unit).toEqual({ text: "Second claim as shown by Smith, 2020.", pdf: [pdf("PDF1", "BBB2")] });
+    expect(link.unit).toMatchObject({ text: "Second claim as shown by Smith, 2020.", pdf: [pdf("PDF1", "BBB2")] });
   });
 
   it("keeps a mention without a PDF anchor", () => {
     const [link] = scanDocumentLinks("- Compare [B](unizero://paper/1/BKEY0001) here");
-    expect(link.unit).toEqual({ text: "Compare B here", pdf: [] });
+    expect(link.unit).toMatchObject({ text: "Compare B here", pdf: [] });
   });
 
   it("ignores links in code and lookalike PDF links", () => {
@@ -72,7 +73,40 @@ describe("evidence units", () => {
     });
     const [link] = scanCanvasLinks(canvas);
     expect(link.nodeId).toBe("card-1");
-    expect(link.unit).toEqual({ text: "Two B", pdf: [] });
+    expect(link.unit).toMatchObject({ text: "Two B", pdf: [] });
+  });
+
+  it("leaves Obsidian comments out of the unit and reads wikilinks as their text", () => {
+    const [link] = scanDocumentLinks("%% draft note %% Result [[Other|that note]], [[Paper#Methods]] &amp; ![[img.png]] [Smith](unizero://paper/1/BKEY0001)\n");
+    expect(link.unit).toMatchObject({ text: "Result that note, Paper > Methods & Smith", pdf: [] });
+  });
+
+  it("makes each table row its own unit", () => {
+    const text = [
+      "| Paper | Where |",
+      "| --- | :-: |",
+      `| row one [A](unizero://paper/1/AKEY0001) | [p](${pdf("PDF1", "AAA1")}) |`,
+      `  | row \\| two [[Note\\|alias]] [B](unizero://paper/1/BKEY0001) | [p](${pdf("PDF1", "BBB2")}) |`,
+    ].join("\n");
+    const links = scanDocumentLinks(text);
+    expect(links.map((link) => link.unit)).toMatchObject([
+      { text: "row one A", pdf: [pdf("PDF1", "AAA1")] },
+      { text: "row | two alias B", pdf: [pdf("PDF1", "BBB2")] },
+    ]);
+  });
+
+  it("tells apart units with the same text, and counts one mention per unit", () => {
+    const text = `- See [B](unizero://paper/1/BKEY0001) [pdf](${pdf("PDF1", "AAA1")})\n- See [B](unizero://paper/1/BKEY0001) [pdf](${pdf("PDF1", "BBB2")})\n\nAgain [B](unizero://paper/1/BKEY0001) and [B](unizero://paper/1/BKEY0001).`;
+    const keys = scanDocumentLinks(text).map(unitKey);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[2]).toBe(keys[3]);
+    expect(new Set(keys).size).toBe(3);
+    expect(unitKey({ unit: { text: "x", pdf: [] }, nodeId: "c", line: 0, ch: 0 })).toBe("c|=x");
+  });
+
+  it("keeps a paragraph whose second line only looks like a delimiter whole", () => {
+    const links = scanDocumentLinks("First [A](unizero://paper/1/AKEY0001)\nsecond [B](unizero://paper/1/BKEY0001)");
+    expect(links.map((link) => link.unit?.text)).toEqual(["First A second B", "First A second B"]);
   });
 
   it("treats invalid Canvas JSON as a failed read", () => {

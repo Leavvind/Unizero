@@ -7,7 +7,8 @@ import type { TextAnchor } from "./documentLinks";
 import { encodeLocation, type LinkTarget, type TextLocation } from "./linkTarget";
 import { markdownAttachments, markdownAttachmentLabel, markdownAttachmentDetail, type MarkdownListing } from "./markdownAttachments";
 
-interface Span { from: number; to: number; closes: boolean }
+/** `end`: just past the link's `)` on this line, when it has one; a title may sit between `to` and it. */
+interface Span { from: number; to: number; end?: number }
 export type LinkCompletion =
   | Span & { stage: "target"; ref: PaperRef; query: string }
   | Span & { stage: "location"; target: LinkTarget; fragment?: string }
@@ -40,7 +41,8 @@ export function completionAt(line: string, cursor: number): LinkCompletion | und
   // A destination ends at whitespace: a title such as `"nocite"` follows it and is kept.
   const space = line.slice(cursor, closing).search(/\s/);
   const to = closing < 0 || crossesLink ? cursor : space >= 0 ? cursor + space : closing;
-  const span = (length: number): Span => ({ from: start + length, to, closes: to === closing });
+  const end = closing < 0 || crossesLink ? undefined : closing + 1;
+  const span = (length: number): Span => ({ from: start + length, to, ...(end === undefined ? {} : { end }) });
 
   const note = new RegExp(`^(unizero://note/([^/?#]+)/([^/?#\\uFF03\\u2026\\uFF3E^]+))${FRAGMENT}$`, "s").exec(uri);
   if (note) {
@@ -123,5 +125,7 @@ export function pageChoices(completion: { attachmentKey?: string; digits: string
 
 /** Where the caret belongs after a choice: inside the link to continue, else past it. */
 export function caretAfter(completion: Span, choice: Pick<CompletionChoice, "text" | "next">): number {
-  return completion.from + choice.text.length + (!choice.next && completion.closes ? 1 : 0);
+  const written = completion.from + choice.text.length;
+  // Done: past the `)`, and past a title such as `"nocite"` that sits before it.
+  return !choice.next && completion.end !== undefined ? completion.end + written - completion.to : written;
 }

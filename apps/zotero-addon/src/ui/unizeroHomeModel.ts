@@ -122,6 +122,37 @@ export interface HomeQuery {
   query: string;
 }
 
+function obsidianURL(params: Array<[string, string | undefined]>): string {
+  return `obsidian://unizero?${params.filter((pair): pair is [string, string] => pair[1] !== undefined)
+    .map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("&")}`;
+}
+
+/**
+ * `obsidian://unizero?…` opening a Vault note at a line or Canvas card. The plugin
+ * checks `vaultID` and that the path is a note in that Vault before opening it. The
+ * Vault-relative path travels as `file`: Obsidian itself claims `path` as an absolute
+ * filesystem path to pick the Vault, and fails with "Vault not found" on a relative one.
+ */
+export function obsidianNoteURL(note: HomeNote, line?: number, nodeId?: string): string {
+  return obsidianURL([["vault", note.vaultName], ["vaultID", note.vaultID], ["file", note.path],
+    ["line", line === undefined ? undefined : String(line)], ["node", nodeId || undefined]]);
+}
+
+/**
+ * `obsidian://unizero?…` opening a paper's Zotero Canvas in Obsidian, at a card when
+ * `nodeId` is given. It names the Canvas by its Zotero identity only (the paper and the
+ * attachment key); the plugin asks the bridge for the file, as it does for every Zotero
+ * file. `vault` picks the Obsidian Vault that runs the plugin, when one has reported in.
+ */
+export function obsidianCanvasURL(
+  ref: { libraryID: number; itemKey: string; attachmentKey: string },
+  nodeId?: string,
+  vaultName?: string,
+): string {
+  return obsidianURL([["vault", vaultName], ["libraryID", String(ref.libraryID)], ["itemKey", ref.itemKey],
+    ["canvas", ref.attachmentKey], ["node", nodeId || undefined]]);
+}
+
 function itemKeyOf(scopedKey: string): string {
   return scopedKey.slice(scopedKey.indexOf(":") + 1);
 }

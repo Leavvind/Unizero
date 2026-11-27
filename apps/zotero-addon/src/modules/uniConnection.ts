@@ -51,15 +51,6 @@ export interface CouplingHit {
   shared: number;
 }
 
-/** The passages one library paper quotes about another (UniConnection.excerptPairs). */
-export interface ExcerptPair {
-  citing: ScopedItemKey;
-  cited: ScopedItemKey;
-  /** The cited paper is no longer a live item in this library. */
-  missing: boolean;
-  excerpts: ExcerptRecord[];
-}
-
 export interface UniConnectionStats {
   items: number;
   edges: number;
@@ -108,8 +99,6 @@ interface LibraryIndex {
   selfEdge: Map<ScopedItemKey, EdgeKey>;
   /** Items with a non-empty cache, including caches made solely of anonymous rows. */
   itemsWithRefs: Set<ScopedItemKey>;
-  /** When each item's References list was loaded (ReferencesCache.loadedAt), empty lists included. */
-  referencesLoadedAt: Map<ScopedItemKey, number>;
   /** Anonymous cache rows per item, retained so retract/update fixes diagnostics. */
   anonymousByItem: Map<ScopedItemKey, number>;
   /** Excerpt note itemID -> what it contributes. Keyed by note, so edits replace. */
@@ -136,7 +125,6 @@ function emptyIndex(libraryID: number): LibraryIndex {
     forward: new Map(),
     selfEdge: new Map(),
     itemsWithRefs: new Set(),
-    referencesLoadedAt: new Map(),
     anonymousByItem: new Map(),
     excerptNotes: new Map(),
     excerptedBy: new Map(),
@@ -473,46 +461,6 @@ export class UniConnection {
       .slice(0, safeLimit);
   }
 
-  /**
-   * Every passage the user attached in one library, as (citing → cited) pairs, for
-   * Unizero Home. Pairs follow note order; one pair per (citing, cited) however many
-   * notes hold it, passages deduplicated by annotation as excerptsFrom does. Sections
-   * without a highlight, and citing papers no longer in the library, are left out; a
-   * cited paper that is gone stays, marked `missing`. Keys and records only (§1.4).
-   */
-  public async excerptPairs(libraryID: number): Promise<ExcerptPair[]> {
-    const index = await this.excerptIndexFor(libraryID);
-    const pairs = new Map<string, ExcerptPair>();
-    const notes = [...index.excerptNotes].sort(([left], [right]) => left - right);
-    for (const [, note] of notes) {
-      if (!index.items.has(note.citing)) { continue; }
-      for (const section of note.sections) {
-        if (!section.excerpts.length || section.cited === note.citing) { continue; }
-        const id = `${note.citing}\n${section.cited}`;
-        let pair = pairs.get(id);
-        if (!pair) {
-          pair = { citing: note.citing, cited: section.cited, missing: !index.items.has(section.cited), excerpts: [] };
-          pairs.set(id, pair);
-        }
-        for (const excerpt of section.excerpts) {
-          if (!pair.excerpts.some((known) => known.annotationKey === excerpt.annotationKey)) {
-            pair.excerpts.push(excerpt);
-          }
-        }
-      }
-    }
-    return [...pairs.values()];
-  }
-
-  /**
-   * When each library paper's References list was loaded (empty lists included), for
-   * Unizero Home's "References loaded" activity. Read from the index; nothing is fetched.
-   */
-  public async referencesLoadedAt(libraryID: number): Promise<Map<ScopedItemKey, number>> {
-    const index = await this.indexFor(libraryID);
-    return new Map([...index.referencesLoadedAt].filter(([scopedKey]) => index.items.has(scopedKey)));
-  }
-
   /** Current in-memory diagnostics; an unbuilt library reports an empty index. */
   public stats(libraryID: number): UniConnectionStats {
     const index = this.indexes.get(libraryID);
@@ -583,10 +531,6 @@ export class UniConnection {
     if (cache.references.length) {
       index.itemsWithRefs.add(scopedKey);
     }
-    // When the list was loaded, not when it was last re-saved (ReferencesCache.loadedAt).
-    const loadedAt = cache.loadedAt ?? cache.savedAt;
-    if (Number.isFinite(loadedAt)) { index.referencesLoadedAt.set(scopedKey, loadedAt); }
-
     const forward = new Set<EdgeKey>();
     let anonymous = 0;
     for (const reference of cache.references) {
@@ -656,7 +600,6 @@ export class UniConnection {
     }
     index.forward.delete(scopedKey);
     index.itemsWithRefs.delete(scopedKey);
-    index.referencesLoadedAt.delete(scopedKey);
     index.anonymousByItem.delete(scopedKey);
   }
 

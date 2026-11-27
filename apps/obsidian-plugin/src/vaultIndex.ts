@@ -7,7 +7,7 @@
  * with line/column coordinates and text context (used by DetailView Vault tab).
  */
 
-import type { App, MarkdownView, TFile } from "obsidian";
+import { Notice, type App, type MarkdownView, type TFile } from "obsidian";
 import { paperRefKey, type CitationToken, type PaperRef } from "./citation";
 import { scanDocumentLinks, scanCanvasLinks, type DocumentLink } from "./documentLinks";
 import { LinkIndex, timeSlicer } from "./linkIndex";
@@ -336,15 +336,21 @@ export class VaultIndex {
             panToNode?: (node: unknown) => void;
           };
         };
-        if (view && view.canvas) {
-          const canvas = view.canvas;
-          const node = canvas.nodes instanceof Map
-            ? canvas.nodes.get(occurrence.nodeId)
-            : (canvas.nodes as { get: (id: string) => unknown })?.get?.(occurrence.nodeId);
-          if (node) {
-            canvas.selectOnly?.(node);
-            canvas.zoomToSelection?.();
-          }
+        // The Canvas reads its file after openFile resolves, so its cards may not
+        // exist yet: wait for the card for up to a second (Obsidian internals).
+        const nodeId = occurrence.nodeId;
+        let node: unknown;
+        for (let attempt = 0; attempt < 20 && !this.disposed && leaf.view === view; attempt += 1) {
+          const nodes = view.canvas?.nodes;
+          node = nodes instanceof Map ? nodes.get(nodeId) : (nodes as { get?: (id: string) => unknown } | undefined)?.get?.(nodeId);
+          if (node) { break; }
+          await new Promise((resolve) => window.setTimeout(resolve, 50));
+        }
+        if (node && !this.disposed && leaf.view === view) {
+          view.canvas?.selectOnly?.(node);
+          view.canvas?.zoomToSelection?.();
+        } else if (!node) {
+          new Notice(`UniZero: opened the Canvas; card ${nodeId} is not in it any more.`);
         }
       } catch (error) {
         console.debug("UniZero: canvas navigation fallback", error);

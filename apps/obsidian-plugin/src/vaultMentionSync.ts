@@ -11,6 +11,7 @@
  */
 
 import { BRIDGE_API, type UnizeroBridge, type VaultMentionEntry, type VaultMentionSnapshot } from "./bridge";
+import { unitKey } from "@unizero/links";
 import { occurrenceSnippet } from "./documentLinks";
 import type { CoverageState, SourceRecord } from "./linkIndex";
 
@@ -33,11 +34,9 @@ export function vaultMentionEntries(records: Iterable<SourceRecord>, mtime: (pat
     for (const link of record.links) {
       const target = link.target;
       if (target.kind !== "paper") { continue; }
-      if (link.unit) {
-        const unit = `${target.libraryID}:${target.itemKey}|${link.nodeId ?? ""}|${link.unit.text}`;
-        if (seen.has(unit)) { continue; }
-        seen.add(unit);
-      }
+      const unit = `${target.libraryID}:${target.itemKey}|${unitKey(link)}`;
+      if (seen.has(unit)) { continue; }
+      seen.add(unit);
       entries.push({
         libraryID: target.libraryID,
         itemKey: target.itemKey,
@@ -80,8 +79,8 @@ export interface VaultMentionSyncHost {
 export class VaultMentionSync {
   private timer?: number;
   private unsubscribe?: () => void;
-  /** What Zotero holds for this Vault: the endpoint, the Vault, and the sent mentions. */
-  private sent?: { endpoint: string; vaultID: string; body: string };
+  /** What Zotero holds for this Vault: the endpoint, the Vault and its name, and the sent mentions. */
+  private sent?: { endpoint: string; vaultID: string; vaultName: string; body: string };
   private running = false;
   private stopped = false;
 
@@ -105,21 +104,27 @@ export class VaultMentionSync {
     this.unsubscribe?.();
   }
 
+  /**
+   * With sharing off, an empty snapshot clears what Zotero still holds for this Vault,
+   * once per session; a failure is not retried on a timer, only on the next change.
+   */
   private async send(): Promise<void> {
-    if (this.stopped || !this.host.enabled() || !snapshotReady(this.host.vaultState())) { return; }
+    if (this.stopped) { return; }
+    const enabled = this.host.enabled();
+    if (enabled && !snapshotReady(this.host.vaultState())) { return; }
     if (this.running) { this.schedule(); return; }
-    const endpoint = this.host.endpoint(), vaultID = this.host.vaultID();
+    const endpoint = this.host.endpoint(), vaultID = this.host.vaultID(), vaultName = this.host.vaultName();
     if (!vaultID) { return; }
-    const mentions = vaultMentionEntries(this.host.records(), (path) => this.host.mtime(path));
+    const mentions = enabled ? vaultMentionEntries(this.host.records(), (path) => this.host.mtime(path)) : [];
     const body = JSON.stringify(mentions);
     const sent = this.sent;
-    if (sent && sent.endpoint === endpoint && sent.vaultID === vaultID && sent.body === body) { return; }
+    if (sent && sent.endpoint === endpoint && sent.vaultID === vaultID && sent.vaultName === vaultName && sent.body === body) { return; }
     this.running = true;
     try {
       const ping = await this.host.bridge.ping();
       if (ping.api !== BRIDGE_API || !ping.capabilities.includes("vault-mentions")) {
         // An add-on without the endpoint: ask again later, it may be updated.
-        this.schedule(RETRY_DELAY_MS);
+        if (enabled) { this.schedule(RETRY_DELAY_MS); }
         return;
       }
       // A Vault given a new identity leaves no orphan snapshot behind in Zotero.
@@ -127,10 +132,10 @@ export class VaultMentionSync {
         await this.host.bridge.vaultMentions(this.snapshot(sent.vaultID, []));
       }
       await this.host.bridge.vaultMentions(this.snapshot(vaultID, mentions));
-      this.sent = { endpoint, vaultID, body };
+      this.sent = { endpoint, vaultID, vaultName, body };
     } catch (error) {
       console.debug("UniZero: Vault mentions not sent to Zotero", error);
-      this.schedule(RETRY_DELAY_MS);
+      if (enabled) { this.schedule(RETRY_DELAY_MS); }
     } finally {
       this.running = false;
     }

@@ -6,11 +6,12 @@
  * every other indexed link — in References, the paper's Raw / Canvas links to Vault
  * notes; in Citations, links into the paper from Vault notes, other Markdown
  * attachments and the paper's own notes. Render-only `nocite` links never reach the
- * index. Nothing here is stored: it is recomputed from the shared link index, which
+ * index. Several links in one evidence unit to the same paper or note are one mention,
+ * as in Zotero (docs/UNICONNECTION.md §2). Nothing here is stored: it is recomputed from the shared link index, which
  * owns no bibliographic state.
  */
 
-import { isPaperNotePurpose, isPaperToPaper as linkIsPaperToPaper, pdfAnchorPage } from "@unizero/links";
+import { isPaperNotePurpose, isPaperToPaper as linkIsPaperToPaper, pdfAnchorPage, unitKey } from "@unizero/links";
 import type { PaperRef } from "./citation";
 import { sourceIdentity, type LinkIndex, type LinkOccurrence, type SourceDocument } from "./linkIndex";
 import { targetIdentity, type LinkTarget } from "./linkTarget";
@@ -32,6 +33,14 @@ export function isPaperNote(source: SourceDocument): source is PaperNoteSource {
 
 const keyOf = (paper: PaperRef): string => `${paper.libraryID}/${paper.itemKey}`;
 
+/** Adds `occurrence` to the group under `key` unless that group already has a link from its unit. */
+function mention(seen: Set<string>, key: string, mentions: LinkOccurrence[], occurrence: LinkOccurrence): void {
+  const unit = `${key}|${sourceIdentity(occurrence.source)}|${unitKey(occurrence)}`;
+  if (seen.has(unit)) { return; }
+  seen.add(unit);
+  mentions.push(occurrence);
+}
+
 /**
  * Notes on either side of a paper's links: in References one Vault note the paper's
  * Raw / Canvas links to (`target`), in Citations one document that links into the
@@ -52,28 +61,28 @@ export function isPaperToPaper(occurrence: LinkOccurrence): boolean {
 
 /** Papers whose Raw or Canvas links to `paper`, with every such link. */
 export function paperCitations(index: LinkIndex, paper: PaperRef): RelatedPaper[] {
-  const groups = new Map<string, RelatedPaper>();
+  const groups = new Map<string, RelatedPaper>(), seen = new Set<string>();
   for (const occurrence of index.query({ kind: "paper", ...paper, action: "detail" })) {
     if (!isPaperToPaper(occurrence)) { continue; }
     const source = occurrence.source as PaperNoteSource;
     const from = { libraryID: source.libraryID, itemKey: source.itemKey }, key = keyOf(from);
     let group = groups.get(key);
     if (!group) { group = { paper: from, title: source.itemTitle, mentions: [] }; groups.set(key, group); }
-    group.mentions.push(occurrence);
+    mention(seen, key, group.mentions, occurrence);
   }
   return sortGroups([...groups.values()]);
 }
 
 /** Papers that `paper`'s own Raw or Canvas links to, with every such link. */
 export function paperReferences(index: LinkIndex, paper: PaperRef): RelatedPaper[] {
-  const groups = new Map<string, RelatedPaper>();
+  const groups = new Map<string, RelatedPaper>(), seen = new Set<string>();
   for (const record of index.recordsOfPaper(paper)) {
     for (const occurrence of record.links) {
       if (!isPaperToPaper(occurrence) || occurrence.target.kind !== "paper") { continue; }
       const to = { libraryID: occurrence.target.libraryID, itemKey: occurrence.target.itemKey }, key = keyOf(to);
       let group = groups.get(key);
       if (!group) { group = { paper: to, mentions: [] }; groups.set(key, group); }
-      group.mentions.push(occurrence);
+      mention(seen, key, group.mentions, occurrence);
     }
   }
   return sortGroups([...groups.values()]);
@@ -81,7 +90,7 @@ export function paperReferences(index: LinkIndex, paper: PaperRef): RelatedPaper
 
 /** Vault notes that `paper`'s own Raw or Canvas links to, with every such link. */
 export function noteReferences(index: LinkIndex, paper: PaperRef): RelatedNote[] {
-  const groups = new Map<string, RelatedNote>();
+  const groups = new Map<string, RelatedNote>(), seen = new Set<string>();
   for (const record of index.recordsOfPaper(paper)) {
     if (!isPaperNote(record.source)) { continue; }
     for (const occurrence of record.links) {
@@ -93,7 +102,7 @@ export function noteReferences(index: LinkIndex, paper: PaperRef): RelatedNote[]
         group = { key, title: target.uid, target: { kind: "note", vaultID: target.vaultID, uid: target.uid }, mentions: [] };
         groups.set(key, group);
       }
-      group.mentions.push(occurrence);
+      mention(seen, key, group.mentions, occurrence);
     }
   }
   return sortGroups([...groups.values()]);
@@ -104,13 +113,13 @@ export function noteReferences(index: LinkIndex, paper: PaperRef): RelatedNote[]
  * other Markdown attachments, and the paper's own Raw / Canvas linking to itself.
  */
 export function noteCitations(index: LinkIndex, paper: PaperRef): RelatedNote[] {
-  const groups = new Map<string, RelatedNote>();
+  const groups = new Map<string, RelatedNote>(), seen = new Set<string>();
   for (const occurrence of index.query({ kind: "paper", ...paper, action: "detail" })) {
     if (isPaperToPaper(occurrence)) { continue; }
     const source = occurrence.source, key = sourceIdentity(source);
     let group = groups.get(key);
     if (!group) { group = { key, title: sourceTitle(source), mentions: [] }; groups.set(key, group); }
-    group.mentions.push(occurrence);
+    mention(seen, key, group.mentions, occurrence);
   }
   return sortGroups([...groups.values()]);
 }

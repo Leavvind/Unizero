@@ -1,15 +1,3 @@
-prefs-label = 参考文献
-tabpanel-reader-tab-label = 参考文献
-relatedbox-number-label = 条参考文献：
-relatedbox-refresh-label = 刷新
-relatedbox-search-placeholder = 搜索参考文献
-relatedbox-recommended-label = 推荐关联文献
-
-citationsbox-number-label = 篇引用
-citationsbox-loading-label = 正在获取引用...
-citationsbox-no-identifier-label = 无 DOI 或 Semantic Scholar Paper ID，无法获取引用
-citationsbox-more-label = 加载更多
-citationsbox-idle-label = 点击刷新加载引用
 uniconnection-menu-label = 在 Uniconnection 中显示
 
 metadata-enrich-menu-label = 补充信息
@@ -70,8 +58,6 @@ home-highlights = { $count } 条批注
 home-quoting = 提及 { $count } 篇论文
 home-quoted-by = 被 { $count } 篇论文提及
 home-noted-by = 被 { $count } 篇 Vault 笔记提及
-home-note-partner-hint = 单击收起
-home-open-mention-note-hint = 在 Obsidian 中打开 { $note } 的这处提及
 home-open-note-hint = 在 Obsidian 中打开 { $note }
 home-page-notes = Vault 笔记 · { $count }
 home-vault-synced = Vault { $vault } 同步于{ $time }
@@ -86,7 +72,7 @@ home-row-hint = 单击选中，双击打开这篇论文的页面
 home-partner-hint = 单击收起，双击打开这篇论文的页面
 home-open-anchor-hint = 在 PDF 中打开这段对应的位置
 home-anchor-missing = 该 PDF 或批注不在文库中。
-home-open-mention-canvas-hint = 打开写有这处提及的 Canvas
+home-open-mention-canvas-hint = 在 Obsidian 中打开 Canvas，并定位到写有这处提及的卡片
 home-open-mention-raw-hint = 打开写有这处提及的 Raw（第 { $line } 行）
 home-source-missing = 该笔记已不在文库中。
 home-open-pdf-hint = 打开 PDF

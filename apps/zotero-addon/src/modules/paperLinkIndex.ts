@@ -14,6 +14,7 @@ import {
   indexedLinks,
   isPaperToPaper,
   occurrenceSnippet,
+  unitKey,
   type DocumentLink,
   type PaperNotePurpose,
   type PaperRef,
@@ -84,12 +85,10 @@ export function mentionsOf(source: PaperNote, links: DocumentLink[], time?: numb
       continue;
     }
     const cited = { libraryID: target.libraryID, itemKey: target.itemKey };
-    if (link.unit) {
-      // Two links to B in one paragraph are one mention of B.
-      const unit = `${scopedKey(cited)}|${link.nodeId ?? ""}|${link.unit.text}`;
-      if (seen.has(unit)) { continue; }
-      seen.add(unit);
-    }
+    // Two links to B in one paragraph are one mention of B.
+    const unit = `${scopedKey(cited)}|${unitKey(link)}`;
+    if (seen.has(unit)) { continue; }
+    seen.add(unit);
     mentions.push({
       citing, cited, source, line: link.line, ch: link.ch,
       ...(link.nodeId !== undefined ? { nodeId: link.nodeId } : {}),
