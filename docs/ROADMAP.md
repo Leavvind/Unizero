@@ -20,8 +20,6 @@ Design: [UNICONNECTION_REDESIGN.md](UNICONNECTION_REDESIGN.md). Paper-to-paper r
 come from `unizero://` links in a paper's Raw / Canvas instead of excerpt notes; decisions are
 recorded in the design.
 
-- **Paper pane relations.** Obsidian Paper pane References / Citations derived from the
-  existing link index; plugin-only, no contract change.
 - **Zotero side.** Shared link-parsing package, add-on index over Raw / Canvas, Unizero
   Home shown as Uniconnection with a per-paper page; retire the item-pane sidebar and the
   full window.

@@ -31,9 +31,16 @@ running Zotero; open host checks live in
 - **Library pane** (tab): browse libraries and collections (subcollections included by
   default; remembers last collection; Canvas badge when present); right-click a paper to
   insert a citation or open files; arrow/Page/Home/End keys navigate the list.
-- **Item pane** (right): metadata, incoming document **Links**, **References**,
-  **Citations**, and **Relation** (uncached provider lists wait for explicit **Fetch from
-  providers**).
+- **Item pane** (right): metadata and four tabs.
+  - **References** / **Citations**: paper-to-paper links — `unizero://paper/…` links
+    written in this paper's Raw or Canvas to other papers, and in other papers' Raw or
+    Canvas to this one. Each passage shows its paragraph, opens the Raw or Canvas, and
+    offers **PDF** for any `zotero://open-pdf` link in the same paragraph. Needs **Index
+    Zotero documents**.
+  - **Links**: every other incoming link (Vault notes, other Markdown attachments, the
+    paper's links to itself).
+  - **Bibliography**: provider References, Citations, and Relation (uncached lists wait
+    for explicit **Fetch from providers**).
 - **`@` search:** type `@` plus author, title, or year (`@zotero` or `@vault` restricts
   the source). Insert and drag write `[Author, year](unizero://paper/libraryID/itemKey)`
   as plain Markdown labels never rewritten by Zotero edits.

@@ -55,7 +55,7 @@
 
 ## 面板
 
-- **Item Pane → Links**：指向该 Item 及其文件的入链，按 Vault / Zotero 来源分组，带上下文、次数和目标定位。与提供商 Citations 分开统计。
+- **Item Pane → Links**：指向该 Item 及其文件、且不属于论文 → 论文关系的入链，按 Vault / Zotero 来源分组，带上下文、次数和目标定位。写在其他论文 Raw / Canvas 中的入链归 References / Citations（[UNICONNECTION_REDESIGN.md §5.2](UNICONNECTION_REDESIGN.md#52-obsidian-paper-pane)），提供商书目归 Bibliography。
 - **UniZero Backlinks**：跟随最后激活的 Vault 笔记（点侧栏或设置不清空目标）。UniZero 链接与 Obsidian 已解析的原生链接（wikilink、嵌入、Markdown、属性）并列显示；Zotero 文档中的 wikilink 不读取。笔记无 UID 时说明原因，只隐藏 UniZero 链接，不误报零入链。打开的是 Zotero 附件时，改为显示其所属论文的入链。
 - 视图不做扫描、桥接请求或缓存决策，这些归共享应用层和适配器。
 

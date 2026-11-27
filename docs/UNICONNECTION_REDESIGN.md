@@ -1,6 +1,6 @@
 # UniConnection 重做：从笔记链接派生论文关系
 
-> 中文设计文档，**尚未实现**。现行行为见 [UNICONNECTION.md](UNICONNECTION.md) 与
+> 中文设计文档，**部分实现**：Obsidian Paper pane 已改用派生关系（阶段 1），Zotero 侧尚未开始。现行行为见 [UNICONNECTION.md](UNICONNECTION.md) 与
 > [UNIZERO_LINKS_DESIGN.md](UNIZERO_LINKS_DESIGN.md)；分阶段计划登记在
 > [ROADMAP.md](ROADMAP.md#uniconnection-redesign)。
 
@@ -8,8 +8,8 @@
 
 | 部分 | 状态 |
 | --- | --- |
-| 链接角色模型（§3）、证据单元（§4） | 设计中 |
-| Obsidian Paper pane 改用派生关系（§5.2） | 未做（阶段 1） |
+| 链接角色模型（§3）、证据单元（§4） | 在用（Obsidian 侧：`documentLinks.ts` 的 `unit`、`paperRelations.ts`） |
+| Obsidian Paper pane 改用派生关系（§5.2） | 在用（阶段 1） |
 | 共享链接解析包、Zotero 侧索引、Uniconnection 标签页与论文页（§5.1、§7） | 未做（阶段 2） |
 | `@` 在线搜索与入库（§6） | 未做（阶段 3），依赖新的桥接写接口 |
 | 设计取舍（§10） | 已定（2026-11-27） |
@@ -113,6 +113,9 @@ Canvas 跳转；第一段的批注不会被配入。
   - Citations：指向 A 的出现中，来源为其他论文 Raw / Canvas 的那些。
 - Links 保留，放非论文来源与自引。
 - 数据源书目（provider References / Citations / Relation）原样移入 Bibliography 标签，界面调整以后再议（§10 第 4 条）。
+- 证据单元在扫描时随每条链接记入索引（`DocumentLink.unit`：段落纯文本，上限 600 字，以及同段的
+  `zotero://open-pdf` 链接）。Zotero 文档的索引缓存因此升到 schema 3，旧缓存整份丢弃重扫。
+- 单元内的 PDF 链接来自用户文本，打开前必须完全匹配 Zotero 的 `open-pdf` 形态，其余一律拒绝。
 - 未开启 Zotero 文档索引时显示“未索引”，不能显示为 0（沿用覆盖状态规则）。
 
 ## 6. 库外论文：`@` 在线搜索与入库

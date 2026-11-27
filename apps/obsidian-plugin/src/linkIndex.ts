@@ -12,6 +12,8 @@ export interface IndexCoverage { state: CoverageState; scope: string; unavailabl
 export const sourceIdentity = (source: SourceDocument): string => source.kind === "vault" ? `vault:${source.path}`
   : `zotero:${source.libraryID}/${source.itemKey}/${source.attachmentKey}`;
 
+const paperKey = (paper: { libraryID: number; itemKey: string }): string => `${paper.libraryID}/${paper.itemKey}`;
+
 /** Lets a long index pass hand the window a frame between documents. */
 export function timeSlicer(budgetMs = 12): () => Promise<void> {
   let started = Date.now();
@@ -26,6 +28,8 @@ export function timeSlicer(budgetMs = 12): () => Promise<void> {
 export class LinkIndex {
   private readonly sourceRecords = new Map<string, SourceRecord>();
   private readonly incoming = new Map<string, Map<string, LinkOccurrence[]>>();
+  /** Zotero sources by the paper that owns them, so a paper's own notes are found without a full scan. */
+  private readonly byPaper = new Map<string, Set<string>>();
   get records(): ReadonlyMap<string, SourceRecord> { return this.sourceRecords; }
   readonly listeners = new Set<() => void>();
   coverage: IndexCoverage = { state: "unbuilt", scope: "Zotero sources disabled", unavailable: 0 };
@@ -53,6 +57,12 @@ export class LinkIndex {
     const key = sourceIdentity(record.source);
     this.removeIncoming(key);
     this.sourceRecords.set(key, record);
+    if (record.source.kind === "zotero") {
+      const paper = paperKey(record.source);
+      let keys = this.byPaper.get(paper);
+      if (!keys) { keys = new Set(); this.byPaper.set(paper, keys); }
+      keys.add(key);
+    }
     for (const link of record.links) {
       const target = targetIdentity(link.target);
       let sources = this.incoming.get(target);
@@ -64,6 +74,12 @@ export class LinkIndex {
     if (notify) { this.notify(); }
   }
   private removeIncoming(key: string): void {
+    const old = this.sourceRecords.get(key)?.source;
+    if (old?.kind === "zotero") {
+      const paper = paperKey(old), keys = this.byPaper.get(paper);
+      keys?.delete(key);
+      if (keys && !keys.size) { this.byPaper.delete(paper); }
+    }
     for (const link of this.sourceRecords.get(key)?.links || []) {
       const target = targetIdentity(link.target), sources = this.incoming.get(target);
       sources?.delete(key);
@@ -79,10 +95,14 @@ export class LinkIndex {
   query(target: LinkTarget): LinkOccurrence[] {
     return [...(this.incoming.get(targetIdentity(target))?.values() || [])].flat();
   }
+  /** Zotero documents attached to a paper, in any purpose. */
+  recordsOfPaper(paper: { libraryID: number; itemKey: string }): SourceRecord[] {
+    return [...this.byPaper.get(paperKey(paper)) || []].map((key) => this.sourceRecords.get(key)!).filter(Boolean);
+  }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   notify(): void {
     if (this.disposed) { return; }
     for (const listener of this.listeners) { try { listener(); } catch (error) { console.error("UniZero index listener", error); } }
   }
-  dispose(): void { this.disposed = true; this.listeners.clear(); this.sourceRecords.clear(); this.incoming.clear(); }
+  dispose(): void { this.disposed = true; this.listeners.clear(); this.sourceRecords.clear(); this.incoming.clear(); this.byPaper.clear(); }
 }

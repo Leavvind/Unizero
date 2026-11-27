@@ -30,6 +30,7 @@ import type {
 import { choose, confirm } from "./choiceModal";
 import { withPdfPage, type PaperRef } from "./citation";
 import { templateMenuEntries } from "./templates";
+import { PDF_ANCHOR } from "./documentLinks";
 
 /** A full paper payload, or a library-pane row, as far as Open Raw vs Convert goes. */
 export type RawAvailability =
@@ -449,6 +450,18 @@ export async function openZoteroPdf(paper: BridgePaper, page?: number): Promise<
     return;
   }
   await openExternal(withPdfPage(paper.links.zoteroPdf, page));
+}
+
+/**
+ * Open a `zotero://open-pdf` link written in a note, e.g. next to a quoted passage.
+ * The URL comes from the user's text, so only Zotero's own PDF link shape may leave.
+ */
+export async function openPdfAnchor(url: string): Promise<void> {
+  if (!PDF_ANCHOR.test(url)) {
+    new Notice("UniZero refused to open an unexpected link.");
+    return;
+  }
+  await openExternal(url);
 }
 
 /** Still used when a PDF is missing: jump to the item so the user can attach one. */

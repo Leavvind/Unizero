@@ -2,10 +2,14 @@
  * The right-sidebar Detail pane.
  *
  * The counterpart of a Unizero Home paper tab, reduced to what an editor needs:
- * the paper's own metadata, the jump targets, and the cached References /
- * Citations / Relation lists.
+ * the paper's own metadata, the jump targets, and four lists:
  *
- * It inherits the add-on's cache policy rather than reimplementing it. Opening the
+ * - Links: links into the paper that are not paper-to-paper relations;
+ * - References / Citations: paper-to-paper relations written as links in papers'
+ *   Raw and Canvas, recomputed from the shared link index (paperRelations.ts);
+ * - Bibliography: the provider References / Citations / Relation lists.
+ *
+ * Bibliography inherits the add-on's cache policy rather than reimplementing it. Opening the
  * pane reads what has been saved and nothing more; a paper with nothing cached
  * shows a prompt instead of an empty list, and only pressing that prompt is
  * allowed to reach the providers. Clicking a citation must never become a silent
@@ -23,6 +27,10 @@ import { enableCitationDrag, paperRefKey, type PaperRef } from "./citation";
 import type { PaperState } from "./paperStore";
 import type UnizeroPlugin from "./main";
 import { renderOccurrences } from "./backlinksView";
+import { occurrenceSnippet } from "./documentLinks";
+import type { LinkOccurrence } from "./linkIndex";
+import { openLinkOccurrence } from "./linkOpening";
+import { paperCitations, paperLinks, paperReferences, pdfAnchorPage, type RelatedPaper } from "./paperRelations";
 import {
   addCanvasItems,
   addRawItems,
@@ -31,16 +39,23 @@ import {
   convertToMarkdown,
   hasRaw,
   openCanvas,
+  openPdfAnchor,
   openRaw,
   openZoteroPdf,
 } from "./actions";
 
 export const DETAIL_VIEW_TYPE = "unizero-detail";
 
-export type DetailTabKind = "vault" | RelationKind;
+export type DetailTabKind = "links" | "references" | "citations" | "bibliography";
 
 const TABS: { kind: DetailTabKind; label: string }[] = [
-  { kind: "vault", label: "Links" },
+  { kind: "links", label: "Links" },
+  { kind: "references", label: "References" },
+  { kind: "citations", label: "Citations" },
+  { kind: "bibliography", label: "Bibliography" },
+];
+
+const PROVIDER_LISTS: { kind: RelationKind; label: string }[] = [
   { kind: "references", label: "References" },
   { kind: "citations", label: "Citations" },
   { kind: "relation", label: "Relation" },
@@ -67,7 +82,10 @@ function sourceUrl(related: BridgeRelatedPaper): string | undefined {
 
 export class UnizeroDetailView extends ItemView {
   private ref?: PaperRef;
-  private kind: DetailTabKind = "vault";
+  private kind: DetailTabKind = "links";
+  /** Which provider list the Bibliography tab shows. */
+  private providerKind: RelationKind = "references";
+  private renderQueued = false;
   private unsubscribeStore?: () => void;
   private unsubscribeVaultIndex?: () => void;
   private relations?: BridgeRelations;
@@ -90,7 +108,7 @@ export class UnizeroDetailView extends ItemView {
     this.contentEl.addClass("unizero-detail");
     this.render();
     this.unsubscribeVaultIndex = this.plugin.vaultIndex.links.subscribe(() => {
-      if (this.kind === "vault") {
+      if (this.kind !== "bibliography") {
         this.render();
       }
     });
@@ -123,7 +141,7 @@ export class UnizeroDetailView extends ItemView {
     this.unsubscribeStore?.();
     this.unsubscribeStore = this.plugin.store.subscribe(this.ref, () => {
       this.render();
-      if (this.kind !== "vault") {
+      if (this.kind === "bibliography") {
         void this.loadRelations(false);
       }
     });
@@ -131,25 +149,25 @@ export class UnizeroDetailView extends ItemView {
 
   private async loadRelations(fetch: boolean): Promise<void> {
     if (this.busy) { return; }
-    if (this.kind === "vault") { return; }
+    if (this.kind !== "bibliography") { return; }
     const ref = this.ref;
     if (!ref) { return; }
     const state = this.plugin.store.peek(ref);
     if (state?.status !== "ready") { return; }
-    if (this.relations && this.relations.kind === this.kind && !fetch) { return; }
+    if (this.relations && this.relations.kind === this.providerKind && !fetch) { return; }
 
     const generation = this.generation;
-    const kind = this.kind;
+    const kind = this.providerKind;
     this.busy = true;
     this.relationsError = undefined;
     this.render();
 
     try {
       const relations = await this.plugin.bridge.relations(ref, kind, { fetch });
-      if (generation !== this.generation || kind !== this.kind) { return; }
+      if (generation !== this.generation || kind !== this.providerKind) { return; }
       this.relations = relations;
     } catch (error) {
-      if (generation !== this.generation || kind !== this.kind) { return; }
+      if (generation !== this.generation || kind !== this.providerKind) { return; }
       this.relations = undefined;
       this.relationsError = (error as Error).message;
     } finally {
@@ -187,11 +205,25 @@ export class UnizeroDetailView extends ItemView {
 
     this.renderHeader(container, state);
     this.renderTabs(container);
-    if (this.kind === "vault") {
+    if (this.kind === "links") {
       this.renderVault(container);
-    } else {
+    } else if (this.kind === "bibliography") {
+      this.renderProviderTabs(container);
       this.renderRelations(container);
+    } else {
+      this.renderPaperRelations(container, this.kind);
     }
+  }
+
+  /** Coalesces re-renders asked for by paper titles arriving one by one. */
+  private scheduleRender(): void {
+    if (this.renderQueued) { return; }
+    this.renderQueued = true;
+    const generation = this.generation;
+    window.setTimeout(() => {
+      this.renderQueued = false;
+      if (generation === this.generation && this.ref) { this.render(); }
+    }, 0);
   }
 
   private renderUnresolved(container: HTMLElement, state: PaperState): void {
@@ -351,22 +383,123 @@ export class UnizeroDetailView extends ItemView {
         this.generation += 1;
         this.busy = false;
         this.kind = tab.kind;
-        if (this.kind === "vault") {
-          this.render();
-        } else {
-          this.relations = undefined;
-          this.relationsError = undefined;
-          this.render();
-          void this.loadRelations(false);
-        }
+        this.relations = undefined;
+        this.relationsError = undefined;
+        this.render();
+        if (this.kind === "bibliography") { void this.loadRelations(false); }
       });
     }
+  }
+
+  private renderProviderTabs(container: HTMLElement): void {
+    const tabs = container.createDiv({ cls: "unizero-detail__tabs unizero-detail__tabs--sub" });
+    for (const list of PROVIDER_LISTS) {
+      const button = tabs.createEl("button", { cls: "unizero-detail__tab", text: list.label });
+      button.toggleClass("is-active", list.kind === this.providerKind);
+      button.addEventListener("click", () => {
+        if (this.providerKind === list.kind) { return; }
+        this.generation += 1;
+        this.busy = false;
+        this.providerKind = list.kind;
+        this.relations = undefined;
+        this.relationsError = undefined;
+        this.render();
+        void this.loadRelations(false);
+      });
+    }
+  }
+
+  /** References / Citations written as links in papers' Raw and Canvas. */
+  private renderPaperRelations(container: HTMLElement, kind: "references" | "citations"): void {
+    const body = container.createDiv({ cls: "unizero-detail__list" });
+    const ref = this.ref;
+    if (!ref) { return; }
+    if (!this.plugin.settings.indexZoteroSources) {
+      body.createDiv({
+        cls: "unizero-detail__empty",
+        text: "References and Citations come from links written in papers' Raw and Canvas. "
+          + "Turn on “Index Zotero documents” in UniZero settings to see them.",
+      });
+      return;
+    }
+    const index = this.plugin.vaultIndex.links;
+    const groups = kind === "references" ? paperReferences(index, ref) : paperCitations(index, ref);
+    const coverage = index.coverage;
+    if (!groups.length) {
+      const text = !coverage.lastSuccess && (coverage.state === "unbuilt" || coverage.state === "updating")
+        ? "Indexing Zotero documents…"
+        : coverage.state === "failed" ? `Zotero documents could not be indexed: ${coverage.error || "unknown error"}`
+        : kind === "references" ? "This paper's Raw and Canvas link to no other paper."
+        : "No other paper's Raw or Canvas links to this paper.";
+      body.createDiv({ cls: "unizero-detail__empty", text });
+      return;
+    }
+    const mentions = groups.reduce((sum, group) => sum + group.mentions.length, 0);
+    const summary = [`${groups.length} paper${groups.length === 1 ? "" : "s"}`,
+      `${mentions} link${mentions === 1 ? "" : "s"}`,
+      ["partial", "offline", "failed"].includes(coverage.state) ? `Zotero index ${coverage.state}` : ""];
+    body.createDiv({ cls: "unizero-detail__summary", text: summary.filter(Boolean).join(" · ") });
+    for (const group of groups) { this.renderRelatedPaper(body, group, kind); }
+  }
+
+  private renderRelatedPaper(parent: HTMLElement, group: RelatedPaper, kind: "references" | "citations"): void {
+    const box = parent.createDiv({ cls: "unizero-links__group" });
+    const header = box.createDiv({ cls: "unizero-links__source" });
+    let title = group.title;
+    let meta: { authors?: string[]; year?: string; title?: string } = { title };
+    if (kind === "references") {
+      const state = this.plugin.store.peek(group.paper);
+      if (!state) {
+        void this.plugin.store.load(group.paper).then(() => this.scheduleRender());
+      } else if (state.status === "ready") {
+        title = state.paper.title;
+        meta = state.paper;
+        const credit = [state.paper.authors[0], state.paper.year].filter(Boolean).join(", ");
+        if (credit) { header.title = credit; }
+      } else if (state.status === "missing") {
+        title = `Not in Zotero · ${group.paper.libraryID}/${group.paper.itemKey}`;
+      }
+    }
+    const name = header.createEl("a", { cls: "unizero-links__name", text: title || `${group.paper.libraryID}/${group.paper.itemKey}` });
+    name.onclick = () => { void this.plugin.showInDetailView(group.paper); };
+    enableCitationDrag(header, { ...group.paper, ...meta });
+    if (group.mentions.length > 1) {
+      header.createSpan({ cls: "unizero-links__count", text: String(group.mentions.length) });
+    }
+    for (const occurrence of group.mentions) { this.renderMention(box, occurrence); }
+  }
+
+  /** One passage: where it is written, its paragraph, and jumps to the note and the PDF. */
+  private renderMention(parent: HTMLElement, occurrence: LinkOccurrence): void {
+    const source = occurrence.source;
+    const el = parent.createDiv({ cls: "unizero-link-occurrence unizero-relation", attr: { role: "button", tabindex: "0" } });
+    const file = source.kind === "zotero" && source.purpose === "canvas" ? "Canvas" : "Raw";
+    el.title = `${file} · ${source.title}`;
+    const place = el.createSpan({ cls: "unizero-link-occurrence__line" });
+    place.appendText(`${occurrence.stale ? "stale " : ""}${file}${occurrence.nodeId ? "" : ` L${occurrence.line + 1}`}`);
+    el.createSpan({
+      cls: "unizero-link-occurrence__text",
+      text: occurrence.unit?.text || occurrenceSnippet(occurrence.lineText, occurrence.ch),
+    });
+    const jumps = el.createDiv({ cls: "unizero-relation__jumps" });
+    const openNote = () => { void openLinkOccurrence(this.plugin, occurrence).catch((error) => this.plugin.reportError(error)); };
+    const note = jumps.createEl("button", { text: file });
+    note.setAttr("aria-label", `Open this passage in the ${file}`);
+    note.onclick = (event) => { event.stopPropagation(); openNote(); };
+    for (const url of occurrence.unit?.pdf || []) {
+      const page = pdfAnchorPage(url);
+      const pdf = jumps.createEl("button", { text: page ? `PDF p. ${page}` : "PDF" });
+      pdf.setAttr("aria-label", "Open the annotated passage in Zotero");
+      pdf.onclick = (event) => { event.stopPropagation(); void openPdfAnchor(url); };
+    }
+    el.onclick = openNote;
+    el.onkeydown = (event) => { if (event.key === "Enter" && event.target === el) { openNote(); } };
   }
 
   private renderVault(container: HTMLElement): void {
     const body = container.createDiv({ cls: "unizero-detail__list" });
     if (!this.ref) { return; }
-    renderOccurrences(body, this.plugin, this.plugin.vaultIndex.links.query({ kind: "paper", ...this.ref, action: "detail" }));
+    renderOccurrences(body, this.plugin, paperLinks(this.plugin.vaultIndex.links, this.ref));
     body.createEl("button", { text: "Insert citation" }).onclick = () => { if (this.ref) { this.plugin.insertCitation(this.ref); } };
   }
 

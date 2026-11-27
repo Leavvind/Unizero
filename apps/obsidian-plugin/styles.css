@@ -374,6 +374,35 @@ a.unizero-links__name:hover {
   border-bottom-color: var(--text-accent);
 }
 
+.unizero-detail__tabs--sub {
+  border-bottom: none;
+  margin-top: calc(-1 * var(--size-2-2));
+}
+
+.unizero-detail__tabs--sub .unizero-detail__tab {
+  font-size: var(--font-ui-smaller);
+  padding: var(--size-2-1) var(--size-4-1);
+}
+
+/* A paper-to-paper passage shows its whole paragraph, then its jumps. */
+.unizero-relation .unizero-link-occurrence__text {
+  -webkit-line-clamp: 6;
+}
+
+.unizero-relation__jumps {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-1);
+  margin-top: var(--size-2-1);
+}
+
+.unizero-relation__jumps button {
+  font-size: var(--font-ui-smaller);
+  height: auto;
+  padding: 0 var(--size-2-3);
+}
+
 .unizero-detail__summary {
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);

@@ -17,7 +17,17 @@ export interface DocumentLink {
   nodeId?: string;
   /** JSON string span for lossless Canvas field edits. */
   field?: { from: number; to: number; text: string };
+  /** The paragraph or heading holding the link; absent for links outside one. */
+  unit?: LinkUnit;
 }
+/**
+ * Evidence unit (docs/UNICONNECTION_REDESIGN.md §4): the block's plain text and the
+ * Zotero PDF links written in that same block, which locate the passage in the PDF.
+ */
+export interface LinkUnit { text: string; pdf: string[] }
+/** Only the annotation/page links Zotero writes; anything else stays out of the unit. */
+export const PDF_ANCHOR = /^zotero:\/\/open-pdf\/(?:library|groups\/\d+)\/items\/[A-Za-z0-9]+(?:\?[^\s#]*)?$/;
+const UNIT_TEXT_LIMIT = 600;
 type Ast = Root | RootContent;
 type Span = [number, number];
 /** Plain text to CommonMark. Spaces would turn a masked line start into an indented code block. */
@@ -108,24 +118,51 @@ export function scanDocumentLinks(text: string, parseTarget = parseLinkTarget): 
   }
   collect(tree);
   const result: DocumentLink[] = [];
-  function add(target: LinkTarget, from: number, to: number, labelTo?: number): void {
+  const urlOf = (node: Ast): string => node.type === "link" ? node.url
+    : node.type === "linkReference" ? definitions.get(node.identifier) || "" : "";
+  /** The block's text and PDF anchors, as an evidence unit for every UniZero link in it. */
+  function unitOf(block: Ast): LinkUnit {
+    const parts: string[] = [], pdf: string[] = [];
+    const walk = (node: Ast): void => {
+      if (node.type === "text") {
+        const from = node.position?.start.offset, to = node.position?.end.offset;
+        parts.push(node.value.includes(OPAQUE) && from !== undefined && to !== undefined ? text.slice(from, to) : node.value);
+        return;
+      }
+      if (node.type === "inlineCode") { parts.push(node.value); return; }
+      if (node.type === "break") { parts.push(" "); return; }
+      if (node.type === "link" || node.type === "linkReference") {
+        const url = urlOf(node);
+        if (PDF_ANCHOR.test(url)) { if (!pdf.includes(url)) { pdf.push(url); } return; }
+      }
+      if (["code", "html", "image", "imageReference", "definition"].includes(node.type)) { return; }
+      if ("children" in node) { node.children.forEach(walk); }
+    };
+    walk(block);
+    const plain = parts.join("").replace(/\(\s*\)/g, "").replace(/\s+/g, " ").trim();
+    return { text: plain.length > UNIT_TEXT_LIMIT ? `${plain.slice(0, UNIT_TEXT_LIMIT).trimEnd()}…` : plain, pdf };
+  }
+  function add(target: LinkTarget, from: number, to: number, labelTo: number | undefined, unit: LinkUnit | undefined): void {
     const line = lineAt(lineStarts, from), lineStart = lineStarts[line];
     const lineEnd = text.indexOf("\n", from);
     result.push({ target, from, to, raw: text.slice(from, to),
       ...(labelTo !== undefined && labelTo > from + 1 ? { labelFrom: from + 1, labelTo } : {}),
       line, ch: from - lineStart,
-      lineText: text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd).replace(/\r$/, "") });
+      lineText: text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd).replace(/\r$/, ""),
+      ...(unit ? { unit } : {}) });
   }
-  function visit(node: Ast): void {
+  function visit(node: Ast, block?: { node: Ast; unit?: LinkUnit }): void {
     const from = node.position?.start.offset, to = node.position?.end.offset;
     if (from === undefined || to === undefined) { return; }
     if (node.type === "link" || node.type === "linkReference") {
-      const target = parseTarget(node.type === "link" ? node.url : definitions.get(node.identifier) || "");
-      if (target) { add(target, from, to, node.children[node.children.length - 1]?.position?.end.offset); }
+      const target = parseTarget(urlOf(node));
+      if (target && block) { block.unit ??= unitOf(block.node); }
+      if (target) { add(target, from, to, node.children[node.children.length - 1]?.position?.end.offset, block?.unit); }
       return;
     }
     if (["code", "inlineCode", "html", "image", "imageReference", "definition"].includes(node.type)) { return; }
-    if ("children" in node) { node.children.forEach(visit); }
+    const inner = node.type === "paragraph" || node.type === "heading" ? { node } : block;
+    if ("children" in node) { node.children.forEach((child) => visit(child, inner)); }
   }
   visit(tree);
   return result.sort((a, b) => a.from - b.from);
