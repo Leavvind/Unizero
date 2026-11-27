@@ -81,6 +81,7 @@ until executable code or a real schema needs it.
 | Target dispatch and source navigation | `apps/obsidian-plugin/src/linkOpening.ts`, `linkPicker.ts` |
 | Completion inside a link destination | `apps/obsidian-plugin/src/linkCompletion.ts`, `targetSuggest.ts` |
 | Document Backlinks and unlinked mentions | `apps/obsidian-plugin/src/backlinksView.ts`, `unlinkedMentions.ts` |
+| Document Outgoing links (forward links, outgoing mentions) | `apps/obsidian-plugin/src/outgoingLinksView.ts`, `outgoingLinks.ts` |
 | Bridge client (HTTP to Zotero) | `apps/obsidian-plugin/src/bridge.ts` |
 | `@` suggester / free-text search | `apps/obsidian-plugin/src/suggest.ts` |
 | Library search command (modal with PDF / Raw / Canvas jumps) | `apps/obsidian-plugin/src/searchModal.ts` |

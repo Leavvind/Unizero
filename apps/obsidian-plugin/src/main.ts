@@ -36,8 +36,9 @@ import { uniqueTimestampUID, VaultIdentity } from "./vaultIdentity";
 import { ExternalIndex, localFileIO } from "./externalIndex";
 import type { SourceDocument } from "./linkIndex";
 import { parseLinkTargetForNavigation, serializeLinkTarget, markdownLink, type LinkTarget, validIdentity } from "./linkTarget";
-import { openLinkTarget, openVaultLocation } from "./linkOpening";
+import { openLinkTarget, openVaultLocation, openZoteroCanvas } from "./linkOpening";
 import { BACKLINKS_VIEW_TYPE, BacklinksView } from "./backlinksView";
+import { OUTGOING_LINKS_VIEW_TYPE, OutgoingLinksView } from "./outgoingLinksView";
 import { chooseLinkLocation } from "./linkPicker";
 import { scanDocumentLinks, retargetInlineLink, type DocumentLink } from "./documentLinks";
 import { confirm } from "./choiceModal";
@@ -141,6 +142,7 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     }));
 
     this.registerView(BACKLINKS_VIEW_TYPE, (leaf) => new BacklinksView(leaf, this));
+    this.registerView(OUTGOING_LINKS_VIEW_TYPE, (leaf) => new OutgoingLinksView(leaf, this));
     this.registerView(DETAIL_VIEW_TYPE, (leaf) => new UnizeroDetailView(leaf, this));
     this.registerView(LIBRARY_VIEW_TYPE, (leaf) => new UnizeroLibraryView(leaf, this));
 
@@ -214,10 +216,16 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
         void openVaultLocation(this, params).catch((error) => this.reportError(error));
         return;
       }
+      // Zotero's Uniconnection opening a paper's Canvas at the card holding a mention.
+      if (params.canvas !== undefined) {
+        void openZoteroCanvas(this, params).catch((error) => this.reportError(error));
+        return;
+      }
       const target = parseLinkTargetForNavigation(params.target || "");
       if (target) { this.openLink(target); } else { new Notice("UniZero: invalid transport target."); }
     });
     this.addCommand({ id: "open-backlinks", name: "Open UniZero Backlinks", callback: () => { void this.revealBacklinks(); } });
+    this.addCommand({ id: "open-outgoing-links", name: "Open UniZero Outgoing links", callback: () => { void this.revealSidebarView(OUTGOING_LINKS_VIEW_TYPE); } });
     this.addCommand({ id: "refresh-links", name: "Rebuild document links", callback: () => { void this.refreshLinks(true); } });
     this.addCommand({ id: "set-document-uid", name: "Set current document UID", callback: () => { void this.assignDocumentUID(); } });
     this.addCommand({ id: "link-selection", name: "Link selection to a paper or document…", editorCallback: (editor) => {
@@ -572,11 +580,13 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
   async refreshLinks(rebuild = false): Promise<void> {
     await Promise.all([this.vaultIndex.initialize({ changedOnly: !rebuild }), this.settings.indexZoteroSources ? this.externalIndex?.refresh(rebuild) : undefined]);
   }
-  async revealBacklinks(): Promise<void> {
-    const existing = this.app.workspace.getLeavesOfType(BACKLINKS_VIEW_TYPE)[0];
+  async revealBacklinks(): Promise<void> { await this.revealSidebarView(BACKLINKS_VIEW_TYPE); }
+  /** Shows a pane of `type`, opening it in the right sidebar if none is open. */
+  private async revealSidebarView(type: string): Promise<void> {
+    const existing = this.app.workspace.getLeavesOfType(type)[0];
     const leaf = existing || this.app.workspace.getRightLeaf(false);
     if (!leaf) { return; }
-    if (!existing) { await leaf.setViewState({ type: BACKLINKS_VIEW_TYPE, active: true }); }
+    if (!existing) { await leaf.setViewState({ type, active: true }); }
     await this.app.workspace.revealLeaf(leaf);
   }
   async assignDocumentUID(): Promise<void> {

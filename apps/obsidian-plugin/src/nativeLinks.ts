@@ -35,7 +35,7 @@ function splitLink(link: string): { linkpath: string; subpath?: string } {
   const hash = link.indexOf("#");
   return hash < 0 ? { linkpath: link } : { linkpath: link.slice(0, hash), subpath: link.slice(hash + 1) || undefined };
 }
-function formOf(original: string, embed: boolean): NativeLinkForm {
+function formOf(original: string, embed: boolean): "embed" | "wikilink" | "markdown" {
   if (embed) { return "embed"; }
   return original.startsWith("[[") ? "wikilink" : "markdown";
 }

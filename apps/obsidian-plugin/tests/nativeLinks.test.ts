@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CachedMetadata, ReferenceCache } from "obsidian";
-import { nativeBacklinks, type NativeLinkHost } from "../src/nativeLinks";
+import { nativeBacklinks, nativeOutgoing, type NativeLinkHost } from "../src/nativeLinks";
 
 const ref = (original: string, link: string, line: number, col = 0): ReferenceCache => ({
   original, link, position: { start: { line, col, offset: 0 }, end: { line, col: col + original.length, offset: 0 } },
@@ -60,5 +60,30 @@ describe("nativeBacklinks", () => {
     const h = host({ "z.md": { links: [ref("[[Target]]", "Target", 0)] }, "a.md": { links: [ref("[[Target]]", "Target", 0)] } },
       { "z.md": "[[Target]]", "a.md": "[[Target]]" }, { "z.md": { "Target.md": 1 }, "a.md": { "Target.md": 1 } });
     expect((await nativeBacklinks(h, "Target.md")).map((l) => l.sourcePath)).toEqual(["a.md", "z.md"]);
+  });
+});
+
+describe("nativeOutgoing", () => {
+  it("lists properties first, then positioned links in order, resolved or not", () => {
+    const h = host({
+      "a.md": {
+        frontmatterLinks: [{ key: "related.0", link: "Other", original: "[[Other]]" }],
+        links: [ref("[[Missing]]", "Missing", 3), ref("[[Target#Methods]]", "Target#Methods", 1, 4), ref("[[#Intro]]", "#Intro", 0)],
+        embeds: [ref("![[Target]]", "Target", 1)],
+      },
+    }, {}, {});
+    const links = nativeOutgoing(h, "a.md", "# Intro\n![[Target]] [[Target#Methods]]\n\n[[Missing]]");
+    expect(links.map((l) => [l.form, l.linkpath, l.targetPath, l.subpath, l.line, l.ch])).toEqual([
+      ["property", "Other", "Other.md", undefined, undefined, undefined],
+      ["embed", "Target", "Target.md", undefined, 1, 0],
+      ["wikilink", "Target", "Target.md", "Methods", 1, 4],
+      ["wikilink", "Missing", undefined, undefined, 3, 0],
+    ]);
+    expect(links[1].lineText).toBe("![[Target]] [[Target#Methods]]");
+    expect(links[0].key).toBe("related.0");
+  });
+
+  it("returns nothing for a note Obsidian has not cached", () => {
+    expect(nativeOutgoing(host({}, {}, {}), "none.md")).toEqual([]);
   });
 });

@@ -84,6 +84,15 @@ pre-0.11.0 are plain text.
   Zotero attachment is active, shows links into its parent paper instead. A collapsed
   **Unlinked mentions** section scans Vault notes on demand for title/alias matches (CJK
   substring-aware) with one-click **Link**.
+- **UniZero Outgoing links:** the forward counterpart, following the same document. It
+  groups what the note links to under **Papers**, **Notes** (UniZero and native links to
+  the same note share one group), and **Unresolved** (missing, duplicate, or other-Vault
+  UIDs; native links to notes not created yet). A header follows the link; a row jumps to
+  where it is written, and its target text (Raw, PDF page, heading, block) follows that
+  exact target. The note needs no UID of its own. A collapsed **Unlinked mentions**
+  section matches other notes' titles and aliases in this note; **Link** assigns the
+  target a UID if needed. For an indexed Zotero attachment it lists the attachment's
+  UniZero links. Render-only `-@` links are not listed.
 - **Source coverage:** indexes Vault Markdown and Canvas text/group/edge labels
   incrementally (background worker for large files; `link-index-v1.json` is disposable).
   Enabling **Index Zotero documents** also scans local Raw, Canvas, and ordinary
