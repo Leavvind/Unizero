@@ -15,6 +15,7 @@ Two kinds of document live here, and they are read differently.
 | [LEGACY_SUPPORT.md](LEGACY_SUPPORT.md) | Current state | You are about to remove or bypass a compatibility reader |
 | [ROADMAP.md](ROADMAP.md) | Plan | You are looking for unfinished work |
 | [UNICONNECTION.md](UNICONNECTION.md) | Design (Chinese) | A task touches the derived reverse-reference index, citation excerpts, the References / Citations lists (item pane, UniConnection full), or Unizero Home |
+| [UNICONNECTION_REDESIGN.md](UNICONNECTION_REDESIGN.md) | Design, not implemented (Chinese) | Planning paper-to-paper relations derived from Raw / Canvas links, the Uniconnection tab, or the Obsidian Paper pane References / Citations |
 | [UNIZERO_LINKS_DESIGN.md](UNIZERO_LINKS_DESIGN.md) | Design constraints (Chinese) | Changing UniZero links, Vault UIDs, document-link indexing, or Backlinks; it also holds the open host-check ledger |
 
 Component behaviour and commands are documented next to the code:

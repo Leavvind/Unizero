@@ -15,7 +15,8 @@
 | bridge `relation` / Obsidian 详情 | 在用 | `src/modules/views.ts`、`src/server/` |
 | 摘句排序、Obsidian 展示摘句与计数 | 未做 | [ROADMAP.md](ROADMAP.md#citation-excerpts) |
 
-现行架构总览见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+现行架构总览见 [ARCHITECTURE.md](ARCHITECTURE.md)。计划中的重做（从 Raw / Canvas 链接派生论文关系、
+退役条目面板与 full 窗口）见 [UNICONNECTION_REDESIGN.md](UNICONNECTION_REDESIGN.md)，尚未实现。
 
 ## 1. 关键约束
 
