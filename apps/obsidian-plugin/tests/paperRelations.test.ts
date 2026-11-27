@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { scanCanvasLinks, scanDocumentLinks } from "../src/documentLinks";
 import { LinkIndex, type SourceDocument } from "../src/linkIndex";
-import { paperCitations, paperLinks, paperReferences, pdfAnchorPage } from "../src/paperRelations";
+import { noteCitations, noteReferences, paperCitations, paperReferences, pdfAnchorPage } from "../src/paperRelations";
 
 const pdf = (annotation: string) => `zotero://open-pdf/library/items/XGLGZ4VJ?page=4&annotation=${annotation}`;
 const A = { libraryID: 1, itemKey: "AAAA1111" }, B = { libraryID: 1, itemKey: "BBBB2222" };
@@ -79,11 +79,33 @@ describe("paper relations", () => {
     expect(paperCitations(build(), A)).toEqual([]);
   });
 
-  it("keeps non-paper sources and self links in Links", () => {
+  it("groups non-paper sources and self links as Notes in Citations", () => {
     const index = build();
-    expect(paperLinks(index, B).map((m) => m.source.kind === "vault" ? m.source.path : m.source.attachmentKey).sort())
-      .toEqual(["USERA", "notes/review.md"]);
-    expect(paperLinks(index, A).map((m) => m.source.kind === "zotero" && m.source.attachmentKey)).toEqual(["CANVASA"]);
+    const notes = noteCitations(index, B);
+    expect(notes.map((group) => [group.title, group.mentions.length])).toEqual([
+      ["notes/review.md", 1], ["Paper AAAA1111 · user file", 1]]);
+    expect(noteCitations(index, A).map((group) => group.mentions.map((m) => m.source.kind === "zotero" && m.source.attachmentKey)))
+      .toEqual([["CANVASA"]]);
+  });
+
+  it("lists a paper's Raw and Canvas links to Vault notes as Notes in References", () => {
+    const index = build();
+    index.replace(zotero(A, "RAWA", "raw"), "[n](unizero://note/v/uid-1)\n\n[n again](unizero://note/v/uid-1#Heading)");
+    index.replace(zotero(A, "USERA", "user"), "[n](unizero://note/v/uid-2)");
+    const [group, ...rest] = noteReferences(index, A);
+    expect(rest).toEqual([]);
+    expect(group).toMatchObject({ key: "note:v/uid-1", target: { kind: "note", vaultID: "v", uid: "uid-1" } });
+    expect(group.mentions).toHaveLength(2);
+  });
+
+  it("leaves render-only nocite links out of both lists", () => {
+    const index = new LinkIndex();
+    index.replace(zotero(A, "RAWA", "raw"), `[B](unizero://paper/1/BBBB2222 "nocite")\n\n[n](unizero://note/v/u "nocite")`);
+    index.replace(vault("aside.md"), `[B](unizero://paper/1/BBBB2222 "nocite")`);
+    expect(paperReferences(index, A)).toEqual([]);
+    expect(noteReferences(index, A)).toEqual([]);
+    expect(paperCitations(index, B)).toEqual([]);
+    expect(noteCitations(index, B)).toEqual([]);
   });
 
   it("follows replaced and removed sources", () => {

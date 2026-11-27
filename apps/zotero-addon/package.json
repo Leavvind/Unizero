@@ -46,6 +46,7 @@
   },
   "homepage": "https://github.com/Leavvind/Unizero#readme",
   "dependencies": {
+    "@unizero/links": "file:../../packages/links",
     "zotero-plugin-toolkit": "5.1.4"
   },
   "devDependencies": {

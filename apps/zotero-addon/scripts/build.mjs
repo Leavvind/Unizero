@@ -12,6 +12,7 @@ import {
   renameSync,
 } from "fs";
 import { env, exit } from "process";
+import { createRequire } from "module";
 import replaceInFile from "replace-in-file";
 const { replaceInFileSync } = replaceInFile;
 const details = JSON.parse(
@@ -211,9 +212,26 @@ function replaceString() {
   }
 }
 
+/**
+ * The shared link parser (packages/links) decodes character references through
+ * `decode-named-character-reference`, whose browser build creates a DOM element.
+ * The add-on bundle does not run in a page, so it takes the table-based build.
+ */
+const domFreeEntities = {
+  name: "dom-free-character-references",
+  setup(build) {
+    // The package exports only its conditional entry, so find its folder from that.
+    const links = createRequire(new URL("../../../packages/links/package.json", import.meta.url));
+    const decoder = path.join(path.dirname(links.resolve("decode-named-character-reference")), "index.js");
+    if (!existsSync(decoder)) { throw new Error(`Missing ${decoder}; run npm install in packages/links`); }
+    build.onResolve({ filter: /^decode-named-character-reference$/ }, () => ({ path: decoder }));
+  },
+};
+
 async function esbuild() {
   await build({
     entryPoints: ["src/index.ts"],
+    plugins: [domFreeEntities],
     define: {
       __env__: `"${env.NODE_ENV}"`,
     },

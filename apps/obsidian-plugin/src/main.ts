@@ -36,7 +36,7 @@ import { uniqueTimestampUID, VaultIdentity } from "./vaultIdentity";
 import { ExternalIndex, localFileIO } from "./externalIndex";
 import type { SourceDocument } from "./linkIndex";
 import { parseLinkTargetForNavigation, serializeLinkTarget, markdownLink, type LinkTarget, validIdentity } from "./linkTarget";
-import { openLinkTarget } from "./linkOpening";
+import { openLinkTarget, openVaultLocation } from "./linkOpening";
 import { BACKLINKS_VIEW_TYPE, BacklinksView } from "./backlinksView";
 import { chooseLinkLocation } from "./linkPicker";
 import { scanDocumentLinks, retargetInlineLink, type DocumentLink } from "./documentLinks";
@@ -55,6 +55,7 @@ import { LibrarySearchModal } from "./searchModal";
 import { CitationSuggest } from "./suggest";
 import { LinkTargetSuggest, openSuggestions } from "./targetSuggest";
 import { isIndexedNote, VaultIndex } from "./vaultIndex";
+import { VaultMentionSync } from "./vaultMentionSync";
 import {
   DEFAULT_SETTINGS,
   UnizeroSettingTab,
@@ -68,6 +69,7 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
   vaultIndex!: VaultIndex;
   capture!: CanvasCapture;
   identity!: VaultIdentity;
+  private vaultMentionSync?: VaultMentionSync;
   externalIndex?: ExternalIndex;
   currentDocument?: TFile;
   currentExternal?: SourceDocument;
@@ -99,6 +101,18 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
       if (this.stopped) { return; }
       void this.vaultIndex.initialize();
       void this.configureExternalIndex();
+      this.vaultMentionSync = new VaultMentionSync({
+        bridge: this.bridge,
+        endpoint: () => this.settings.endpoint,
+        enabled: () => this.settings.shareVaultMentions,
+        vaultID: () => this.settings.vaultID,
+        vaultName: () => this.app.vault.getName(),
+        vaultState: () => this.vaultIndex.links.vaultState,
+        records: () => this.vaultIndex.links.records.values(),
+        mtime: (path) => { const file = this.app.vault.getAbstractFileByPath(path); return file instanceof TFile ? file.stat.mtime : undefined; },
+        subscribe: (listener) => this.vaultIndex.links.subscribe(listener),
+      });
+      this.vaultMentionSync.start();
       this.registerEvent(this.app.vault.on("create", (file) => {
         if (file instanceof TFile && isIndexedNote(file)) {
           void this.vaultIndex.indexFile(file);
@@ -195,6 +209,11 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
       if (link) { menu.addItem((item) => item.setTitle("UniZero: choose link location…").onClick(() => { void this.relocateEditorLink(editor, link.from, link.to, link.raw, link.target); })); }
     }));
     this.registerObsidianProtocolHandler("unizero", (params) => {
+      // Zotero's Uniconnection opening the Vault note that holds a mention.
+      if (params.file !== undefined) {
+        void openVaultLocation(this, params).catch((error) => this.reportError(error));
+        return;
+      }
       const target = parseLinkTargetForNavigation(params.target || "");
       if (target) { this.openLink(target); } else { new Notice("UniZero: invalid transport target."); }
     });
@@ -229,6 +248,7 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     // Registered views, extensions, and processors are released by Plugin's own
     // teardown; the store's listeners belong to elements that go with them.
     this.stopped = true;
+    this.vaultMentionSync?.stop();
     window.clearInterval(this.externalTimer);
     for (const timer of this.externalEdits.values()) { window.clearTimeout(timer); }
     this.externalEdits.clear();
@@ -261,6 +281,9 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
     for (const key of ["literatureFolder", "itemKeyProperty", "citekeyProperty", "pillLabel", "pillStyle"]) {
       delete (this.settings as unknown as Record<string, unknown>)[key];
     }
+    if (typeof this.settings.shareVaultMentions !== "boolean") {
+      this.settings.shareVaultMentions = DEFAULT_SETTINGS.shareVaultMentions;
+    }
     if (typeof this.settings.showSubcollectionItems !== "boolean") {
       this.settings.showSubcollectionItems = DEFAULT_SETTINGS.showSubcollectionItems;
     }
@@ -271,6 +294,8 @@ export default class UnizeroPlugin extends Plugin implements LinkHost {
 
   async saveSettings(effect: "reconnect" | "none" = "reconnect"): Promise<void> {
     await this.saveData(this.settings);
+    // The endpoint, the Vault identity or sharing may have changed.
+    this.vaultMentionSync?.schedule(1000);
     // The endpoint may have moved, so discard bridge-backed state.
     if (effect === "reconnect") { this.store.invalidate(); }
   }

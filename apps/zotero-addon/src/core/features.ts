@@ -16,10 +16,21 @@ import {
 } from "../ui/menus";
 import { closePanel, closePanelForOwner, openPanel } from "../ui/panel";
 import { UnizeroHome } from "../ui/unizeroHome";
+import { paperLinks } from "../zotero/paperLinkSources";
+import { vaultMentions } from "../zotero/vaultMentionStore";
 import { FeatureRegistry, type FeatureModule } from "./featureRegistry";
 
-/** Unizero Home tabs; one owner for every main window. */
+/** Uniconnection tabs (internally still "Home"); one owner for every main window. */
 let home: UnizeroHome | undefined;
+
+function uniconnection(views: Views): UnizeroHome {
+  home ||= new UnizeroHome({
+    cachedBibliography: (item, kind) => views.getCachedLiteratureSnapshot(item, kind),
+    fetchBibliography: (item, kind, refresh) => views.getLiteratureSnapshot(item, kind, refresh),
+    loadMoreCitations: (item) => views.loadMoreLiteratureCitations(item),
+  });
+  return home;
+}
 
 const relations: FeatureModule = {
   id: "literature.relations",
@@ -27,36 +38,30 @@ const relations: FeatureModule = {
     let views = Zotero[config.addonInstance]?.views as Views | undefined;
     if (!views) {
       views = new Views();
-      await views.onInit(win);
+      await views.onInit();
       Zotero[config.addonInstance].views = views;
-      uniConnectionSync.register();
-      addon.api.uniConnectionSync = uniConnectionSync;
       try {
         await registerPrefs();
       } catch (error) {
         Zotero.logError(error as Error);
       }
-      registerUniConnectionMenu(win, (mainWindow, item) => views!.openFull(mainWindow, item));
-      home ||= new UnizeroHome({ openFull: (mainWindow, item) => views!.openFull(mainWindow, item) });
-      home.register(win);
-      return;
     }
-    views.onWindowLoad(win);
     uniConnectionSync.register();
     addon.api.uniConnectionSync = uniConnectionSync;
-    registerUniConnectionMenu(win, (mainWindow, item) => views!.openFull(mainWindow, item));
-    home ||= new UnizeroHome({ openFull: (mainWindow, item) => views!.openFull(mainWindow, item) });
-    home.register(win);
+    const tab = uniconnection(views);
+    tab.register(win);
+    registerUniConnectionMenu(win, (mainWindow, item) => tab.openPaper(mainWindow, item));
   },
   onWindowUnload(win) {
     home?.unregister(win);
     unregisterUniConnectionMenu(win);
-    Zotero[config.addonInstance]?.views?.onWindowUnload?.(win);
   },
   onShutdown() {
     uniConnectionSync.unregister();
     home?.shutdown();
     home = undefined;
+    paperLinks.clear();
+    vaultMentions.shutdown();
     Zotero[config.addonInstance]?.views?.onDestroy?.();
   },
   onAppShutdown() {

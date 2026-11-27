@@ -21,15 +21,18 @@ import { parseLinkTargetForNavigation, type LinkTarget } from "./linkTarget";
 const refreshLinkStyles = StateEffect.define<void>();
 const paperMark = Decoration.mark({ class: "unizero-paper-link" });
 const noteMark = Decoration.mark({ class: "unizero-note-link" });
+/** Render-only `nocite` links (`-@`) keep their kind's class and add a quieter look. */
+const nocitePaperMark = Decoration.mark({ class: "unizero-paper-link unizero-nocite-link" });
+const nociteNoteMark = Decoration.mark({ class: "unizero-note-link unizero-nocite-link" });
 
 /** Labels only; Markdown remains native and editable. No metadata requests. */
 export function linkLabelRanges(links: readonly StyledLink[], cursorRanges: readonly { from: number; to: number }[]) {
   return links.filter((link) => link.labelFrom !== undefined && link.labelTo !== undefined
     && !cursorRanges.some((range) => range.from <= link.to && range.to >= link.from))
-    .map((link) => ({ from: link.labelFrom!, to: link.labelTo!, kind: link.target.kind }));
+    .map((link) => ({ from: link.labelFrom!, to: link.labelTo!, kind: link.target.kind, nocite: !!link.nocite }));
 }
 
-type StyledLink = Pick<DocumentLink, "target" | "from" | "to" | "labelFrom" | "labelTo">;
+type StyledLink = Pick<DocumentLink, "target" | "from" | "to" | "labelFrom" | "labelTo" | "nocite">;
 
 /** Whether an edit replaced or inserted text strictly inside `from..to`; typing at either edge does not count. */
 function editsInside(changes: ChangeDesc, from: number, to: number): boolean {
@@ -48,7 +51,8 @@ export function mapStyledLinks(links: readonly StyledLink[], changes: ChangeDesc
     if (editsInside(changes, link.from, link.to)) { continue; }
     result.push({ target: link.target, from: changes.mapPos(link.from, 1), to: changes.mapPos(link.to, -1),
       labelFrom: link.labelFrom === undefined ? undefined : changes.mapPos(link.labelFrom, 1),
-      labelTo: link.labelTo === undefined ? undefined : changes.mapPos(link.labelTo, -1) });
+      labelTo: link.labelTo === undefined ? undefined : changes.mapPos(link.labelTo, -1),
+      ...(link.nocite ? { nocite: true as const } : {}) });
   }
   return result;
 }
@@ -105,7 +109,8 @@ export function linkLivePreview(host: LinkHost): Extension {
         const visible = this.view.visibleRanges;
         const links = this.styled.filter((link) => visible.some((range) => link.from < range.to && link.to > range.from));
         this.decorations = Decoration.set(linkLabelRanges(links, this.view.state.selection.ranges)
-          .map(({ from, to, kind }) => (kind === "paper" ? paperMark : noteMark).range(from, to)), true);
+          .map(({ from, to, kind, nocite }) => (kind === "paper" ? nocite ? nocitePaperMark : paperMark
+            : nocite ? nociteNoteMark : noteMark).range(from, to)), true);
       }
 
       update(update: ViewUpdate): void {

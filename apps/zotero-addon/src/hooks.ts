@@ -26,8 +26,9 @@ async function onMainWindowLoad(win: Window): Promise<void> {
   migrateLegacyRuntimePrefs();
   migrateNoteToolsPref();
 
-  // The add-on's Fluent strings (item pane section, menus) live in the main
-  // document's l10n for the window's whole lifetime; see the note in views.ts.
+  // The add-on's Fluent strings (menus) live in the main document's l10n for the
+  // window's whole lifetime: inserted once here, never per pane, since removing a
+  // per-pane link drops the FTL from document.l10n and breaks the item menu.
   (win as any).MozXULElement?.insertFTLIfNeeded?.(`${config.addonRef}-addon.ftl`);
 
   await featureRegistry.onWindowLoad(win);

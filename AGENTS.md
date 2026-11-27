@@ -14,7 +14,8 @@ and **Obsidian** (active note-taking front end).
 | `apps/zotero-addon` data plane + `src/server` bridge | Required backend | Providers, reference cache, relations, conversion client |
 | `apps/mcp-server` | Maintained | Agent tools over the bridge; reads only files `GET /artifacts` names |
 | `services/paper-runtime` | Optional | Local Python PDF/EPUB conversion and annotation service |
-| UniConnection (`src/ui/literatureSidebar.ts`, `uniConnectionFull.ts`, `unizeroHome.ts`) | Maintained | Item-pane & full-window References / Citations, Unizero Home tab, citation excerpts |
+| `packages/links` | Required | Link grammar, Markdown/Canvas scanning, evidence units, link roles — shared by the plugin and add-on |
+| Uniconnection (`src/ui/unizeroHome.ts`, `src/zotero/paperLinkSources.ts`) | Maintained | Paper relations from Raw / Canvas links, per-paper page, provider Bibliography |
 
 Two unrelated localhost boundaries — never merge them:
 
@@ -121,7 +122,10 @@ and stages both. Check `git tag` before stating the current released version.
 
 No root command; verify only the components you changed.
 
-- `apps/obsidian-plugin`, `apps/zotero-addon`, `apps/mcp-server`: `npm run check && npm test`.
+- `apps/obsidian-plugin`, `apps/zotero-addon`, `apps/mcp-server`, `packages/links`:
+  `npm run check && npm test`. A change to `packages/links` also verifies both apps that
+  link it (`apps/obsidian-plugin`, `apps/zotero-addon`); run `npm ci` there first on a
+  fresh checkout, since npm links it without installing its dependencies.
   Add `npm run build` only when changing dependencies, build scripts, manifests, or files
   under `addon/`.
 - `services/paper-runtime`: `uv run --no-sync pytest` (tests must use the isolated home

@@ -7,7 +7,7 @@
  * annotation is dragged out of its sidebar and when selected text is dragged out of
  * the page. The first carries the saved annotation's key; the second describes a
  * highlight that does not exist yet. The exact shape of the second is a host detail
- * this module reads leniently — see the manual checks in docs/UNICONNECTION.md.
+ * this module reads leniently — see docs/UNICONNECTION.md §6.
  */
 
 import { ExcerptError } from "./excerptNotes";

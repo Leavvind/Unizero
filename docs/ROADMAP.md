@@ -14,26 +14,19 @@ and [ARCHITECTURE.md](ARCHITECTURE.md). Landed items are removed, not annotated.
 - **Literature exploration.** Discover papers, sort results, and follow related papers
   from notes. The next concrete feature still needs to be chosen.
 
-## UniConnection redesign
+## Uniconnection
 
-Design: [UNICONNECTION_REDESIGN.md](UNICONNECTION_REDESIGN.md). Paper-to-paper relations
-come from `unizero://` links in a paper's Raw / Canvas instead of excerpt notes; decisions are
-recorded in the design.
+Design: [UNICONNECTION.md](UNICONNECTION.md).
 
-- **Zotero side.** Shared link-parsing package, add-on index over Raw / Canvas, Unizero
-  Home shown as Uniconnection with a per-paper page; retire the item-pane sidebar and the
-  full window.
-- **Online `@` search and import.** Depends on the write contract of **Import from Obsidian** above.
+- **Online `@` search and import.** Search providers from `@` and import the chosen paper
+  into Zotero before inserting its link ([UNICONNECTION.md §7](UNICONNECTION.md#7-未完成扩展));
+  depends on the write contract of **Import from Obsidian** above.
 
 ## Citation excerpts
 
-Design: [UNICONNECTION.md](UNICONNECTION.md). These items may be dropped by the
-[UniConnection redesign](#uniconnection-redesign).
+Design: [UNICONNECTION.md §6](UNICONNECTION.md#6-引用摘句). Zotero no longer shows or
+writes excerpts; the child notes, index, and bridge field remain.
 
-- **Reorder excerpts.** Drag a passage within its row; the writer already takes an
-  insertion index.
-- **Obsidian library counts.** Show the same per-paper quote counts as Unizero Home in
-  the `UniZero library` pane through optional `collection-items` fields.
 - **Obsidian detail pane.** Show `excerpts` from `GET /relations` (read-only).
 
 ## Raw Markdown

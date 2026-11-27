@@ -1,0 +1,284 @@
+/**
+ * Structural Markdown and Canvas scanning: which `unizero://` links a document holds,
+ * where, and the evidence unit (docs/UNICONNECTION.md §2) around each.
+ * Shared by the Obsidian plugin and the Zotero add-on so both agree on what counts
+ * as one mention.
+ */
+import { fromMarkdown } from "mdast-util-from-markdown";
+import type { RootContent, Root } from "mdast";
+import { parseTree, findNodeAtLocation, type Node as JsonNode } from "jsonc-parser";
+import { parseLinkTarget, serializeLinkTarget, type LinkTarget, type TextLocation } from "./linkTarget";
+import { PDF_ANCHOR } from "./roles";
+
+export interface DocumentLink {
+  target: LinkTarget;
+  raw: string;
+  from: number;
+  to: number;
+  /** Source span of the label, excluding brackets and the destination. */
+  labelFrom?: number;
+  labelTo?: number;
+  line: number;
+  ch: number;
+  lineText: string;
+  nodeId?: string;
+  /** JSON string span for lossless Canvas field edits. */
+  field?: { from: number; to: number; text: string };
+  /** The paragraph or heading holding the link; absent for links outside one. */
+  unit?: LinkUnit;
+  /**
+   * Written with the link title `"nocite"` (`-@`): it renders and opens like any UniZero
+   * link but counts as no relation and no backlink, so indexes leave it out.
+   */
+  nocite?: true;
+}
+
+/** The Markdown link title that marks a render-only link; the URI itself stays unchanged. */
+export const NOCITE_TITLE = "nocite";
+/** Links that indexes record: every one except render-only `nocite` links. */
+export function indexedLinks<T extends Pick<DocumentLink, "nocite">>(links: T[]): T[] {
+  return links.filter((link) => !link.nocite);
+}
+/**
+ * Evidence unit (docs/UNICONNECTION.md §2): the block's plain text and the
+ * Zotero PDF links written in that same block, which locate the passage in the PDF.
+ */
+export interface LinkUnit { text: string; pdf: string[] }
+const UNIT_TEXT_LIMIT = 600;
+type Ast = Root | RootContent;
+type Span = [number, number];
+/** Plain text to CommonMark. Spaces would turn a masked line start into an indented code block. */
+const OPAQUE = "\uE000";
+/**
+ * Hide Obsidian comments and wikilinks from CommonMark, outside code, keeping every offset.
+ * A wikilink is content; a comment only counts when text follows it on the line, so a
+ * comment-only line stays blank and a trailing comment cannot hide a block ID.
+ */
+function maskObsidianSyntax(text: string): { masked: string; comments: Span[] } {
+  const base = text.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)(?:\r?\n|$)/, (s) => s.replace(/[^\r\n]/g, " "));
+  if (!base.includes("%%") && !base.includes("[[")) { return { masked: base, comments: [] }; }
+  const inert: Span[] = [];
+  const collect = (node: Ast): void => {
+    if (["code", "inlineCode", "html"].includes(node.type)) { inert.push([node.position!.start.offset!, node.position!.end.offset!]); return; }
+    if ("children" in node) { node.children.forEach(collect); }
+  };
+  collect(fromMarkdown(base));
+  const isInert = (offset: number) => inSpans(inert, offset);
+  const comments: Span[] = [];
+  let cursor = 0;
+  while (true) {
+    const start = base.indexOf("%%", cursor);
+    if (start < 0) { break; }
+    if (isInert(start)) { cursor = start + 2; continue; }
+    const closing = base.indexOf("%%", start + 2), end = closing < 0 ? base.length : closing + 2;
+    comments.push([start, end]); cursor = end;
+  }
+  const chars = base.split("");
+  const fill = (from: number, to: number, char: string) => {
+    for (let i = from; i < to; i += 1) { if (chars[i] !== "\n" && chars[i] !== "\r") { chars[i] = char; } }
+  };
+  for (const [from, to] of comments) { fill(from, to, " "); }
+  for (const match of base.matchAll(/!?\[\[[^\n]*?\]\]/g)) {
+    const from = match.index!;
+    if (!isInert(from) && !inSpans(comments, from)) { fill(from, from + match[0].length, OPAQUE); }
+  }
+  for (const [from, to] of comments) {
+    let start = from;
+    while (start < to) {
+      const newline = base.indexOf("\n", start), end = newline < 0 || newline >= to ? to : newline;
+      let next = end;
+      while (next < chars.length && chars[next] !== "\n" && /\s/.test(chars[next])) { next += 1; }
+      if (next < chars.length && chars[next] !== "\n") { fill(start, end, OPAQUE); }
+      start = end + 1;
+    }
+  }
+  return { masked: chars.join(""), comments };
+}
+/** Whether `offset` lies in one of `spans`, which are in document order and do not overlap. */
+function inSpans(spans: Span[], offset: number): boolean {
+  let low = 0, high = spans.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (offset < spans[middle][0]) { high = middle - 1; }
+    else if (offset >= spans[middle][1]) { low = middle + 1; }
+    else { return true; }
+  }
+  return false;
+}
+function lineStartsOf(text: string): number[] {
+  const starts = [0];
+  for (let i = text.indexOf("\n"); i >= 0; i = text.indexOf("\n", i + 1)) { starts.push(i + 1); }
+  return starts;
+}
+function lineAt(starts: number[], offset: number): number {
+  let low = 0, high = starts.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (starts[middle] <= offset) { low = middle; } else { high = middle - 1; }
+  }
+  return low;
+}
+/** CommonMark can decode character references anywhere in a destination. */
+export function mayContainDocumentLinks(text: string): boolean {
+  return text.includes("unizero") || /&(?:#[xX]?[0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]+);/.test(text);
+}
+/** Navigation may supply a forgiving parser; indexing uses the strict default. */
+export function scanDocumentLinks(text: string, parseTarget = parseLinkTarget): DocumentLink[] {
+  if (!mayContainDocumentLinks(text)) { return []; }
+  const { masked } = maskObsidianSyntax(text);
+  const tree = fromMarkdown(masked);
+  const lineStarts = lineStartsOf(text);
+  const definitions = new Map<string, { url: string; title?: string | null }>();
+  function collect(node: Ast): void {
+    if (node.type === "definition" && !definitions.has(node.identifier)) { definitions.set(node.identifier, node); }
+    if ("children" in node) { node.children.forEach(collect); }
+  }
+  collect(tree);
+  const result: DocumentLink[] = [];
+  const urlOf = (node: Ast): string => node.type === "link" ? node.url
+    : node.type === "linkReference" ? definitions.get(node.identifier)?.url || "" : "";
+  const titleOf = (node: Ast): string | null | undefined => node.type === "link" ? node.title
+    : node.type === "linkReference" ? definitions.get(node.identifier)?.title : undefined;
+  /** The block's text and PDF anchors, as an evidence unit for every UniZero link in it. */
+  function unitOf(block: Ast): LinkUnit {
+    const parts: string[] = [], pdf: string[] = [];
+    const walk = (node: Ast): void => {
+      if (node.type === "text") {
+        const from = node.position?.start.offset, to = node.position?.end.offset;
+        parts.push(node.value.includes(OPAQUE) && from !== undefined && to !== undefined ? text.slice(from, to) : node.value);
+        return;
+      }
+      if (node.type === "inlineCode") { parts.push(node.value); return; }
+      if (node.type === "break") { parts.push(" "); return; }
+      if (node.type === "link" || node.type === "linkReference") {
+        const url = urlOf(node);
+        if (PDF_ANCHOR.test(url)) { if (!pdf.includes(url)) { pdf.push(url); } return; }
+      }
+      if (["code", "html", "image", "imageReference", "definition"].includes(node.type)) { return; }
+      if ("children" in node) { node.children.forEach(walk); }
+    };
+    walk(block);
+    const plain = parts.join("").replace(/\(\s*\)/g, "").replace(/\s+/g, " ").trim();
+    return { text: plain.length > UNIT_TEXT_LIMIT ? `${plain.slice(0, UNIT_TEXT_LIMIT).trimEnd()}…` : plain, pdf };
+  }
+  function add(target: LinkTarget, from: number, to: number, labelTo: number | undefined, unit: LinkUnit | undefined, nocite: boolean): void {
+    const line = lineAt(lineStarts, from), lineStart = lineStarts[line];
+    const lineEnd = text.indexOf("\n", from);
+    result.push({ target, from, to, raw: text.slice(from, to),
+      ...(labelTo !== undefined && labelTo > from + 1 ? { labelFrom: from + 1, labelTo } : {}),
+      line, ch: from - lineStart,
+      lineText: text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd).replace(/\r$/, ""),
+      ...(unit ? { unit } : {}), ...(nocite ? { nocite: true as const } : {}) });
+  }
+  function visit(node: Ast, block?: { node: Ast; unit?: LinkUnit }): void {
+    const from = node.position?.start.offset, to = node.position?.end.offset;
+    if (from === undefined || to === undefined) { return; }
+    if (node.type === "link" || node.type === "linkReference") {
+      const target = parseTarget(urlOf(node));
+      if (target && block) { block.unit ??= unitOf(block.node); }
+      if (target) { add(target, from, to, node.children[node.children.length - 1]?.position?.end.offset, block?.unit, titleOf(node) === NOCITE_TITLE); }
+      return;
+    }
+    if (["code", "inlineCode", "html", "image", "imageReference", "definition"].includes(node.type)) { return; }
+    const inner = node.type === "paragraph" || node.type === "heading" ? { node } : block;
+    if ("children" in node) { node.children.forEach((child) => visit(child, inner)); }
+  }
+  visit(tree);
+  return result.sort((a, b) => a.from - b.from);
+}
+export interface CanvasTextField { nodeId?: string; text: string; from: number; to: number }
+export function canvasTextFields(json: string): CanvasTextField[] {
+  JSON.parse(json); // Invalid JSON is a failed read, never an empty source.
+  const tree = parseTree(json);
+  const nodes = findNodeAtLocation(tree!, ["nodes"]);
+  const edges = findNodeAtLocation(tree!, ["edges"]);
+  const fields: CanvasTextField[] = [];
+  function field(node: JsonNode, key: string): void {
+    const value = findNodeAtLocation(node, [key]);
+    const id = findNodeAtLocation(node, ["id"])?.value;
+    if (value?.type === "string") { fields.push({ nodeId: typeof id === "string" ? id : undefined,
+      text: value.value, from: value.offset, to: value.offset + value.length }); }
+  }
+  for (const node of nodes?.children || []) {
+    const type = findNodeAtLocation(node, ["type"])?.value;
+    if (type === "text") { field(node, "text"); }
+    if (type === "group") { field(node, "label"); }
+  }
+  for (const edge of edges?.children || []) { field(edge, "label"); }
+  return fields;
+}
+export function scanCanvasLinks(json: string): DocumentLink[] {
+  return canvasTextFields(json).flatMap((field) => scanDocumentLinks(field.text)
+    .map((link) => ({ ...link, nodeId: field.nodeId, field: { from: field.from, to: field.to, text: field.text } })));
+}
+
+export interface TextAnchor { location: TextLocation; line: number; offset: number; /** Heading depth, 1 to 6. */ level?: number }
+export function textAnchors(text: string): TextAnchor[] {
+  const anchors: TextAnchor[] = [];
+  let lineStarts: number[] | undefined;
+  const { masked, comments } = maskObsidianSyntax(text);
+  const plain = (node: Ast): string => "value" in node ? String(node.value) : "children" in node ? node.children.map(plain).join("") : "";
+  /** A heading's text keeps its wikilinks and drops its comments. */
+  const headingValue = (node: Ast): string => {
+    const from = node.position!.start.offset!, to = node.position!.end.offset!;
+    if (!masked.slice(from, to).includes(OPAQUE)) { return plain(node); }
+    let source = text.slice(from, to);
+    for (const [start, end] of [...comments].reverse()) {
+      if (start < to && end > from) { source = source.slice(0, Math.max(start, from) - from) + source.slice(Math.min(end, to) - from); }
+    }
+    return plain(fromMarkdown(source));
+  };
+  function visit(node: Ast): void {
+    if (node.type === "code" || node.type === "html") { return; }
+    if (node.type === "heading") { anchors.push({ location: { kind: "heading", value: headingValue(node) }, level: node.depth,
+      line: node.position!.start.line - 1, offset: node.position!.start.offset! }); }
+    if (node.type === "text") {
+      const from = node.position!.start.offset!, to = node.position!.end.offset!;
+      const source = masked.slice(from, to);
+      // UniZero also accepts a line-end ID directly after prose, including CJK.
+      const match = /\^([A-Za-z0-9-]+)[ \t]*(?=\r?$)/gm;
+      for (const m of source.matchAll(match)) {
+        const offset = from + m.index!;
+        let escapes = 0;
+        for (let i = offset - 1; i >= 0 && masked[i] === "\\"; i -= 1) { escapes += 1; }
+        if (escapes % 2) { continue; }
+        // A text node may end before formatting or a link; require the actual line end.
+        let end = offset + m[0].length;
+        while (masked[end] === " " || masked[end] === "\t") { end += 1; }
+        if (end < masked.length && masked[end] !== "\n" && !(masked[end] === "\r" && masked[end + 1] === "\n")) { continue; }
+        anchors.push({ location: { kind: "block", value: m[1] }, line: lineAt(lineStarts ??= lineStartsOf(text), offset), offset });
+      }
+    }
+    if ("children" in node) { node.children.forEach(visit); }
+  }
+  visit(fromMarkdown(masked));
+  return anchors;
+}
+export function resolveTextLocation(text: string, location?: TextLocation): { line?: number; status: "file" | "found" | "missing" | "ambiguous" } {
+  if (!location) { return { status: "file" }; }
+  const found = textAnchors(text).filter((a) => a.location.kind === location.kind && a.location.value === location.value);
+  return found.length === 1 ? { status: "found", line: found[0].line } : { status: found.length ? "ambiguous" : "missing" };
+}
+
+/**
+ * A source line as a reader sees it: destinations and block markup dropped, and cut so
+ * that a link late in a long paragraph is still in view.
+ */
+export function occurrenceSnippet(line: string, ch: number, width = 160, lead = 50): string {
+  const plain = (text: string) => text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1");
+  const before = plain(line.slice(0, ch)).replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/, "");
+  const start = Math.max(0, before.length - lead);
+  const text = before.slice(start) + plain(line.slice(ch));
+  return `${start ? "…" : ""}${text.slice(0, width).trim()}${text.length > width ? "…" : ""}`;
+}
+
+/** Preserve all authored Markdown within an inline link label. */
+export function retargetInlineLink(raw: string, target: LinkTarget): string {
+  const paragraph = fromMarkdown(raw).children[0];
+  const link = paragraph?.type === "paragraph" ? paragraph.children[0] : undefined;
+  if (link?.type !== "link" || link.position?.start.offset !== 0 || link.position.end.offset !== raw.length) {
+    throw new Error("Use an inline Markdown link to reselect its location; reference-style targets can be copied from the link menu.");
+  }
+  const end = link.children.length ? link.children[link.children.length - 1].position!.end.offset! : 1;
+  return `${raw.slice(0, end)}](${serializeLinkTarget(target)})`;
+}

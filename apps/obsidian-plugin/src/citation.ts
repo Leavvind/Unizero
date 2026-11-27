@@ -6,14 +6,11 @@
  * `@` followed by free text opens the search that inserts such a link.
  */
 
+import type { PaperAction, PaperRef } from "@unizero/links";
 import { markdownLink, paperLabel } from "./linkTarget";
-export type CitationAction = "detail" | "markdown" | "pdf";
-
-/** Durable pointer to one Zotero item. */
-export interface PaperRef {
-  libraryID: number;
-  itemKey: string;
-}
+export type CitationAction = PaperAction;
+/** Durable pointer to one Zotero item (shared with the add-on: packages/links). */
+export type { PaperRef };
 
 /** One link occurrence to a paper, as the vault index records it. */
 export interface CitationToken extends PaperRef {
@@ -38,6 +35,8 @@ export interface CitationToken extends PaperRef {
  * the escape — `\@notacitation` renders as written.
  */
 const CANCELLING_PREFIX = /[A-Za-z0-9_@/\\.]/;
+/** Characters before `-@` that keep the `-` as ordinary text, as in `pre-@` or `--@`. */
+const NOCITE_CANCELLING = /[A-Za-z0-9_@/\\.\-]/;
 
 /**
  * Characters that end a free-text `@` search so the popup does not follow the
@@ -65,6 +64,8 @@ export function isPaperRef(value: unknown): value is PaperRef {
 
 /**
  * The free-text query being typed immediately before `cursor`, for `@` completion.
+ * A `-` directly before the `@` (`-@query`) asks for a render-only `nocite` link and
+ * is part of the replaced span.
  *
  * Spaces are allowed (`@richardson accounting`). Selecting a hit inserts
  * a standard Markdown UniZero link.
@@ -75,19 +76,23 @@ export function isPaperRef(value: unknown): value is PaperRef {
 export function citationPrefixAt(
   line: string,
   cursor: number,
-): { start: number; query: string } | undefined {
+): { start: number; query: string; nocite?: true } | undefined {
   const before = line.slice(0, cursor);
   const match = before.match(/@([^@\n]*)$/);
   if (!match) { return; }
 
-  const start = before.length - match[0].length;
-  if (start > 0 && CANCELLING_PREFIX.test(line.charAt(start - 1))) { return; }
+  const at = before.length - match[0].length;
+  if (at > 0 && CANCELLING_PREFIX.test(line.charAt(at - 1))) { return; }
 
   const raw = match[1];
   if (SEARCH_HARD_TERMINATOR.test(raw)) { return; }
 
   const query = raw.replace(/\s+/g, " ").trim();
-  return { start, query };
+  // `-@` inserts a render-only link; a `-` inside a word (`pre-@`) stays text.
+  if (line.charAt(at - 1) === "-" && (at === 1 || !NOCITE_CANCELLING.test(line.charAt(at - 2)))) {
+    return { start: at - 1, query, nocite: true };
+  }
+  return { start: at, query };
 }
 
 /**

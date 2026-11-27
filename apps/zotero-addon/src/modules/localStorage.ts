@@ -473,6 +473,11 @@ function dataDirectory(): string {
   return Zotero.getTempDirectory().parent.path;
 }
 
+/** The add-on's own folder in Zotero's data directory, beside the cache shards. */
+export function addonDataDirectory(): string {
+  return PathUtils.join(dataDirectory(), config.addonRef);
+}
+
 export default LocalStorage
 
 /** One cache instance shared by Views and whole-library derived readers. */

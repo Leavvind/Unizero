@@ -18,16 +18,18 @@ used by Obsidian and the MCP server, and the client for the local paper runtime.
 **Literature data & UniConnection**
 
 - Metadata candidate lookup and identifier updates.
-- **Item-pane References / Citations** (`src/ui/literatureSidebar.ts`): unified search
-  across the list and library, `+` import, and drag-and-drop citation excerpts from PDF
-  highlights or selected text; local-only Citations (`excerptsAbout` + `relationsOf`).
-- **UniConnection full** (`src/ui/uniConnectionFull.ts`, ⤢ button or item menu): uncapped
-  side-by-side References and Citations in a standalone window that follows the active
-  tab until pinned, plus opt-in provider Citations.
-- **Unizero Home** (`src/ui/unizeroHome.ts`, items toolbar button): library/collection
-  activity tab pairing papers worked on (left) with papers quoted via hand-attached
-  excerpts (right), with quick jumps to PDF, Raw, Canvas (created on demand), and
-  UniConnection full.
+- **Uniconnection** (`src/ui/unizeroHome.ts`, items toolbar button or the item menu's
+  **Show in Uniconnection**): a main-window tab of paper-to-paper relations taken from the
+  `unizero://paper/…` links written in papers' Raw and Canvas (read when the tab opens or
+  reloads; `src/zotero/paperLinkSources.ts`; render-only `"nocite"` links are skipped). The overview pairs papers worked on (left)
+  with papers they mention (right); each mention shows its paragraph, a PDF button for any
+  `zotero://open-pdf` link in it, and the Raw or Canvas holding it. Citations also list
+  the Obsidian Vault notes that mention a paper, as the plugin last reported them
+  (`POST /vault-mentions`; the status line shows when); their **Obsidian** button opens
+  the note at that line or card. Double-click a paper
+  for its page: References, Citations, and a folded **Bibliography** of provider
+  References / Citations and the library Relation list (cache only until **Fetch**).
+  Opening a Raw or Canvas from Zotero opens the file; it does not focus the line or card.
 - Durable Paper catalog (`src/projects/`): [Paper catalog](../../docs/ARCHITECTURE.md#paper-catalog).
 
 **Conversion and annotations**
@@ -55,6 +57,7 @@ and [Zotero constraints](../../AGENTS.md#zotero-constraints).
 | Zotero item ↔ Obsidian URL bindings | `<Zotero data dir>/unizero/markdown-links/<libraryID>.json` |
 | Extracted PDF bibliography | Owned `ZoMiner References` JSON attachment (`unizero:references`) |
 | Citation excerpts | Child note of the citing paper tagged `unizero:excerpts` |
+| Vault notes' paper links (from the Obsidian plugin) | `<Zotero data dir>/unizero/vault-mentions.json` (derived; deleting it waits for the next push) |
 | Preferences | Zotero preference branch, defaults in `addon/prefs.js` |
 
 The derived relation index is memory-only. Empty Citations responses are cached for 24h
@@ -71,6 +74,7 @@ auto-stop on quit follow user preferences; startup errors appear in the panel's 
 ## Build
 
 ```bash
+(cd ../../packages/links && npm ci)  # shared link parser, linked as a file dependency
 npm ci
 npm run check
 npm test

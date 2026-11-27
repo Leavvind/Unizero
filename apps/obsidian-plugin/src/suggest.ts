@@ -3,7 +3,8 @@
  *
  * The query is free text (author, title, year, citekey fragment), including
  * spaces. Selecting a hit inserts a Markdown UniZero link, optionally continuing
- * into its attachment, heading or block in `targetSuggest`, as `[[` does.
+ * into its attachment, heading or block in `targetSuggest`, as `[[` does. `-@`
+ * inserts the same link with the render-only title `"nocite"`, which no index counts.
  *
  * `EditorSuggest` is public Obsidian API and works in every Markdown editor.
  */
@@ -22,7 +23,7 @@ import { citationPrefixAt, citationText, linkDestinationAt } from "./citation";
 import type { BridgeSuggestion } from "./bridge";
 import type UnizeroPlugin from "./main";
 import type { NoteIdentity } from "./vaultIdentity";
-import { markdownLink, paperLabel, serializeLinkTarget, type LinkTarget } from "./linkTarget";
+import { markdownLabel, markdownLink, NOCITE_SUFFIX, paperLabel, serializeLinkTarget, type LinkTarget } from "./linkTarget";
 import { jumpAt } from "./linkCompletion";
 import { openSuggestions } from "./targetSuggest";
 
@@ -105,7 +106,7 @@ export class CitationSuggest extends EditorSuggest<Suggestion> {
   private shownQuery?: string;
   constructor(app: App, private readonly plugin: UnizeroPlugin) {
     super(app); this.library = new LibrarySearch(plugin);
-    this.setInstructions([{ command: "↵", purpose: "insert link" }, { command: "tab", purpose: "choose Raw or PDF" }, { command: "#", purpose: "heading" }, { command: "^", purpose: "block" }]);
+    this.setInstructions([{ command: "↵", purpose: "insert link" }, { command: "tab", purpose: "choose Raw or PDF" }, { command: "#", purpose: "heading" }, { command: "^", purpose: "block" }, { command: "-@", purpose: "link without relation" }]);
     // The default list binds only an unmodified Enter.
     const choose = (event: KeyboardEvent) => {
       const list = this.list;
@@ -157,11 +158,16 @@ export class CitationSuggest extends EditorSuggest<Suggestion> {
   selectSuggestion(suggestion: Suggestion, event: MouseEvent | KeyboardEvent): void {
     if (suggestion.kind === "switch") {
       const context = this.context; if (!context) { return; }
-      context.editor.replaceRange(`@${suggestion.to} ${suggestion.query}`, context.start, context.end); return;
+      const trigger = this.nociteAt(context.editor, context.start) ? "-@" : "@";
+      context.editor.replaceRange(`${trigger}${suggestion.to} ${suggestion.query}`, context.start, context.end); return;
     }
     const key = "key" in event ? event.key : "";
     // `#` and `^` are shifted keys on most layouts, so they are checked first.
     void this.insert(suggestion, key === "#" ? "heading" : key === "^" ? "block" : event.shiftKey || key === "Tab" ? "target" : "none");
+  }
+  /** Whether the query being completed was opened with `-@`: its span then starts at the `-`. */
+  private nociteAt(editor: Editor, start: EditorPosition): boolean {
+    return editor.getLine(start.line).charAt(start.ch) === "-";
   }
   /** Inserts the chosen link; for a note without a UID it first asks for one. */
   private async insert(suggestion: Exclude<Suggestion, { kind: "switch" }>, next: Continue): Promise<void> {
@@ -169,6 +175,7 @@ export class CitationSuggest extends EditorSuggest<Suggestion> {
     try {
       let target: LinkTarget, label: string;
       const { editor, file, start, end } = context;
+      const nocite = this.nociteAt(editor, start), title = nocite ? NOCITE_SUFFIX : "";
       this.close();
       if (suggestion.kind === "paper") {
         target = { kind: "paper", libraryID: suggestion.paper.libraryID, itemKey: suggestion.paper.itemKey, action: "detail" };
@@ -194,18 +201,18 @@ export class CitationSuggest extends EditorSuggest<Suggestion> {
       if (destination && destination.emptyLabelAt === undefined) {
         // `[label](@query)`: the label is the user's; write only the URL.
         const uri = `${serializeLinkTarget(target)}${raw}${fragment}`;
-        editor.replaceRange(uri, start, end);
-        editor.setCursor({ line: start.line, ch: start.ch + uri.length + (next === "none" ? 1 : 0) });
+        editor.replaceRange(uri + title, start, end);
+        editor.setCursor({ line: start.line, ch: start.ch + uri.length + (next === "none" ? title.length + 1 : 0) });
         if (next !== "none") { openSuggestions(this.app, editor, file); }
         return;
       }
       // `[](@query)` is replaced whole, label included.
       const from = destination ? { line: start.line, ch: destination.emptyLabelAt! } : start;
       const to = destination ? { line: end.line, ch: end.ch + 1 } : end;
-      if (next === "none") { editor.replaceRange(markdownLink(label, target), from, to); return; }
-      const link = `${markdownLink(label, target).slice(0, -1)}${raw}${fragment})`;
-      editor.replaceRange(link, from, to);
-      editor.setCursor({ line: from.line, ch: from.ch + link.length - 1 });
+      if (next === "none") { editor.replaceRange(markdownLink(label, target, nocite), from, to); return; }
+      const head = `${markdownLabel(label)}(${serializeLinkTarget(target)}${raw}${fragment}`;
+      editor.replaceRange(`${head}${title})`, from, to);
+      editor.setCursor({ line: from.line, ch: from.ch + head.length });
       openSuggestions(this.app, editor, file);
     } catch (error) { this.plugin.reportError(error); }
   }

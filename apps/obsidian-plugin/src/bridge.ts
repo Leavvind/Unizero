@@ -167,6 +167,28 @@ export interface BridgeCollectionItem {
   dateAdded?: string;
 }
 
+/** One link to a paper written in a Vault note, as `POST /vault-mentions` takes it. */
+export interface VaultMentionEntry {
+  libraryID: number;
+  itemKey: string;
+  path: string;
+  title: string;
+  format: "md" | "canvas";
+  line: number;
+  nodeId?: string;
+  text: string;
+  pdf: string[];
+  /** Epoch ms the note last changed. */
+  time?: number;
+}
+
+export interface VaultMentionSnapshot {
+  vaultID: string;
+  vaultName: string;
+  generatedAt: number;
+  mentions: VaultMentionEntry[];
+}
+
 export interface BridgeCollectionItems {
   scope: {
     libraryID: number;
@@ -201,13 +223,15 @@ export class UnizeroBridge {
     method: "GET" | "POST",
     path: string,
     params: Record<string, string | undefined>,
+    body?: unknown,
   ): Promise<T> {
     let response;
     try {
       response = await requestUrl({
         url: this.url(path, params),
         method,
-        headers: { ...ZOTERO_ALLOWED_HEADERS },
+        headers: { ...ZOTERO_ALLOWED_HEADERS, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         // Without this the helper throws on 404/202 edge cases we handle below.
         throw: false,
       });
@@ -353,6 +377,15 @@ export class UnizeroBridge {
       libraryID: String(ref.libraryID),
       itemKey: ref.itemKey,
     });
+  }
+
+  /**
+   * Replace this Vault's snapshot of paper links in Zotero (`vault-mentions`
+   * capability), for Uniconnection's Citations. Zotero stores it in its own cache
+   * and touches no item.
+   */
+  vaultMentions(snapshot: VaultMentionSnapshot): Promise<{ vaultID: string; mentions: number }> {
+    return this.request("POST", "vault-mentions", {}, snapshot);
   }
 
   /**

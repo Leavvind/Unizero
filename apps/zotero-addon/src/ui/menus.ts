@@ -256,8 +256,8 @@ export function registerAnnotationMenu(mainWindow: Window): void {
  * true when any selected row is a Collection, library, or group.
  */
 /**
- * UniConnection full: the item context menu opens the selected paper's References
- * and Citations in the full window.
+ * Uniconnection: the item context menu opens the selected paper's page in the
+ * Uniconnection tab.
  */
 export function registerUniConnectionMenu(
   mainWindow: Window,
@@ -267,8 +267,8 @@ export function registerUniConnectionMenu(
   (mainWindow as any).MozXULElement?.insertFTLIfNeeded?.(
     `${config.addonRef}-addon.ftl`,
   );
-  const label = getString("uniconnection-full-menu-label") ||
-    "UniConnection full…";
+  const label = getString("uniconnection-menu-label") ||
+    "Show in Uniconnection";
   const itemMenu = document.getElementById("zotero-itemmenu");
   if (itemMenu && !document.getElementById(MENU_LITERATURE)) {
     const itemEntry = (document as any).createXULElement("menuitem");

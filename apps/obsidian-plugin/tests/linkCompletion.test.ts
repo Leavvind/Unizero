@@ -47,6 +47,12 @@ describe("what the caret is completing", () => {
     const open = `${paper} and [b](unizero://paper/1/OTHER)`;
     expect(completionAt(open, paper.length)!.to).toBe(paper.length);
   });
+  it("keeps the title of a render-only link", () => {
+    const line = `${paper}.md# "nocite")`;
+    const c = completionAt(line, line.indexOf("#") + 1)!;
+    expect(c).toMatchObject({ stage: "location", fragment: "", closes: false });
+    expect(line.slice(c.to)).toBe(' "nocite")');
+  });
 });
 
 describe("punctuation from a Chinese IME", () => {

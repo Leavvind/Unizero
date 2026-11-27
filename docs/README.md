@@ -14,8 +14,7 @@ Two kinds of document live here, and they are read differently.
 | [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | Current state | You need to know where code belongs |
 | [LEGACY_SUPPORT.md](LEGACY_SUPPORT.md) | Current state | You are about to remove or bypass a compatibility reader |
 | [ROADMAP.md](ROADMAP.md) | Plan | You are looking for unfinished work |
-| [UNICONNECTION.md](UNICONNECTION.md) | Design (Chinese) | A task touches the derived reverse-reference index, citation excerpts, the References / Citations lists (item pane, UniConnection full), or Unizero Home |
-| [UNICONNECTION_REDESIGN.md](UNICONNECTION_REDESIGN.md) | Design, partly implemented (Chinese) | A task touches paper-to-paper relations derived from Raw / Canvas links: the Obsidian Paper pane References / Citations (landed) or the planned Uniconnection tab |
+| [UNICONNECTION.md](UNICONNECTION.md) | Design constraints (Chinese) | A task touches paper-to-paper relations from Raw / Canvas links (`packages/links`, Obsidian Paper pane, Zotero Uniconnection tab), the derived reverse-reference index, provider Bibliography / Relation lists, citation excerpts, or planned online `@` import |
 | [UNIZERO_LINKS_DESIGN.md](UNIZERO_LINKS_DESIGN.md) | Design constraints (Chinese) | Changing UniZero links, Vault UIDs, document-link indexing, or Backlinks; it also holds the open host-check ledger |
 
 Component behaviour and commands are documented next to the code:
@@ -24,7 +23,8 @@ Component behaviour and commands are documented next to the code:
 - [apps/zotero-addon/README.md](../apps/zotero-addon/README.md) — library backend and bridge host;
 - [apps/mcp-server/README.md](../apps/mcp-server/README.md) — agent access to papers over the bridge;
 - [services/paper-runtime/README.md](../services/paper-runtime/README.md);
-- [packages/contracts/README.md](../packages/contracts/README.md).
+- [packages/contracts/README.md](../packages/contracts/README.md);
+- [packages/links/README.md](../packages/links/README.md).
 
 Repository rules, current focus, and verification commands are in
 [AGENTS.md](../AGENTS.md).

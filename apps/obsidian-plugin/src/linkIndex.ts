@@ -1,4 +1,4 @@
-import { scanCanvasLinks, scanDocumentLinks, type DocumentLink } from "./documentLinks";
+import { indexedLinks, scanCanvasLinks, scanDocumentLinks, type DocumentLink } from "./documentLinks";
 import { targetIdentity, type LinkTarget } from "./linkTarget";
 
 export type SourceDocument =
@@ -40,9 +40,10 @@ export class LinkIndex {
     if (this.disposed) { return []; }
     return this.replaceParsed(source, source.format === "canvas" ? scanCanvasLinks(text) : scanDocumentLinks(text), fingerprint, notify);
   }
+  /** Render-only `nocite` links (`-@`) are no relation and no backlink, so they are not recorded. */
   replaceParsed(source: SourceDocument, parsed: DocumentLink[], fingerprint?: string, notify = true): LinkOccurrence[] {
     if (this.disposed) { return []; }
-    const links = parsed.map((link) => ({ ...link, source, stale: false }));
+    const links = indexedLinks(parsed).map((link) => ({ ...link, source, stale: false }));
     this.setRecord({ source, links, fingerprint, stale: false }, notify);
     return links;
   }

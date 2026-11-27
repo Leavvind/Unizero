@@ -6,7 +6,8 @@ import { LinkIndex, sourceIdentity, timeSlicer, type SourceDocument, type Source
 import { scanCanvasLinks, scanDocumentLinks, type DocumentLink } from "./documentLinks";
 
 /** Bump when a parser change makes cached link records wrong. */
-const CACHE_SCHEMA = 3;
+/** 4: render-only `nocite` links are left out, so older records may hold them. */
+const CACHE_SCHEMA = 4;
 
 export const contentHash = (text: string): string => createHash("sha256").update(text).digest("hex");
 export const externalSource = (source: BridgeLinkSource): SourceDocument & { kind: "zotero" } => ({ ...source, kind: "zotero" });

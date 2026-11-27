@@ -88,3 +88,26 @@ export async function openNativeBacklink(plugin: UnizeroPlugin, link: Pick<Nativ
   if (!(file instanceof TFile)) { throw new Error("The source document is missing."); }
   await plugin.app.workspace.getLeaf(false).openFile(file, link.line === undefined ? undefined : { eState: { line: link.line } });
 }
+
+/**
+ * `obsidian://unizero?vault=…&vaultID=…&file=…&line=…&node=…`, from Zotero's Uniconnection:
+ * the Vault note holding a mention, at its line or Canvas card. `file` is a path in
+ * this Vault (not `path`, which Obsidian reserves for absolute filesystem paths); anything else is refused rather than guessed at.
+ */
+export async function openVaultLocation(plugin: UnizeroPlugin, params: Record<string, string | undefined>): Promise<void> {
+  if (params.vaultID && params.vaultID !== plugin.settings.vaultID) {
+    throw new Error("That note belongs to another Vault; open it there.");
+  }
+  const file = plugin.app.vault.getAbstractFileByPath(params.file || "");
+  if (!(file instanceof TFile) || !["md", "canvas"].includes(file.extension)) {
+    throw new Error("That note is not in this Vault any more; it may have moved since Zotero last heard from Obsidian.");
+  }
+  const line = /^\d+$/.test(params.line || "") ? Number(params.line) : undefined;
+  if (file.extension === "canvas") {
+    await plugin.vaultIndex.openOccurrence({ file, filePath: file.path, line: line ?? 0, ch: 0, lineText: "",
+      ...(params.node ? { nodeId: params.node } : {}),
+      token: { libraryID: 1, itemKey: "SOURCE", action: "detail", raw: "", from: 0, to: 0 } });
+    return;
+  }
+  await plugin.app.workspace.getLeaf(false).openFile(file, line === undefined ? undefined : { eState: { line } });
+}

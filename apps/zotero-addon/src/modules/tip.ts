@@ -157,8 +157,8 @@ export default class TipUI {
 
     // Left side
     let styles: any
-    // Left of the row by default; a row near the window's left edge (the References
-    // column of UniConnection full) has no room there, so the card goes to its right.
+    // Left of the row by default; a row near the window's left edge has no room
+    // there, so the card goes to its right.
     const leftRoom = refRect.x
     const rightRoom = maxWidth - (refRect.x + refRect.width)
     if (this.position == "left" && leftRoom < TIP_MIN_SIDE_ROOM && rightRoom > leftRoom) {

@@ -1,0 +1,22 @@
+{
+  "name": "@unizero/links",
+  "version": "0.0.0",
+  "description": "UniZero link grammar, Markdown/Canvas link scanning, evidence units and link roles, shared by the Obsidian plugin and the Zotero add-on",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "author": "Leavvind",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "jsonc-parser": "^3.3.1",
+    "mdast-util-from-markdown": "^2.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^4.9.5",
+    "vitest": "^1.6.1"
+  }
+}

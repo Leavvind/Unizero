@@ -1,42 +1,65 @@
 /**
- * Unizero Home: the library-wide UniConnection overview, as a tab of the main window
- * opened from a button on the items toolbar (docs/UNICONNECTION.md §5.4).
+ * Uniconnection: the library-wide view of paper-to-paper relations, as a tab of the
+ * main window opened from a button on the items toolbar
+ * (docs/UNICONNECTION.md §4.1). Relations are the `unizero://paper/…` links
+ * written in papers' Raw and Canvas (src/zotero/paperLinkSources.ts); the tab reads
+ * those files when it opens or reloads.
  *
- * Left, References: the papers being worked on, latest activity first (a highlight,
- * a passage attached, a note edited, References loaded), each with the papers it
- * quoted. Right, Citations: each quoted paper, with who quoted it. Partners are only
- * the hand-attached passages (excerpt notes), never the providers' References; a
- * partner opens to its passages, which open the PDF. Each paper has buttons for its PDF, Raw, Canvas,
- * UniConnection full and its place in the library; double-click opens the PDF.
- * Selecting a paper highlights its partners in the other column. Everything is read
- * locally (index, Zotero); nothing here reaches a provider. The
- * one write is the Canvas button on a paper without one, which creates it, empty.
+ * Overview, left, References: the papers being worked on, latest activity first (a
+ * mention written in the paper's Raw or Canvas, an annotation made), each with the
+ * papers it mentions. Right, Citations: each mentioned paper, with who mentions it.
+ * A partner opens to its mentions: the paragraph's text, a PDF button for each
+ * `zotero://open-pdf` link in that paragraph, and the Raw or Canvas holding it.
+ * Selecting a paper highlights its partners in the other column; double-clicking it
+ * opens its own page in this tab.
+ *
+ * Citations also lists the Obsidian Vault notes that mention a paper, from the
+ * snapshot the plugin sends (src/zotero/vaultMentionStore.ts); their buttons open
+ * the note in Obsidian through `obsidian://unizero`.
+ *
+ * Paper page: References (what this paper's Raw and Canvas mention), Citations (whose
+ * Raw and Canvas, and which Vault notes, mention it), and a folded Bibliography of the providers' References,
+ * Citations and the library Relation list. Opening the fold reads only caches; the
+ * providers are asked only when the user clicks Fetch.
+ *
+ * Everything else is read locally (Zotero, the files). The one write is the Canvas
+ * button on a paper without one, which creates it, empty.
  *
  * Host traps:
  * - Zotero saves its open tabs and restores them at startup by type; a type it has
  *   no hook for stops the restore there. So each window's `Zotero_Tabs.getState` is
- *   wrapped to leave Home out of the saved session (unwrapped on unload), and where
- *   the tab-hook table exists Home registers hooks that drop a stray saved Home tab.
- * - Tab types are split on "-" by Zotero, so the type has none.
+ *   wrapped to leave the tab out of the saved session (unwrapped on unload), and where
+ *   the tab-hook table exists it registers hooks that drop a stray saved tab.
+ * - Tab types are split on "-" by Zotero, so the type has none. The internal type
+ *   stays `unizeroHome` (renaming it would orphan saved state; AGENTS.md "Stable state").
  * - Zotero 9+ can hold several library views per window, each with its own items
  *   toolbar; buttons are added to every toolbar found, again whenever a tab opens.
  */
 
 import { config } from "../../package.json";
-import { uniConnection } from "../modules/uniConnection";
-import { libraryActivity, sqlTime } from "../zotero/uniConnectionActivity";
-import { openExcerpt } from "../zotero/excerptAnnotations";
+import type { LiteratureCandidate, LiteratureSnapshot } from "../modules/literatureRelations";
+import { scopedKey as scopedKeyOf, type MentionGroup, type PaperMention } from "../modules/paperLinkIndex";
+import { paperLinks, type PaperLinkRefresh } from "../zotero/paperLinkSources";
+import { vaultNoteKey, type VaultMention, type VaultNoteGroup } from "../modules/vaultMentionIndex";
+import { vaultMentions } from "../zotero/vaultMentionStore";
+import { paperHighlights, sqlTime } from "../zotero/uniConnectionActivity";
+import { openPdfAnchor } from "../zotero/pdfAnchors";
+import { launchObsidianURL } from "../zotero/obsidianLaunch";
 import { canvasAttachment, ensureCanvasAttachment } from "../zotero/canvasAdapter";
 import { attachmentSummary, pdfAttachment, rawAttachment } from "../zotero/literatureCollectionAdapter";
 import { libraryHit } from "../zotero/librarySearch";
 import { getString } from "../utils/locale";
-import { rowCredit } from "./literatureSidebarModel";
+import { pdfAnchorPage } from "@unizero/links";
 import {
   columnRows,
   homeColumns,
+  paperCredit,
+  shortAuthors,
   type ActivityKind,
   type HomeColumn,
-  type HomeExcerpt,
+  type HomeMention,
+  type HomeNote,
+  type HomePair,
   type HomePaper,
   type HomePartner,
   type HomeQuery,
@@ -54,8 +77,11 @@ const RELOAD_DELAY_MS = 1500;
 const ROW_PAGE = 300;
 /** Partners shown under a row before "N more". */
 const PARTNER_PAGE = 5;
+/** Bibliography rows shown per list before "Show all". */
+const BIBLIOGRAPHY_PAGE = 50;
 
-type OpenTarget = "pdf" | "raw" | "canvas" | "full" | "library";
+type OpenTarget = "pdf" | "raw" | "canvas" | "library";
+type BibliographyKind = "references" | "citations" | "relation";
 
 interface ColumnState extends HomeQuery {
   limit: number;
@@ -65,6 +91,23 @@ interface ColumnState extends HomeQuery {
     search: HTMLInputElement;
     sort: HTMLSelectElement;
   };
+}
+
+interface BibliographyList {
+  snapshot?: LiteratureSnapshot;
+  loading: boolean;
+  message?: string;
+  all: boolean;
+}
+
+/** One paper's page; kept while the user moves between related papers. */
+interface PaperPage {
+  scopedKey: string;
+  /** The Bibliography fold is open. */
+  open: boolean;
+  /** Caches have been read for this paper. */
+  read: boolean;
+  lists: Record<BibliographyKind, BibliographyList>;
 }
 
 interface HomeView {
@@ -77,21 +120,33 @@ interface HomeView {
   subcollections: boolean;
   /** Papers in scope (the status line's count). */
   paperCount: number;
+  /** The last file read: how many notes could not be read. */
+  refresh?: PaperLinkRefresh;
   data: Record<HomeColumn, HomeRow[]>;
   /** Drawn rows by `column|scopedKey`, reused while the row and its partner fold are unchanged. */
   drawn: Map<string, { row: HomeRow; all: boolean; element: HTMLElement }>;
   selected?: { column: HomeColumn; key: string };
-  /** Partners the user folded; passages show by default. By `column|row|partner`. */
+  /** Partners the user folded; mentions show by default. By `column|row|partner`. */
   collapsed: Set<string>;
   /** Rows showing all their partners, by `column|row`. */
   expanded: Set<string>;
   columns: Record<HomeColumn, ColumnState>;
+  /** The paper page on show, and the pages behind it (Back). */
+  page?: PaperPage;
+  history: PaperPage[];
   loading: boolean;
   error?: string;
   generation: number;
   /** Library data changed while the tab was in the background. */
   stale: boolean;
-  ui: { library: HTMLSelectElement; collection: HTMLSelectElement; subcollections: HTMLInputElement; status: HTMLElement };
+  ui: {
+    library: HTMLSelectElement;
+    collection: HTMLSelectElement;
+    subcollections: HTMLInputElement;
+    status: HTMLElement;
+    columns: HTMLElement;
+    page: HTMLElement;
+  };
 }
 
 interface WindowHooks {
@@ -100,8 +155,14 @@ interface WindowHooks {
   hookActions: string[];
 }
 
+/** The providers' bibliography, through the add-on's data plane (modules/views.ts). */
 export interface UnizeroHomeDeps {
-  openFull(win: Window, item: Zotero.Item): void;
+  /** Saved References, Citations, or the library Relation list; never touches the network. */
+  cachedBibliography(item: Zotero.Item, kind: BibliographyKind): Promise<LiteratureSnapshot | undefined>;
+  /** Asks the providers; only on an explicit click. */
+  fetchBibliography(item: Zotero.Item, kind: "references" | "citations", refresh: boolean): Promise<LiteratureSnapshot>;
+  /** The next page of provider Citations. */
+  loadMoreCitations(item: Zotero.Item): Promise<LiteratureSnapshot>;
 }
 
 function t(key: string, fallback: string, args?: Record<string, unknown>): string {
@@ -141,7 +202,7 @@ function itemOf(key: string): Zotero.Item | undefined {
   return item && !item.deleted ? item : undefined;
 }
 
-/** The libraries Home offers: the user library and groups (not feeds). */
+/** The libraries Uniconnection offers: the user library and groups (not feeds). */
 function homeLibraries(): Array<{ libraryID: number; name: string }> {
   return (Zotero.Libraries.getAll() as any[])
     .filter((each) => each.libraryType === "user" || each.libraryType === "group");
@@ -155,6 +216,89 @@ function paperOf(item: Zotero.Item): HomePaper {
   };
 }
 
+function summaryOf(key: string): HomePaper | undefined {
+  const item = itemOf(key);
+  return item?.isRegularItem() ? paperOf(item) : undefined;
+}
+
+function homeMention(mention: PaperMention): HomeMention {
+  return {
+    attachmentKey: mention.source.attachmentKey,
+    purpose: mention.source.purpose,
+    line: mention.line,
+    ...(mention.nodeId !== undefined ? { nodeId: mention.nodeId } : {}),
+    text: mention.text,
+    pdf: mention.pdf,
+    ...(mention.time !== undefined ? { time: mention.time } : {}),
+  };
+}
+
+function vaultHomeMention(mention: VaultMention): HomeMention {
+  return {
+    purpose: "vault",
+    note: mention.note,
+    line: mention.line,
+    ...(mention.nodeId !== undefined ? { nodeId: mention.nodeId } : {}),
+    text: mention.text,
+    pdf: mention.pdf,
+    ...(mention.time !== undefined ? { time: mention.time } : {}),
+  };
+}
+
+/** Vault notes' mentions as note → cited pairs; the note's key stands where a citing paper's would. */
+function vaultPairs(mentions: VaultMention[]): HomePair[] {
+  const pairs = new Map<string, HomePair>();
+  for (const mention of mentions) {
+    const citing = vaultNoteKey(mention.note), cited = scopedKeyOf(mention.cited);
+    const key = `${citing}|${cited}`;
+    let pair = pairs.get(key);
+    if (!pair) {
+      pair = { citing, cited, missing: !summaryOf(cited), mentions: [], note: mention.note };
+      pairs.set(key, pair);
+    }
+    pair.mentions.push(vaultHomeMention(mention));
+  }
+  return [...pairs.values()];
+}
+
+/**
+ * `obsidian://unizero?…` opening a Vault note at a line or Canvas card. The plugin
+ * checks `vaultID` and that the path is a note in that Vault before opening it. The
+ * Vault-relative path travels as `file`: Obsidian itself claims `path` as an absolute
+ * filesystem path to pick the Vault, and fails with "Vault not found" on a relative one.
+ */
+export function obsidianNoteURL(note: HomeNote, line?: number, nodeId?: string): string {
+  const params: Array<[string, string]> = [["vault", note.vaultName], ["vaultID", note.vaultID], ["file", note.path]];
+  if (line !== undefined) { params.push(["line", String(line)]); }
+  if (nodeId) { params.push(["node", nodeId]); }
+  return `obsidian://unizero?${params.map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join("&")}`;
+}
+
+function syncedAgo(time: number): string {
+  const minutes = Math.floor((Date.now() - time) / 60_000);
+  if (minutes < 1) { return t("just-now", "just now"); }
+  if (minutes < 60) { return t("minutes-ago", "{ $count } min ago", { count: minutes }); }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) { return t("hours-ago", "{ $count } h ago", { count: hours }); }
+  return relativeTime(time);
+}
+
+/** The index's mentions as citing → cited pairs. */
+function homePairs(mentions: PaperMention[]): HomePair[] {
+  const pairs = new Map<string, HomePair>();
+  for (const mention of mentions) {
+    const citing = scopedKeyOf(mention.citing), cited = scopedKeyOf(mention.cited);
+    const key = `${citing}|${cited}`;
+    let pair = pairs.get(key);
+    if (!pair) {
+      pair = { citing, cited, missing: !summaryOf(cited), mentions: [] };
+      pairs.set(key, pair);
+    }
+    pair.mentions.push(homeMention(mention));
+  }
+  return [...pairs.values()];
+}
+
 function relativeTime(time: number): string {
   const days = Math.floor((Date.now() - time) / 86_400_000);
   if (days <= 0) { return t("today", "today"); }
@@ -165,10 +309,13 @@ function relativeTime(time: number): string {
 function activityLabel(kind: ActivityKind): string {
   switch (kind) {
     case "highlight": return t("activity-highlight", "Highlighted");
-    case "excerpt": return t("activity-excerpt", "Quoted");
-    case "note": return t("activity-note", "Note edited");
-    case "references": return t("activity-references", "References loaded");
+    case "mention": return t("activity-mention", "Mentioned");
   }
+}
+
+function emptyPage(scopedKey: string): PaperPage {
+  const list = (): BibliographyList => ({ loading: false, all: false });
+  return { scopedKey, open: false, read: false, lists: { references: list(), citations: list(), relation: list() } };
 }
 
 export class UnizeroHome {
@@ -176,6 +323,7 @@ export class UnizeroHome {
   private readonly hooks = new Map<Window, WindowHooks>();
   private observerID?: string;
   private reloadTimer?: ReturnType<typeof setTimeout>;
+  private unsubscribeVault?: () => void;
 
   public constructor(private readonly deps: UnizeroHomeDeps) {}
 
@@ -201,7 +349,7 @@ export class UnizeroHome {
     this.unobserve();
   }
 
-  /** Open Home in `win`, or switch to its Home tab. */
+  /** Open Uniconnection in `win`, or switch to its tab. */
   public open(win: Window): void {
     const tabs = (win as any).Zotero_Tabs;
     if (!tabs?.add) { return; }
@@ -213,7 +361,7 @@ export class UnizeroHome {
     }
     const { id, container } = tabs.add({
       type: TAB_TYPE,
-      title: t("title", "Unizero Home"),
+      title: t("title", "Uniconnection"),
       data: {},
       select: true,
       onClose: () => this.forget(win),
@@ -221,6 +369,15 @@ export class UnizeroHome {
     const view = this.mount(win, id, container as HTMLElement);
     this.views.set(win, view);
     void this.load(view);
+  }
+
+  /** Open Uniconnection on `item`'s paper page (the item context menu). */
+  public openPaper(win: Window, item: Zotero.Item): void {
+    const paper = item.isRegularItem() ? item : item.parentItem;
+    if (!paper || paper.deleted) { return; }
+    this.open(win);
+    const view = this.views.get(win);
+    if (view) { this.showPaper(view, `${paper.libraryID}:${paper.key}`); }
   }
 
   // ------------------------------------------------------------------ host
@@ -240,7 +397,7 @@ export class UnizeroHome {
     this.views.delete(win);
   }
 
-  /** Keep Home out of the saved session; see the header. */
+  /** Keep the tab out of the saved session; see the header. */
   private guardSession(win: Window): void {
     const tabs = (win as any).Zotero_Tabs;
     const record: WindowHooks = { hookActions: [] };
@@ -259,9 +416,9 @@ export class UnizeroHome {
     const table = tabs?.tabHooks as Record<string, Record<string, unknown>> | undefined;
     if (table && typeof table === "object") {
       const drop = {
-        // A saved Home tab (from an older build, or a crash) is skipped, not restored.
+        // A saved tab (from an older build, or a crash) is skipped, not restored.
         restoreState: async () => ({}),
-        // Reopening a closed Home tab opens a fresh one.
+        // Reopening a closed tab opens a fresh one.
         undoClose: async () => { this.open(win); },
       } as Record<string, unknown>;
       for (const [action, hook] of Object.entries(drop)) {
@@ -291,7 +448,7 @@ export class UnizeroHome {
       if (toolbar.querySelector(`.${BUTTON_CLASS}`)) { continue; }
       const button = (doc as any).createXULElement("toolbarbutton") as Element;
       button.setAttribute("class", `zotero-tb-button ${BUTTON_CLASS}`);
-      button.setAttribute("tooltiptext", t("button", "Open Unizero Home"));
+      button.setAttribute("tooltiptext", t("button", "Open Uniconnection"));
       button.setAttribute("tabindex", "-1");
       button.addEventListener("command", () => this.open(win));
       const spacer = Array.from(toolbar.children).find((child) =>
@@ -308,9 +465,25 @@ export class UnizeroHome {
     doc.documentElement.appendChild(style);
   }
 
-  /** Library changes reload a visible Home; tab events add toolbar buttons and refresh a stale Home. */
+  /** Reload visible tabs after a burst of changes; hidden ones reload when shown. */
+  private scheduleReload(): void {
+    if (!this.views.size) { return; }
+    if (this.reloadTimer) { clearTimeout(this.reloadTimer); }
+    this.reloadTimer = setTimeout(() => {
+      this.reloadTimer = undefined;
+      for (const view of this.views.values()) {
+        if (this.visible(view)) { void this.load(view); } else { view.stale = true; }
+      }
+    }, RELOAD_DELAY_MS);
+  }
+
+  /**
+   * Library changes and a new Vault snapshot from Obsidian reload a visible tab; tab
+   * events add toolbar buttons and refresh a stale one.
+   */
   private observe(): void {
     if (this.observerID) { return; }
+    this.unsubscribeVault = vaultMentions.subscribe(() => this.scheduleReload());
     this.observerID = Zotero.Notifier.registerObserver({
       notify: async (event: string, type: string, ids: unknown[]) => {
         if (type === "tab") {
@@ -322,19 +495,14 @@ export class UnizeroHome {
           }
           return;
         }
-        if (!this.views.size) { return; }
-        if (this.reloadTimer) { clearTimeout(this.reloadTimer); }
-        this.reloadTimer = setTimeout(() => {
-          this.reloadTimer = undefined;
-          for (const view of this.views.values()) {
-            if (this.visible(view)) { void this.load(view); } else { view.stale = true; }
-          }
-        }, RELOAD_DELAY_MS);
+        this.scheduleReload();
       },
     }, ["item", "collection-item", "tab"], `${config.addonRef}-home`);
   }
 
   private unobserve(): void {
+    this.unsubscribeVault?.();
+    this.unsubscribeVault = undefined;
     if (this.reloadTimer) { clearTimeout(this.reloadTimer); }
     this.reloadTimer = undefined;
     if (this.observerID) { Zotero.Notifier.unregisterObserver(this.observerID); }
@@ -343,6 +511,10 @@ export class UnizeroHome {
 
   private visible(view: HomeView): boolean {
     return (view.win as any).Zotero_Tabs?.selectedID === view.tabID;
+  }
+
+  private live(view: HomeView): boolean {
+    return this.views.get(view.win) === view && view.root.isConnected;
   }
 
   // ------------------------------------------------------------------ view
@@ -362,7 +534,7 @@ export class UnizeroHome {
 
     const root = create(doc, "div", CLASS);
     const header = create(doc, "div", `${CLASS}__header`);
-    header.append(create(doc, "div", `${CLASS}__title`, t("title", "Unizero Home")));
+    header.append(create(doc, "div", `${CLASS}__title`, t("title", "Uniconnection")));
     const library = create(doc, "select", `${CLASS}__select`);
     const collection = create(doc, "select", `${CLASS}__select`);
     const subLabel = create(doc, "label", `${CLASS}__check`);
@@ -370,13 +542,15 @@ export class UnizeroHome {
     subcollections.type = "checkbox";
     subLabel.append(subcollections, doc.createTextNode(` ${t("subcollections", "Include subcollections")}`));
     const refresh = create(doc, "div", `${CLASS}__action`, "⟳");
-    refresh.title = t("refresh", "Read the library again");
+    refresh.title = t("refresh", "Read the library, Raw and Canvas files again");
     refresh.setAttribute("role", "button");
     const status = create(doc, "div", `${CLASS}__status`);
     header.append(library, collection, subLabel, refresh, status);
 
     const columnsElement = create(doc, "div", `${CLASS}__columns`);
-    root.append(header, columnsElement);
+    const page = create(doc, "div", `${CLASS}__page`);
+    page.hidden = true;
+    root.append(header, columnsElement, page);
     container.append(root);
 
     const view: HomeView = {
@@ -384,8 +558,9 @@ export class UnizeroHome {
       paperCount: 0, data: { references: [], citations: [] }, drawn: new Map(),
       collapsed: new Set(), expanded: new Set(),
       columns: {} as Record<HomeColumn, ColumnState>,
+      history: [],
       loading: false, generation: 0, stale: false,
-      ui: { library, collection, subcollections, status },
+      ui: { library, collection, subcollections, status, columns: columnsElement, page },
     };
     for (const column of ["references", "citations"] as const) {
       view.columns[column] = this.column(view, column, columnsElement);
@@ -395,10 +570,12 @@ export class UnizeroHome {
       view.libraryID = Number(library.value);
       view.collectionKey = "";
       view.selected = undefined;
+      this.showOverview(view);
       void this.load(view);
     });
     collection.addEventListener("change", () => {
       view.collectionKey = collection.value;
+      this.showOverview(view);
       void this.load(view);
     });
     subcollections.addEventListener("change", () => {
@@ -415,20 +592,20 @@ export class UnizeroHome {
     element.dataset.column = column;
     const heading = create(doc, "div", `${CLASS}__heading`);
     const hint = create(doc, "div", `${CLASS}__hint`, column === "references"
-      ? t("references-hint", "Papers by latest activity — highlights, quotes, notes, References — and what each quoted")
-      : t("citations-hint", "Papers you quoted, and who quoted them"));
+      ? t("references-hint", "Papers by latest activity — mentions written in their Raw or Canvas, annotations — and what each mentions")
+      : t("citations-hint", "Papers mentioned in other papers' Raw or Canvas, and who mentions them"));
     const toolbar = create(doc, "div", `${CLASS}__toolbar`);
     const search = create(doc, "input", `${CLASS}__search`);
     search.type = "search";
-    search.placeholder = t("search", "Search title, author, year");
+    search.placeholder = t("search", "Search titles, authors, years and mentions");
     const sort = create(doc, "select", `${CLASS}__select`);
     sort.append(
       option(doc, "default", column === "references"
         ? t("sort-recent-activity", "Recent activity")
-        : t("sort-recent-cited", "Recently cited")),
+        : t("sort-recent-cited", "Recently mentioned")),
       option(doc, "count", column === "references"
-        ? t("sort-most-quoting", "Quotes most papers")
-        : t("sort-most-cited", "Quoted by most papers")),
+        ? t("sort-most-quoting", "Mentions most papers")
+        : t("sort-most-cited", "Mentioned by most papers")),
       option(doc, "dateAdded", t("sort-added", "Date added")),
       option(doc, "year", t("sort-year", "Year")),
     );
@@ -468,30 +645,25 @@ export class UnizeroHome {
     this.drawScope(view);
     this.drawStatus(view);
     try {
-      if (rebuild) { await uniConnection.build(view.libraryID); }
+      if (rebuild) { paperLinks.clear(); }
+      // Every library's Raw and Canvas: a mention may cross libraries.
+      const [refresh] = await Promise.all([paperLinks.refresh(), vaultMentions.ready()]);
       const collectionKey = view.collectionKey;
       const items = await this.scopeItems(view);
       // A deleted collection falls back to the whole library; show that in the picker.
       if (view.collectionKey !== collectionKey && generation === view.generation) { this.drawScope(view); }
-      const [pairs, references] = await Promise.all([
-        uniConnection.excerptPairs(view.libraryID),
-        uniConnection.referencesLoadedAt(view.libraryID),
-      ]);
-      // Only the passages' own highlights need a time of their own.
-      const activity = await libraryActivity(view.libraryID,
-        pairs.flatMap((pair) => pair.excerpts.map((excerpt) => excerpt.annotationKey)));
+      const highlights = await paperHighlights(view.libraryID);
       if (generation !== view.generation) { return; }
       const scope = new Map(items.map((item) => [`${item.libraryID}:${item.key}`, item]));
       view.paperCount = scope.size;
+      view.refresh = refresh;
       view.data = homeColumns({ keys: scope.keys(), paper: (key) => paperOf(scope.get(key)!) },
-        pairs, { ...activity, references }, (key) => {
-        const item = itemOf(key);
-        return item?.isRegularItem() ? paperOf(item) : undefined;
-      });
+        [...homePairs(paperLinks.index.mentions()), ...vaultPairs(vaultMentions.index.mentions())],
+        { highlights }, summaryOf);
     } catch (error) {
       if (generation !== view.generation) { return; }
       view.error = String((error as Error)?.message || error);
-      ztoolkit.log("[home] load failed", error);
+      ztoolkit.log("[uniconnection] load failed", error);
     } finally {
       if (generation === view.generation) {
         view.loading = false;
@@ -552,15 +724,38 @@ export class UnizeroHome {
   }
 
   private drawStatus(view: HomeView): void {
-    view.ui.status.textContent = view.loading
-      ? t("loading", "Loading…")
-      : view.error || t("papers", "{ $count } papers", { count: view.paperCount });
+    const status = view.ui.status;
+    status.title = "";
+    if (view.loading) {
+      status.textContent = t("loading", "Reading Raw and Canvas files…");
+      return;
+    }
+    if (view.error) {
+      status.textContent = view.error;
+      return;
+    }
+    const parts = [t("papers", "{ $count } papers", { count: view.paperCount })];
+    const failed = paperLinks.index.failures();
+    if (failed.length) {
+      parts.push(t("unreadable", "{ $count } notes unreadable", { count: failed.length }));
+      status.title = failed.slice(0, 10).map((each) => `${each.source.title}: ${each.error}`).join("\n");
+    }
+    if (view.refresh?.unavailable) {
+      parts.push(t("unavailable", "{ $count } notes not on this computer", { count: view.refresh.unavailable }));
+    }
+    for (const snapshot of vaultMentions.index.snapshots()) {
+      parts.push(t("vault-synced", "Vault { $vault } synced { $time }", {
+        vault: snapshot.vaultName, time: syncedAgo(snapshot.receivedAt),
+      }));
+    }
+    status.textContent = parts.join(" · ");
   }
 
   private draw(view: HomeView): void {
     if (!view.root.isConnected) { return; }
     this.drawStatus(view);
     for (const column of ["references", "citations"] as const) { this.drawColumn(view, view.columns[column]); }
+    if (view.page) { this.drawPage(view); }
   }
 
   private drawColumn(view: HomeView, state: ColumnState): void {
@@ -575,10 +770,10 @@ export class UnizeroHome {
     list.replaceChildren();
     if (!rows.length) {
       list.append(create(doc, "div", `${CLASS}__empty`, view.loading
-        ? t("loading", "Loading…")
+        ? t("loading", "Reading Raw and Canvas files…")
         : state.column === "references"
-          ? t("references-empty", "Nothing has happened to the papers here yet: no highlights, quotes, notes or References.")
-          : t("citations-empty", "No paper here has been quoted yet.")));
+          ? t("references-empty", "Nothing has happened to the papers here yet: no annotations, and no paper mentioned in their Raw or Canvas.")
+          : t("citations-empty", "No paper here is mentioned in another paper's Raw or Canvas yet.")));
       return;
     }
     // Rows from an earlier load are not coming back.
@@ -645,6 +840,7 @@ export class UnizeroHome {
     this.markRow(view, state.column, element, row.scopedKey, linked);
 
     const head = create(doc, "div", `${CLASS}__head`);
+    head.title = t("row-hint", "Click to select, double-click to open this paper's page");
     head.append(this.icon(doc, row.paper), this.paperText(doc, row.paper, `${CLASS}__text`));
     const meta = create(doc, "div", `${CLASS}__meta`);
     if (references && row.highlights) {
@@ -652,18 +848,24 @@ export class UnizeroHome {
       highlights.title = t("highlights", "{ $count } annotations", { count: row.highlights });
       meta.append(highlights);
     }
-    const papers = row.partners.length;
+    const papers = row.partners.filter((each) => !each.note).length;
+    const notes = row.partners.length - papers;
     if (papers) {
       const badge = create(doc, "span", `${CLASS}__badge`, `${references ? "→" : "←"} ${papers}`);
       badge.title = references
-        ? t("quoting", "Quotes { $count } papers", { count: papers })
-        : t("quoted-by", "Quoted by { $count } papers", { count: papers });
+        ? t("quoting", "Mentions { $count } papers", { count: papers })
+        : t("quoted-by", "Mentioned by { $count } papers", { count: papers });
       meta.append(badge);
     }
-    if (row.quotes) {
-      const passages = create(doc, "span", `${CLASS}__badge ${CLASS}__badge--quote`, `❝ ${row.quotes}`);
-      passages.title = t("passages", "{ $count } passages", { count: row.quotes });
-      meta.append(passages);
+    if (notes) {
+      const badge = create(doc, "span", `${CLASS}__badge ${CLASS}__badge--note`, `✎ ${notes}`);
+      badge.title = t("noted-by", "Mentioned in { $count } Vault notes", { count: notes });
+      meta.append(badge);
+    }
+    if (row.mentions) {
+      const mentions = create(doc, "span", `${CLASS}__badge ${CLASS}__badge--quote`, `❝ ${row.mentions}`);
+      mentions.title = t("mentions", "{ $count } mentions", { count: row.mentions });
+      meta.append(mentions);
     }
     if (row.time) {
       const time = create(doc, "span", `${CLASS}__time`,
@@ -705,36 +907,44 @@ export class UnizeroHome {
       // In place, so a double-click lands on the same element.
       this.applySelection(view);
     });
-    head.addEventListener("dblclick", () => { void this.openTarget(view, row.scopedKey, "pdf"); });
+    head.addEventListener("dblclick", () => { this.showPaper(view, row.scopedKey); });
     element.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && event.target === element) { void this.openTarget(view, row.scopedKey, "pdf"); }
+      if (event.key === "Enter" && event.target === element) { this.showPaper(view, row.scopedKey); }
     });
     return element;
   }
 
-  /** One paper the row quoted (References) or that quoted it (Citations); opens to the passages. */
+  /** One paper the row mentions (References) or that mentions it (Citations); opens to the mentions. */
   private partnerElement(view: HomeView, state: ColumnState, row: HomeRow, partner: HomePartner): HTMLElement {
     const doc = view.win.document;
     const id = `${state.column}|${row.scopedKey}|${partner.scopedKey}`;
     const open = !view.collapsed.has(id);
     const element = create(doc, "div", `${CLASS}__partner`);
     element.classList.toggle("is-open", open);
-    element.classList.toggle("is-missing", !partner.paper);
+    element.classList.toggle("is-missing", !partner.paper && !partner.note);
     const line = create(doc, "div", `${CLASS}__partner-line`);
     const chevron = create(doc, "span", `${CLASS}__chevron`, open ? "▾" : "▸");
     line.append(chevron);
-    if (partner.paper) {
+    if (partner.note) {
+      line.append(this.noteText(doc, partner.note, `${CLASS}__partner-text`));
+    } else if (partner.paper) {
       line.append(this.paperText(doc, partner.paper, `${CLASS}__partner-text`));
     } else {
-      line.append(create(doc, "span", `${CLASS}__partner-text`, t("missing", "Removed from the library")));
+      line.append(create(doc, "span", `${CLASS}__partner-text`, t("missing", "Not in the library")));
     }
-    const meta = create(doc, "span", `${CLASS}__partner-meta`, `❝ ${partner.excerpts.length}`);
+    const meta = create(doc, "span", `${CLASS}__partner-meta`, `❝ ${partner.mentions.length}`);
     if (partner.time) { meta.textContent += ` · ${relativeTime(partner.time)}`; }
     line.append(meta);
-    if (partner.paper) { line.append(this.actions(view, partner.scopedKey, `${CLASS}__partner-actions`)); }
-    line.title = state.column === "references"
-        ? t("partner-quoted-hint", "Passages quoted from this paper — click to fold, double-click to open the PDF")
-        : t("partner-quoting-hint", "Passages this paper quotes — click to fold, double-click to open the PDF");
+    if (partner.note) {
+      line.append(this.noteActions(view, partner.note, `${CLASS}__partner-actions`));
+    } else if (partner.paper) {
+      line.append(this.actions(view, partner.scopedKey, `${CLASS}__partner-actions`));
+    }
+    line.title = partner.note
+      ? t("note-partner-hint", "Click to fold")
+      : t("partner-hint", "Click to fold, double-click to open this paper's page");
+    // A References row's mentions sit in the row's own notes; a Citations row's in the partner's.
+    const citing = state.column === "references" ? row.scopedKey : partner.scopedKey;
     line.addEventListener("click", (event) => {
       event.stopPropagation();
       if ((event.ctrlKey || event.metaKey) && partner.paper) {
@@ -747,22 +957,66 @@ export class UnizeroHome {
       element.classList.toggle("is-open", opening);
       chevron.textContent = opening ? "▾" : "▸";
       element.querySelector(`.${CLASS}__passages`)?.remove();
-      if (opening) { element.append(this.passagesElement(view, partner)); }
+      if (opening) { element.append(this.mentionsElement(view, citing, partner.mentions)); }
     });
     line.addEventListener("dblclick", (event) => {
       event.stopPropagation();
-      if (partner.paper) { void this.openTarget(view, partner.scopedKey, "pdf"); }
+      if (partner.paper) { this.showPaper(view, partner.scopedKey); }
     });
     element.append(line);
 
-    if (open) { element.append(this.passagesElement(view, partner)); }
+    if (open) { element.append(this.mentionsElement(view, citing, partner.mentions)); }
     return element;
   }
 
-  private passagesElement(view: HomeView, partner: HomePartner): HTMLElement {
+  private mentionsElement(view: HomeView, citing: string, mentions: HomeMention[]): HTMLElement {
     const list = create(view.win.document, "div", `${CLASS}__passages`);
-    for (const excerpt of partner.excerpts) { list.append(this.passageElement(view, excerpt)); }
+    for (const mention of mentions) { list.append(this.mentionElement(view, citing, mention)); }
     return list;
+  }
+
+  /** One evidence unit: its text, its PDF anchors, and the Raw or Canvas it is in. */
+  private mentionElement(view: HomeView, citing: string, mention: HomeMention): HTMLElement {
+    const doc = view.win.document;
+    const element = create(doc, "div", `${CLASS}__passage`);
+    element.append(create(doc, "span", `${CLASS}__quote`, mention.text || "…"));
+    const buttons = create(doc, "span", `${CLASS}__passage-actions`);
+    mention.pdf.forEach((url, index) => {
+      const page = pdfAnchorPage(url);
+      const label = page ? `PDF p. ${page}` : mention.pdf.length > 1 ? `PDF ${index + 1}` : "PDF";
+      buttons.append(this.button(doc, label, t("open-anchor-hint", "Open the PDF at this passage"), () => {
+        void openPdfAnchor(url).then((opened) => {
+          if (!opened) { this.notice(view, t("anchor-missing", "That PDF or annotation is not in the library.")); }
+        }).catch((error) => this.failed(view, "pdf", error));
+      }, "pdf"));
+    });
+    if (mention.purpose === "vault") {
+      buttons.append(this.button(doc, "Obsidian", t("open-mention-note-hint", "Open { $note } in Obsidian at this mention", {
+        note: mention.note.title,
+      }), () => { this.openNote(view, mention.note, mention.line, mention.nodeId); }, "obsidian"));
+      element.append(buttons);
+      return element;
+    }
+    const source = mention.purpose === "canvas" ? "Canvas" : "Raw";
+    buttons.append(this.button(doc, source, mention.purpose === "canvas"
+      ? t("open-mention-canvas-hint", "Open the Canvas holding this mention")
+      : t("open-mention-raw-hint", "Open the Raw holding this mention (line { $line })", { line: mention.line + 1 }),
+    () => { void this.openSource(view, citing, mention.attachmentKey); }, mention.purpose));
+    element.append(buttons);
+    return element;
+  }
+
+  private button(doc: Document, label: string, title: string, run: () => void, target?: string): HTMLElement {
+    const element = create(doc, "span", `${CLASS}__open`, label);
+    element.setAttribute("role", "button");
+    element.title = title;
+    if (target) { element.dataset.target = target; }
+    element.addEventListener("click", (event) => {
+      event.stopPropagation();
+      run();
+    });
+    element.addEventListener("dblclick", (event) => event.stopPropagation());
+    return element;
   }
 
   /** Re-mark the selected row and its partners in the other column without redrawing. */
@@ -775,7 +1029,7 @@ export class UnizeroHome {
     }
   }
 
-  /** Buttons opening what the paper has: PDF, Raw, Canvas (made on demand), full, library. */
+  /** Buttons opening what the paper has: PDF, Raw, Canvas (made on demand), library. */
   private actions(view: HomeView, scopedKey: string, className: string): HTMLElement {
     const doc = view.win.document;
     const bar = create(doc, "span", className);
@@ -785,26 +1039,16 @@ export class UnizeroHome {
     try {
       files = attachmentSummary(item);
     } catch (error) {
-      ztoolkit.log("[home] reading attachments failed", error);
+      ztoolkit.log("[uniconnection] reading attachments failed", error);
     }
     const button = (target: OpenTarget, label: string, title: string) => {
-      const element = create(doc, "span", `${CLASS}__open`, label);
-      element.setAttribute("role", "button");
-      element.title = title;
-      element.dataset.target = target;
-      element.addEventListener("click", (event) => {
-        event.stopPropagation();
-        void this.openTarget(view, scopedKey, target);
-      });
-      element.addEventListener("dblclick", (event) => event.stopPropagation());
-      bar.append(element);
+      bar.append(this.button(doc, label, title, () => { void this.openTarget(view, scopedKey, target); }, target));
     };
     if (files.hasPDF) { button("pdf", "PDF", t("open-pdf-hint", "Open the PDF")); }
     if (files.hasRaw) { button("raw", "Raw", t("open-raw-hint", "Open the Raw Markdown")); }
     button("canvas", files.hasCanvas ? "Canvas" : "+ Canvas", files.hasCanvas
       ? t("open-canvas-hint", "Open the Canvas")
       : t("create-canvas-hint", "Create an empty Canvas for this paper and open it"));
-    button("full", "⤢", t("open-full-hint", "Open in UniConnection full"));
     button("library", "⌖", t("reveal-hint", "Show in the library"));
     return bar;
   }
@@ -815,9 +1059,6 @@ export class UnizeroHome {
     const pane = (view.win as any).ZoteroPane;
     try {
       switch (target) {
-        case "full":
-          this.deps.openFull(view.win, item);
-          return;
         case "library":
           this.reveal(view, item.id);
           return;
@@ -838,27 +1079,325 @@ export class UnizeroHome {
         }
       }
     } catch (error) {
-      ztoolkit.log(`[home] opening ${target} failed`, error);
-      view.ui.status.textContent = t("open-failed", "Could not open it: { $error }", {
-        error: String((error as Error)?.message || error),
-      });
+      this.failed(view, target, error);
     }
   }
 
-  private passageElement(view: HomeView, excerpt: HomeExcerpt): HTMLElement {
+  /** The Raw or Canvas attachment of `citing` that holds a mention. */
+  private async openSource(view: HomeView, citing: string, attachmentKey: string): Promise<void> {
+    const libraryID = Number(citing.slice(0, citing.indexOf(":")));
+    const attachment = Zotero.Items.getByLibraryAndKey(libraryID, attachmentKey) as Zotero.Item | false;
+    if (!attachment || attachment.deleted) {
+      this.notice(view, t("source-missing", "That note is no longer in the library."));
+      return;
+    }
+    try {
+      await (view.win as any).ZoteroPane.viewAttachment(attachment.id);
+    } catch (error) {
+      this.failed(view, "note", error);
+    }
+  }
+
+  /** A Vault note in Obsidian, at the mention when one is given. */
+  private openNote(view: HomeView, note: HomeNote, line?: number, nodeId?: string): void {
+    try {
+      launchObsidianURL(obsidianNoteURL(note, line, nodeId));
+    } catch (error) {
+      this.failed(view, "obsidian", error);
+    }
+  }
+
+  private noteActions(view: HomeView, note: HomeNote, className: string): HTMLElement {
+    const bar = create(view.win.document, "span", className);
+    bar.append(this.button(view.win.document, "Obsidian", t("open-note-hint", "Open { $note } in Obsidian", { note: note.title }),
+      () => { this.openNote(view, note); }, "obsidian"));
+    return bar;
+  }
+
+  private failed(view: HomeView, what: string, error: unknown): void {
+    ztoolkit.log(`[uniconnection] opening ${what} failed`, error);
+    this.notice(view, t("open-failed", "Could not open it: { $error }", {
+      error: String((error as Error)?.message || error),
+    }));
+  }
+
+  private notice(view: HomeView, text: string): void {
+    view.ui.status.textContent = text;
+  }
+
+  // ------------------------------------------------------------------ paper page
+
+  private showPaper(view: HomeView, scopedKey: string): void {
+    if (!itemOf(scopedKey)?.isRegularItem()) { return; }
+    if (view.page?.scopedKey === scopedKey) { return; }
+    if (view.page) { view.history.push(view.page); }
+    view.page = emptyPage(scopedKey);
+    this.drawPage(view);
+    view.ui.page.scrollTop = 0;
+  }
+
+  private back(view: HomeView): void {
+    view.page = view.history.pop();
+    if (view.page) { this.drawPage(view); } else { this.showOverview(view); }
+  }
+
+  private showOverview(view: HomeView): void {
+    view.page = undefined;
+    view.history = [];
+    view.ui.page.hidden = true;
+    view.ui.page.replaceChildren();
+    view.ui.columns.hidden = false;
+  }
+
+  private drawPage(view: HomeView): void {
+    const page = view.page;
+    if (!page || !view.root.isConnected) { return; }
     const doc = view.win.document;
-    const element = create(doc, "div", `${CLASS}__passage`);
-    const quote = create(doc, "span", `${CLASS}__quote`, `“${excerpt.text}”`);
-    quote.title = t("open-pdf", "Open in the PDF");
-    quote.setAttribute("role", "link");
-    quote.addEventListener("click", (event) => {
-      event.stopPropagation();
-      void openExcerpt(view.libraryID, excerpt).catch((error) => ztoolkit.log("[home] open passage failed", error));
-    });
-    element.append(quote);
-    if (excerpt.pageLabel) { element.append(create(doc, "span", `${CLASS}__page`, `p. ${excerpt.pageLabel}`)); }
+    const item = itemOf(page.scopedKey);
+    if (!item?.isRegularItem()) {
+      // Deleted while on show.
+      this.back(view);
+      return;
+    }
+    const paper = paperOf(item);
+    const scrollTop = view.ui.page.scrollTop;
+    view.ui.columns.hidden = true;
+    view.ui.page.hidden = false;
+
+    const header = create(doc, "div", `${CLASS}__page-header`);
+    const back = create(doc, "div", `${CLASS}__action`, view.history.length
+      ? t("back", "← Back")
+      : t("back-overview", "← Uniconnection"));
+    back.setAttribute("role", "button");
+    back.addEventListener("click", () => this.back(view));
+    const title = create(doc, "div", `${CLASS}__page-title`);
+    title.append(this.icon(doc, paper), this.paperText(doc, paper, `${CLASS}__page-text`));
+    header.append(back, title, this.actions(view, page.scopedKey, `${CLASS}__actions ${CLASS}__page-actions`));
+
+    const reference = { libraryID: item.libraryID, itemKey: item.key };
+    const sections = [
+      this.relationSection(view, "references", paperLinks.index.references(reference), page.scopedKey),
+      this.relationSection(view, "citations", paperLinks.index.citations(reference), page.scopedKey,
+        vaultMentions.index.citations(reference)),
+    ];
+    view.ui.page.replaceChildren(header, ...sections, this.bibliographyElement(view, page, item));
+    view.ui.page.scrollTop = scrollTop;
+  }
+
+  /** References: what this paper's notes mention. Citations: whose notes mention it. */
+  /** References: what this paper's notes mention. Citations: whose notes, and which Vault notes, mention it. */
+  private relationSection(
+    view: HomeView,
+    kind: "references" | "citations",
+    groups: MentionGroup[],
+    own: string,
+    notes: VaultNoteGroup[] = [],
+  ): HTMLElement {
+    const doc = view.win.document;
+    const section = create(doc, "div", `${CLASS}__section`);
+    const label = kind === "references" ? t("column-references", "References") : t("column-citations", "Citations");
+    section.append(
+      create(doc, "div", `${CLASS}__heading`, `${label} · ${groups.length + notes.length}`),
+      create(doc, "div", `${CLASS}__hint`, kind === "references"
+        ? t("page-references-hint", "Papers mentioned in this paper's Raw or Canvas")
+        : t("page-citations-hint", "Papers whose Raw or Canvas mentions this one, and Vault notes that do")),
+    );
+    if (!groups.length && !notes.length) {
+      section.append(create(doc, "div", `${CLASS}__empty`, view.loading
+        ? t("loading", "Reading Raw and Canvas files…")
+        : kind === "references"
+          ? t("page-references-empty", "This paper's Raw and Canvas mention no other paper yet. Type @ in them in Obsidian to link one.")
+          : t("page-citations-empty", "No other paper's Raw or Canvas mentions this one yet.")));
+      return section;
+    }
+    for (const group of groups) {
+      const key = scopedKeyOf(group.paper);
+      const other = summaryOf(key);
+      const element = create(doc, "div", `${CLASS}__partner is-open`);
+      element.classList.toggle("is-missing", !other);
+      const line = create(doc, "div", `${CLASS}__partner-line`);
+      line.append(other
+        ? this.paperText(doc, other, `${CLASS}__partner-text`)
+        : create(doc, "span", `${CLASS}__partner-text`, `${t("missing", "Not in the library")} (${key})`));
+      line.append(create(doc, "span", `${CLASS}__partner-meta`, `❝ ${group.mentions.length}`));
+      if (other) {
+        line.append(this.actions(view, key, `${CLASS}__partner-actions`));
+        line.title = t("page-partner-hint", "Double-click to open this paper's page");
+        line.addEventListener("dblclick", () => this.showPaper(view, key));
+      }
+      const citing = kind === "references" ? own : key;
+      element.append(line, this.mentionsElement(view, citing, group.mentions.map(homeMention)));
+      section.append(element);
+    }
+    if (notes.length) {
+      section.append(create(doc, "div", `${CLASS}__subheading`, t("page-notes", "Vault notes · { $count }", { count: notes.length })));
+    }
+    for (const group of notes) {
+      const element = create(doc, "div", `${CLASS}__partner is-open`);
+      const line = create(doc, "div", `${CLASS}__partner-line`);
+      line.append(
+        this.noteText(doc, group.note, `${CLASS}__partner-text`),
+        create(doc, "span", `${CLASS}__partner-meta`, `❝ ${group.mentions.length}`),
+        this.noteActions(view, group.note, `${CLASS}__partner-actions`),
+      );
+      element.append(line, this.mentionsElement(view, vaultNoteKey(group.note), group.mentions.map(vaultHomeMention)));
+      section.append(element);
+    }
+    return section;
+  }
+
+  /** A Vault note's title, with its Vault and folder for telling notes of one name apart. */
+  private noteText(doc: Document, note: HomeNote, className: string): HTMLElement {
+    const element = create(doc, "span", className);
+    element.append(create(doc, "span", `${CLASS}__note-icon`, note.format === "canvas" ? "▦" : "✎"));
+    element.append(create(doc, "strong", undefined, note.title));
+    const folder = note.path.includes("/") ? note.path.slice(0, note.path.lastIndexOf("/")) : "";
+    element.append(create(doc, "span", `${CLASS}__note-path`, ` · ${note.vaultName}${folder ? ` / ${folder}` : ""}`));
+    element.title = `${note.vaultName}: ${note.path}`;
     return element;
   }
+
+  // ------------------------------------------------------------------ bibliography
+
+  private bibliographyElement(view: HomeView, page: PaperPage, item: Zotero.Item): HTMLElement {
+    const doc = view.win.document;
+    const details = create(doc, "details", `${CLASS}__bibliography`);
+    details.open = page.open;
+    const summary = create(doc, "summary", `${CLASS}__heading`, t("bibliography", "Bibliography (providers)"));
+    summary.title = t("bibliography-hint", "The providers' References and Citations, and related papers in the library. Opening reads only what is saved; nothing is fetched until you click Fetch.");
+    details.append(summary);
+    details.addEventListener("toggle", () => {
+      if (page.open === details.open) { return; }
+      page.open = details.open;
+      if (page.open && !page.read) { void this.readBibliography(view, page, item); }
+    });
+    if (!page.open) { return details; }
+    for (const kind of ["references", "citations", "relation"] as const) {
+      details.append(this.bibliographyList(view, page, item, kind));
+    }
+    return details;
+  }
+
+  /** Saved lists only: opening the fold never reaches a provider. */
+  private async readBibliography(view: HomeView, page: PaperPage, item: Zotero.Item): Promise<void> {
+    page.read = true;
+    for (const kind of ["references", "citations", "relation"] as const) { page.lists[kind].loading = true; }
+    this.redrawPage(view, page);
+    await Promise.all((["references", "citations", "relation"] as const).map(async (kind) => {
+      const list = page.lists[kind];
+      try {
+        list.snapshot = await this.deps.cachedBibliography(item, kind);
+      } catch (error) {
+        list.message = String((error as Error)?.message || error);
+      } finally {
+        list.loading = false;
+      }
+    }));
+    this.redrawPage(view, page);
+  }
+
+  private async fetchBibliography(
+    view: HomeView,
+    page: PaperPage,
+    item: Zotero.Item,
+    kind: "references" | "citations",
+    action: "fetch" | "refresh" | "more",
+  ): Promise<void> {
+    const list = page.lists[kind];
+    if (list.loading) { return; }
+    list.loading = true;
+    list.message = undefined;
+    this.redrawPage(view, page);
+    try {
+      list.snapshot = action === "more"
+        ? await this.deps.loadMoreCitations(item)
+        : await this.deps.fetchBibliography(item, kind, action === "refresh");
+    } catch (error) {
+      list.message = String((error as Error)?.message || error);
+    } finally {
+      list.loading = false;
+      this.redrawPage(view, page);
+    }
+  }
+
+  /** Redraw only while `page` is still the one on show in a live tab. */
+  private redrawPage(view: HomeView, page: PaperPage): void {
+    if (this.live(view) && view.page === page) { this.drawPage(view); }
+  }
+
+  private bibliographyList(view: HomeView, page: PaperPage, item: Zotero.Item, kind: BibliographyKind): HTMLElement {
+    const doc = view.win.document;
+    const list = page.lists[kind];
+    const element = create(doc, "div", `${CLASS}__bib-list`);
+    const head = create(doc, "div", `${CLASS}__bib-head`);
+    const label = kind === "references"
+      ? t("bib-references", "References")
+      : kind === "citations" ? t("bib-citations", "Cited by") : t("bib-relation", "Related in your library");
+    const items = list.snapshot?.items || [];
+    const count = list.snapshot ? ` · ${kind === "citations" ? list.snapshot.total || items.length : items.length}` : "";
+    head.append(create(doc, "span", `${CLASS}__bib-title`, `${label}${count}`));
+    if (kind !== "relation") {
+      const fetch = list.snapshot ? "refresh" : "fetch";
+      head.append(this.button(doc, list.loading
+        ? t("bib-loading", "Loading…")
+        : fetch === "refresh" ? t("bib-refetch", "Fetch again") : t("bib-fetch", "Fetch from providers"),
+      t("bib-fetch-hint", "Ask the providers for this list"),
+      () => { void this.fetchBibliography(view, page, item, kind, fetch); }));
+      if (kind === "citations" && list.snapshot?.hasMore && !list.loading) {
+        head.append(this.button(doc, t("bib-more", "Load more"), t("bib-more-hint", "Fetch the next page"),
+          () => { void this.fetchBibliography(view, page, item, kind, "more"); }));
+      }
+    }
+    element.append(head);
+    if (list.message) { element.append(create(doc, "div", `${CLASS}__empty`, list.message)); }
+    if (!list.snapshot) {
+      if (!list.loading && page.read && !list.message) {
+        element.append(create(doc, "div", `${CLASS}__empty`, kind === "relation"
+          ? t("bib-relation-empty", "No library paper shares References with this one yet.")
+          : t("bib-nothing-saved", "Nothing saved for this paper yet.")));
+      }
+      return element;
+    }
+    if (!items.length) {
+      element.append(create(doc, "div", `${CLASS}__empty`, t("bib-empty", "The list is empty.")));
+      return element;
+    }
+    const shown = list.all ? items : items.slice(0, BIBLIOGRAPHY_PAGE);
+    for (const candidate of shown) { element.append(this.candidateElement(view, candidate)); }
+    if (items.length > shown.length) {
+      const more = create(doc, "div", `${CLASS}__partner-more`,
+        t("bib-show-all", "Show all { $count }", { count: items.length }));
+      more.setAttribute("role", "button");
+      more.addEventListener("click", () => {
+        list.all = true;
+        this.redrawPage(view, page);
+      });
+      element.append(more);
+    }
+    return element;
+  }
+
+  private candidateElement(view: HomeView, candidate: LiteratureCandidate): HTMLElement {
+    const doc = view.win.document;
+    const element = create(doc, "div", `${CLASS}__bib-row`);
+    const libraryItem = candidate.membership.inLibrary && candidate.membership.itemID
+      ? Zotero.Items.get(candidate.membership.itemID) as Zotero.Item | false
+      : false;
+    const authors = shortAuthors(candidate.authors || []);
+    const credit = authors && candidate.year ? `${authors} (${candidate.year})` : authors || candidate.year || "";
+    if (credit) { element.append(create(doc, "span", `${CLASS}__credit`, `${credit} `)); }
+    element.append(create(doc, "span", `${CLASS}__name`, candidate.title || candidate.text || "Untitled"));
+    if (candidate.primaryVenue) { element.title = candidate.primaryVenue; }
+    if (libraryItem && !libraryItem.deleted && libraryItem.isRegularItem()) {
+      element.classList.add("is-in-library");
+      element.title = t("bib-in-library", "In your library — double-click to open its page");
+      const key = `${libraryItem.libraryID}:${libraryItem.key}`;
+      element.addEventListener("dblclick", () => this.showPaper(view, key));
+    }
+    return element;
+  }
+
+  // ------------------------------------------------------------------ shared
 
   private icon(doc: Document, paper: HomePaper): HTMLElement {
     const icon = create(doc, "img", `${CLASS}__icon`);
@@ -872,7 +1411,7 @@ export class UnizeroHome {
 
   private paperText(doc: Document, paper: HomePaper, className: string): HTMLElement {
     const text = create(doc, "div", className);
-    const credit = rowCredit({ authors: paper.authors, year: paper.year } as any);
+    const credit = paperCredit(paper);
     if (credit) { text.append(create(doc, "span", `${CLASS}__credit`, `${credit} `)); }
     text.append(create(doc, "span", `${CLASS}__name`, paper.title || "Untitled"));
     text.title = [credit, paper.title, paper.venue].filter(Boolean).join(" · ");
@@ -937,6 +1476,7 @@ const HOME_CSS = `
     user-select: none;
   }
   .${CLASS}__action:hover { background: rgb(128 128 128 / 22%); }
+  .${CLASS}__columns[hidden], .${CLASS}__page[hidden] { display: none; }
   .${CLASS}__columns {
     flex: 1;
     min-height: 0;
@@ -1000,9 +1540,8 @@ const HOME_CSS = `
     border-left: 2px solid var(--accent-yellow, #ffd400);
     background: var(--fill-quinary, rgb(128 128 128 / 8%));
   }
-  .${CLASS}__quote { flex: 1; min-width: 0; font-style: italic; overflow-wrap: anywhere; cursor: pointer; }
-  .${CLASS}__quote:hover { text-decoration: underline; }
-  .${CLASS}__page { flex: none; font-size: 0.85em; opacity: 0.7; }
+  .${CLASS}__quote { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .${CLASS}__passage-actions { flex: none; display: inline-flex; gap: 3px; }
   .${CLASS}__row.is-selected { background: var(--fill-quarternary, rgb(128 128 128 / 22%)); }
   .${CLASS}__row.is-linked {
     border-left-color: var(--accent-blue, #4a8fe0);
@@ -1046,6 +1585,10 @@ const HOME_CSS = `
   }
   .${CLASS}__open:hover { opacity: 1; background: rgb(128 128 128 / 18%); }
   .${CLASS}__open[data-target="pdf"] { border-color: color-mix(in srgb, var(--accent-red, #db2c3a) 50%, transparent); }
+  .${CLASS}__open[data-target="obsidian"] { border-color: color-mix(in srgb, var(--accent-purple, #a28ae5) 35%, transparent); }
+  .${CLASS}__note-icon { margin-inline-end: 4px; opacity: .7; }
+  .${CLASS}__note-path { opacity: .6; font-weight: normal; }
+  .${CLASS}__subheading { margin: 10px 0 4px; font-weight: 600; opacity: .8; }
   .${CLASS}__open[data-target="canvas"] { border-color: color-mix(in srgb, var(--accent-purple, #a28ae5) 60%, transparent); }
   .${CLASS}__partner-more {
     display: inline-block;
@@ -1055,4 +1598,30 @@ const HOME_CSS = `
     cursor: pointer;
   }
   .${CLASS}__partner-more:hover { opacity: 1; text-decoration: underline; }
+  .${CLASS}__page {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .${CLASS}__page-header { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+  .${CLASS}__page-title { flex: 1; min-width: 0; display: flex; gap: 6px; align-items: flex-start; font-size: 1.1em; }
+  .${CLASS}__page-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .${CLASS}__page-actions { margin: 0; }
+  .${CLASS}__section, .${CLASS}__bibliography {
+    border: 1px solid var(--material-border, rgb(128 128 128 / 30%));
+    border-radius: 6px;
+    padding: 8px 6px 6px;
+  }
+  .${CLASS}__section .${CLASS}__partner { margin: 4px 0 6px; }
+  .${CLASS}__bibliography > summary { cursor: pointer; }
+  .${CLASS}__bib-list { margin: 8px 4px 4px; }
+  .${CLASS}__bib-head { display: flex; align-items: center; gap: 6px; padding: 0 4px 4px; }
+  .${CLASS}__bib-title { flex: 1; font-weight: 600; }
+  .${CLASS}__bib-row { padding: 2px 8px; border-radius: 3px; line-height: 1.35; overflow-wrap: anywhere; }
+  .${CLASS}__bib-row + .${CLASS}__bib-row { border-top: 1px solid var(--material-border, rgb(128 128 128 / 14%)); }
+  .${CLASS}__bib-row.is-in-library { border-left: 3px solid var(--accent-green, #39b54a); cursor: pointer; }
+  .${CLASS}__bib-row.is-in-library:hover { background: var(--fill-quinary, rgb(128 128 128 / 10%)); }
 `;

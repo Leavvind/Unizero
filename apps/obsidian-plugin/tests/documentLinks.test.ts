@@ -45,6 +45,11 @@ describe("durable URI boundary", () => {
     expect(paperLabel({ ...ref, authors: ["A Smith", "B Jones", "C Doe"], year: "2024" })).toBe("Smith et al., 2024");
     expect(paperLabel({ ...ref, title: "No author" })).toBe("No author");
   });
+  it("writes render-only links with the nocite title", () => {
+    const link = markdownLink("A, 2020", { kind: "paper", ...ref, action: "detail" }, true);
+    expect(link).toBe(`[A, 2020](unizero://paper/${ref.libraryID}/${ref.itemKey} "nocite")`);
+    expect(scanDocumentLinks(link)[0].nocite).toBe(true);
+  });
 });
 
 describe("structural source parsing", () => {

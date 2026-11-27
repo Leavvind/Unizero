@@ -18,7 +18,9 @@
  *   runs; `POST /canvas` adds an empty `unizero:canvas` attachment to a paper that
  *   has none; `POST /trash` moves the paper's Raw or Canvas to Zotero's trash; and
  *   `POST /restore-raw` replaces Raw with a copy of Raw Backup, trashing the old
- *   one. Nothing is erased, and none accepts bibliographic edits, Paper-catalog
+ *   one. `POST /vault-mentions` stores the Obsidian plugin's snapshot of paper links
+ *   in Vault notes in the add-on's own cache, for Uniconnection's Citations; it
+ *   touches no Zotero item. Nothing is erased, and none accepts bibliographic edits, Paper-catalog
  *   writes, file contents, or exploration import from the editor — those need a
  *   separate write-back design.
  * - **No unrequested provider traffic.** Relations answer from cache. A cache miss
@@ -63,6 +65,8 @@ import { runtimeClient } from "../runtime-client/client";
 import { health } from "../runtime-client/process";
 import type Views from "../modules/views";
 import { uniConnection } from "../modules/uniConnection";
+import { parseVaultSnapshot, VaultSnapshotError } from "../modules/vaultMentionIndex";
+import { vaultMentions } from "../zotero/vaultMentionStore";
 import type { LiteratureRelationKind } from "../modules/literatureRelations";
 import {
   BRIDGE_API_VERSION,
@@ -99,6 +103,7 @@ const TEMPLATES = `${ROOT}/templates`;
 const CANVAS = `${ROOT}/canvas`;
 const TRASH = `${ROOT}/trash`;
 const RESTORE_RAW = `${ROOT}/restore-raw`;
+const VAULT_MENTIONS = `${ROOT}/vault-mentions`;
 
 
 interface BridgeTemplate {
@@ -306,6 +311,7 @@ async function handlePing(): Promise<BridgeResponse> {
       "link-sources",
       "link-targets",
       "excerpts",
+      "vault-mentions",
     ],
     ready: Boolean(activeViews()),
   });
@@ -590,6 +596,26 @@ async function handleRestoreRaw(query: RequestQuery): Promise<BridgeResponse> {
   });
 }
 
+/**
+ * Replace one Vault's snapshot of the paper links written in its notes, sent by the
+ * Obsidian plugin (docs/UNICONNECTION.md §3). It feeds Uniconnection's Citations
+ * only: no Zotero item, attachment, note, or file outside the add-on's own cache is
+ * touched, and the note paths it carries are labels, never read or opened here.
+ */
+async function handleVaultMentions(_query: RequestQuery, body: unknown): Promise<BridgeResponse> {
+  let snapshot;
+  try {
+    snapshot = parseVaultSnapshot(typeof body === "string" ? JSON.parse(body) : body, Date.now());
+  } catch (error) {
+    if (error instanceof VaultSnapshotError || error instanceof SyntaxError) {
+      return failure(400, error.message);
+    }
+    throw error;
+  }
+  await vaultMentions.put(snapshot);
+  return json(200, { vaultID: snapshot.vaultID, mentions: snapshot.mentions.length });
+}
+
 /** Prefer the frontmost main window; fall back to any open one. */
 function resolveMainWindow(): Window | null {
   try {
@@ -619,7 +645,7 @@ function resolveMainWindow(): Window | null {
  */
 function endpointFor(
   name: string,
-  handler: (query: RequestQuery) => Promise<BridgeResponse>,
+  handler: (query: RequestQuery, body?: unknown) => Promise<BridgeResponse>,
   methods: string[] = ["GET"],
 ) {
   return function BridgeEndpoint(this: Record<string, unknown>) {
@@ -628,9 +654,11 @@ function endpointFor(
     this.init = async (request: {
       searchParams?: { entries?: () => IterableIterator<[string, string]> };
       query?: RequestQuery | string;
+      /** A POST body, which Zotero parses when it is sent as JSON. */
+      data?: unknown;
     }): Promise<BridgeResponse> => {
       try {
-        return await handler(queryFromRequest(request));
+        return await handler(queryFromRequest(request), request?.data);
       } catch (error) {
         ztoolkit.log(`[bridge:${name}] failed`, error);
         Zotero.logError(error as Error);
@@ -655,6 +683,7 @@ const endpoints: Record<string, () => void> = {
   [CANVAS]: endpointFor("canvas", handleCanvas, ["POST"]),
   [TRASH]: endpointFor("trash", handleTrash, ["POST"]),
   [RESTORE_RAW]: endpointFor("restore-raw", handleRestoreRaw, ["POST"]),
+  [VAULT_MENTIONS]: endpointFor("vault-mentions", handleVaultMentions, ["POST"]),
 };
 
 let registered = false;

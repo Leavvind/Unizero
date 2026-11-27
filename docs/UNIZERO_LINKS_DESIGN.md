@@ -20,7 +20,7 @@
 - 路径段、查询值和片段分别编码，解析时只解码一次。非法身份、冲突参数、非法页码、未知目标类型一律拒绝，不降格成另一种目标。
 - `page` 是正整数物理页，不是印刷页码；不再引入 `.pdf.N` 之类的第二套语法。
 - 无 `attachment` 表示默认文件；显式附件不存在时报错，绝不改开其他附件。
-- 链接文字是用户的普通 Markdown，插入后不再随 Zotero 元数据重写；生成标签时转义方括号。所有插入入口（`@`、侧栏、搜索弹窗、拖放）共用同一个序列化器。
+- 链接文字是用户的普通 Markdown，插入后不再随 Zotero 元数据重写；生成标签时转义方括号。所有插入入口（`@`、`-@`、侧栏、搜索弹窗、拖放）共用同一个序列化器；`-@` 只多写 title `"nocite"`，补全标题或块时保留该 title。
 - `unizero://` 只在装了插件的 Obsidian 内有效，不是系统协议；应用外用 `obsidian://unizero?target=…`，二者解析为同一目标。
 - 只接管严格解析通过的 `unizero://`；普通链接、`zotero://`、`obsidian://` 和原生 `[[...]]` 保持原生行为。不引入 `[[@...]]`。
 - 裸 `@libraryID/itemKey` 自 0.11.0 之后只是普通文本（当时提供过一次性的 Transition 命令，已移除）。
@@ -55,7 +55,7 @@
 
 ## 面板
 
-- **Item Pane → Links**：指向该 Item 及其文件、且不属于论文 → 论文关系的入链，按 Vault / Zotero 来源分组，带上下文、次数和目标定位。写在其他论文 Raw / Canvas 中的入链归 References / Citations（[UNICONNECTION_REDESIGN.md §5.2](UNICONNECTION_REDESIGN.md#52-obsidian-paper-pane)），提供商书目归 Bibliography。
+- **Item Pane → References / Citations**：出链与入链各分 Papers（论文 Raw / Canvas 之间）与 Notes（其余来源或目标）两组，带单元原文、次数和目标定位（[UNICONNECTION.md §4.2](UNICONNECTION.md#42-obsidian-paper-pane)）；提供商书目归 Bibliography。`-@` 写出的 `nocite` 链接（[UNICONNECTION.md §1](UNICONNECTION.md#1-链接角色模型)）不进任何列表。
 - **UniZero Backlinks**：跟随最后激活的 Vault 笔记（点侧栏或设置不清空目标）。UniZero 链接与 Obsidian 已解析的原生链接（wikilink、嵌入、Markdown、属性）并列显示；Zotero 文档中的 wikilink 不读取。笔记无 UID 时说明原因，只隐藏 UniZero 链接，不误报零入链。打开的是 Zotero 附件时，改为显示其所属论文的入链。
 - 视图不做扫描、桥接请求或缓存决策，这些归共享应用层和适配器。
 
@@ -73,3 +73,5 @@
 - **多 Markdown 附件**：11-07 只出现一个候选，已修复，需配合新版 add-on 复验。
 - **标题与块定位**：定位本身尚未在宿主中确认，含无空格行尾 ID `text^1231312`。测法：在目标 Markdown 写 `用于定位的段落。 ^test-block`，再选 `^test-block`；“No block IDs in this file” 只表示文件里没有显式块 ID。
 - **Zotero Canvas**：Canvas 内定位与卡片聚焦提示从未在宿主中运行。
+- **Vault 笔记推送到 Zotero**：`POST /vault-mentions` 与 Zotero Uniconnection 中的 Vault 笔记、经 `obsidian://unizero?…&file=` 回到 Obsidian 的行与 Canvas 卡片定位，尚未完整复验。11-27 用 `path=` 时 Obsidian 报 “Vault not found”（`path` 被 Obsidian 当作绝对路径选 Vault），已改为 `file=`，需配合新版 add-on 与插件复验。
+- **`nocite` 渲染**：阅读视图与 Canvas 卡片中的灰色虚线框依赖 Obsidian 把链接 title 输出为 `title` 或 `aria-label`，未在宿主中确认；Live Preview 由插件自行标记。`-@` 补全（含 `[](-@…)` 与继续到标题/块）也未在宿主中运行。

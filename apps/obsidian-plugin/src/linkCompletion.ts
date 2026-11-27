@@ -37,7 +37,9 @@ export function completionAt(line: string, cursor: number): LinkCompletion | und
   if (uri.includes(")")) { return; }
   const closing = line.indexOf(")", cursor);
   const crossesLink = closing >= 0 && line.slice(cursor, closing).includes(OPENING);
-  const to = closing >= 0 && !crossesLink ? closing : cursor;
+  // A destination ends at whitespace: a title such as `"nocite"` follows it and is kept.
+  const space = line.slice(cursor, closing).search(/\s/);
+  const to = closing < 0 || crossesLink ? cursor : space >= 0 ? cursor + space : closing;
   const span = (length: number): Span => ({ from: start + length, to, closes: to === closing });
 
   const note = new RegExp(`^(unizero://note/([^/?#]+)/([^/?#\\uFF03\\u2026\\uFF3E^]+))${FRAGMENT}$`, "s").exec(uri);

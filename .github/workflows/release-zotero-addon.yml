@@ -32,6 +32,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
+            packages/links/package-lock.json
             apps/zotero-addon/package-lock.json
             apps/obsidian-plugin/package-lock.json
 
@@ -49,6 +50,15 @@ jobs:
             echo "::error::The tagged commit is not on the main branch."
             exit 1
           fi
+
+      # Both apps link packages/links as a local file dependency; npm links it
+      # without installing its own dependencies, so it is installed first.
+      - name: Install and verify the shared link package
+        working-directory: packages/links
+        run: |
+          npm ci
+          npm run check
+          npm test
 
       - name: Install dependencies
         run: npm ci

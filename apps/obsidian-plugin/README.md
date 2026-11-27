@@ -13,6 +13,7 @@ and Zotero's HTTP server enabled (`extensions.zotero.httpServer.enabled`).
 ## Development
 
 ```bash
+(cd ../../packages/links && npm ci)  # shared link parser, linked as a file dependency
 npm install
 npm run check
 npm test
@@ -31,14 +32,13 @@ running Zotero; open host checks live in
 - **Library pane** (tab): browse libraries and collections (subcollections included by
   default; remembers last collection; Canvas badge when present); right-click a paper to
   insert a citation or open files; arrow/Page/Home/End keys navigate the list.
-- **Item pane** (right): metadata and four tabs.
-  - **References** / **Citations**: paper-to-paper links — `unizero://paper/…` links
-    written in this paper's Raw or Canvas to other papers, and in other papers' Raw or
-    Canvas to this one. Each passage shows its paragraph, opens the Raw or Canvas, and
-    offers **PDF** for any `zotero://open-pdf` link in the same paragraph. Needs **Index
-    Zotero documents**.
-  - **Links**: every other incoming link (Vault notes, other Markdown attachments, the
-    paper's links to itself).
+- **Item pane** (right): metadata and three tabs.
+  - **References** (links out of this paper's Raw and Canvas) / **Citations** (links into
+    this paper), each in two groups: **Papers** — between papers' Raw and Canvas — and
+    **Notes** — Vault notes this paper links to, or Vault notes, other Markdown
+    attachments and the paper's own notes linking to it. Each passage shows its
+    paragraph, opens its note, and offers **PDF** for any `zotero://open-pdf` link in the
+    same paragraph. Links in Raw and Canvas need **Index Zotero documents**.
   - **Bibliography**: provider References, Citations, and Relation (uncached lists wait
     for explicit **Fetch from providers**).
 - **`@` search:** type `@` plus author, title, or year (`@zotero` or `@vault` restricts
@@ -48,10 +48,12 @@ running Zotero; open host checks live in
     paper or document…** wraps selected text directly.
   - `↵` finishes; `Tab` / `Shift+↵` continues to `.md` or `.pdf`; `#` or `^` (`＃` / `……`
     in Chinese IMEs) continues to headings or blocks.
+  - `-@` inserts the same link with the title `"nocite"`: it opens as usual and renders
+    as a grey dashed tag, but counts as no reference, citation, or backlink.
 - **Search the Zotero library** (modal command): `↵` Item pane, `Mod+↵` PDF, `Shift+↵`
   Raw (offers conversion if missing), `Alt+↵` Canvas, plus row action buttons.
-- **Link styling:** violet badge for paper links, teal dotted underline for Vault links in
-  Live Preview, Reading view, and Canvas (Source mode stays plain; styling never fetches
+- **Link styling:** violet badge for paper links, teal dotted underline for Vault links,
+  grey dashed tag for `nocite` links in Live Preview, Reading view, and Canvas (Source mode stays plain; styling never fetches
   metadata).
 
 | Link destination | Click action |
@@ -87,6 +89,11 @@ pre-0.11.0 are plain text.
   Enabling **Index Zotero documents** also scans local Raw, Canvas, and ordinary
   Markdown/Canvas attachments every minute via `/link-sources` (re-reading known local
   files even while Zotero is closed, without starting conversions or provider calls).
+- **Show Vault notes in Zotero** (on by default): after the Vault index settles, the
+  plugin sends Zotero the paper links in Vault notes, with their paragraphs, so Zotero's
+  Uniconnection lists those notes among a paper's Citations. Only changes are sent;
+  Zotero's **Obsidian** buttons come back through `obsidian://unizero` and open the note
+  at the line or Canvas card.
 
 ## Raw, Canvas, and capture
 

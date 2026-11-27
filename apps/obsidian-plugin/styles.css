@@ -90,6 +90,26 @@ body.theme-dark {
     transition: none;
   }
 }
+/* Render-only links (`-@`, Markdown title "nocite"): a quiet dashed tag that opens like
+   any UniZero link but counts as no relation and no backlink. Reading view keeps the
+   title as `title` or `aria-label`; Live Preview marks the label itself. */
+:is(.markdown-rendered a[href^="unizero://"]:is([title="nocite"], [aria-label="nocite"]), .markdown-source-view.is-live-preview .unizero-nocite-link) {
+  color: var(--text-muted);
+  background-color: transparent;
+  border: 1px dashed color-mix(in srgb, currentColor 45%, transparent);
+  border-radius: 4px;
+  padding: 0 0.3em;
+  text-decoration-line: none;
+}
+:is(.markdown-rendered a[href^="unizero://"]:is([title="nocite"], [aria-label="nocite"]), .markdown-source-view.is-live-preview .unizero-nocite-link):hover {
+  color: var(--text-normal);
+  background-color: var(--background-modifier-hover);
+}
+.markdown-source-view.mod-cm6.is-live-preview .unizero-nocite-link,
+.markdown-source-view.mod-cm6.is-live-preview .unizero-nocite-link * {
+  color: var(--text-muted) !important;
+  text-decoration: none !important;
+}
 
 /* Document links ---------------------------------------------------------- */
 
@@ -407,6 +427,19 @@ a.unizero-links__name:hover {
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
   margin-bottom: var(--size-4-2);
+}
+
+/* Papers / Notes groups inside References and Citations. */
+.unizero-detail__section {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  margin: var(--size-4-3) 0 var(--size-2-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .unizero-row {

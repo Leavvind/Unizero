@@ -52,11 +52,16 @@ describe("UniZero link label styling", () => {
     expect(ranges.map(({ from, to, kind }) => [text.slice(from, to), kind])).toEqual([["note", "note"]]);
   });
 
+  it("flags render-only links for their own style", () => {
+    const text = `[A](${uri} "nocite") [B](${uri})`;
+    expect(linkLabelRanges(scanDocumentLinks(text), []).map((r) => r.nocite)).toEqual([true, false]);
+  });
+
   it("leaves the whole link native while a caret or selection intersects it", () => {
     const text = `See [Author](${uri}) then [Other](${uri}.pdf?page=3)`;
     const links = scanDocumentLinks(text);
     expect(linkLabelRanges(links, [{ from: links[0].to - 3, to: links[0].to - 3 }]))
-      .toEqual([{ from: links[1].labelFrom, to: links[1].labelTo, kind: "paper" }]);
+      .toEqual([{ from: links[1].labelFrom, to: links[1].labelTo, kind: "paper", nocite: false }]);
     expect(linkLabelRanges(links, [{ from: 0, to: text.length }])).toEqual([]);
   });
 

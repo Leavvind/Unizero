@@ -1,9 +1,9 @@
 import type { CachedMetadata, Reference } from "obsidian";
 
 /**
- * Native Obsidian links into a Vault note, read from what Obsidian has already
- * resolved. Obsidian owns the resolution; this module only reshapes it so the
- * Backlinks pane can list it beside UniZero links. It needs no UID.
+ * Native Obsidian links into or out of a Vault note, read from what Obsidian has
+ * already resolved. Obsidian owns the resolution; this module only reshapes it so
+ * the Backlinks and Outgoing links panes can list it beside UniZero links. It needs no UID.
  */
 export type NativeLinkForm = "wikilink" | "embed" | "markdown" | "property" | "file";
 export interface NativeBacklink {
@@ -38,6 +38,50 @@ function splitLink(link: string): { linkpath: string; subpath?: string } {
 function formOf(original: string, embed: boolean): NativeLinkForm {
   if (embed) { return "embed"; }
   return original.startsWith("[[") ? "wikilink" : "markdown";
+}
+
+/** A native link written in one Vault note, for the Outgoing links pane. */
+export interface NativeOutgoingLink {
+  form: Exclude<NativeLinkForm, "file">;
+  raw: string;
+  /** The link path as written, without the subpath. */
+  linkpath: string;
+  /** Where Obsidian resolves it; absent for an unresolved link. */
+  targetPath?: string;
+  subpath?: string;
+  /** Zero-based position; absent for property links. */
+  line?: number;
+  ch?: number;
+  lineText?: string;
+  key?: string;
+}
+
+/**
+ * Every native link written in `sourcePath`, properties first, then by position.
+ * Links to a heading or block of the same note (`[[#Intro]]`) name no other file
+ * and are left out. `text`, when given, fills each positioned link's line.
+ */
+export function nativeOutgoing(host: Pick<NativeLinkHost, "fileCache" | "resolve">, sourcePath: string, text?: string): NativeOutgoingLink[] {
+  const cache = host.fileCache(sourcePath), lines = text?.split(/\r?\n/);
+  const describe = (ref: Reference) => {
+    const { linkpath, subpath } = splitLink(ref.link);
+    return linkpath ? { raw: ref.original, linkpath, subpath, targetPath: host.resolve(linkpath, sourcePath) } : undefined;
+  };
+  const properties: NativeOutgoingLink[] = [];
+  for (const ref of cache?.frontmatterLinks || []) {
+    const link = describe(ref);
+    if (link) { properties.push({ ...link, form: "property", key: ref.key }); }
+  }
+  const positioned: NativeOutgoingLink[] = [];
+  const refs = [...(cache?.links || []).map((ref) => ({ ref, embed: false })), ...(cache?.embeds || []).map((ref) => ({ ref, embed: true }))];
+  for (const { ref, embed } of refs) {
+    const link = describe(ref);
+    if (!link) { continue; }
+    const { line, col } = ref.position.start;
+    positioned.push({ ...link, form: formOf(ref.original, embed), line, ch: col, lineText: lines?.[line] });
+  }
+  positioned.sort((a, b) => a.line! - b.line! || a.ch! - b.ch!);
+  return [...properties, ...positioned];
 }
 
 /** Every native link into `targetPath`, ordered by source path and position. Self-links are left out. */

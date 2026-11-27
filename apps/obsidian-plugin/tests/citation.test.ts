@@ -47,6 +47,18 @@ describe("citationPrefixAt", () => {
   it("stays closed when there is no trigger", () => {
     expect(citationPrefixAt("plain text", 10)).toBeUndefined();
   });
+
+  it("takes `-@` as a render-only link, with the dash in the replaced span", () => {
+    expect(citationPrefixAt("see -@dan", 9)).toEqual({ start: 4, query: "dan", nocite: true });
+    expect(citationPrefixAt("-@", 2)).toEqual({ start: 0, query: "", nocite: true });
+    expect(citationPrefixAt("（-@dan", 6)).toEqual({ start: 1, query: "dan", nocite: true });
+  });
+
+  it("leaves a dash inside a word or a list marker as text", () => {
+    expect(citationPrefixAt("pre-@dan", 8)).toEqual({ start: 4, query: "dan" });
+    expect(citationPrefixAt("--@dan", 6)).toEqual({ start: 2, query: "dan" });
+    expect(citationPrefixAt("- @dan", 6)).toEqual({ start: 2, query: "dan" });
+  });
 });
 
 describe("citationText", () => {

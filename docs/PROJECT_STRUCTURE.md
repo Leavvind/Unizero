@@ -15,7 +15,7 @@ UniZero/
 │   │   └── package.json
 │   └── zotero-addon/
 │       ├── addon/
-│       │   ├── chrome/content/  Privileged XHTML/JS: panel, preferences, UniConnection full shell, icons
+│       │   ├── chrome/content/  Privileged XHTML/JS: panel, preferences, icons
 │       │   ├── locale/          Fluent strings per locale
 │       │   ├── manifest.json    Zotero add-on manifest template
 │       │   └── prefs.js         Default preferences
@@ -26,7 +26,7 @@ UniZero/
 │       │   ├── projects/        Paper catalog schemas and persistence
 │       │   ├── runtime-client/  Runtime HTTP client and process management
 │       │   ├── server/          Bridge (Obsidian, MCP server) and citekey resolution
-│       │   ├── ui/              Menus, panel, progress, notices, UniConnection lists/window, Home tab
+│       │   ├── ui/              Menus, panel, progress, notices, Uniconnection tab
 │       │   ├── utils/           Shared add-on utilities
 │       │   └── zotero/          Zotero adapters, excerpt notes, and artifact identity
 │       ├── scripts/             Build and local Zotero development tools
@@ -48,9 +48,12 @@ UniZero/
 │       ├── tests/
 │       └── pyproject.toml
 ├── packages/
-│   └── contracts/
-│       ├── http/                    Canonical HTTP schemas
-│       └── examples/                Synthetic shared payloads
+│   ├── contracts/
+│   │   ├── http/                    Canonical HTTP schemas
+│   │   └── examples/                Synthetic shared payloads
+│   └── links/                       `@unizero/links`: link grammar, Markdown/Canvas scanning, roles
+│       ├── src/
+│       └── tests/
 ├── docs/                            See docs/README.md for the document map
 ├── AGENTS.md
 ├── README.md
@@ -68,9 +71,11 @@ until executable code or a real schema needs it.
 
 | Change | Start here |
 | --- | --- |
-| URI grammar, encoding, labels | `apps/obsidian-plugin/src/linkTarget.ts` |
+| URI grammar and encoding (shared with the add-on) | `packages/links/src/linkTarget.ts` |
+| Link labels and display | `apps/obsidian-plugin/src/linkTarget.ts` |
 | Legacy citation syntax and shared drag/insert output | `apps/obsidian-plugin/src/citation.ts` |
-| Structural Markdown/Canvas scanning and text anchors | `apps/obsidian-plugin/src/documentLinks.ts` |
+| Structural Markdown/Canvas scanning, evidence units, text anchors | `packages/links/src/documentLinks.ts` (re-exported by `apps/obsidian-plugin/src/documentLinks.ts`) |
+| Link roles (paper-to-paper vs. link), PDF anchors | `packages/links/src/roles.ts` |
 | Vault UID mapping and conflicts | `apps/obsidian-plugin/src/vaultIdentity.ts` |
 | Shared document links and source coverage | `apps/obsidian-plugin/src/linkIndex.ts`, `externalIndex.ts` |
 | Target dispatch and source navigation | `apps/obsidian-plugin/src/linkOpening.ts`, `linkPicker.ts` |
@@ -80,7 +85,7 @@ until executable code or a real schema needs it.
 | `@` suggester / free-text search | `apps/obsidian-plugin/src/suggest.ts` |
 | Library search command (modal with PDF / Raw / Canvas jumps) | `apps/obsidian-plugin/src/searchModal.ts` |
 | Library pane | `apps/obsidian-plugin/src/libraryView.ts` |
-| Item (detail) pane | `apps/obsidian-plugin/src/detailView.ts` |
+| Item (detail) pane | `apps/obsidian-plugin/src/detailView.ts` (paper relations: `paperRelations.ts`) |
 | In-memory paper store / cache | `apps/obsidian-plugin/src/paperStore.ts` |
 | Raw, Canvas, and conversion actions and menus | `apps/obsidian-plugin/src/actions.ts` |
 | Vault source events and compatibility citation counts | `apps/obsidian-plugin/src/vaultIndex.ts` |
@@ -100,9 +105,9 @@ until executable code or a real schema needs it.
 | Change a menu or panel integration | `apps/zotero-addon/src/ui/` |
 | Read-only Markdown/Canvas source discovery | `apps/zotero-addon/src/zotero/linkSources.ts` |
 | Read or mutate Zotero items/attachments | `apps/zotero-addon/src/zotero/` |
-| Change the References / Citations lists (item pane and UniConnection full) | `apps/zotero-addon/src/ui/literatureSidebar.ts` (rows: `literatureSidebarModel.ts`) |
-| Change the UniConnection full window shell/following | `apps/zotero-addon/src/ui/uniConnectionFull.ts` |
-| Change Unizero Home (tab, toolbar button, columns, activity SQL) | `apps/zotero-addon/src/ui/unizeroHome.ts`, `unizeroHomeModel.ts`, `src/zotero/uniConnectionActivity.ts` |
+| Change Uniconnection (tab, toolbar button, columns, paper page, Bibliography, activity SQL) | `apps/zotero-addon/src/ui/unizeroHome.ts`, `unizeroHomeModel.ts`, `src/zotero/uniConnectionActivity.ts` |
+| Change how Raw / Canvas links become paper relations | `apps/zotero-addon/src/modules/paperLinkIndex.ts`, `src/zotero/paperLinkSources.ts`, `src/zotero/pdfAnchors.ts` |
+| Change how Vault notes' paper links reach Uniconnection | `apps/obsidian-plugin/src/vaultMentionSync.ts`; `apps/zotero-addon/src/modules/vaultMentionIndex.ts`, `src/zotero/vaultMentionStore.ts`, `src/server/bridge.ts` (`POST /vault-mentions`) |
 | Change References / Citations data, providers, or preferences | `apps/zotero-addon/src/modules/` |
 | Change the derived relation index or maintenance | `apps/zotero-addon/src/modules/uniConnection.ts`, `uniConnectionSync.ts` |
 | Change the citation-excerpt note format or its writer | `apps/zotero-addon/src/zotero/excerptNoteFormat.ts`, `excerptNotes.ts` |
@@ -121,7 +126,6 @@ bundle, type checker, and automated tests:
 | --- | --- | --- |
 | `panel.xhtml` / `panel.js` | Runtime jobs, service notices, template editor | `window.arguments[0]` |
 | `preferences.xhtml` | UniZero settings pane inside Zotero preferences | `PreferencePanes.register` + `src/modules/prefs.ts` |
-| `uniconnection-full.xhtml` | Script-free window shell; bundle draws `LiteratureSidebar` into it | `window.arguments[0]` |
 
 Files in this directory must never import bundle modules. Architectural dependency rules
 live in [AGENTS.md](../AGENTS.md#architecture-rules) and [ARCHITECTURE.md](ARCHITECTURE.md).

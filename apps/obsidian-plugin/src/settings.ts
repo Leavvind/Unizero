@@ -17,6 +17,8 @@ export interface UnizeroSettings {
   uidFilenamePattern: string;
   indexZoteroSources: boolean;
   sourceLibraryIDs: number[];
+  /** Send Zotero the paper links in Vault notes, so Uniconnection counts them among Citations. */
+  shareVaultMentions: boolean;
   /**
    * Conversion template a left click on Convert runs, by runtime template id.
    * Empty means Zotero's own default, so it follows the add-on if that changes.
@@ -55,6 +57,7 @@ export const DEFAULT_SETTINGS: UnizeroSettings = {
   uidFilenamePattern: "",
   indexZoteroSources: false,
   sourceLibraryIDs: [],
+  shareVaultMentions: true,
   defaultTemplate: "",
   canvasLinks: {},
   lastLibraryID: null,
@@ -124,6 +127,10 @@ export class UnizeroSettingTab extends PluginSettingTab {
         const ids = value.trim() ? value.split(",").map((part) => Number(part.trim())) : [];
         if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) { return; }
         this.plugin.settings.sourceLibraryIDs = [...new Set(ids)]; await this.plugin.saveSettings("none"); await this.plugin.configureExternalIndex();
+      }));
+    new Setting(containerEl).setName("Show Vault notes in Zotero").setDesc("Send Zotero the paper links written in this Vault's notes, with their paragraphs, so Uniconnection lists these notes among a paper's Citations. Sent only to the Zotero endpoint above.")
+      .addToggle((toggle) => toggle.setValue(this.plugin.settings.shareVaultMentions).onChange(async (value) => {
+        this.plugin.settings.shareVaultMentions = value; await this.plugin.saveSettings("none");
       }));
     const refresh = new Setting(containerEl).setName("Refresh document links").addButton((button) => button.setButtonText("Rebuild").onClick(() => { void this.plugin.refreshLinks(true); }));
     // The status follows the index while this tab is open.

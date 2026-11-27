@@ -26,7 +26,7 @@ The **library backend** and scholarly data plane inside Zotero:
 - metadata completion for Zotero items;
 - PDF / EPUB → Markdown conversion (via the local paper runtime) and annotation injection;
 - fetching and caching References / Citations through scholarly providers;
-- derived relation index, citation excerpts, item-pane / full-window UniConnection lists, and the Unizero Home tab;
+- derived relation index and the Uniconnection tab (paper-to-paper relations from Raw / Canvas links);
 - localhost bridge used by the Obsidian plugin and the MCP server.
 
 ### MCP server (`apps/mcp-server`)
@@ -48,6 +48,7 @@ apps/zotero-addon/       Zotero add-on: data plane, bridge, conversion, UniConne
 apps/mcp-server/         MCP server: papers, Raw text, tables, references for agents
 services/paper-runtime/  Python service for PDF/EPUB and Markdown processing
 packages/contracts/      Shared HTTP v1 schemas and example payloads
+packages/links/          Shared UniZero link grammar and Markdown/Canvas link scanning
 docs/                    Architecture, code map, design constraints, and roadmap
 ```
 
